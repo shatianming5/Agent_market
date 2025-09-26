@@ -1,0 +1,12 @@
+ccxt
+pandas
+polars
+pyarrow
+duckdb
+tqdm
+tenacity
+python-dateutil
+requests
+vectorbt
+pandas_ta
+pyyaml

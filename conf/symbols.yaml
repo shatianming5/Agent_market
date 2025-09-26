@@ -1,0 +1,10 @@
+exchange: binanceus
+type: spot
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+timeframes:
+  - 1h
+start: "2024-01-01"
+end: null
+store_as: parquet

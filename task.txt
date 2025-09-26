@@ -1,0 +1,472 @@
+下面给你一套**可直接落地**的两阶段方案：
+A) 加密货币（crypto）数据的**下载与处理全流程**（含两种可靠数据源与可复用核心代码）；
+B) 用清洗后的数据进行**严格可复现的回测构建**（含交易成本/滑点/止损止盈/参数搜索/走样验证），同样给出核心代码与执行步骤。
+
+> 说明：你写的“cryptro”我理解为 “crypto（加密货币）”。若你另有所指，可再告诉我。
+
+---
+
+## 总览与选型（务实可行）
+
+**数据来源两条路都可行，建议并行：**
+
+1. **实时/近实时拉取**：用 `CCXT` 统一从交易所（如 Binance、OKX、Bybit 等）拉取 K 线（OHLCV）。`fetch_ohlcv(symbol, timeframe, since, limit)` 统一返回 `[timestamp, open, high, low, close, volume]`，时间戳毫秒、按时间升序排列；最后一根正在形成的 K 线可能不完整（需过滤/标注）。这是 CCXT 官方手册明确的约定。([CCXT Documentation][1])
+
+2. **批量历史数据**：Binance 官方公开仓库（Binance Data Collection / data.binance.vision）提供**日/按月**打包的 K 线 CSV/ZIP（并带有 `CHECKSUM` 完整性校验）；自 2025-01-01 起 **现货数据时间戳为微秒级**，解析时要特别处理。官方 README 明确了目录与时间戳变更。([GitHub][2])
+
+**回测引擎**：采用 `vectorbt`（Numba/NumPy 向量化，速度与可扩展性都不错），`Portfolio.from_signals` 原生支持交易费率、滑点、止损/止盈/追踪止损等参数；文档明确“实现止损与止盈退出”。([VectorBT][3])
+
+**交易成本基准**：Binance 现货**默认手续费约 0.1%**（等级、是否用 BNB 抵扣等会影响）；在回测参数里作为**可调**（例如 `fees=0.001`）。费率以官方费率页/FAQ为准。([Binance][4])
+
+---
+
+# 阶段 A：数据下载与处理（端到端）
+
+### A0. 环境&项目骨架
+
+```bash
+# 建议 Python 3.10+
+python -m venv venv && source venv/bin/activate  # Windows 用 venv\Scripts\activate
+pip install -U ccxt pandas polars pyarrow duckdb tqdm tenacity python-dateutil requests vectorbt pandas_ta
+
+# 项目结构（建议）
+.
+├─ conf/
+│  └─ symbols.yaml        # 交易所/品种/周期配置
+├─ data/
+│  └─ raw/                # 原始落盘（parquet/csv）
+│  └─ clean/              # 清洗后落盘（parquet，按分区）
+├─ scripts/
+│  ├─ fetch_ccxt_ohlcv.py
+│  ├─ fetch_binance_bulk.py
+│  ├─ clean_ohlcv.py
+│  └─ dq_report.py        # 数据质量检查报告（可选）
+└─ backtests/
+   └─ vbt_ma_rsi.py
+```
+
+`symbols.yaml` 示例：
+
+```yaml
+exchange: binance
+type: spot
+symbols: ["BTC/USDT", "ETH/USDT"]
+timeframes: ["1m", "5m", "1h"]
+start: "2019-01-01"
+end: null     # 为空表示拉到最新
+store_as: "parquet"
+```
+
+---
+
+### A1. 方案 A（CCXT 拉取）核心代码
+
+> 要点：校验交易所是否支持该 `timeframe`；分页抓取（`limit` 通常到 1000）；严格避重、速率限制、断点续传；最后一根未收 K 线剔除或标记。`fetch_ohlcv` 的行为与字段顺序见 CCXT 手册。([CCXT Documentation][1])
+
+```python
+# scripts/fetch_ccxt_ohlcv.py
+import os, math, time, json
+from datetime import datetime, timezone
+from dateutil.parser import isoparse
+
+import ccxt
+import pandas as pd
+from tenacity import retry, wait_exponential, stop_after_attempt
+
+def timeframe_to_ms(tf: str) -> int:
+    unit = tf[-1].lower()
+    n = int(tf[:-1])
+    if unit == 'm': return n * 60_000
+    if unit == 'h': return n * 60 * 60_000
+    if unit == 'd': return n * 24 * 60 * 60_000
+    if unit == 'w': return n * 7 * 24 * 60 * 60_000
+    raise ValueError(f"Unsupported timeframe: {tf}")
+
+def ensure_dir(p): os.makedirs(p, exist_ok=True)
+
+def ccxt_exchange(exchange_id: str, type_: str = 'spot'):
+    klass = getattr(ccxt, exchange_id)
+    ex = klass({'enableRateLimit': True, 'options': {'defaultType': type_}})
+    ex.load_markets()
+    return ex
+
+@retry(wait=wait_exponential(multiplier=1, min=1, max=60), stop=stop_after_attempt(8))
+def _fetch_page(ex, symbol, timeframe, since, limit):
+    # 很多交易所 limit=1000；有的支持 endTime/直到参数，这里保持兼容
+    return ex.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
+
+def fetch_ohlcv_range(exchange_id: str, type_: str, symbol: str, timeframe: str,
+                      start: str, end: str | None, out_path: str, limit: int = 1000):
+    ex = ccxt_exchange(exchange_id, type_)
+    if timeframe not in ex.timeframes:
+        raise ValueError(f"{exchange_id} 不支持 timeframe={timeframe}，可用：{list(ex.timeframes.keys())}")
+
+    # 解析时间
+    start_ms = int(isoparse(start).replace(tzinfo=timezone.utc).timestamp() * 1000)
+    end_ms = int(isoparse(end).replace(tzinfo=timezone.utc).timestamp() * 1000) if end else int(time.time() * 1000)
+
+    tf_ms = timeframe_to_ms(timeframe)
+    all_rows = []
+    since = start_ms
+
+    print(f"[{exchange_id}] {symbol} {timeframe} 从 {start} 到 {('now' if end is None else end)} 拉取…")
+
+    while since < end_ms:
+        batch = _fetch_page(ex, symbol, timeframe, since, limit)
+        if not batch:
+            break
+        all_rows.extend(batch)
+        last_ts = batch[-1][0]
+        # 防重：下一页从下一根K线开始
+        since = last_ts + tf_ms
+        # 速率限制
+        if hasattr(ex, 'rateLimit') and ex.rateLimit:
+            time.sleep(ex.rateLimit / 1000)
+
+    if not all_rows:
+        print("无数据返回")
+        return
+
+    # OHLCV: [ts, o, h, l, c, v]（毫秒，升序）
+    df = pd.DataFrame(all_rows, columns=["timestamp","open","high","low","close","volume"])
+    # 过滤未收K：最后一根如果时间 >= end_ms - tf_ms，保守剔除
+    cutoff = end_ms - tf_ms
+    df = df[df["timestamp"] <= cutoff].copy()
+
+    # 去重/排序/索引
+    df = df.drop_duplicates(subset=["timestamp"]).sort_values("timestamp")
+    df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    df = df.set_index("datetime").drop(columns=["timestamp"])
+    # 强类型
+    for col in ["open","high","low","close","volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    ensure_dir(os.path.dirname(out_path))
+    df.to_parquet(out_path, engine="pyarrow")
+    print(f"保存到 {out_path}，共 {len(df)} 行")
+
+if __name__ == "__main__":
+    import argparse, yaml
+    p = argparse.ArgumentParser()
+    p.add_argument("--conf", default="conf/symbols.yaml")
+    args = p.parse_args()
+    cfg = yaml.safe_load(open(args.conf, "r"))
+
+    for sym in cfg["symbols"]:
+        for tf in cfg["timeframes"]:
+            out_dir = f"data/raw/exchange={cfg['exchange']}/type={cfg.get('type','spot')}/symbol={sym.replace('/','-')}/tf={tf}"
+            name = f"{sym.replace('/','-')}-{tf}-{cfg['start']}_to_{(cfg['end'] or 'now')}.parquet"
+            out_path = os.path.join(out_dir, name)
+            fetch_ohlcv_range(cfg["exchange"], cfg.get("type","spot"), sym, tf, cfg["start"], cfg["end"], out_path)
+```
+
+> 备注：不同交易所的 `limit`、分页细节、是否返回未收 K 等存在差异，这是社区常见问题；循环分页是官方手册建议的做法。([GitHub][5])
+
+---
+
+### A2. 方案 B（Binance 批量 ZIP/CSV）核心代码
+
+> 优点：**历史全量**下载更快更完整、可用 `CHECKSUM` 校验；需注意**2025-01-01 起现货 K 线时间戳为微秒**（`open time / close time`）并在解析时正确换算。([GitHub][2])
+
+```python
+# scripts/fetch_binance_bulk.py
+import os, io, zipfile, requests, hashlib
+from datetime import date
+import pandas as pd
+
+BASE = "https://data.binance.vision/data/spot/{freq}/klines/{symbol}/{interval}/"
+# freq: daily / monthly
+
+def ensure_dir(p): os.makedirs(p, exist_ok=True)
+
+def download(url: str) -> bytes:
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return r.content
+
+def verify_checksum(zip_bytes: bytes, checksum_txt: str) -> bool:
+    sha256 = hashlib.sha256(zip_bytes).hexdigest().upper()
+    # CHECKSUM 文件内容形如："SHA256 (FILENAME) = <HEX>"
+    return sha256 in checksum_txt.upper()
+
+def parse_kline_csv(csv_bytes: bytes, micros: bool) -> pd.DataFrame:
+    # CSV 列：open time, open, high, low, close, volume, close time, quote asset volume, number of trades, taker buy base asset volume, taker buy quote asset volume, ignore
+    df = pd.read_csv(io.BytesIO(csv_bytes), header=None)
+    df.columns = ["open_time","open","high","low","close","volume","close_time","quote_vol","n_trades","tb_base","tb_quote","ignore"]
+    unit = "us" if micros else "ms"
+    df["datetime"] = pd.to_datetime(df["open_time"], unit=unit, utc=True)
+    df = df.set_index("datetime")[["open","high","low","close","volume"]].astype(float).sort_index()
+    return df
+
+def fetch_month(symbol: str, interval: str, yyyy: int, mm: int, out_path: str):
+    ensure_dir(os.path.dirname(out_path))
+    fname = f"{symbol}-{interval}-{yyyy}-{mm:02d}.zip"
+    url = BASE.format(freq="monthly", symbol=symbol, interval=interval) + fname
+    url_checksum = url + ".CHECKSUM"
+
+    zbytes = download(url)
+    cbytes = download(url_checksum)
+    if not verify_checksum(zbytes, cbytes.decode()):
+        raise ValueError("Checksum 校验失败")
+
+    with zipfile.ZipFile(io.BytesIO(zbytes)) as zf:
+        # 每个zip通常包含一个csv
+        csv_name = [n for n in zf.namelist() if n.endswith(".csv")][0]
+        csv_bytes = zf.read(csv_name)
+        # 2025-01-01 起现货为微秒时间戳
+        micros = (yyyy >= 2025)
+        df = parse_kline_csv(csv_bytes, micros=micros)
+        df.to_parquet(out_path)
+        return df.index[0], df.index[-1], len(df)
+
+if __name__ == "__main__":
+    # 示例：下载 2024年/2025年1m 数据并落盘
+    symbol = "BTCUSDT"
+    interval = "1m"
+    for y in [2024, 2025]:
+        for m in range(1, 13):
+            out = f"data/raw/exchange=binance/type=spot/symbol={symbol}/tf={interval}/{symbol}-{interval}-{y}-{m:02d}.parquet"
+            try:
+                s, e, n = fetch_month(symbol, interval, y, m, out)
+                print(symbol, y, m, n, s, "->", e)
+            except Exception as ex:
+                print("跳过", symbol, y, m, ex)
+```
+
+上述下载路径与 `CHECKSUM` 用法、时间戳微秒改动，均来自 Binance 公告/README；官方还给了 `curl/wget` 示例和脚本目录。([GitHub][2])
+
+---
+
+### A3. 清洗（去重/对齐/校验/补空洞）核心代码
+
+> 要点：
+>
+> 1. **时钟统一**（UTC），毫秒/微秒自适应；
+> 2. **去重与单调性**；
+> 3. **OHLC 合法性**（`high >= max(open,close)` 与 `low <= min(open,close)`）；
+> 4. **缺口检测与覆盖率**（只做标记或谨慎补值）；
+> 5. **按分区落盘**（`exchange/symbol/timeframe/YYYY=MM=...`）方便 DuckDB/Polars 批量读取。
+
+```python
+# scripts/clean_ohlcv.py
+import os, glob
+import pandas as pd
+import numpy as np
+
+def load_concat(pattern: str) -> pd.DataFrame:
+    files = sorted(glob.glob(pattern))
+    dfs = [pd.read_parquet(f) for f in files]
+    df = pd.concat(dfs).sort_index()
+    # 统一列与类型
+    df = df[["open","high","low","close","volume"]].astype(float)
+    # 去重
+    df = df[~df.index.duplicated(keep="last")]
+    return df
+
+def check_and_fix_ohlc(df: pd.DataFrame) -> pd.DataFrame:
+    # 修正明显的越界（极少见，先标记再裁剪）
+    maxoc = df[["open","close"]].max(axis=1)
+    minoc = df[["open","close"]].min(axis=1)
+    bad_hi = df["high"] < maxoc
+    bad_lo = df["low"]  > minoc
+    df.loc[bad_hi, "high"] = maxoc[bad_hi]
+    df.loc[bad_lo, "low"]  = minoc[bad_lo]
+    return df
+
+def detect_gaps(df: pd.DataFrame, freq: str) -> pd.DataFrame:
+    full = pd.date_range(df.index[0], df.index[-1], freq=freq, tz="UTC")
+    missing = full.difference(df.index)
+    coverage = 1 - len(missing)/len(full)
+    print(f"覆盖率: {coverage:.4%}，缺口: {len(missing)}")
+    # 按需：只标记，不强行填充
+    return df
+
+def save_partitioned(df: pd.DataFrame, base_dir: str, exchange: str, symbol: str, tf: str):
+    # 按月分区
+    df["YYYYMM"] = df.index.strftime("%Y-%m")
+    for ym, g in df.groupby("YYYYMM"):
+        out_dir = f"{base_dir}/exchange={exchange}/symbol={symbol}/tf={tf}/YYYYMM={ym}"
+        os.makedirs(out_dir, exist_ok=True)
+        g.drop(columns=["YYYYMM"]).to_parquet(f"{out_dir}/part.parquet")
+
+if __name__ == "__main__":
+    exchange = "binance"
+    symbol = "BTCUSDT"     # 注意：CCXT 是 "BTC/USDT"，Binance ZIP 是 "BTCUSDT"
+    tf = "1m"
+    # 1) 合并 raw
+    pattern = f"data/raw/exchange={exchange}/**/symbol={symbol.replace('/','-') or symbol}/tf={tf}/*.parquet"
+    df = load_concat(pattern)
+    # 2) 合法性修正 & 缺口
+    df = check_and_fix_ohlc(df)
+    df = detect_gaps(df, freq="1T")  # 1m
+    # 3) 落盘（分区）
+    save_partitioned(df, base_dir="data/clean", exchange=exchange, symbol=symbol.replace('/','-'), tf=tf)
+```
+
+**为什么最后一根K线要谨慎处理？**
+CCXT 文档说明“最后（当前）K 线在未收盘前信息可能不完整”，所以回测时建议仅使用**已收盘**的 K 线（我们已在拉取时剔除）。([CCXT Documentation][1])
+
+---
+
+## 阶段 B：用清洗后的数据**构建完整回测**
+
+> 我们用 `vectorbt` 按信号回测。该库的 `Portfolio.from_signals`：
+>
+> * 直接接受 `fees`（费率）与 `slippage`（滑点）；
+> * 原生内置**止损/止盈/追踪止损**等（`sl_stop`/`tp_stop`/`ts_stop` 等参数）；
+> * 官方文档提到“实现止损与止盈退出”；常见教程也演示了 `sl_stop` 与 `tp_stop` 的用法（百分比）。([VectorBT][3])
+
+### B1. 读数与对齐
+
+```python
+# backtests/vbt_ma_rsi.py (片段)
+import duckdb, polars as pl
+import pandas as pd
+import numpy as np
+import vectorbt as vbt
+
+# 读入分区数据（DuckDB/Polars 非常快）
+con = duckdb.connect()
+tbl = con.execute("""
+    SELECT *
+    FROM read_parquet('data/clean/exchange=binance/symbol=BTCUSDT/tf=1m/**/part.parquet')
+    ORDER BY datetime
+""").pl()  # -> Polars DataFrame
+df = tbl.to_pandas()
+df.index = pd.to_datetime(df["datetime"], utc=True)
+close = df["close"].astype(float)
+```
+
+### B2. 示例策略：MA 交叉 + RSI 过滤（含参数网格）
+
+```python
+# 计算信号
+fast_list = np.arange(5, 51, 5)    # 5,10,...,50
+slow_list = np.array([50, 100, 200])
+rsi_n = np.array([14, 21])
+
+fast_ma = vbt.MA.run(close, fast_list, short_name="fast")
+slow_ma = vbt.MA.run(close, slow_list, short_name="slow")
+rsi = vbt.RSI.run(close, rsi_n, short_name="rsi")
+
+entries = (fast_ma.ma_crossed_above(slow_ma)) & (rsi.rsi < 70)  # 上穿 + 不过热
+exits   = (fast_ma.ma_crossed_below(slow_ma)) | (rsi.rsi > 80)  # 下穿 或 过热
+```
+
+`vbt.MA.run` 与 `Portfolio.from_signals` 的入门示例在官方“Usage/Features”文档中清晰展示（包括 `size=np.inf, fees=...` 的典型用法）。([VectorBT][6])
+
+### B3. 成本、滑点、止损/止盈、资金管理与频率设定
+
+```python
+# 基础假设（请按实际交易所费率调整；Binance 现货常见默认 ~0.1%）
+init_cash   = 100_000
+fees        = 0.001     # 0.1% 手续费（示例，建议用配置项）
+slippage    = 0.0002    # 2个基点示例
+sl_stop     = 0.02      # 入场价下方 2% 止损
+tp_stop     = 0.04      # 入场价上方 4% 止盈
+
+pf = vbt.Portfolio.from_signals(
+    close,
+    entries=entries,
+    exits=exits,
+    init_cash=init_cash,
+    size=np.inf,          # 满仓分配，每次把可用现金全投入（官方示例常用法）
+    fees=fees,
+    slippage=slippage,
+    sl_stop=sl_stop,
+    tp_stop=tp_stop,
+    freq="1T"             # 1分钟频率 -> 年化等统计
+)
+print(pf.stats())
+```
+
+* `from_signals` 原生支持 `fees`/`slippage` 并实现止损/止盈（文档指出）。([VectorBT][3])
+* `size=np.inf` 的示例配置可在官方“Usage”页面看到。([VectorBT][6])
+* 费率参数建议参考交易所实际费率页面（如 Binance 费率页/FAQ 举例 0.1%）。([Binance][4])
+
+### B4. 训练/测试拆分与走样（Walk‑Forward）
+
+```python
+split_dt = pd.Timestamp("2023-01-01", tz="UTC")
+close_train = close[close.index < split_dt]
+close_test  = close[close.index >= split_dt]
+
+# 训练：参数搜索（利用广播一次性跑多组参数）
+fast_ma_tr = vbt.MA.run(close_train, fast_list)
+slow_ma_tr = vbt.MA.run(close_train, slow_list)
+rsi_tr     = vbt.RSI.run(close_train, rsi_n)
+
+entries_tr = (fast_ma_tr.ma_crossed_above(slow_ma_tr)) & (rsi_tr.rsi < 70)
+exits_tr   = (fast_ma_tr.ma_crossed_below(slow_ma_tr)) | (rsi_tr.rsi > 80)
+
+pf_tr = vbt.Portfolio.from_signals(close_train, entries_tr, exits_tr,
+                                   init_cash=init_cash, size=np.inf, fees=fees,
+                                   slippage=slippage, sl_stop=sl_stop, tp_stop=tp_stop, freq="1T")
+train_stats = pf_tr.stats()
+# 选择若干指标最优的参数（如 Sharpe / Calmar / 最大回撤约束等）
+best = train_stats.sort_values("Sharpe Ratio", ascending=False).index[0]
+print("训练期最优参数：", best)
+
+# 测试：用相同参数在 OOS 上验证
+#（简单做法：取对应列；也可把 entries/exits 在 test 上用相同 n 重新计算一次）
+fast_n = best[best.index("fast_window") if "fast_window" in best else 0]  # 伪代码，实际按多级索引取
+slow_n = ...
+rsi_n_ = ...
+# 重新计算 test 信号（略）
+# pf_te = vbt.Portfolio.from_signals(close_test, entries_te, exits_te, ...)
+
+# 多折走样/滚动窗口可再封装
+```
+
+> 说明：`vectorbt` 的广播能力可一次性跑大量参数组合；教程/示例文章也演示了在 `from_signals` 里传 `fees`、`slippage` 并进行走样验证。([VectorBT][6])
+
+### B5. 风险与细节处理清单
+
+* **仅用已收盘 K 线**，避免使用“活动中”的最后一根；CCXT 文档提示未收完的 K 线可能不完整。([CCXT Documentation][1])
+* **费率/滑点**：按交易所当下费率设定（Binance 现货参考默认 0.1%）；不同市场/账户层级会变化。([Binance][4])
+* **数据时间戳**：Binance 现货 2025‑01‑01 起使用**微秒**；解析时请区分毫秒/微秒。([GitHub][2])
+* **缺口与覆盖率**：对 24/7 市场也可能有 API 限流/中断导致的空洞；建议在报告中输出**覆盖率**并对缺口段做“禁用交易”或“谨慎前值填充”的对照试验。
+* **多交易所/多交易对**：统一 UTC、列名与分区命名；用 DuckDB/Polars 批量拼接并按最细周期对齐后再回测。
+* **现货 vs 永续**：本方案以**现货**为例；若用永续合约，还需考虑**资金费率**、杠杆上限与强平线模拟。
+* **实盘偏差**：回测默认“下一根开盘成交/收盘成交”的撮合简化，会低估真实滑点；可提高 `slippage` 并进行敏感性分析。
+
+---
+
+## 一键执行步骤（从 0 到回测）
+
+1. **配置**：修改 `conf/symbols.yaml`（交易所、品种、周期、时间）。
+2. **下载数据**：
+
+   * 近实时：`python scripts/fetch_ccxt_ohlcv.py --conf conf/symbols.yaml`（CCXT `fetch_ohlcv`，分页抓取）。关于 `fetch_ohlcv` 的统一结构与注意事项见 CCXT 手册。([CCXT Documentation][1])
+   * 历史批量（可选/补齐）：`python scripts/fetch_binance_bulk.py`（Binance Data Vision，带 CHECKSUM 与 2025 微秒时间戳）。([GitHub][2])
+3. **清洗落盘**：`python scripts/clean_ohlcv.py`（去重/校验/覆盖率/按月分区）。
+4. **回测**：`python backtests/vbt_ma_rsi.py`（含费率/滑点/止损止盈/参数网格/分割验证）。`from_signals` 对止损/止盈/费用/滑点的支持见官方文档示例与描述。([VectorBT][3])
+
+---
+
+## 可扩展建议
+
+* **数据湖组织**：使用 `data/clean/exchange=.../symbol=.../tf=.../YYYYMM=...` 的分区结构，DuckDB 一条 SQL 即可跨年期、跨多标的拼接聚合。
+* **指标库**：`pandas_ta`/`vectorbt` 自带指标足够丰富；也可封装你自己的 alpha 特征。
+* **多策略/多资产组合**：`vectorbt` 的广播与 `MetaPortfolio` 能快速做多资产回测与组合优化。文档 API 列表亦覆盖常见绩效指标（Sharpe/Sortino/回撤等）。([VectorBT][3])
+* **生产化**：
+
+  * 计划任务（cron）做**增量更新**（每小时/每日），读取已有数据的最后时间戳为起点续拉；
+  * 数据质量报告（缺口、极值、异常跳变）入库并告警；
+  * 回测结果（参数、绩效、曲线）与数据版本**绑定**（便于审计与复现）。
+
+---
+
+## 小结
+
+* **数据层**：两种来源（CCXT 实时拉取 + Binance 批量下载）均为**官方或业界标准**做法；其中 `fetch_ohlcv` 的结构、最后 K 线不完整等注意事项、以及 Binance 2025 起微秒时间戳等均有官方文档/README 作为依据。([CCXT Documentation][1])
+* **回测层**：`vectorbt` 以信号为中心，**内置费用/滑点/止损止盈**，并有官方文档与示例支撑；可扩展到参数搜索与走样验证。([VectorBT][3])
+
+> 以上代码可直接复制到对应文件运行；若你需要我**替你把这套骨架裁剪成你指定交易所/品种/策略的最小可执行模板**，我可以在下一步一次性给出完整仓库结构（含 `requirements.txt` 与示例数据/回测结果）。**风险提示**：所有示例仅为技术与研究用途，不构成投资建议。
+
+[1]: https://ccxtcn.readthedocs.io/zh_CN/latest/manual.html?utm_source=chatgpt.com "Overview — ccxt 1.13.142 文档"
+[2]: https://github.com/binance/binance-public-data "GitHub - binance/binance-public-data: Details on how to get Binance public data"
+[3]: https://vectorbt.dev/api/portfolio/base/ "base - vectorbt"
+[4]: https://www.binance.com/en/fee/schedule?utm_source=chatgpt.com "Spot Trading Fee Rate"
+[5]: https://github.com/ccxt/ccxt/wiki/manual?utm_source=chatgpt.com "Manual · ccxt/ccxt Wiki"
+[6]: https://vectorbt.dev/getting-started/usage/?utm_source=chatgpt.com "Usage"
