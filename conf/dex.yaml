@@ -1,0 +1,22 @@
+﻿chain_id: 1
+rpc_url_env: RPC_URL_ETHEREUM
+confirmations: 6
+dexes:
+  - name: uniswap-v2
+    version: v2
+    block_window: 200
+    pools:
+      - address: "0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc"
+        token0: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"  # USDC
+        token1: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"  # WETH
+        token0_decimals: 6
+        token1_decimals: 18
+  - name: uniswap-v3
+    version: v3
+    block_window: 200
+    pools:
+      - address: "0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8"   # USDC/WETH 0.3%
+        token0: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+        token1: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+        token0_decimals: 6
+        token1_decimals: 18

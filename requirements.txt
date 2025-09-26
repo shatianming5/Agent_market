@@ -19,3 +19,7 @@ tldextract
 simhash
 langdetect
 pydantic
+web3
+eth-abi
+hexbytes
+python-dotenv
