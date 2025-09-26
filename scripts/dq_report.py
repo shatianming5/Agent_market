@@ -48,9 +48,11 @@ class DQMetrics:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Create data quality report from cleaned OHLCV")
-    parser.add_argument("--conf", type=Path, required=True)
-    parser.add_argument("--output", type=Path, default=CLEAN_DIR / "dq_report.parquet")
+    parser = argparse.ArgumentParser(description='Create data quality report')
+    parser.add_argument('--mode', choices=['ohlcv', 'news'], default='ohlcv')
+    parser.add_argument('--conf', type=Path, help='symbols.yaml when mode=ohlcv')
+    parser.add_argument('--output', type=Path, default=CLEAN_DIR / 'dq_report.parquet')
+    parser.add_argument('--news-path', type=Path, default=None, help='Override news parquet path when mode=news')
     return parser.parse_args()
 
 
@@ -75,6 +77,33 @@ def load_clean_frame(spec: SeriesSpec) -> pd.DataFrame:
     return combined
 
 
+def generate_news_report(news_path: Path) -> None:
+    if not news_path.exists():
+        print(f"News dataset not found: {news_path}")
+        return
+    df = pd.read_parquet(news_path)
+    total = len(df)
+    if total == 0:
+        print(f"News dataset {news_path} is empty")
+        return
+    print(f"News records: {total}")
+    if 'source' in df.columns:
+        print('Top sources:')
+        for source, count in df['source'].value_counts().head(10).items():
+            print(f"  {source:<20} {count}")
+    if 'lang' in df.columns:
+        print('Top languages:')
+        for lang, count in df['lang'].fillna('unknown').value_counts().head(10).items():
+            print(f"  {lang:<10} {count}")
+    if 'published_at' in df.columns:
+        dates = pd.to_datetime(df['published_at'], errors='coerce')
+        dates = dates.dropna()
+        if not dates.empty:
+            print(f"Published range: {dates.min()} -> {dates.max()}")
+    dup = df['url'].duplicated().sum() if 'url' in df.columns else 0
+    print(f"Duplicate URLs: {dup}")
+
+
 def compute_metrics(df: pd.DataFrame, spec: SeriesSpec) -> DQMetrics:
     if df.empty:
         return DQMetrics(spec, 0, None, None, None, None, None)
@@ -96,6 +125,12 @@ def compute_metrics(df: pd.DataFrame, spec: SeriesSpec) -> DQMetrics:
 
 def main() -> None:
     args = parse_args()
+    if args.mode == 'ohlcv' and args.conf is None:
+        raise SystemExit('--conf is required when mode=ohlcv')
+    if args.mode == 'news':
+        news_path = args.news_path or Path('data/clean/news/all.parquet')
+        generate_news_report(news_path)
+        return
     cfg = load_config(args.conf)
     exchange = cfg["exchange"]
     symbols = cfg["symbols"]

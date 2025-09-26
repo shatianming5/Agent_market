@@ -10,3 +10,12 @@ requests
 vectorbt
 pandas_ta
 pyyaml
+aiohttp
+httpx
+feedparser
+trafilatura
+aiolimiter
+tldextract
+simhash
+langdetect
+pydantic

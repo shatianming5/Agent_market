@@ -1,0 +1,10 @@
+rss:
+  - https://feeds.reuters.com/reuters/worldNews
+  - https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+news_sitemaps:
+  - https://www.washingtonpost.com/news-sitemap-index.xml
+  - https://www.theguardian.com/sitemaps/news.xml
+use_newsapi: false
+newsapi_key: ""
+use_gdelt: false
+gdelt_query: "topic:china OR topic:economy"

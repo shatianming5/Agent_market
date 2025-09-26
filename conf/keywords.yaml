@@ -1,0 +1,13 @@
+topics:
+  economy:
+    include:
+      - economy
+      - inflation
+      - interest rate
+    exclude:
+      - sports
+  geopolitics:
+    include:
+      - election
+      - conflict
+      - diplomacy

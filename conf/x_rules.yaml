@@ -1,0 +1,5 @@
+rules:
+  - value: 'url:reuters.com -is:retweet lang:en'
+    tag: 'reuters_en'
+  - value: '"interest rates" OR inflation lang:en -is:retweet'
+    tag: 'macro_en'

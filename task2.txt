@@ -1,0 +1,596 @@
+下面给你一套**可直接落地**、分两阶段的解决方案，覆盖「**新闻数据**」与「**X（原 Twitter）上的数据**」的**合规采集 → 清洗归一 → 去重与富化 → 存储与检索/分析**。
+重点是**真实可行**与**可维护**：对 X 平台，采用**官方 API**（Recent Search、Filtered Stream）而非违规抓取网页；对新闻，优先 **RSS/News Sitemap**、权威聚合 API（如 NewsAPI、GDELT），再用内容抽取库抓正文。方案包含**核心代码**与**一步步执行**指南。
+
+> 合规要点（强烈建议遵守）
+>
+> * **X**：使用官方 **X API v2**（/2/tweets/...），定价分 Free/Basic/Pro/Enterprise；免费读量极低，生产建议 Basic/Pro，并按权限使用 recent search / filtered stream / full-archive。官方文档与价格条款详见 X 官网。([X Developer][1])
+> * **X 开发者协议**对用途、速率、再分发、删除合规（compliance）等有严格限制，**禁止**用 X 内容训练基础/前沿模型，且必须遵守删除/保护事件的联动删除。([X Developer][2])
+> * **新闻站点抓取**需遵守 **Robots Exclusion Protocol（RFC 9309）** 与站点 robots.txt 规则。([IETF Datatracker][3])
+> * **GDELT**：GKG/Events 每 15 分钟更新，可作全球媒体补充源；DOC 2.0 提供全文检索/JSON 输出。([GDELT Project][4])
+> * **NewsAPI**：提供 `/v2/everything`、`/v2/top-headlines` 等端点；适合快速源聚合。([News API][5])
+> * **News Sitemap**（`news-sitemap.xml`）是新闻站点标准入口。([Google for Developers][6])
+
+---
+
+## 总览与架构
+
+**数据入口（Connectors）**
+
+* **新闻**：RSS / News Sitemap →（可选）NewsAPI →（可选）GDELT DOC 2.0
+* **X**：Recent Search（近 7 天）+ Filtered Stream（实时流，支持 `backfill_minutes` ≤ 5）+（Pro/Enterprise）全量检索
+
+  * 典型端点：
+
+    * Recent Search: `GET https://api.x.com/2/tweets/search/recent`（7 天窗口）([X Developer Platform][7])
+    * Filtered Stream: `GET https://api.x.com/2/tweets/search/stream`；规则管理 `POST /2/tweets/search/stream/rules`（支持断开不断流地动态增删规则）。([X Developer Platform][8])
+
+**处理层（ETL/ELT）**
+
+* 统一 Schema：`source, url, title, published_at, author, lang, text, entities, tags, raw_json, collected_at`
+* 去重：URL 归一化 + **SimHash/MinHash** 近重检测
+* 富化：语言检测、摘要、关键词、实体识别（可按需接 spaCy/HF 模型）
+* 存储：开发期 `DuckDB/Parquet`，线上建议 `PostgreSQL/TimescaleDB` + `OpenSearch/Elasticsearch`
+* 合规：X 内容存储 **ID 与必要字段**；接入 **Batch/Stream Compliance**，收到删除/保护事件要**及时删除**。([X Developer Platform][9])
+
+**调度与监控**
+
+* 调度：`cron`/`APScheduler`/`Prefect`
+* 限速与重试：`aiolimiter` + `tenacity`
+* 观测：结构化日志与失败重试告警
+
+---
+
+# 阶段 A｜数据采集与落盘（新闻 + X）
+
+### A0. 环境与项目骨架
+
+```bash
+python -m venv venv && source venv/bin/activate         # Windows: venv\Scripts\activate
+pip install -U aiohttp httpx feedparser trafilatura tenacity aiolimiter \
+               pandas duckdb pyarrow tldextract python-simhash langdetect \
+               pydantic pyyaml tqdm
+# 如使用 NewsAPI/GDELT：
+pip install requests
+```
+
+```
+.
+├─ conf/
+│  ├─ feeds.yaml          # RSS/站点配置
+│  ├─ x_rules.yaml        # X 过滤流规则
+│  └─ keywords.yaml       # 主题关键词
+├─ data/
+│  ├─ raw/                # 原始 JSONL/Parquet
+│  └─ clean/              # 清洗后
+├─ scripts/
+│  ├─ news_harvester.py   # RSS/Sitemap/NewsAPI/GDELT
+│  ├─ x_recent_search.py  # X recent search 拉取
+│  ├─ x_stream.py         # X filtered stream 实时
+│  ├─ normalize.py        # 统一 schema + 去重
+│  └─ dq_report.py        # 数据质量报告（可选）
+└─ .env                   # X/NewsAPI/GDELT 密钥等
+```
+
+`conf/feeds.yaml`（示例）：
+
+```yaml
+rss:
+  - https://feeds.reuters.com/reuters/topNews
+  - https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+news_sitemaps:
+  - https://www.washingtonpost.com/news-sitemap.xml
+  - https://www.theguardian.com/sitemaps/news.xml
+use_newsapi: false
+newsapi_key: ""
+use_gdelt: false
+gdelt_query: "topic:china OR topic:economy"
+```
+
+---
+
+### A1. 新闻采集：RSS / News Sitemap + 正文抽取（合规）
+
+> 逻辑：读取 RSS/News Sitemap → 取文章 URL → **先查 robots.txt** 是否允许 → 下载 HTML → 用 **trafilatura** 抽正文与元数据 → 写入 Parquet。Trafilatura 官方提供 Python 用法示例与提取说明。([Trafilatura][10])
+> News Sitemap 是新闻站点标准格式，结构在 Google 文档中定义。([Google for Developers][6])
+> 采集前遵守 **RFC 9309** 的 robots 规范。([IETF Datatracker][3])
+
+```python
+# scripts/news_harvester.py
+import asyncio, aiohttp, time, os, re, json
+from urllib.parse import urlparse
+from urllib import robotparser
+from datetime import datetime, timezone
+import feedparser, tldextract, pandas as pd
+from tenacity import retry, wait_exponential, stop_after_attempt
+from aiolimiter import AsyncLimiter
+import yaml
+import duckdb
+import trafilatura
+
+USER_AGENT = "NewsCollectorBot/1.0 (+contact@example.com)"
+limiter = AsyncLimiter(4, 1)   # 每秒最多4个请求（再叠加站点robots的crawl-delay自控）
+
+robots_cache = {}
+
+async def fetch(session, url, **kw):
+    async with limiter:
+        async with session.get(url, timeout=30, headers={"User-Agent": USER_AGENT}, **kw) as r:
+            r.raise_for_status()
+            return await r.text()
+
+async def robots_allowed(session, url: str) -> bool:
+    u = urlparse(url)
+    base = f"{u.scheme}://{u.netloc}"
+    if base not in robots_cache:
+        robots_url = f"{base}/robots.txt"
+        try:
+            txt = await fetch(session, robots_url)
+        except Exception:
+            robots_cache[base] = None  # 无robots，按默认允许
+        else:
+            rp = robotparser.RobotFileParser()
+            rp.parse(txt.splitlines())
+            robots_cache[base] = rp
+    rp = robots_cache.get(base)
+    return True if rp is None else rp.can_fetch(USER_AGENT, url)
+
+def extract_article(url: str) -> dict | None:
+    # trafilatura 自带下载器，也可将 HTML 传入；此处直接用 fetch_url
+    downloaded = trafilatura.fetch_url(url, no_ssl=True)
+    if not downloaded:
+        return None
+    res = trafilatura.extract(downloaded, include_comments=False, include_tables=False,
+                              include_images=False, with_metadata=True, favor_precision=True)
+    if not res:
+        return None
+    data = json.loads(res)
+    return {
+        "url": data.get("source"),
+        "title": data.get("title"),
+        "author": (data.get("author") or "")[:256],
+        "text": data.get("text"),
+        "lang": data.get("language"),
+        "published_at": data.get("date"),
+        "meta": {k: data.get(k) for k in ["sitename","hostname","categories","tags"]},
+    }
+
+async def handle_url(session, url):
+    if not await robots_allowed(session, url):  # RFC 9309
+        return None
+    # trafilatura 阻塞，放到线程池
+    return await asyncio.to_thread(extract_article, url)
+
+async def harvest_from_rss(conf_path="conf/feeds.yaml", out="data/raw/news.parquet"):
+    cfg = yaml.safe_load(open(conf_path, "r"))
+    items = []
+    async with aiohttp.ClientSession() as session:
+        # RSS
+        for feed in cfg.get("rss", []):
+            try:
+                txt = await fetch(session, feed)
+                fp = feedparser.parse(txt)
+                urls = [e.get("link") for e in fp.entries if e.get("link")]
+                for url in urls:
+                    try:
+                        data = await handle_url(session, url)
+                        if data and data["text"]:
+                            items.append(data | {"source": urlparse(url).netloc,
+                                                 "collected_at": datetime.now(timezone.utc).isoformat()})
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        # News Sitemap（简单提取 <loc>）
+        for sm in cfg.get("news_sitemaps", []):
+            try:
+                xml = await fetch(session, sm)
+                urls = re.findall(r"<loc>(.*?)</loc>", xml)
+                for url in urls[:1000]:  # 限幅
+                    try:
+                        data = await handle_url(session, url)
+                        if data and data["text"]:
+                            items.append(data | {"source": urlparse(url).netloc,
+                                                 "collected_at": datetime.now(timezone.utc).isoformat()})
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+
+    if not items:
+        print("No articles")
+        return
+    df = pd.DataFrame(items)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    df.to_parquet(out)
+    print("Saved:", out, len(df))
+
+if __name__ == "__main__":
+    asyncio.run(harvest_from_rss())
+```
+
+> 备注：Trafilatura 官方文档提供 `fetch_url`/`extract` 基本用法与参数说明；如遇大规模内存占用也提供重置缓存的方法。([Trafilatura][10])
+
+**（可选）NewsAPI/GDELT 作为补充源**
+
+```python
+# 片段：NewsAPI /v2/everything
+import requests, os, pandas as pd, time
+def harvest_newsapi(api_key: str, q: str, from_dt: str, to_dt: str, pages=2):
+    all_rows = []
+    for page in range(1, pages+1):
+        r = requests.get("https://newsapi.org/v2/everything", params={
+            "q": q, "language":"en", "from":from_dt, "to":to_dt, "sortBy":"publishedAt",
+            "pageSize":100, "page":page, "apiKey": api_key
+        }, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        for a in data.get("articles", []):
+            all_rows.append({
+                "source": a["source"]["name"], "url": a["url"], "title": a["title"],
+                "text": a.get("content") or "", "published_at": a.get("publishedAt"),
+                "lang": "en", "meta": {"description": a.get("description")}
+            })
+        time.sleep(0.2)
+    return pd.DataFrame(all_rows)
+```
+
+NewsAPI 端点与用法见官方文档（`/v2/everything`、`/v2/top-headlines`）。([News API][5])
+
+GDELT（DOC 2.0）可用作全球新闻补充（JSON/RSS/CSV 输出，搜索窗口与模式详见官方博客/文档）。([GDELT Blog][11])
+
+---
+
+### A2. 采集 X（原 Twitter）数据（**仅用官方 API**）
+
+> **Recent Search（近 7 天）** + **Filtered Stream（实时）** 是最常用组合。
+>
+> * **Recent Search**：可用查询算子（keywords/hashtags/URLs 等）取近 7 天公开帖子；完整归档需 Pro/Enterprise。([X Developer Platform][7])
+> * **Filtered Stream**：实时推送匹配规则的帖子；规则可不中断地增删；`backfill_minutes` 支持 0–5。([X Developer Platform][8])
+> * 查询算子支持基于 **URL** 的过滤（例如仅收集带某新闻域名链接的帖子，`url:example.com`）。([X Developer Platform][12])
+> * 访问与价格分层（Free/Basic/Pro/Enterprise）详见官方定价页。([X Developer][1])
+
+**A2.1 Recent Search：拉取近 7 天匹配帖子**
+
+```python
+# scripts/x_recent_search.py
+import os, time, requests, pandas as pd
+from urllib.parse import urlencode
+
+BASE = "https://api.x.com/2/tweets/search/recent"  # 近7天窗口
+FIELDS = {
+  "tweet.fields": "created_at,lang,public_metrics,entities,referenced_tweets,context_annotations,edit_history_tweet_ids",
+  "expansions": "author_id,attachments.media_keys",
+  "user.fields": "username,name,verified,created_at,public_metrics",
+  "media.fields":"type,url,preview_image_url,public_metrics"
+}
+
+def x_headers():
+    return {"Authorization": f"Bearer {os.environ['X_BEARER_TOKEN']}"}
+
+def search_recent(query: str, start_time=None, end_time=None, max_pages=10):
+    params = {"query": query, "max_results": 100, **FIELDS}
+    if start_time: params["start_time"] = start_time
+    if end_time: params["end_time"] = end_time
+    rows = []
+    next_token = None
+    for _ in range(max_pages):
+        if next_token: params["next_token"] = next_token
+        r = requests.get(BASE, params=params, headers=x_headers(), timeout=30)
+        if r.status_code == 429:
+            time.sleep(60); continue
+        r.raise_for_status()
+        data = r.json()
+        includes = data.get("includes", {})
+        users = {u["id"]: u for u in includes.get("users", [])}
+        for t in data.get("data", []):
+            u = users.get(t["author_id"], {})
+            rows.append({
+                "id": t["id"],
+                "text": t["text"],
+                "author_id": t["author_id"],
+                "username": u.get("username"),
+                "created_at": t.get("created_at"),
+                "lang": t.get("lang"),
+                "public_metrics": t.get("public_metrics"),
+                "entities": t.get("entities"),
+                "raw_json": t
+            })
+        next_token = data.get("meta", {}).get("next_token")
+        if not next_token: break
+        time.sleep(1)
+    return pd.DataFrame(rows)
+
+if __name__ == "__main__":
+    # 例：抓取“含路透链接 + 非转发”英文贴
+    q = 'url:reuters.com -is:retweet lang:en'
+    df = search_recent(q)
+    os.makedirs("data/raw", exist_ok=True)
+    df.to_parquet("data/raw/x_recent.parquet")
+    print("Saved", len(df))
+```
+
+> 上例使用 `url:` 算子过滤带某域名的贴文；算子说明见官方“Build a query”。([X Developer Platform][12])
+
+**A2.2 Filtered Stream：实时流（含规则管理与断线重连）**
+
+```python
+# scripts/x_stream.py
+import os, json, time, requests
+from tenacity import retry, wait_exponential, stop_after_attempt
+
+RULES_ENDPOINT = "https://api.x.com/2/tweets/search/stream/rules"
+STREAM_ENDPOINT = "https://api.x.com/2/tweets/search/stream"
+
+def headers(): return {"Authorization": f"Bearer {os.environ['X_BEARER_TOKEN']}"}
+
+def set_rules(rules: list[dict]):
+    # rules: [{"value": "url:reuters.com -is:retweet lang:en", "tag": "news_reuters_en"}, ...]
+    payload = {"add": rules}
+    r = requests.post(RULES_ENDPOINT, headers=headers(), json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+@retry(wait=wait_exponential(multiplier=1, min=1, max=60), stop=stop_after_attempt(10))
+def connect_stream(backfill_minutes=0):
+    params = {
+        "backfill_minutes": backfill_minutes,  # 0-5（官方限制）
+        "tweet.fields": "created_at,lang,public_metrics,entities,edit_history_tweet_ids",
+        "expansions": "author_id",
+        "user.fields": "username,name,verified"
+    }
+    with requests.get(STREAM_ENDPOINT, headers=headers(), params=params, stream=True, timeout=90) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line: continue
+            try:
+                obj = json.loads(line)
+                yield obj
+            except json.JSONDecodeError:
+                continue
+
+if __name__ == "__main__":
+    # 1) 设定规则（从 conf/x_rules.yaml 读）
+    import yaml, os
+    rules = yaml.safe_load(open("conf/x_rules.yaml","r"))["rules"]
+    print(set_rules(rules))
+    # 2) 连接流并落盘
+    import pandas as pd
+    out_rows = []
+    for msg in connect_stream(backfill_minutes=1):
+        d = msg.get("data", {})
+        inc = msg.get("includes", {})
+        users = {u["id"]: u for u in inc.get("users", [])}
+        u = users.get(d.get("author_id"), {})
+        out_rows.append({
+            "id": d.get("id"),
+            "text": d.get("text"),
+            "author_id": d.get("author_id"),
+            "username": u.get("username"),
+            "created_at": d.get("created_at"),
+            "lang": d.get("lang"),
+            "public_metrics": d.get("public_metrics"),
+            "entities": d.get("entities"),
+            "matching_rules": msg.get("matching_rules"),
+            "raw_json": msg
+        })
+        if len(out_rows) >= 500:
+            df = pd.DataFrame(out_rows)
+            os.makedirs("data/raw", exist_ok=True)
+            df.to_parquet(f"data/raw/x_stream_{int(time.time())}.parquet")
+            out_rows = []
+```
+
+> 端点与示例 cURL（`GET /2/tweets/search/stream`、`POST /2/tweets/search/stream/rules`）见官方参考；`backfill_minutes` 范围 0–5。([X Developer Platform][8])
+
+**A2.3 合规提醒（必须做）**
+
+* 遵守 **X 开发者协议**与**政策**，**不要**用 X 内容训练基础/前沿模型；超限或绕限会被封禁。([X Developer][2])
+* 对本地存储的 X 数据，需对**删除/保护**事件做**联动删除**（合规流/批量合规端点参见官方）。([X Developer Platform][9])
+* 选用合适**计费层级**（读量/流式访问在 Free 层很受限）。([X Developer][1])
+
+---
+
+# 阶段 B｜清洗、归一化、去重、富化与检索
+
+### B1. 统一 Schema & 轻存储
+
+```python
+# scripts/normalize.py
+import glob, json, os, pandas as pd, duckdb, tldextract
+from simhash import Simhash
+from langdetect import detect
+
+def norm_news(df):
+    df = df.copy()
+    df["source_type"] = "news"
+    df["domain"] = df["url"].apply(lambda u: tldextract.extract(u).registered_domain if isinstance(u,str) else None)
+    # 近重指纹（基于正文）
+    df["simhash"] = df["text"].fillna("").apply(lambda x: Simhash(x).value)
+    # 语言补齐
+    df["lang"] = df["lang"].fillna("").mask(df["lang"].eq("")).combine_first(df["text"].fillna("").apply(lambda t: detect(t) if t else None))
+    keep = ["source_type","source","domain","url","title","author","text","lang","published_at","meta","collected_at","simhash"]
+    return df[keep]
+
+def norm_x(df):
+    df = df.copy()
+    df["source_type"] = "x"
+    df["url"] = df["id"].apply(lambda i: f"https://x.com/i/web/status/{i}")
+    df["title"] = None
+    df["author"] = df["username"]
+    df["text"] = df["text"]
+    df["published_at"] = df["created_at"]
+    # 解析贴文中的外链域名（如需做“微博客引用新闻”的分析）
+    def extract_domains(entities):
+        if not isinstance(entities, dict): return []
+        urls = [u.get("expanded_url") for u in entities.get("urls", []) if u.get("expanded_url")]
+        return [tldextract.extract(u).registered_domain for u in urls if u]
+    df["domains_in_post"] = df["entities"].apply(extract_domains)
+    df["simhash"] = df["text"].fillna("").apply(lambda x: Simhash(x).value)
+    keep = ["source_type","username","url","text","lang","published_at","public_metrics","entities","domains_in_post","raw_json","simhash"]
+    return df[keep]
+
+def drop_near_duplicates(df, dist_bits=3):
+    # 简化版：同源内基于 simhash 的汉明距离去重
+    df = df.sort_values("published_at")
+    keep_idx = []
+    seen = []
+    for i, row in df.iterrows():
+        h = int(row["simhash"])
+        if any(bin(h ^ s).count("1") <= dist_bits for s in seen):
+            continue
+        seen.append(h); keep_idx.append(i)
+    return df.loc[keep_idx]
+
+if __name__ == "__main__":
+    news_files = glob.glob("data/raw/news*.parquet")
+    x_recent = glob.glob("data/raw/x_recent*.parquet")
+    x_stream = glob.glob("data/raw/x_stream*.parquet")
+    dfs = []
+    for f in news_files:
+        dfs.append(norm_news(pd.read_parquet(f)))
+    for f in x_recent + x_stream:
+        dfs.append(norm_x(pd.read_parquet(f)))
+    if not dfs: raise SystemExit("no data")
+    df_all = pd.concat(dfs, ignore_index=True)
+    # 近重去重（可按 source_type 分组后去重）
+    df_news = drop_near_duplicates(df_all[df_all["source_type"]=="news"]) if "news" in df_all["source_type"].unique() else pd.DataFrame()
+    df_x    = drop_near_duplicates(df_all[df_all["source_type"]=="x"])    if "x" in df_all["source_type"].unique() else pd.DataFrame()
+    out = pd.concat([df_news, df_x], ignore_index=True)
+    os.makedirs("data/clean", exist_ok=True)
+    out.to_parquet("data/clean/all.parquet")
+    print("Saved clean:", len(out))
+```
+
+> 说明：SimHash/MinHash 均可用于近重检测；上例用 `python-simhash`（Rust 实现的高效绑定）。([PyPI][13])
+
+### B2. 合规模块（X 删除/保护事件）
+
+* **流式合规（企业级）**：Compliance Firehose；
+* **批量合规（v2）**：上传 ID 获取合规状态，批处理本地数据的删除/隐藏。([X Developer][14])
+
+> 实践要点：存储时**保留原始 ID**，定期将近期采集 ID 投喂 Batch Compliance，收到删除/保护事件后**软删**或**硬删**，并记录审计日志。最佳实践详见官方“Compliance Best Practices”。([X Developer][15])
+
+### B3. 指标与检索
+
+* 以 DuckDB 直接跑常用分析（示例）：
+
+```sql
+-- 统计 X 上引用各新闻域的贴文占比（近7天）
+SELECT unnest(domains_in_post) AS domain, count(*) AS n
+FROM read_parquet('data/clean/all.parquet')
+WHERE source_type='x'
+GROUP BY 1 ORDER BY n DESC LIMIT 50;
+```
+
+* 若要在线检索：将 `text/title` 与结构化字段索引到 `OpenSearch/Elasticsearch`，并建立 `domain`、`lang`、`published_at`、`source_type` 等过滤器。
+* 仪表盘：Metabase/Superset + DuckDB/Postgres。
+
+---
+
+## 端到端执行步骤
+
+1. **准备密钥与配置**
+
+   * `.env` 写入 `X_BEARER_TOKEN=...`（X 开发者平台获取；按 Free/Basic/Pro 的额度选择）([X Developer][1])
+   * `conf/feeds.yaml` 写入 RSS / News Sitemap；如用 NewsAPI/GDELT，填入 API Key 与查询词。([News API][5])
+
+2. **采集新闻**
+
+   ```bash
+   python scripts/news_harvester.py
+   ```
+
+   脚本会遵循 robots.txt（RFC 9309）并用 trafilatura 抽正文。([IETF Datatracker][3])
+
+3. **采集 X（近 7 天）**
+
+   ```bash
+   export X_BEARER_TOKEN=...  # 或在 .env 中
+   python scripts/x_recent_search.py
+   ```
+
+   若需仅采集**带特定新闻域名链接**的贴文，在脚本中把查询改为 `url:domain.tld -is:retweet lang:xx`（`url:` 算子见官方文档）。([X Developer Platform][12])
+
+4. **启动 X 实时流**
+
+   * 配置 `conf/x_rules.yaml`：
+
+     ```yaml
+     rules:
+       - { value: 'url:reuters.com -is:retweet lang:en', tag: 'reuters_en' }
+       - { value: '"interest rates" OR inflation lang:en -is:retweet', tag: 'macro_en' }
+     ```
+   * 运行：
+
+     ```bash
+     python scripts/x_stream.py
+     ```
+
+   端点与 `backfill_minutes` 限制参见官方文档（0–5 分钟回补）。([X Developer Platform][8])
+
+5. **清洗归一与去重**
+
+   ```bash
+   python scripts/normalize.py
+   ```
+
+   生成 `data/clean/all.parquet`，包含新闻与 X 的统一结构与近重排重。
+
+6. **（生产化）合规处理**
+
+   * 周期性执行 **Batch Compliance** 对新增 ID 批量检查并联动删除；若为 Enterprise，可使用 **Compliance Firehose** 实时维护。([X Developer Platform][9])
+
+---
+
+## 方案可行性与扩展
+
+* **可行性**：
+
+  * X 数据：完全基于 **官方 v2 端点**（Recent Search / Filtered Stream），并遵循 **开发者协议**与**计费层**限制（定价/配额以官网为准）。([X Developer Platform][8])
+  * 新闻数据：RSS/News Sitemap 为业界通用方式；NewsAPI 与 GDELT 提供稳定聚合能力，GDELT/GKG 每 15 分钟更新。([Google for Developers][6])
+  * 抽取：Trafilatura 在正文抽取方面成熟可靠。([Trafilatura][10])
+
+* **扩展建议**：
+
+  * **查询算子**：X 支持丰富算子与布尔逻辑（关键词、`url:`、`lang:`, `-is:retweet` 等），适合定义主题篮子与域名白/黑名单。([X Developer Platform][12])
+  * **多语言与模型**：接入 spaCy/HF 做 NER/摘要/情感（注意 X 条款对模型训练用途的限制）。([X Developer][2])
+  * **检索/看板**：将清洗结果入仓（Postgres/OpenSearch）+ Superset/Metabase 出报表；或建告警（关键词/域名/情感触发）。
+  * **稳健性**：加 Host 级并发限速、失败队列、断点续传；对流式连接实现指数回退与心跳保活。
+  * **去重**：大规模近重建议用 MinHash + LSH（datasketch/Milvus 方案）。([Ekzhu][16])
+
+---
+
+## 重要合规提示（再次强调）
+
+* 不要抓取 X 的网页界面或绕过登录/速率限制；使用官方 API 并在**许可额度内**访问。([X Developer][2])
+* 尊重站点 Robots 与版权，必要时通过 **RSS/News Sitemap** 或站点授权 API 接入。([IETF Datatracker][3])
+* 对 X 内容的二次使用（再分发/展示/存储）严格对照 **开发者协议与显示规范**；收到删除事件需及时处理。([X Developer][2])
+
+---
+
+### 小结
+
+这套方案把数据源与合规模块**内建为第一原则**：
+
+* 新闻：RSS/News Sitemap +（可选）NewsAPI/GDELT，**稳**且**合规**。
+* X：Recent Search + Filtered Stream，端点与规则皆来自**官方文档**，并提供**可执行**核心代码与落盘路径。
+* 清洗：统一 Schema + SimHash 近重 + 语言/域名/实体富化，直接存 Parquet/DuckDB 或接入 OLTP/检索引擎。
+
+如果你愿意，我可以**按你关心的主题/域名清单**，把上述仓库裁剪成**最小可运行模板**（含 `requirements.txt`、示例配置与一键脚本），并附带一个 Superset 仪表盘样例。
+
+[1]: https://developer.x.com/en/products/x-api "X API v2 - X"
+[2]: https://developer.x.com/en/developer-terms/agreement-and-policy "Developer Agreement and Policy – X Developers | Twitter Developer Platform  "
+[3]: https://datatracker.ietf.org/doc/html/rfc9309?utm_source=chatgpt.com "RFC 9309 - Robots Exclusion Protocol"
+[4]: https://www.gdeltproject.org/data.html?utm_source=chatgpt.com "Data: Querying, Analyzing and Downloading"
+[5]: https://newsapi.org/docs/endpoints?utm_source=chatgpt.com "Endpoints - Documentation"
+[6]: https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap?utm_source=chatgpt.com "Create a News Sitemap | Google Search Central"
+[7]: https://docs.x.com/x-api/posts/search/introduction?utm_source=chatgpt.com "Introduction"
+[8]: https://docs.x.com/x-api/stream/stream-filtered-posts "Stream filtered Posts - X"
+[9]: https://docs.x.com/x-api/compliance/batch-compliance/introduction?utm_source=chatgpt.com "Introduction - X - Welcome to the X Developer Platform"
+[10]: https://trafilatura.readthedocs.io/en/latest/quickstart.html?utm_source=chatgpt.com "Quickstart — Trafilatura 2.0.0 documentation - Read the Docs"
+[11]: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/?utm_source=chatgpt.com "GDELT DOC 2.0 API Debuts!"
+[12]: https://docs.x.com/x-api/posts/search/integrate/build-a-query?utm_source=chatgpt.com "Build a query"
+[13]: https://pypi.org/project/python-simhash/?utm_source=chatgpt.com "python-simhash"
+[14]: https://developer.x.com/en/docs/x-api/enterprise/compliance-firehose-api?utm_source=chatgpt.com "Compliance Firehose API - X - Twitter Developer"
+[15]: https://developer.x.com/en/docs/twitter-api/compliance/streams/integrate/compliance-best-practices?utm_source=chatgpt.com "Compliance Best Practices | Docs - Twitter Developer Platform"
+[16]: https://ekzhu.com/datasketch/lsh.html?utm_source=chatgpt.com "MinHash LSH — datasketch 1.6.5 documentation"
