@@ -9,7 +9,7 @@ import freqtrade.scripts.freqai_expression_agent as expr
 
 
 def _sample_dataframe(size: int = 40) -> pd.DataFrame:
-    dates = pd.date_range("2025-01-01", periods=size, freq="H")
+    dates = pd.date_range("2025-01-01", periods=size, freq="h")
     close = np.linspace(100, 110, size)
     df = pd.DataFrame(
         {
@@ -133,4 +133,58 @@ def test_freqai_settings_validate_dataset(tmp_path):
     with pytest.raises(FileNotFoundError):
         settings.validate_dataset()
 
+
+
+def test_expression_agent_resolve_context(tmp_path):
+    data_root = tmp_path / "data"
+    exchange_dir = data_root / "binanceus"
+    exchange_dir.mkdir(parents=True)
+    (exchange_dir / "BTC_USDT-1h.feather").write_bytes(b"placeholder")
+
+    config_data = {
+        "datadir": str(data_root),
+        "exchange": {
+            "name": "binanceus",
+            "pair_whitelist": ["BTC/USDT"],
+        },
+        "freqai": {
+            "feature_parameters": {
+                "include_timeframes": ["1h"],
+                "label_period_candles": 12,
+            },
+            "train_period_days": 45,
+            "backtest_period_days": 15,
+        },
+    }
+    config_path = tmp_path / "config_freqai.json"
+    config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+    feature_payload = {
+        "label_period_candles": 12,
+        "timeframe": "1h",
+        "exchange": "binanceus",
+        "pairs": ["BTC/USDT"],
+        "features": [
+            {
+                "name": "feat_demo",
+                "type": "sma_pct",
+                "period": 5,
+            }
+        ],
+    }
+    feature_path = config_path.parent / expr.FEATURE_FILE.name
+    feature_path.write_text(json.dumps(feature_payload), encoding="utf-8")
+
+    args = SimpleNamespace(
+        feature_file=expr.FEATURE_FILE,
+        timeframe=None,
+        config=config_path,
+    )
+
+    feature_file, timeframe, settings = expr._resolve_cli_context(args)
+
+    assert feature_file == feature_path
+    assert timeframe == "1h"
+    assert settings is not None
+    assert settings.data_dir == exchange_dir
 

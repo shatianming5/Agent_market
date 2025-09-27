@@ -131,3 +131,4 @@ conda run --no-capture-output -n freqtrade python -m pytest
 
 > 若环境缺少 `pytest`，可执行 `conda run -n freqtrade pip install pytest` 后再运行
 
+
