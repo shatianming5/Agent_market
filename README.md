@@ -1,112 +1,133 @@
-# é¡¹ç›®è¯´æ˜Ž
+﻿# Agent Market 项目总览
 
-æœ¬ä»“åº“åŒ…å«ä¸¤ä¸ªå¯ç›´æŽ¥è¿è¡Œçš„æ•°æ®æµç¨‹ï¼š
+本仓库聚合了两个维度的能力：
 
-1. **åŠ å¯†è´§å¸è¡Œæƒ…å›žæµ‹ç®¡çº¿**ï¼šä½¿ç”¨ CCXT æ‹‰å– BinanceUS è¡Œæƒ…ã€é…åˆè‡ªç ”æ¸…æ´—è„šæœ¬ä¸Ž vectorbt å›žæµ‹ã€‚
-2. **æ–°é—» + Xï¼ˆåŽŸ Twitterï¼‰æ•°æ®é‡‡é›†ç®¡çº¿**ï¼šåˆè§„æŽ¥å…¥ RSS/News Sitemap ä¸Ž X APIï¼Œç»Ÿä¸€æ¸…æ´—å¹¶è¾“å‡ºåˆ†æžæŠ¥è¡¨ã€‚
+1. **行情与资讯采集流水线**：位于根目录 `scripts/` 与 `conf/` 之下，涵盖链上 dex 索引、CCXT 行情、Binance Bulk 数据、Twitter(X) 流等实时/离线抓取与清洗脚本。
+2. **FreqAI 量化回测体系**：在 `freqtrade/` 子模块基础上增强，提供自动特征排名、LLM 驱动的复合因子生成、LightGBM 模型回测与结果分析。
 
----
+## 目录结构
 
-## çŽ¯å¢ƒå‡†å¤‡
+```
+├─conf/                     # 数据与任务的 YAML 配置
+├─data/                     # 原始 / 清洗后的行情数据
+├─docs/                     # 项目文档（LLM 流水线、架构说明）
+├─freqtrade/                # 上游 freqtrade 仓库 + 本项目扩展脚本
+│  └─scripts/
+│     ├─freqai_expression_agent.py  # 支持 LLM/GP 的因子构造脚本
+│     └─freqai_auto_agent.py        # 一键完成特征→表达式→回测流水线
+├─scripts/                  # 行情、资讯、链上数据等采集清洗脚本
+├─src/agent_market/         # 自定义 Python 包（LLM 辅助 & 配置中心）
+├─tests/                    # Pytest 冒烟用例
+├─task*.txt                 # 任务分解说明
+└─README.md                 # 当前文件
+```
+
+> ✨ 新增 `src/agent_market/freqai/llm.py` 与 `src/agent_market/config.py`，分别承担 LLM 调度与 FreqAI 配置统一治理，可被多个脚本共享。
+
+## 安装与环境
 
 ```powershell
+# 可选：使用已有虚拟环境
 python -m venv venv
-# Windows PowerShell
 .\venv\Scripts\Activate.ps1
-pip install -U -r requirements.txt
+pip install -r requirements.txt
+
+# 推荐：使用已有 Conda 环境（freqtrade）
+conda env create -f freqtrade/environment.yml   # 如已存在可跳过
+conda activate freqtrade
+pip install -e ./freqtrade
 ```
 
-> æç¤ºï¼šé¦–æ¬¡å®‰è£…è€—æ—¶è¾ƒé•¿ï¼ŒåŽç»­é‡å¤æ‰§è¡Œä¼šå¿«é€Ÿå®Œæˆã€‚
+额外依赖：确保 `.env` 或环境变量提供 Twitter、NewsAPI、LLM 等访问凭证。
 
----
+## 行情/资讯流水线脚本
 
-## åŠ å¯†è´§å¸è¡Œæƒ…ä¸Žå›žæµ‹æµç¨‹
+`scripts/` 下脚本均支持 `--help` 查询参数。常用示例：
 
-| æ­¥éª¤ | å‘½ä»¤ | è¯´æ˜Ž |
+| 步骤 | 命令 | 说明 |
 | --- | --- | --- |
-| 1 | `python scripts/fetch_ccxt_ohlcv.py --conf conf/symbols.yaml` | é€šè¿‡ CCXT å¢žé‡æ‹‰å– BinanceUS çŽ°è´§ 1h K çº¿ï¼Œè‡ªåŠ¨å‰”é™¤æœªæ”¶ç›˜èœ¡çƒ›ï¼Œè¾“å‡ºåˆ° `data/raw/exchange=...` |
-| 2 | `python scripts/fetch_binance_bulk.py --conf conf/symbols.yaml --limit-months 4` | å¯é€‰ï¼šä¸‹è½½ Binance Data Vision æœˆåº¦ ZIPï¼Œæ ¡éªŒ CHECKSUM åŽè¡¥é½åŽ†å² |
-| 3 | `python scripts/clean_ohlcv.py --conf conf/symbols.yaml` | åˆå¹¶ CCXT ä¸ŽåŽ†å²åŒ…ï¼ŒåŽ»é‡ã€æŽ’åºã€æŒ‰æœˆåˆ†åŒºå†™å…¥ `data/clean/exchange=...` |
-| 4 | `python scripts/dq_report.py --mode ohlcv --conf conf/symbols.yaml` | ç”Ÿæˆè¡Œæƒ…æ•°æ®è¦†ç›–çŽ‡æŠ¥å‘Šï¼ˆç¼ºå£ã€æœ€å¤§é—´éš”ã€èµ·æ­¢æ—¶é—´ç­‰ï¼‰ |
-| 5 | `python backtests/vbt_ma_rsi.py --conf conf/symbols.yaml` | ä½¿ç”¨ vectorbt çš„ MA+RSI ç­–ç•¥ç½‘æ ¼å›žæµ‹ï¼Œç»“æžœä¿å­˜åˆ° `backtests/results/*.parquet` |
+| 行情下载 | `python scripts/fetch_ccxt_ohlcv.py --conf conf/symbols.yaml` | 通过 CCXT 获取 BinanceUS 现货 K 线 |
+| 历史补全 | `python scripts/fetch_binance_bulk.py --conf conf/symbols.yaml --limit-months 4` | 批量下载 Binance Data Vision 历史压缩包 |
+| 数据清洗 | `python scripts/clean_ohlcv.py --conf conf/symbols.yaml` | 合并衍生/补全后的 K 线，输出到 `data/clean/` |
+| 质量审计 | `python scripts/dq_report.py --mode ohlcv --conf conf/symbols.yaml` | 生成缺失/异常点报告 |
+| Twitter 流 | `python scripts/x_stream.py --conf conf/x_rules.yaml` | 订阅实时推文并落盘 |
 
-**é»˜è®¤é…ç½® `conf/symbols.yaml`**
+## FreqAI 配置中心
 
-```yaml
-exchange: binanceus
-type: spot
-symbols:
-  - BTC/USDT
-  - ETH/USDT
-timeframes:
-  - 1h
-start: "2024-01-01"
-end: null
-store_as: parquet
+`src/agent_market/config.py` 提供 `FreqAISettings` 数据类，集中读取 `user_data/config_freqai.json` 等配置，自动解析：
+
+- 数据目录 (`datadir`)，支持相对路径与多级回退
+- 交易所与交易对白名单
+- `train_period_days` / `backtest_period_days` / `label_period_candles`
+- 数据完整性校验：`settings.validate_dataset()` 会检查所需 `.feather` 文件是否存在
+
+在 `freqai_auto_agent.py` 中已经使用：
+```python
+settings = FreqAISettings.from_file(args.config, args.timeframe, args.label_period)
+settings.validate_dataset()
 ```
 
-å¦‚éœ€å¢žåŠ äº¤æ˜“å¯¹æˆ–æ—¶é—´ç²’åº¦ï¼Œç›´æŽ¥ä¿®æ”¹ä¸Šè¿°æ–‡ä»¶å¹¶é‡æ–°æ‰§è¡Œæµç¨‹ã€‚
+## FreqAI LLM 因子流水线
 
----
+### 1. 生成基础特征
 
-## æ–°é—» + X æ•°æ®é‡‡é›†æµç¨‹
+```powershell
+conda run -n freqtrade python scripts/freqai_feature_agent.py \
+    --config user_data/config_freqai.json \
+    --timeframe 1h
+```
 
-| æ­¥éª¤ | å‘½ä»¤ | è¯´æ˜Ž |
-| --- | --- | --- |
-| 1 | `python scripts/news_harvester.py --config conf/feeds.yaml` | å¼‚æ­¥æŠ“å– RSS ä¸Ž News Sitemapï¼Œéµå¾ª robots.txtï¼Œä½¿ç”¨ trafilatura æŠ½å–æ­£æ–‡ï¼Œè¾“å‡º `data/raw/news/news_*.parquet` |
-| 2 | `python scripts/x_recent_search.py --max-results 20` | è°ƒç”¨ X Recent Search APIï¼ˆéœ€åœ¨ `.env` å¡«å†™ `X_BEARER_TOKEN`ï¼‰ï¼Œæœªé…ç½®æ—¶ä¼šæç¤ºå¹¶è·³è¿‡ |
-| 3 | `python scripts/x_stream.py --max-messages 20` | è°ƒç”¨ X Filtered Streamï¼ˆéœ€ `X_STREAM_TOKEN` æˆ– `X_BEARER_TOKEN`ï¼‰ï¼Œå¯æ ¹æ® `conf/x_rules.yaml` è‡ªåŠ¨åŒæ­¥è§„åˆ™ |
-| 4 | `python scripts/normalize.py` | åˆå¹¶æ–°é—»ä¸Ž X æ•°æ®ï¼Œåˆ©ç”¨ SimHash è¿‘é‡è¿‡æ»¤ï¼Œè¾“å‡ºç»Ÿä¸€ç»“æž„ `data/clean/news/all.parquet` |
-| 5 | `python scripts/dq_report.py --mode news` | ç»Ÿè®¡æ¥æºã€è¯­è¨€ã€å‘å¸ƒæ—¶é—´åŒºé—´ã€é‡å¤ URL ç­‰è´¨é‡æŒ‡æ ‡ |
+### 2. LLM 因子构造（单步）
 
-**é…ç½®æ–‡ä»¶ç¤ºä¾‹**
+```powershell
+conda run -n freqtrade python scripts/freqai_expression_agent.py \
+    --feature-file user_data/freqai_features.json \
+    --output user_data/freqai_expressions.json \
+    --timeframe 1h \
+    --llm-enabled \
+    --llm-api-key <YOUR_API_KEY>
+```
 
-- `conf/feeds.yaml`ï¼šå®šä¹‰ RSSã€News Sitemapã€æ˜¯å¦å¯ç”¨ NewsAPI/GDELTã€‚
-- `conf/x_rules.yaml`ï¼šX è¿‡æ»¤æµè§„åˆ™ï¼Œæ”¯æŒå¤šä¸»é¢˜ã€‚
-- `.env`ï¼šå­˜æ”¾ X/NewsAPI/GDELT ç­‰å¯†é’¥ï¼ˆç¤ºä¾‹å·²æä¾›å ä½å­—æ®µï¼‰ã€‚
+### 3. 一键完整跑通
 
-> X å¹³å°ä¸¥æ ¼é™åˆ¶æ•°æ®ç”¨é€”ä¸Žè¿”å›žé‡ï¼Œå¿…é¡»éµå®ˆå®˜æ–¹å¼€å‘è€…åè®®ï¼Œæ”¶åˆ°åˆ é™¤äº‹ä»¶éœ€åŠæ—¶åŒæ­¥åˆ é™¤æœ¬åœ°æ•°æ®ã€‚
+```powershell
+conda run --no-capture-output -n freqtrade \
+  python scripts/freqai_auto_agent.py \
+    --config user_data/config_freqai.json \
+    --timeframe 1h \
+    --llm-enabled \
+    --llm-api-key <YOUR_API_KEY> \
+    --top-expressions 40 \
+    --expression-combo-top 5
+```
 
----
+自动流程会：
 
-## æ•°æ®è¾“å‡ºç»“æž„
+1. 对多个交易对聚合基础特征并写入 `user_data/freqai_features.json`
+2. 调用 LLM/模板/遗传算法生成表达式，按稳定性、夏普等指标评分
+3. 触发 freqtrade backtesting，将结果复制到 `user_data/backtest_results/auto_agent/<timestamp>/`
+4. 输出回测摘要：交易笔数、累计收益、胜率等
 
-- `data/raw/news/`ï¼šæ–°é—»åŽŸå§‹ parquetï¼ˆå«æ­£æ–‡ã€æ‘˜è¦ã€å…ƒæ•°æ®ã€åŽŸå§‹ JSON æ–‡æœ¬ï¼‰ã€‚
-- `data/raw/x/`ï¼šRecent Search `jsonl` ä¸Ž Filtered Stream `ndjson`ã€‚
-- `data/clean/news/all.parquet`ï¼šç»Ÿä¸€åŽçš„æ–°é—»/X æ•°æ®é›†ï¼Œå­—æ®µåŒ…æ‹¬ `source`ã€`url`ã€`title`ã€`published_at`ã€`text`ã€`tags`ã€`raw_json` ç­‰ã€‚
-- `data/clean/exchange=.../`ï¼šæŒ‰æœˆåˆ†åŒºçš„è¡Œæƒ…æ•°æ®ã€‚
-- `backtests/results/*.parquet`ï¼švectorbt å›žæµ‹æŒ‡æ ‡è¡¨ã€‚
+示例输出：
 
----
+```
+[llm] valid expressions 5
+[summary] FreqAIExampleStrategy 交易笔数: 49, 总收益: -8.5543, 胜率: 40.82%
+[完成] 回测结果位置: user_data\backtest_results\auto_agent\20250927-205525\backtest-result-2025-09-27_16-25-24.zip
+```
 
-## å¸¸è§æ‰©å±•
+更多使用细节与常见问题，请参阅 `docs/llm_pipeline.md` 与 `docs/ARCHITECTURE.md`。
 
-1. **è°ƒåº¦**ï¼šç»“åˆ `cron`ã€`APScheduler` æˆ– Prefect å®žçŽ°å®šæ—¶é‡‡é›†ä¸Žå›žæµ‹ã€‚
-2. **åˆ†æž**ï¼šä½¿ç”¨ DuckDB/Polars ç›´æŽ¥è¯»å– parquetï¼Œæˆ–è½åœ°è‡³ PostgreSQL + OpenSearch å¹¶åœ¨ Superset/Metabase æ­å»ºä»ªè¡¨ç›˜ã€‚
-3. **NLP å¯ŒåŒ–**ï¼šåœ¨ `scripts/normalize.py` ä¸­æ‰©å±• spaCy/HF æ¨¡åž‹å®žçŽ°å®žä½“æŠ½å–ã€æƒ…æ„Ÿåˆ†æžã€æ‘˜è¦ç­‰ã€‚
-4. **é£Žé™©æŽ§åˆ¶**ï¼šåœ¨å›žæµ‹è„šæœ¬ä¸­åŠ å…¥ä»“ä½ç®¡ç†ã€æ»‘ç‚¹æ•æ„Ÿåº¦æµ‹è¯•ã€åˆ†å±‚èµ°æ ·éªŒè¯ã€‚
+## 快速测试
 
----
+项目内置最小 Pytest 冒烟用例：
 
-## åˆè§„æé†’
+```powershell
+conda run --no-capture-output -n freqtrade python -m pytest
+```
 
-- **X API**ï¼šä»…ä½¿ç”¨å®˜æ–¹ç«¯ç‚¹ï¼Œéµå®ˆé€ŸçŽ‡ä¸Žå†…å®¹ä½¿ç”¨æ”¿ç­–ï¼Œç¦æ­¢æŠ“å–ç½‘é¡µç«¯æˆ–ç”¨äºŽè®­ç»ƒåŸºç¡€æ¨¡åž‹ã€‚
-- **æ–°é—»ç«™ç‚¹**ï¼šé‡‡é›†å‰æ£€æŸ¥ robots.txtï¼Œå¿…è¦æ—¶ä¸Žç«™ç‚¹ç­¾è®¢æˆ–ç”³è¯·é¢å¤–æŽˆæƒã€‚
-- **æ•°æ®åˆ é™¤**ï¼šæ”¶åˆ° X Compliance é€šçŸ¥æˆ–ç‰ˆæƒè¦æ±‚æ—¶ï¼Œéœ€åŒæ­¥åˆ é™¤æœ¬åœ°å­˜æ¡£ã€‚
+- `tests/test_freqai_pipeline.py` 会模拟 LLM 响应，验证表达式评分链路
+- 同时断言 `FreqAISettings` 的数据目录校验逻辑
 
----
+> 若环境缺少 `pytest`，可执行 `conda run -n freqtrade pip install pytest` 后再运行
 
-å¦‚éœ€å°†ä¸Šè¿°æµç¨‹æ‰“åŒ…æˆæœ€å°å¯è¿è¡Œæ¨¡æ¿ï¼ˆå«é…ç½®ç¤ºä¾‹ã€è°ƒåº¦è„šæœ¬æˆ–å¯è§†åŒ–ç¤ºä¾‹ï¼‰ï¼Œæ¬¢è¿Žç»§ç»­å‘ŠçŸ¥éœ€æ±‚ã€‚
-
----
-
-## é“¾ä¸Š DEX æ•°æ®é‡‡é›†æµç¨‹ï¼ˆUniswap v2 / v3 ç¤ºä¾‹ï¼‰
-
-| æ­¥éª¤ | å‘½ä»¤ | è¯´æ˜Ž |
-| --- | --- | --- |
-| 1 | ç¼–è¾‘ `conf/dex.yaml` å¹¶åœ¨ `.env` ä¸­è®¾ç½® `RPC_URL_ETHEREUM`ï¼ˆHTTPï¼‰å’Œå¯é€‰ `RPC_URL_ETHEREUM_WS` | æŒ‡å®šé“¾ IDã€å·¥åŽ‚åœ°å€ã€èµ·å§‹åŒºå—ã€ç¡®è®¤æ•°ç­‰ |
-| 2 | `python scripts/dex_indexer.py --config conf/dex.yaml --output data/raw/dex` | é€šè¿‡ `eth_getLogs` åˆ†å—å›žè¡¥ pair/pool ä¸Ž swap äº‹ä»¶ï¼Œè‡ªåŠ¨è·³è¿‡ç¼ºçœ RPC |
-| 3 | `python scripts/live_subscribe.py --max-events 20` | åŸºäºŽ HTTP è½®è¯¢çš„å®žæ—¶è¡¥æ•°ï¼ˆéœ€äº‹å…ˆç´¢å¼•ç”Ÿæˆ pool åˆ—è¡¨ï¼Œå¯æ›¿æ¢ä¸º WebSocketï¼‰ |
-| 4 | `python scripts/build_candles.py --input data/raw/dex/uniswap-v3_swaps.parquet --rule 1min` | å°† swap æ•°æ®èšåˆä¸º 1 åˆ†é’Ÿèœ¡çƒ›ï¼Œè¾“å‡ºåˆ° `data/clean/dex/candles_1T.parquet` |
-
-> è¿è¡Œå‰è¯·åœ¨ `.env` ä¸­è¡¥å…… `RPC_URL_ETHEREUM=...`ï¼Œè‹¥éœ€å¤šé“¾å¯å¤åˆ¶ `dex.yaml` å¹¶è°ƒæ•´ `factory`/`start_block`ã€‚
