@@ -152,6 +152,49 @@ conda run --no-capture-output -n freqtrade python -m pytest
 > 若环境缺少 `pytest`，可执行 `conda run -n freqtrade pip install pytest` 后再运行
 
 
+## 多资产 4h 流水线（LLM + 回测）
+
+- 生成多资产特征（BTC/ETH/SOL/ADA，4h）：
+  - `conda run -n freqtrade python freqtrade/scripts/freqai_feature_agent.py --config configs/config_freqai_multi.json --output user_data/freqai_features_multi.json --timeframe 4h --pairs BTC/USDT ETH/USDT SOL/USDT ADA/USDT`
+- 基于 LLM 生成表达式（走智增增 API，默认 `gpt-3.5-turbo`）：
+  - `conda run -n freqtrade python scripts/agent_flow.py --config configs/agent_flow_multi.json --steps expression`（需 `PYTHONPATH=src`）
+  - 结果输出：`user_data/freqai_expressions.json`
+- 真实回测（ExpressionLongStrategy）：
+  - `conda run -n freqtrade freqtrade backtesting --config configs/config_freqai_multi.json --strategy ExpressionLongStrategy --strategy-path freqtrade/user_data/strategies --timerange 20210101-20211231 --freqaimodel LightGBMRegressor --export trades --export-filename user_data/backtest_results/latest_trades_multi`
+
+提示：若 `user_data/data/binanceus` 为空，可将 `freqtrade/user_data/data/binanceus/*.feather` 拷贝过去以便快速跑通。
+
+## 超参优化（Hyperopt）
+
+策略已内建可调参空间（`DecimalParameter`）：
+- 进场/出场动态分位（`dynamic_entry_q`/`dynamic_exit_q`）
+- 投票阈值（`vote_entry_threshold_p`/`vote_exit_threshold_p`）
+- 信号最小/最大门槛（`signal_entry_min`/`signal_exit_max`）
+- 仓位上限（`stake_scale_cap`）
+
+运行示例（小样本演示）：
+
+```
+conda run -n freqtrade freqtrade hyperopt \
+  --config configs/config_freqai_multi.json \
+  --strategy ExpressionLongStrategy \
+  --strategy-path freqtrade/user_data/strategies \
+  --timerange 20210101-20210430 \
+  --spaces buy sell protection \
+  --hyperopt-loss SharpeHyperOptLoss \
+  --epochs 20 \
+  --freqaimodel LightGBMRegressor
+```
+
+Hyperopt 会将找到的最优参数写入：`freqtrade/user_data/strategies/ExpressionLongStrategy.json`，后续回测会自动加载。
+
+## 回测报表与汇总
+
+- 生成最新回测摘要（读取 `user_data/backtest_results` 最新 zip）：
+  - `conda run -n freqtrade python scripts/report_backtest.py --results-dir user_data/backtest_results --out user_data/reports/latest_summary.json`
+- LLM 连通性自检：
+  - `conda run -n freqtrade python scripts/test_llm.py`（需 `LLM_API_KEY` 环境变量）
+
 ## 统一 AI 学习框架规划
 
 项目正在分阶段扩展机器学习、深度学习与强化学习能力，并构建可由智能 Agent 全流程调度的研究流水线。总体设计详见 [docs/ai_framework.md](docs/ai_framework.md)。后续阶段将在该文档的架构下逐步实现：
