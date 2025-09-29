@@ -63,6 +63,18 @@
         </div>
         <div class="summary" id="summary"></div>
         <div id="chart" style="height:240px;margin-top:8px;"></div>
+        <h4>特征 TopN</h4>
+        <div class="buttons" style="margin-bottom:6px">
+          <button id="btnFeatTop">查看TopN</button>
+        </div>
+        <div id="featTop" class="panel"></div>
+        <h4>回测对比</h4>
+        <div class="buttons" style="gap:4px; display:flex; flex-direction:column; align-items:stretch;">
+          <button id="btnList">加载结果列表</button>
+          <input id="resA" placeholder="结果A文件名" />
+          <input id="resB" placeholder="结果B文件名" />
+          <button id="btnCompare">对比</button>
+        </div>
       </div>
       <div class="canvas">
         <div id="root" style="width:100%;height:100%"></div>

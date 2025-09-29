@@ -140,6 +140,17 @@ def results_summary(name: str, results_dir: str = 'user_data/backtest_results'):
         return {"error": f"Not found: {zp}"}
     flow = AgentFlow(AgentFlowConfig())
     summary = flow._build_backtest_summary(zp)
+    # enrich with trades if present
+    try:
+        import zipfile  # noqa: PLC0415
+        with zipfile.ZipFile(zp) as zf:
+            trade_members = [nm for nm in zf.namelist() if nm.endswith('.json') and nm.startswith('trades-')]
+            if trade_members:
+                import json as _json  # noqa: N816
+                trades = _json.loads(zf.read(trade_members[0]))
+                summary['trades'] = trades
+    except Exception:
+        pass
     return summary
 
 

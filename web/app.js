@@ -20,6 +20,7 @@ function App() {
 
   const logsEl = document.getElementById('logs')
   const summaryEl = document.getElementById('summary')
+  const featTopEl = document.getElementById('featTop')
 
   async function pollLogs(jobId) {
     let offset = 0
@@ -98,9 +99,63 @@ function App() {
   }
 
   useMemo(() => {
-    document.getElementById('btnExpr').onclick = runExpr
-    document.getElementById('btnBacktest').onclick = runBacktest
-    document.getElementById('btnSummary').onclick = showSummary
+    const be = document.getElementById('btnExpr')
+    const bb = document.getElementById('btnBacktest')
+    const bs = document.getElementById('btnSummary')
+    if (be) be.onclick = runExpr
+    if (bb) bb.onclick = runBacktest
+    if (bs) bs.onclick = showSummary
+    const btnFeat = document.getElementById('btnFeatTop')
+    if (btnFeat) btnFeat.onclick = async () => {
+      const file = document.getElementById('featureFile').value || 'user_data/freqai_features.json'
+      const res = await fetch(`${API}/features/top?file=${encodeURIComponent(file)}&limit=10`)
+      const data = await res.json()
+      if (featTopEl) featTopEl.textContent = JSON.stringify(data, null, 2)
+    }
+    const btnList = document.getElementById('btnList')
+    if (btnList) btnList.onclick = async () => {
+      const res = await fetch(`${API}/results/list`)
+      const data = await res.json()
+      if (data.items && data.items.length) {
+        const [a,b] = data.items
+        if (a) document.getElementById('resA').value = a.name
+        if (b) document.getElementById('resB').value = b.name
+      }
+    }
+    const btnCmp = document.getElementById('btnCompare')
+    if (btnCmp) btnCmp.onclick = async () => {
+      const a = (document.getElementById('resA').value||'').trim()
+      const b = (document.getElementById('resB').value||'').trim()
+      if (!a || !b) return alert('请填写结果文件名 A / B')
+      const [sa, sb] = await Promise.all([
+        fetch(`${API}/results/summary?name=${encodeURIComponent(a)}`).then(r => r.json()),
+        fetch(`${API}/results/summary?name=${encodeURIComponent(b)}`).then(r => r.json()),
+      ])
+      const chart = echarts.init(document.getElementById('chart'))
+      function toSeries(summary, label) {
+        const trades = Array.isArray(summary.trades) ? summary.trades.slice().sort((x,y)=> (x.open_timestamp||0)-(y.open_timestamp||0)) : []
+        let cum = 0
+        const xs = []
+        const ys = []
+        for (const t of trades) { cum += Number(t.profit_abs||0); xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10)); ys.push(cum) }
+        return { xs, ys, label }
+      }
+      const A = toSeries(sa, 'A:'+a)
+      const B = toSeries(sb, 'B:'+b)
+      const x = A.xs.length >= B.xs.length ? A.xs : B.xs
+      chart.setOption({
+        grid: { left: 40, right: 16, top: 10, bottom: 30 },
+        xAxis: { type: 'category', data: x, axisLabel: { rotate: 45 } },
+        yAxis: { type: 'value', scale: true },
+        tooltip: { trigger: 'axis' },
+        legend: {},
+        series: [
+          { name: A.label, type: 'line', data: A.ys },
+          { name: B.label, type: 'line', data: B.ys },
+        ],
+      })
+      summaryEl.textContent = JSON.stringify({ A: sa, B: sb }, null, 2)
+    }
   }, [])
 
   // Node helpers
@@ -263,6 +318,20 @@ function App() {
         const res = await fetch(`${API}/run/hyperopt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
         await pollLogs(data.job_id)
+        // auto backtest after hyperopt
+        const btReq = {
+          config: document.getElementById('cfg').value,
+          strategy: 'ExpressionLongStrategy',
+          strategy_path: 'freqtrade/user_data/strategies',
+          timerange: n.data.cfg?.timerange || '20210101-20210430',
+          freqaimodel: 'LightGBMRegressor',
+          export: true,
+          export_filename: 'user_data/backtest_results/latest_trades_multi',
+        }
+        const btRes = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
+        const btJob = await btRes.json()
+        await pollLogs(btJob.job_id)
+        await showSummary()
       }
     }
   }
