@@ -1,0 +1,166 @@
+{
+    "feature":  {
+                    "script":  "freqtrade/scripts/freqai_feature_agent.py",
+                    "args":  [
+                                 "--config",
+                                 "configs/config_freqai_multi.json",
+                                 "--output",
+                                 "user_data/freqai_features_multi.json",
+                                 "--timeframe",
+                                 "4h",
+                                 "--pairs",
+                                 "BTC/USDT",
+                                 "ETH/USDT",
+                                 "SOL/USDT",
+                                 "ADA/USDT"
+                             ]
+                },
+    "expression":  {
+                       "script":  "freqtrade/scripts/freqai_expression_agent.py",
+                       "args":  [
+                                    "--config",
+                                    "configs/config_freqai_multi.json",
+                                    "--feature-file",
+                                    "../user_data/freqai_features_multi.json",
+                                    "--output",
+                                    "user_data/freqai_expressions.json",
+                                    "--timeframe",
+                                    "4h",
+                                    "--llm-count",
+                                    "40",
+                                    "--llm-model",
+                                    "gpt-4o-mini",
+                                    "--llm-loops",
+                                    "1",
+                                    "--llm-timeout",
+                                    "60"
+                                ],
+                       "feedback_top":  0
+                   },
+    "ml_training":  {
+                        "configs":  [
+                                        {
+                                            "data":  {
+                                                         "feature_file":  "user_data/freqai_features_multi.json",
+                                                         "data_dir":  "freqtrade/user_data/data",
+                                                         "exchange":  "binanceus",
+                                                         "pairs":  [
+                                                                       "BTC/USDT",
+                                                                       "ETH/USDT",
+                                                                       "SOL/USDT",
+                                                                       "ADA/USDT"
+                                                                   ],
+                                                         "timeframe":  "4h",
+                                                         "label_period":  18
+                                                     },
+                                            "model":  {
+                                                          "name":  "lightgbm",
+                                                          "params":  {
+                                                                         "objective":  "regression",
+                                                                         "metric":  "rmse",
+                                                                         "learning_rate":  0.04,
+                                                                         "num_leaves":  63,
+                                                                         "feature_fraction":  0.8,
+                                                                         "subsample":  0.85,
+                                                                         "num_boost_round":  260,
+                                                                         "model_dir":  "artifacts/models/lightgbm_multi"
+                                                                     }
+                                                      },
+                                            "training":  {
+                                                             "validation_ratio":  0.25
+                                                         },
+                                            "output":  {
+                                                           "model_dir":  "artifacts/models/lightgbm_multi"
+                                                       }
+                                        },
+                                        {
+                                            "data":  {
+                                                         "feature_file":  "user_data/freqai_features_multi.json",
+                                                         "data_dir":  "freqtrade/user_data/data",
+                                                         "exchange":  "binanceus",
+                                                         "pairs":  [
+                                                                       "BTC/USDT",
+                                                                       "ETH/USDT",
+                                                                       "SOL/USDT",
+                                                                       "ADA/USDT"
+                                                                   ],
+                                                         "timeframe":  "4h",
+                                                         "label_period":  18
+                                                     },
+                                            "model":  {
+                                                          "name":  "pytorch_mlp",
+                                                          "params":  {
+                                                                         "hidden_dims":  [
+                                                                                             320,
+                                                                                             160,
+                                                                                             80
+                                                                                         ],
+                                                                         "dropout":  0.1,
+                                                                         "epochs":  35,
+                                                                         "batch_size":  96,
+                                                                         "learning_rate":  0.0005,
+                                                                         "model_dir":  "artifacts/models/pytorch_multi",
+                                                                         "use_cuda":  false
+                                                                     }
+                                                      },
+                                            "training":  {
+                                                             "validation_ratio":  0.25
+                                                         },
+                                            "output":  {
+                                                           "model_dir":  "artifacts/models/pytorch_multi"
+                                                       }
+                                        }
+                                    ]
+                    },
+    "rl_training":  {
+                        "config":  {
+                                       "data":  {
+                                                    "feature_file":  "user_data/freqai_features_multi.json",
+                                                    "data_dir":  "freqtrade/user_data/data",
+                                                    "exchange":  "binanceus",
+                                                    "pairs":  [
+                                                                  "BTC/USDT",
+                                                                  "ETH/USDT"
+                                                              ],
+                                                    "timeframe":  "4h",
+                                                    "label_period":  18
+                                                },
+                                       "policy":  "MlpPolicy",
+                                       "algo":  {
+                                                    "learning_rate":  0.00025,
+                                                    "gamma":  0.995
+                                                },
+                                       "training":  {
+                                                        "total_timesteps":  20000
+                                                    },
+                                       "output":  {
+                                                      "model_dir":  "artifacts/models/rl_multi"
+                                                  }
+                                   }
+                    },
+    "backtest":  {
+                     "command":  [
+                                     "freqtrade",
+                                     "backtesting",
+                                     "--config",
+                                     "configs/config_freqai_multi.json",
+                                     "--strategy",
+                                     "ExpressionLongStrategy",
+            "--strategy-path",
+            "freqtrade/user_data/strategies",
+            "--datadir",
+            "freqtrade/user_data/data",
+            "--dataformat-ohlcv",
+            "feather",
+                                     "--timerange",
+                                     "20200101-20241231",
+                                     "--freqaimodel",
+                                     "LightGBMRegressor",
+                                     "--export",
+                                     "trades",
+                                     "--export-filename",
+                                     "user_data/backtest_results/latest_trades_multi"
+                                 ],
+                     "results_dir":  "user_data/backtest_results/multi_4h"
+                 }
+}

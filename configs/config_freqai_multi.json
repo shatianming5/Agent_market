@@ -1,0 +1,80 @@
+{
+  "$schema": "https://schema.freqtrade.io/schema.json",
+  "trading_mode": "spot",
+  "max_open_trades": 4,
+  "stake_currency": "USDT",
+  "stake_amount": 75,
+  "tradable_balance_ratio": 1,
+  "fiat_display_currency": "USD",
+  "dry_run": true,
+  "timeframe": "4h",
+  "dry_run_wallet": 1000,
+  "cancel_open_orders_on_exit": true,
+  "unfilledtimeout": {
+    "entry": 15,
+    "exit": 15
+  },
+  "exchange": {
+    "name": "binanceus",
+    "key": "",
+    "secret": "",
+    "pair_whitelist": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "ADA/USDT"
+    ],
+    "pair_blacklist": []
+  },
+  "pairlists": [
+    { "method": "StaticPairList" }
+  ],
+  "freqai": {
+    "enabled": true,
+    "purge_old_models": 2,
+    "train_period_days": 120,
+    "backtest_period_days": 30,
+    "live_retrain_hours": 0,
+    "identifier": "freqai-multi",
+    "feature_parameters": {
+      "include_timeframes": ["4h"],
+      "include_corr_pairlist": [
+        "BTC/USDT",
+        "ETH/USDT",
+        "SOL/USDT",
+        "ADA/USDT"
+      ],
+      "label_period_candles": 18,
+      "include_shifted_candles": 2,
+      "DI_threshold": 0.9,
+      "weight_factor": 0.85,
+      "principal_component_analysis": false,
+      "use_SVM_to_remove_outliers": false,
+      "indicator_periods_candles": [12, 24, 48],
+      "plot_feature_importances": 0
+    },
+    "data_split_parameters": {
+      "test_size": 0.3,
+      "random_state": 7
+    },
+    "model_training_parameters": {}
+  },
+  "datadir": "freqtrade/user_data/data",
+  "dataformat_ohlcv": "feather",
+  "bot_name": "freqai-multi",
+  "force_entry_enable": true,
+  "initial_state": "running",
+  "internals": {
+    "process_throttle_secs": 5
+  },
+  "entry_pricing": {
+    "price_side": "other",
+    "use_order_book": false,
+    "order_book_top": 1
+  },
+  "exit_pricing": {
+    "price_side": "other",
+    "use_order_book": false,
+    "order_book_top": 1
+  }
+}

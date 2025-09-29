@@ -163,6 +163,7 @@ conda run --no-capture-output -n freqtrade python -m pytest
 
 ### 新增模块与功能
 - `agent_market/freqai/model/torch_models.py`：提供 PyTorch MLP 适配器，支持自定义隐藏层与 Dropout。
+- `freqtrade/scripts/freqai_feature_agent.py`:?? 12 ?????(KAMA?MACD ???Stochastic?PSAR????/???Donchian?VWAP ???),???? `user_data/freqai_features.json`?
 - `agent_market/freqai/rl/`：包含 `TradingEnv`、`RLTrainer`，可用 Stable-Baselines3 训练 PPO 策略。
 - `agent_market/freqai/training/pipeline.py`：统一数据构建与模型训练流程。
 
