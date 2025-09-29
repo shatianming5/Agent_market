@@ -6,9 +6,10 @@ const API = 'http://127.0.0.1:8000'
 
 function App() {
   const [nodes, setNodes] = useState([
-    { id: 'n1', position: { x: 50, y: 100 }, data: { label: 'Data', typeKey: 'data', cfg: { } }, type: 'input' },
+    { id: 'n1', position: { x: 50, y: 100 }, data: { label: 'Data', typeKey: 'data', cfg: { pairs: 'BTC/USDT ETH/USDT SOL/USDT ADA/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' } }, type: 'input' },
     { id: 'n2', position: { x: 300, y: 100 }, data: { label: 'Expression(LLM)', typeKey: 'expr', cfg: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' } } },
     { id: 'n3', position: { x: 560, y: 100 }, data: { label: 'Backtest', typeKey: 'bt', cfg: { timerange: '20210101-20211231' } }, type: 'output' },
+    { id: 'n4', position: { x: 820, y: 100 }, data: { label: 'Feedback', typeKey: 'fb', cfg: { results_dir: 'user_data/backtest_results' } } },
   ])
   const [edges, setEdges] = useState([
     { id: 'e1', source: 'n1', target: 'n2' },
@@ -72,6 +73,27 @@ function App() {
     const res = await fetch(`${API}/results/latest-summary`)
     const data = await res.json()
     summaryEl.textContent = JSON.stringify(data, null, 2)
+    try {
+      if (Array.isArray(data.trades)) {
+        const sorted = data.trades.slice().sort((a,b) => (a.open_timestamp||0) - (b.open_timestamp||0))
+        let cum = 0
+        const ys = []
+        const xs = []
+        for (const t of sorted) {
+          cum += Number(t.profit_abs || 0)
+          ys.push(cum)
+          xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10))
+        }
+        const chart = echarts.init(document.getElementById('chart'))
+        chart.setOption({
+          grid: { left: 40, right: 16, top: 10, bottom: 30 },
+          xAxis: { type: 'category', data: xs, axisLabel: { rotate: 45 } },
+          yAxis: { type: 'value', scale: true },
+          tooltip: { trigger: 'axis' },
+          series: [{ name: '累积收益(USDT)', type: 'line', data: ys }],
+        })
+      }
+    } catch (e) { console.warn('chart error', e) }
   }
 
   useMemo(() => {
@@ -90,7 +112,11 @@ function App() {
   const onNodeClick = useCallback((_, n) => { setSelected(n) }, [])
 
   function nodeCfgSchema(typeKey) {
-    if (typeKey === 'data') return []
+    if (typeKey === 'data') return [
+      { key: 'pairs', label: 'Pairs', def: 'BTC/USDT ETH/USDT' },
+      { key: 'timeframe', label: 'Timeframe', def: '4h' },
+      { key: 'output', label: 'Output', def: 'user_data/freqai_features_multi.json' },
+    ]
     if (typeKey === 'expr') return [
       { key: 'llm_model', label: 'LLM Model', def: 'gpt-3.5-turbo' },
       { key: 'llm_count', label: 'LLM Count', def: 12, type: 'number' },
@@ -98,6 +124,9 @@ function App() {
     ]
     if (typeKey === 'bt') return [
       { key: 'timerange', label: 'Timerange', def: '20210101-20211231' },
+    ]
+    if (typeKey === 'fb') return [
+      { key: 'results_dir', label: 'Results Dir', def: 'user_data/backtest_results' },
     ]
     return []
   }
@@ -130,14 +159,18 @@ function App() {
 
   function addNode(typeKey) {
     const id = genId()
-    const label = typeKey === 'data' ? 'Data' : (typeKey === 'expr' ? 'Expression(LLM)' : 'Backtest')
-    const cfg = typeKey === 'expr' ? { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' } : (typeKey === 'bt' ? { timerange: '20210101-20211231' } : {})
+    const label = typeKey === 'data' ? 'Data' : (typeKey === 'expr' ? 'Expression(LLM)' : (typeKey === 'bt' ? 'Backtest' : 'Feedback'))
+    const cfg = typeKey === 'expr' ? { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' }
+      : (typeKey === 'bt' ? { timerange: '20210101-20211231' }
+      : (typeKey === 'data' ? { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' }
+      : { results_dir: 'user_data/backtest_results' }))
     const node = { id, position: { x: 120 + Math.random()*320, y: 120 + Math.random()*180 }, data: { label, typeKey, cfg } }
     setNodes(nds => nds.concat(node))
   }
 
   async function runFlow() {
     logsEl.textContent = ''
+    let feedbackPath = null
     // topo order (simple forward traversal)
     const id2node = Object.fromEntries(nodes.map(n => [n.id, n]))
     const incoming = {}
@@ -154,10 +187,21 @@ function App() {
         if (incoming[nb] === 0) queue.push(nb)
       }
     }
-    // execute expr -> backtest in order
+    // execute in order: data -> expr -> bt -> fb
     for (const id of order) {
       const n = id2node[id]
       if (!n?.data?.typeKey) continue
+      if (n.data.typeKey === 'data') {
+        const body = {
+          config: document.getElementById('cfg').value,
+          output: n.data.cfg?.output || 'user_data/freqai_features_multi.json',
+          timeframe: n.data.cfg?.timeframe || document.getElementById('timeframe').value,
+          pairs: n.data.cfg?.pairs || 'BTC/USDT ETH/USDT',
+        }
+        const res = await fetch(`${API}/run/feature`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const data = await res.json()
+        await pollLogs(data.job_id)
+      }
       if (n.data.typeKey === 'expr') {
         const body = {
           config: document.getElementById('cfg').value,
@@ -170,6 +214,7 @@ function App() {
           llm_timeout: 60,
           feedback_top: 0,
           llm_api_key: document.getElementById('apiKey').value || undefined,
+          feedback: feedbackPath || undefined,
         }
         const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
@@ -189,6 +234,12 @@ function App() {
         const data = await res.json()
         await pollLogs(data.job_id)
         await showSummary()
+      }
+      if (n.data.typeKey === 'fb') {
+        const body = { results_dir: n.data.cfg?.results_dir || 'user_data/backtest_results', out: 'user_data/llm_feedback/latest_backtest_summary.json' }
+        const res = await fetch(`${API}/results/prepare-feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const fb = await res.json()
+        feedbackPath = fb.feedback_path || null
       }
     }
   }
@@ -212,6 +263,7 @@ function App() {
     document.getElementById('addData').onclick = () => addNode('data')
     document.getElementById('addExpr').onclick = () => addNode('expr')
     document.getElementById('addBt').onclick = () => addNode('bt')
+    document.getElementById('addFb').onclick = () => addNode('fb')
     document.getElementById('runFlow').onclick = runFlow
     document.getElementById('saveFlow').onclick = saveFlow
     document.getElementById('loadFlow').onclick = loadFlow

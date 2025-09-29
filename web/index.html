@@ -15,6 +15,7 @@
           <button id="addData">+ Data</button>
           <button id="addExpr">+ Expression</button>
           <button id="addBt">+ Backtest</button>
+          <button id="addFb">+ Feedback</button>
           <button id="runFlow" style="margin-left:6px">▶ 运行Flow</button>
         </div>
         <div class="buttons" style="margin-bottom:6px">
@@ -60,6 +61,7 @@
           <button id="btnSummary">查看 摘要</button>
         </div>
         <div class="summary" id="summary"></div>
+        <div id="chart" style="height:240px;margin-top:8px;"></div>
       </div>
       <div class="canvas">
         <div id="root" style="width:100%;height:100%"></div>
@@ -72,6 +74,7 @@
     <script type="module" src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script type="module" src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script type="module" src="https://unpkg.com/reactflow@11.10.2/dist/standalone.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
     <script type="module" src="app.js"></script>
   </body>
   </html>

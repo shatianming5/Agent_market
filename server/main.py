@@ -55,6 +55,13 @@ class FlowReq(BaseModel):
     steps: Optional[str] = Field(None, description="Space separated steps e.g. 'feature expression backtest'")
 
 
+class FeatureReq(BaseModel):
+    config: str = Field(...)
+    output: str = Field("user_data/freqai_features.json")
+    timeframe: str = Field("4h")
+    pairs: Optional[str] = Field(None, description="Comma or space separated pairs, e.g. 'BTC/USDT ETH/USDT'")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -125,6 +132,28 @@ def run_flow(req: FlowReq = Body(...)):
     return {"job_id": job_id, "cmd": cmd}
 
 
+@app.post("/run/feature")
+def run_feature(req: FeatureReq = Body(...)):
+    py = sys.executable
+    script = str(ROOT / 'freqtrade' / 'scripts' / 'freqai_feature_agent.py')
+    cmd = [
+        py,
+        script,
+        '--config', req.config,
+        '--output', req.output,
+        '--timeframe', req.timeframe,
+    ]
+    if req.pairs:
+        # split by comma or whitespace
+        parts = [p.strip() for p in req.pairs.replace(',', ' ').split() if p.strip()]
+        if parts:
+            cmd += ['--pairs'] + parts
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(SRC)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"job_id": job_id, "cmd": cmd}
+
+
 @app.get('/jobs/{job_id}/status')
 def job_status(job_id: str):
     return jobs.status(job_id)
@@ -163,4 +192,32 @@ def latest_summary(results_dir: str = 'user_data/backtest_results'):
         return {"error": f"No backtest archives found in {rd}"}
     flow = AgentFlow(AgentFlowConfig())
     summary = flow._build_backtest_summary(zip_path)
+    # try to enrich with trades details if available in zip
+    try:
+        import zipfile  # noqa: PLC0415
+        with zipfile.ZipFile(zip_path) as zf:
+            trade_members = [name for name in zf.namelist() if name.endswith('.json') and name.startswith('trades-')]
+            if trade_members:
+                import json as _json  # noqa: N816
+                trades = _json.loads(zf.read(trade_members[0]))
+                summary['trades'] = trades
+    except Exception:
+        pass
     return summary
+
+
+@app.post('/results/prepare-feedback')
+def prepare_feedback(results_dir: str = 'user_data/backtest_results', out: str = 'user_data/llm_feedback/latest_backtest_summary.json'):
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    from agent_market.agent_flow import AgentFlow, AgentFlowConfig  # type: ignore
+    rd = Path(results_dir)
+    zip_path = _find_latest_zip(rd)
+    if not zip_path:
+        return {"error": f"No backtest archives found in {rd}"}
+    flow = AgentFlow(AgentFlowConfig())
+    summary = flow._build_backtest_summary(zip_path)
+    out_path = Path(out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+    return {"feedback_path": str(out_path)}
