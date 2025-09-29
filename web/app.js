@@ -21,6 +21,7 @@ function App() {
   const logsEl = document.getElementById('logs')
   const summaryEl = document.getElementById('summary')
   const featTopEl = document.getElementById('featTop')
+  const compareEl = document.getElementById('comparePanel')
 
   async function pollLogs(jobId) {
     let offset = 0
@@ -112,6 +113,23 @@ function App() {
       const data = await res.json()
       if (featTopEl) featTopEl.textContent = JSON.stringify(data, null, 2)
     }
+    const btnFeatPlot = document.getElementById('btnFeatPlot')
+    if (btnFeatPlot) btnFeatPlot.onclick = async () => {
+      const file = document.getElementById('featureFile').value || 'user_data/freqai_features.json'
+      const res = await fetch(`${API}/features/top?file=${encodeURIComponent(file)}&limit=10`)
+      const data = await res.json()
+      const items = data.items || []
+      const names = items.map(x => x.name)
+      const vals = items.map(x => x.score)
+      const chart = echarts.init(document.getElementById('featChart'))
+      chart.setOption({
+        grid: { left: 40, right: 16, top: 10, bottom: 60 },
+        xAxis: { type: 'category', data: names, axisLabel: { rotate: 60 } },
+        yAxis: { type: 'value', scale: true },
+        tooltip: { trigger: 'axis' },
+        series: [{ name: 'score', type: 'bar', data: vals }],
+      })
+    }
     const btnList = document.getElementById('btnList')
     if (btnList) btnList.onclick = async () => {
       const res = await fetch(`${API}/results/list`)
@@ -154,6 +172,29 @@ function App() {
           { name: B.label, type: 'line', data: B.ys },
         ],
       })
+      function metrics(s) {
+        const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}
+        return {
+          profit_pct: c.profit_total_pct ?? s.profit_total_pct,
+          profit_abs: c.profit_total_abs ?? s.profit_total_abs,
+          trades: c.trades ?? s.trades,
+          winrate: c.winrate ?? s.winrate,
+          max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
+        }
+      }
+      const ma = metrics(sa)
+      const mb = metrics(sb)
+      if (compareEl) {
+        compareEl.innerHTML = `
+          <table border="1" cellspacing="0" cellpadding="4" style="width:100%; font-size:12px">
+            <tr><th>指标</th><th>A (${a})</th><th>B (${b})</th></tr>
+            <tr><td>总收益%</td><td>${ma.profit_pct ?? '--'}</td><td>${mb.profit_pct ?? '--'}</td></tr>
+            <tr><td>总收益(USDT)</td><td>${ma.profit_abs ?? '--'}</td><td>${mb.profit_abs ?? '--'}</td></tr>
+            <tr><td>交易数</td><td>${ma.trades ?? '--'}</td><td>${mb.trades ?? '--'}</td></tr>
+            <tr><td>胜率</td><td>${ma.winrate ?? '--'}</td><td>${mb.winrate ?? '--'}</td></tr>
+            <tr><td>最大回撤(USDT)</td><td>${ma.max_dd ?? '--'}</td><td>${mb.max_dd ?? '--'}</td></tr>
+          </table>`
+      }
       summaryEl.textContent = JSON.stringify({ A: sa, B: sb }, null, 2)
     }
   }, [])
