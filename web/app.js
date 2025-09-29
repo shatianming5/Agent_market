@@ -262,7 +262,7 @@ function App() {
 
   function addNode(typeKey) {
     const id = genId()
-    const label = typeKey === 'data' ? 'Data' : (typeKey === 'expr' ? 'Expression(LLM)' : (typeKey === 'bt' ? 'Backtest' : 'Feedback'))
+    const label = typeKey === 'data' ? 'Data' : (typeKey === 'expr' ? 'Expression(LLM)' : (typeKey === 'bt' ? 'Backtest' : (typeKey === 'fb' ? 'Feedback' : (typeKey === 'ho' ? 'Hyperopt' : 'MultiValidate'))))
     const cfg = typeKey === 'expr' ? { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' }
       : (typeKey === 'bt' ? { timerange: '20210101-20211231' }
       : (typeKey === 'data' ? { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' }
@@ -411,4 +411,7 @@ function App() {
 }
 
 createRoot(document.getElementById('root')).render(h(App))
+
+
+
 
