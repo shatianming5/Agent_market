@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Body
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .job_manager import JobManager
@@ -14,6 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'src'
 
 app = FastAPI(title="Agent Market Server", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 jobs = JobManager()
 
 
@@ -55,11 +64,15 @@ def health():
 def run_expression(req: ExpressionReq = Body(...)):
     py = sys.executable
     script = str(ROOT / 'freqtrade' / 'scripts' / 'freqai_expression_agent.py')
+    feature_file = req.feature_file
+    if feature_file and not Path(feature_file).is_absolute() and feature_file.replace('\\','/').startswith('user_data/'):
+        feature_file = '../' + feature_file.replace('\\','/')
+
     cmd = [
         py,
         script,
         '--config', req.config,
-        '--feature-file', req.feature_file,
+        '--feature-file', feature_file,
         '--output', req.output,
         '--timeframe', req.timeframe,
         '--llm-model', req.llm_model,
@@ -121,3 +134,33 @@ def job_status(job_id: str):
 def job_logs(job_id: str, offset: int = 0):
     return jobs.logs(job_id, offset)
 
+
+# Results summary
+def _find_latest_zip(results_dir: Path) -> Optional[Path]:
+    results_dir = results_dir.resolve()
+    last = results_dir / '.last_result.json'
+    if last.exists():
+        try:
+            latest = json.loads(last.read_text(encoding='utf-8')).get('latest_backtest')  # type: ignore[name-defined]
+            if latest:
+                p = results_dir / latest
+                if p.exists():
+                    return p
+        except Exception:
+            pass
+    zips = sorted(results_dir.glob('backtest-result-*.zip'), key=lambda p: p.stat().st_mtime)
+    return zips[-1] if zips else None
+
+
+@app.get('/results/latest-summary')
+def latest_summary(results_dir: str = 'user_data/backtest_results'):
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    from agent_market.agent_flow import AgentFlow, AgentFlowConfig  # lazy import
+    rd = Path(results_dir)
+    zip_path = _find_latest_zip(rd)
+    if not zip_path:
+        return {"error": f"No backtest archives found in {rd}"}
+    flow = AgentFlow(AgentFlowConfig())
+    summary = flow._build_backtest_summary(zip_path)
+    return summary

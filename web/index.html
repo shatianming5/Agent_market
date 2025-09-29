@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Market Flow (MVP)</title>
+    <link rel="stylesheet" href="https://unpkg.com/reactflow@11.10.2/dist/style.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div class="sidebar">
+        <h3>节点表单</h3>
+        <div>
+          <label>Config</label>
+          <input id="cfg" value="configs/config_freqai_multi.json" />
+        </div>
+        <div>
+          <label>Feature File</label>
+          <input id="featureFile" value="user_data/freqai_features_multi.json" />
+        </div>
+        <div>
+          <label>Timeframe</label>
+          <input id="timeframe" value="4h" />
+        </div>
+        <div>
+          <label>LLM Model</label>
+          <input id="llmModel" value="gpt-3.5-turbo" />
+        </div>
+        <div>
+          <label>LLM Count</label>
+          <input id="llmCount" type="number" value="3" />
+        </div>
+        <div>
+          <label>API Key</label>
+          <input id="apiKey" type="password" placeholder="LLM_API_KEY" />
+        </div>
+        <div>
+          <label>Timerange</label>
+          <input id="timerange" value="20210101-20210331" />
+        </div>
+        <div class="buttons">
+          <button id="btnExpr">运行 表达式(LLM)</button>
+          <button id="btnBacktest">运行 回测</button>
+          <button id="btnSummary">查看 摘要</button>
+        </div>
+        <div class="summary" id="summary"></div>
+      </div>
+      <div class="canvas">
+        <div id="root" style="width:100%;height:100%"></div>
+      </div>
+      <div class="logs">
+        <h3>日志</h3>
+        <pre id="logs"></pre>
+      </div>
+    </div>
+    <script type="module" src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script type="module" src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script type="module" src="https://unpkg.com/reactflow@11.10.2/dist/standalone.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+  </html>
+
