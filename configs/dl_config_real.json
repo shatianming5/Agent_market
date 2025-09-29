@@ -1,0 +1,24 @@
+{
+  "data": {
+    "feature_file": "freqtrade/user_data/freqai_features_real.json",
+    "data_dir": "freqtrade/user_data/data",
+    "exchange": "binanceus",
+    "pairs": ["BTC/USDT", "ETH/USDT"],
+    "timeframe": "1h",
+    "label_period": 12
+  },
+  "model": {
+    "name": "pytorch_mlp",
+    "params": {
+      "hidden_dims": [256, 128, 64],
+      "dropout": 0.1,
+      "epochs": 30,
+      "batch_size": 128,
+      "learning_rate": 0.0007,
+      "model_dir": "artifacts/models/pytorch_real",
+      "use_cuda": false
+    }
+  },
+  "training": {"validation_ratio": 0.2},
+  "output": {"model_dir": "artifacts/models/pytorch_real"}
+}

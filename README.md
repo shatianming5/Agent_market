@@ -67,56 +67,76 @@ settings = FreqAISettings.from_file(args.config, args.timeframe, args.label_peri
 settings.validate_dataset()
 ```
 
-## FreqAI LLM 因子流水线
+## FreqAI LLM ?????
 
-### 1. 生成基础特征
-
-```powershell
-conda run -n freqtrade python scripts/freqai_feature_agent.py \
-    --config user_data/config_freqai.json \
-    --timeframe 1h
-```
-
-### 2. LLM 因子构造（单步）
-
-```powershell
-conda run -n freqtrade python scripts/freqai_expression_agent.py \
-    --feature-file user_data/freqai_features.json \
-    --output user_data/freqai_expressions.json \
-    --timeframe 1h \
-    --llm-enabled \
-    --llm-api-key <YOUR_API_KEY>
-```
-
-### 3. 一键完整跑通
+### 1. ??????
 
 ```powershell
 conda run --no-capture-output -n freqtrade \
-  python scripts/freqai_auto_agent.py \
-    --config user_data/config_freqai.json \
+  python freqtrade/scripts/freqai_feature_agent.py \
+    --config freqtrade/user_data/config_freqai.json \
+    --timeframe 1h
+```
+
+### 2. LLM ????
+
+```powershell
+conda run --no-capture-output -n freqtrade \
+  python freqtrade/scripts/freqai_expression_agent.py \
+    --feature-file user_data/freqai_features.json \
+    --output user_data/freqai_expressions.json \
     --timeframe 1h \
-    --llm-enabled \
-    --llm-api-key <YOUR_API_KEY> \
+    --llm-count 10 \
+    --llm-loops 12
+```
+
+- `.env` ??? `LLM_BASE_URL=https://api.zhizengzeng.com/v1`?`LLM_API_KEY=<????>`?`LLM_MODEL=gpt-3.5-turbo` ?????? LLM?
+- `--llm-loops` ??????????????????,`--llm-fallback` ???????????/????,`--no-llm` ??????
+- ?????????????? 5 ??????,?????? LLM ???? `user_data/freqai_expressions.json`,??? 50 ? `user_data/freqai_expressions_augmented.json`(?? zscore????EMA???????????????),???????
+
+### 3. ???????
+
+```powershell
+conda run --no-capture-output -n freqtrade \
+  python freqtrade/scripts/freqai_auto_agent.py \
+    --config freqtrade/user_data/config_freqai.json \
+    --timeframe 1h \
     --top-expressions 40 \
     --expression-combo-top 5
 ```
 
-自动流程会：
+?????:
 
-1. 对多个交易对聚合基础特征并写入 `user_data/freqai_features.json`
-2. 调用 LLM/模板/遗传算法生成表达式，按稳定性、夏普等指标评分
-3. 触发 freqtrade backtesting，将结果复制到 `user_data/backtest_results/auto_agent/<timestamp>/`
-4. 输出回测摘要：交易笔数、累计收益、胜率等
+1. ?????????????? `user_data/freqai_features.json`(??? `datadir`)?
+2. ?? LLM ?????,????/??/?????????? `user_data/freqai_expressions.json`?
+3. ??????/??????? freqtrade backtesting,????? `user_data/backtest_results/auto_agent/<timestamp>/`?
+4. ?????????????????????
 
-示例输出：
+??(LightGBM ?? + 1h ??):
 
 ```
+[llm] request 50 expressions from gpt-3.5-turbo
+[llm] tokens prompt=2727 completion=529
 [llm] valid expressions 5
-[summary] FreqAIExampleStrategy 交易笔数: 49, 总收益: -8.5543, 胜率: 40.82%
-[完成] 回测结果位置: user_data\backtest_results\auto_agent\20250927-205525\backtest-result-2025-09-27_16-25-24.zip
+[summary] FreqAIExampleStrategy ????: 49, ???: -8.5543, ??: 40.82%
+[??] ??????: user_data\backtest_results\auto_agent\20250928-034328\backtest-result-2025-09-27_16-25-24.zip
 ```
 
-更多使用细节与常见问题，请参阅 `docs/llm_pipeline.md` 与 `docs/ARCHITECTURE.md`。
+### 4. ?? 50 ??????
+
+```powershell
+conda run --no-capture-output -n freqtrade \
+  python freqtrade/scripts/freqai_expression_sweeper.py \
+    --config freqtrade/user_data/config_freqai.json \
+    --timeframe 1h \
+    --expressions user_data/freqai_expressions_augmented.json \
+    --limit 50
+```
+
+- ???? `user_data/backtest_results/expr_sweeper/20250928-044626/summary.json`,?? 50 ???????
+- ???????????,????????????????????,???????????????
+
+???????????,??? `docs/llm_pipeline.md` ? `docs/ARCHITECTURE.md`?
 
 ## 快速测试
 
@@ -131,4 +151,18 @@ conda run --no-capture-output -n freqtrade python -m pytest
 
 > 若环境缺少 `pytest`，可执行 `conda run -n freqtrade pip install pytest` 后再运行
 
+
+## 统一 AI 学习框架规划
+
+项目正在分阶段扩展机器学习、深度学习与强化学习能力，并构建可由智能 Agent 全流程调度的研究流水线。总体设计详见 [docs/ai_framework.md](docs/ai_framework.md)。后续阶段将在该文档的架构下逐步实现：
+
+1. 模型接口统一化，支持 LightGBM/XGBoost/CatBoost 等传统 ML。
+2. 引入 PyTorch 深度学习模型与训练配置。
+3. 提供强化学习交易环境与策略训练骨架。
+4. 打通 Agent Flow，从特征生成到回测评估一站式自动化。
+
+### 新增模块与功能
+- `agent_market/freqai/model/torch_models.py`：提供 PyTorch MLP 适配器，支持自定义隐藏层与 Dropout。
+- `agent_market/freqai/rl/`：包含 `TradingEnv`、`RLTrainer`，可用 Stable-Baselines3 训练 PPO 策略。
+- `agent_market/freqai/training/pipeline.py`：统一数据构建与模型训练流程。
 

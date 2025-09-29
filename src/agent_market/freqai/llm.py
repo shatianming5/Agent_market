@@ -1,11 +1,20 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
 import textwrap
 import time
-from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import dataclass
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency
+    load_dotenv = None  # type: ignore[assignment]
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if load_dotenv:
+    load_dotenv(PROJECT_ROOT / '.env')
+
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -38,25 +47,25 @@ DEFAULT_API_KEY = (
 DEFAULT_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "45"))
 
 ALLOWED_FUNCTIONS = [
-    ("z(column)", "z-score 标准化"),
-    ("abs(series)", "取绝对值"),
-    ("shift(series, n)", "向后平移 n 根"),
-    ("roll_mean(series, window)", "滑动平均"),
-    ("roll_std(series, window)", "滑动标准差"),
-    ("pct_change(series, n)", "n 根的百分比变化"),
-    ("sign(series)", "信号方向 -1/0/1"),
-    ("clip(series, lower, upper)", "按上下限裁剪"),
-    ("ema(series, span)", "指数滑动平均"),
-    ("rolling_max(series, window)", "滚动最大值"),
-    ("rolling_min(series, window)", "滚动最小值"),
+    ("z(column)", "z-score ???"),
+    ("abs(series)", "????"),
+    ("shift(series, n)", "???? n ?"),
+    ("roll_mean(series, window)", "????"),
+    ("roll_std(series, window)", "?????"),
+    ("pct_change(series, n)", "n ???????"),
+    ("sign(series)", "???? -1/0/1"),
+    ("clip(series, lower, upper)", "??????"),
+    ("ema(series, span)", "??????"),
+    ("rolling_max(series, window)", "?????"),
+    ("rolling_min(series, window)", "?????"),
     ("log1p(series)", "log(1+x)"),
-    ("tanh(series)", "双曲正切压缩"),
+    ("tanh(series)", "??????"),
 ]
 
 
 @dataclass
 class LLMConfig:
-    """统一管理 LLM 请求参数。"""
+    """???? LLM ?????"""
 
     base_url: str = DEFAULT_BASE_URL
     api_key: str = DEFAULT_API_KEY
@@ -140,6 +149,8 @@ def build_prompt(
     timeframe: str,
     label_period: int,
     request_count: int,
+    avoid_expressions: Optional[Sequence[str]] = None,
+    feedback: Optional[str] = None,
 ) -> str:
     glossary = build_feature_glossary(feature_cfg, feature_cols, combos)
     functions_doc = _format_allowed_functions()
@@ -178,12 +189,29 @@ def build_prompt(
         - Prefer combinations that complement each other (diversified signals).
         """
     )
+
+    if avoid_expressions:
+        avoid_list = [expr for expr in avoid_expressions if expr]
+        if avoid_list:
+            listed = '\n'.join(f'- {expr}' for expr in avoid_list[:50])
+            prompt += (
+                '\n\n        Previously generated expressions to avoid:'
+                f'\n{listed}'
+                '\n        - ??????????'
+            )
+    if feedback:
+        prompt += textwrap.dedent(
+            f"""
+        Recent backtest feedback (use these observations to improve predictive coverage and robustness):
+        {feedback}
+        """
+        )
     return prompt.strip()
 
 
 def request_completion(prompt: str, config: LLMConfig) -> Tuple[str, Optional[Dict[str, Any]]]:
     if not config.api_key:
-        raise ValueError("启用 LLM 时必须提供有效的 API Key。")
+        raise ValueError("?? LLM ???????? API Key?")
 
     url = config.base_url.rstrip("/") + "/chat/completions"
     headers = {"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"}
@@ -269,3 +297,4 @@ def extract_candidates(raw_content: str) -> List[Dict[str, Any]]:
         seen.add(expr)
         cleaned.append({"expression": expr, "name": name, **meta})
     return cleaned
+

@@ -1,0 +1,13 @@
+﻿{
+  "data": {
+    "feature_file": "freqtrade/user_data/freqai_features_real.json",
+    "data_dir": "freqtrade/user_data/data",
+    "exchange": "binanceus",
+    "pairs": ["BTC/USDT"],
+    "timeframe": "1h",
+    "label_period": 12
+  },
+  "training": {"total_timesteps": 2000},
+  "output": {"model_dir": "artifacts/models/rl_real"}
+}
+
