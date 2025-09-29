@@ -74,6 +74,75 @@ class HyperoptReq(BaseModel):
     job_workers: int = Field(-1)
 
 
+@app.get('/features/top')
+def features_top(file: str = 'user_data/freqai_features.json', limit: int = 20):
+    """Return top-N features by score/correlation/mutual_info."""
+    path = Path(file)
+    if not path.is_absolute():
+        path = (ROOT / path).resolve()
+    if not path.exists():
+        return {"error": f"Feature file not found: {path}"}
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except Exception as exc:
+        return {"error": f"Failed to parse: {exc}"}
+    feats = payload.get('features') or []
+    rows = []
+    for it in feats:
+        name = it.get('name')
+        if not name:
+            continue
+        score = it.get('score')
+        if score is None:
+            score = it.get('correlation')
+        if score is None:
+            score = it.get('mutual_info')
+        val = None
+        try:
+            val = float(score) if score is not None else None
+        except Exception:
+            val = None
+        rows.append({
+            'name': name,
+            'type': it.get('type'),
+            'period': it.get('period'),
+            'score': val,
+            'correlation': it.get('correlation'),
+            'mutual_info': it.get('mutual_info'),
+            'description': it.get('description'),
+        })
+    rows.sort(key=lambda r: abs(r['score']) if isinstance(r['score'], (int,float)) else 0.0, reverse=True)
+    return {'file': str(path), 'total': len(rows), 'items': rows[:max(1, int(limit))]}
+
+
+@app.get('/results/list')
+def results_list(results_dir: str = 'user_data/backtest_results', limit: int = 20):
+    rd = Path(results_dir)
+    if not rd.is_absolute():
+        rd = (ROOT / rd).resolve()
+    if not rd.exists():
+        return {"error": f"Results dir not found: {rd}"}
+    items = []
+    for p in rd.glob('backtest-result-*.zip'):
+        items.append({'name': p.name, 'mtime': p.stat().st_mtime, 'size': p.stat().st_size})
+    items.sort(key=lambda x: x['mtime'], reverse=True)
+    return {'dir': str(rd), 'items': items[:max(1, int(limit))]}
+
+
+@app.get('/results/summary')
+def results_summary(name: str, results_dir: str = 'user_data/backtest_results'):
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    from agent_market.agent_flow import AgentFlow, AgentFlowConfig  # type: ignore
+    rd = Path(results_dir)
+    zp = rd / name
+    if not zp.exists():
+        return {"error": f"Not found: {zp}"}
+    flow = AgentFlow(AgentFlowConfig())
+    summary = flow._build_backtest_summary(zp)
+    return summary
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

@@ -1,4 +1,4 @@
-import { createElement as h, useState, useMemo, useEffect, useCallback } from 'https://unpkg.com/react@18/umd/react.development.js'
+﻿import { createElement as h, useState, useMemo, useEffect, useCallback } from 'https://unpkg.com/react@18/umd/react.development.js'
 import { createRoot } from 'https://unpkg.com/react-dom@18/umd/react-dom.development.js'
 import ReactFlow, { Background, Controls, MiniMap } from 'https://unpkg.com/reactflow@11.10.2/dist/standalone.js'
 
@@ -91,7 +91,7 @@ function App() {
           xAxis: { type: 'category', data: xs, axisLabel: { rotate: 45 } },
           yAxis: { type: 'value', scale: true },
           tooltip: { trigger: 'axis' },
-          series: [{ name: '累积收益(USDT)', type: 'line', data: ys }],
+          series: [{ name: 'ç´¯ç§¯æ”¶ç›Š(USDT)', type: 'line', data: ys }],
         })
       }
     } catch (e) { console.warn('chart error', e) }
@@ -140,9 +140,9 @@ function App() {
 
   function renderNodeForm() {
     const el = document.getElementById('nodeForm')
-    if (!selected) { el.innerHTML = '<em>未选中节点</em>'; return }
+    if (!selected) { el.innerHTML = '<em>æœªé€‰ä¸­èŠ‚ç‚¹</em>'; return }
     const typeKey = selected?.data?.typeKey
-    if (!typeKey) { el.innerHTML = '<em>未知节点</em>'; return }
+    if (!typeKey) { el.innerHTML = '<em>æœªçŸ¥èŠ‚ç‚¹</em>'; return }
     const cfg = selected.data.cfg || {}
     const schema = nodeCfgSchema(typeKey)
     let html = `<div><b>${selected.data.label}</b> (${typeKey})</div>`
@@ -270,16 +270,16 @@ function App() {
   function saveFlow() {
     const payload = { nodes, edges }
     localStorage.setItem('agent_market_flow', JSON.stringify(payload))
-    alert('已保存到 localStorage')
+    alert('å·²ä¿å­˜åˆ° localStorage')
   }
   function loadFlow() {
     const raw = localStorage.getItem('agent_market_flow')
-    if (!raw) return alert('没有保存的 flow')
+    if (!raw) return alert('æ²¡æœ‰ä¿å­˜çš„ flow')
     try {
       const obj = JSON.parse(raw)
       setNodes(obj.nodes||[])
       setEdges(obj.edges||[])
-    } catch(e) { alert('解析失败:'+e) }
+    } catch(e) { alert('è§£æžå¤±è´¥:'+e) }
   }
 
   useEffect(() => {
@@ -301,3 +301,4 @@ function App() {
 }
 
 createRoot(document.getElementById('root')).render(h(App))
+
