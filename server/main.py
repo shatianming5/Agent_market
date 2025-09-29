@@ -62,6 +62,18 @@ class FeatureReq(BaseModel):
     pairs: Optional[str] = Field(None, description="Comma or space separated pairs, e.g. 'BTC/USDT ETH/USDT'")
 
 
+class HyperoptReq(BaseModel):
+    config: str = Field(...)  # freqtrade config
+    strategy: str = Field("ExpressionLongStrategy")
+    strategy_path: str = Field("freqtrade/user_data/strategies")
+    timerange: str = Field("20210101-20210430")
+    spaces: str = Field("buy sell protection")
+    hyperopt_loss: str = Field("SharpeHyperOptLoss")
+    epochs: int = Field(20)
+    freqaimodel: Optional[str] = Field("LightGBMRegressor")
+    job_workers: int = Field(-1)
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -111,6 +123,28 @@ def run_backtest(req: BacktestReq = Body(...)):
     ]
     if req.export:
         cmd += ['--export', 'trades', '--export-filename', req.export_filename]
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(SRC)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"job_id": job_id, "cmd": cmd}
+
+
+@app.post("/run/hyperopt")
+def run_hyperopt(req: HyperoptReq = Body(...)):
+    cmd = [
+        'freqtrade', 'hyperopt',
+        '--config', req.config,
+        '--strategy', req.strategy,
+        '--strategy-path', req.strategy_path,
+        '--timerange', req.timerange,
+        '--hyperopt-loss', req.hyperopt_loss,
+        '--epochs', str(req.epochs),
+        '--job-workers', str(req.job_workers),
+    ]
+    if req.spaces:
+        cmd += ['--spaces'] + req.spaces.split()
+    if req.freqaimodel:
+        cmd += ['--freqaimodel', req.freqaimodel]
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env)

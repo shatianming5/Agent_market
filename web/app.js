@@ -10,6 +10,7 @@ function App() {
     { id: 'n2', position: { x: 300, y: 100 }, data: { label: 'Expression(LLM)', typeKey: 'expr', cfg: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' } } },
     { id: 'n3', position: { x: 560, y: 100 }, data: { label: 'Backtest', typeKey: 'bt', cfg: { timerange: '20210101-20211231' } }, type: 'output' },
     { id: 'n4', position: { x: 820, y: 100 }, data: { label: 'Feedback', typeKey: 'fb', cfg: { results_dir: 'user_data/backtest_results' } } },
+    { id: 'n5', position: { x: 1060, y: 100 }, data: { label: 'Hyperopt', typeKey: 'ho', cfg: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' } } },
   ])
   const [edges, setEdges] = useState([
     { id: 'e1', source: 'n1', target: 'n2' },
@@ -128,6 +129,12 @@ function App() {
     if (typeKey === 'fb') return [
       { key: 'results_dir', label: 'Results Dir', def: 'user_data/backtest_results' },
     ]
+    if (typeKey === 'ho') return [
+      { key: 'timerange', label: 'Timerange', def: '20210101-20210430' },
+      { key: 'spaces', label: 'Spaces', def: 'buy sell protection' },
+      { key: 'epochs', label: 'Epochs', def: 20, type: 'number' },
+      { key: 'loss', label: 'Loss', def: 'SharpeHyperOptLoss' },
+    ]
     return []
   }
 
@@ -163,7 +170,7 @@ function App() {
     const cfg = typeKey === 'expr' ? { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' }
       : (typeKey === 'bt' ? { timerange: '20210101-20211231' }
       : (typeKey === 'data' ? { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' }
-      : { results_dir: 'user_data/backtest_results' }))
+      : (typeKey === 'fb' ? { results_dir: 'user_data/backtest_results' } : { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' })))
     const node = { id, position: { x: 120 + Math.random()*320, y: 120 + Math.random()*180 }, data: { label, typeKey, cfg } }
     setNodes(nds => nds.concat(node))
   }
@@ -241,6 +248,22 @@ function App() {
         const fb = await res.json()
         feedbackPath = fb.feedback_path || null
       }
+      if (n.data.typeKey === 'ho') {
+        const body = {
+          config: document.getElementById('cfg').value,
+          strategy: 'ExpressionLongStrategy',
+          strategy_path: 'freqtrade/user_data/strategies',
+          timerange: n.data.cfg?.timerange || '20210101-20210430',
+          spaces: n.data.cfg?.spaces || 'buy sell protection',
+          hyperopt_loss: n.data.cfg?.loss || 'SharpeHyperOptLoss',
+          epochs: Number(n.data.cfg?.epochs || 20),
+          freqaimodel: 'LightGBMRegressor',
+          job_workers: -1,
+        }
+        const res = await fetch(`${API}/run/hyperopt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const data = await res.json()
+        await pollLogs(data.job_id)
+      }
     }
   }
 
@@ -263,6 +286,7 @@ function App() {
     document.getElementById('addData').onclick = () => addNode('data')
     document.getElementById('addExpr').onclick = () => addNode('expr')
     document.getElementById('addBt').onclick = () => addNode('bt')
+    document.getElementById('addHo').onclick = () => addNode('ho')
     document.getElementById('addFb').onclick = () => addNode('fb')
     document.getElementById('runFlow').onclick = runFlow
     document.getElementById('saveFlow').onclick = saveFlow
