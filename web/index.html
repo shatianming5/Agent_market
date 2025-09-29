@@ -10,7 +10,22 @@
   <body>
     <div id="app">
       <div class="sidebar">
-        <h3>节点表单</h3>
+        <h3>Flow Builder</h3>
+        <div class="buttons" style="margin-bottom:6px">
+          <button id="addData">+ Data</button>
+          <button id="addExpr">+ Expression</button>
+          <button id="addBt">+ Backtest</button>
+          <button id="runFlow" style="margin-left:6px">▶ 运行Flow</button>
+        </div>
+        <div class="buttons" style="margin-bottom:6px">
+          <button id="saveFlow">保存</button>
+          <button id="loadFlow">加载</button>
+        </div>
+
+        <h4>选中节点配置</h4>
+        <div id="nodeForm" class="panel"></div>
+
+        <h3 style="margin-top:14px">快速参数</h3>
         <div>
           <label>Config</label>
           <input id="cfg" value="configs/config_freqai_multi.json" />
@@ -60,4 +75,3 @@
     <script type="module" src="app.js"></script>
   </body>
   </html>
-
