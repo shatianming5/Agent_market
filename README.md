@@ -1,4 +1,4 @@
-﻿# Agent Market 项目总览
+﻿# Agent Market 项目总览`n`n> 新增 server/ FastAPI 原型：提供 /run/expression、/run/backtest、/flow/run 任务执行与 /jobs/{id}/logs 拉取日志。见下方“Web 服务(原型)”章节。
 
 本仓库聚合了两个维度的能力：
 
@@ -195,6 +195,20 @@ Hyperopt 会将找到的最优参数写入：`freqtrade/user_data/strategies/Exp
 - LLM 连通性自检：
   - `conda run -n freqtrade python scripts/test_llm.py`（需 `LLM_API_KEY` 环境变量）
 
+## Web 服务（原型）
+
+- 依赖安装：`conda run -n freqtrade pip install -r server/requirements.txt`
+- 启动（本地）：
+  - `conda run -n freqtrade uvicorn server.main:app --host 0.0.0.0 --port 8000`
+- 主要接口：
+  - `GET /health`：健康检查
+  - `POST /run/expression`：触发表达式生成（LLM）
+  - `POST /run/backtest`：触发回测
+  - `POST /flow/run`：按 agent_flow 配置运行（可选 steps）
+  - `GET /jobs/{job_id}/status`、`GET /jobs/{job_id}/logs?offset=0`：查询状态与拉取日志
+- 冒烟测试（不启服务）：
+  - `conda run -n freqtrade python scripts/server_smoke.py`
+
 ## 统一 AI 学习框架规划
 
 项目正在分阶段扩展机器学习、深度学习与强化学习能力，并构建可由智能 Agent 全流程调度的研究流水线。总体设计详见 [docs/ai_framework.md](docs/ai_framework.md)。后续阶段将在该文档的架构下逐步实现：
@@ -209,4 +223,5 @@ Hyperopt 会将找到的最优参数写入：`freqtrade/user_data/strategies/Exp
 - `freqtrade/scripts/freqai_feature_agent.py`:?? 12 ?????(KAMA?MACD ???Stochastic?PSAR????/???Donchian?VWAP ???),???? `user_data/freqai_features.json`?
 - `agent_market/freqai/rl/`：包含 `TradingEnv`、`RLTrainer`，可用 Stable-Baselines3 训练 PPO 策略。
 - `agent_market/freqai/training/pipeline.py`：统一数据构建与模型训练流程。
+
 
