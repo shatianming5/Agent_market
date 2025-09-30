@@ -516,6 +516,26 @@ function App() {
       const t = s.type === 'number' ? 'number' : 'text'
       html += `<label>${s.label}</label><input data-k="${s.key}" type="${t}" value="${val}" />`
     })
+    // 针对 ML 节点，提供更友好的模型选择与参数表单
+    if (typeKey === 'ml') {
+      html += `
+        <div class="panel" style="margin-top:8px; padding:8px; border:1px dashed #e6e8eb; border-radius:8px;">
+          <div style="font-weight:600; font-size:12px; margin-bottom:6px;">模型预设与参数</div>
+          <label>模型预设</label>
+          <select id="mlPresetSelect">
+            <option value="lightgbm">LightGBM</option>
+            <option value="xgboost">XGBoost</option>
+            <option value="catboost">CatBoost</option>
+            <option value="pytorch_mlp">PyTorch MLP</option>
+          </select>
+          <div id="mlPresetParams" style="margin-top:6px"></div>
+          <div class="buttons" style="margin-top:8px">
+            <button id="mlApplyPreset">应用参数到节点</button>
+          </div>
+          <div style="font-size:12px; color:#888; margin-top:4px;">提示：应用后会自动设置 inline=true，并写入 Params(JSON)。</div>
+        </div>
+      `
+    }
     el.innerHTML = html
     Array.from(el.querySelectorAll('input[data-k]')).forEach(inp => {
       inp.addEventListener('change', (e) => {
@@ -525,6 +545,100 @@ function App() {
         selected.data.cfg = {...selected.data.cfg, [k]: v}
       })
     })
+    if (typeKey === 'ml') {
+      // 构建动态参数表单
+      const presetSel = document.getElementById('mlPresetSelect')
+      const paramsBox = document.getElementById('mlPresetParams')
+      const applyBtn = document.getElementById('mlApplyPreset')
+      const existingModel = (cfg.model || cfg.config_model || 'lightgbm').toLowerCase()
+      try { presetSel.value = existingModel } catch {}
+
+      const renderParams = (modelName) => {
+        // 读取已存在的 JSON params 做预填
+        let saved = {}
+        try { saved = JSON.parse(cfg.params || '{}') } catch {}
+        const get = (k, defv) => (saved[k] !== undefined ? saved[k] : defv)
+        if (modelName === 'lightgbm') {
+          paramsBox.innerHTML = `
+            <label>learning_rate</label><input id="p_learning_rate" value="${get('learning_rate', 0.04)}" />
+            <label>num_leaves</label><input id="p_num_leaves" type="number" value="${get('num_leaves', 63)}" />
+            <label>feature_fraction</label><input id="p_feature_fraction" value="${get('feature_fraction', 0.8)}" />
+            <label>subsample</label><input id="p_subsample" value="${get('subsample', 0.85)}" />
+            <label>num_boost_round</label><input id="p_num_boost_round" type="number" value="${get('num_boost_round', 220)}" />
+          `
+        } else if (modelName === 'xgboost') {
+          paramsBox.innerHTML = `
+            <label>eta(learning_rate)</label><input id="p_eta" value="${get('eta', 0.05)}" />
+            <label>max_depth</label><input id="p_max_depth" type="number" value="${get('max_depth', 6)}" />
+            <label>subsample</label><input id="p_subsample" value="${get('subsample', 0.8)}" />
+            <label>colsample_bytree</label><input id="p_colsample_bytree" value="${get('colsample_bytree', 0.8)}" />
+            <label>num_boost_round</label><input id="p_num_boost_round" type="number" value="${get('num_boost_round', 300)}" />
+          `
+        } else if (modelName === 'catboost') {
+          paramsBox.innerHTML = `
+            <label>iterations</label><input id="p_iterations" type="number" value="${get('iterations', 500)}" />
+            <label>depth</label><input id="p_depth" type="number" value="${get('depth', 6)}" />
+            <label>learning_rate</label><input id="p_learning_rate" value="${get('learning_rate', 0.03)}" />
+            <label>l2_leaf_reg</label><input id="p_l2_leaf_reg" value="${get('l2_leaf_reg', 3.0)}" />
+          `
+        } else { // pytorch_mlp
+          paramsBox.innerHTML = `
+            <label>hidden_dims(逗号分隔)</label><input id="p_hidden_dims" value="${(get('hidden_dims', [128,64,32])||[]).join(',')}" />
+            <label>dropout</label><input id="p_dropout" value="${get('dropout', 0.1)}" />
+            <label>epochs</label><input id="p_epochs" type="number" value="${get('epochs', 25)}" />
+            <label>batch_size</label><input id="p_batch_size" type="number" value="${get('batch_size', 128)}" />
+            <label>learning_rate</label><input id="p_learning_rate" value="${get('learning_rate', 0.001)}" />
+            <label>use_cuda(true/false)</label><input id="p_use_cuda" value="${get('use_cuda', false)}" />
+          `
+        }
+      }
+      renderParams(presetSel.value)
+      presetSel.onchange = () => renderParams(presetSel.value)
+
+      applyBtn.onclick = () => {
+        const modelName = presetSel.value
+        let params = {}
+        if (modelName === 'lightgbm') {
+          params = {
+            objective: 'regression', metric: 'rmse',
+            learning_rate: parseFloat(document.getElementById('p_learning_rate').value||'0.04'),
+            num_leaves: parseInt(document.getElementById('p_num_leaves').value||'63',10),
+            feature_fraction: parseFloat(document.getElementById('p_feature_fraction').value||'0.8'),
+            subsample: parseFloat(document.getElementById('p_subsample').value||'0.85'),
+            num_boost_round: parseInt(document.getElementById('p_num_boost_round').value||'220',10),
+          }
+        } else if (modelName === 'xgboost') {
+          params = {
+            objective: 'reg:squarederror', eta: parseFloat(document.getElementById('p_eta').value||'0.05'),
+            max_depth: parseInt(document.getElementById('p_max_depth').value||'6',10),
+            subsample: parseFloat(document.getElementById('p_subsample').value||'0.8'),
+            colsample_bytree: parseFloat(document.getElementById('p_colsample_bytree').value||'0.8'),
+            num_boost_round: parseInt(document.getElementById('p_num_boost_round').value||'300',10),
+          }
+        } else if (modelName === 'catboost') {
+          params = {
+            iterations: parseInt(document.getElementById('p_iterations').value||'500',10),
+            depth: parseInt(document.getElementById('p_depth').value||'6',10),
+            learning_rate: parseFloat(document.getElementById('p_learning_rate').value||'0.03'),
+            l2_leaf_reg: parseFloat(document.getElementById('p_l2_leaf_reg').value||'3.0'),
+          }
+        } else {
+          const hd = (document.getElementById('p_hidden_dims').value||'128,64,32').split(',').map(x=>parseInt(x.trim(),10)).filter(Boolean)
+          params = {
+            hidden_dims: hd,
+            dropout: parseFloat(document.getElementById('p_dropout').value||'0.1'),
+            epochs: parseInt(document.getElementById('p_epochs').value||'25',10),
+            batch_size: parseInt(document.getElementById('p_batch_size').value||'128',10),
+            learning_rate: parseFloat(document.getElementById('p_learning_rate').value||'0.001'),
+            use_cuda: String(document.getElementById('p_use_cuda').value||'false').toLowerCase()==='true',
+          }
+        }
+        // 写回节点 cfg：model / params(JSON) / inline=true
+        setNodes(nds => nds.map(n => n.id === selected.id ? ({...n, data: {...n.data, cfg: {...(n.data.cfg||{}), model: modelName, params: JSON.stringify(params), inline: true }}}) : n))
+        selected.data.cfg = {...selected.data.cfg, model: modelName, params: JSON.stringify(params), inline: true}
+        alert('已应用到节点：模型='+modelName)
+      }
+    }
   }
 
   useEffect(() => { renderNodeForm() }, [selected, nodes])
