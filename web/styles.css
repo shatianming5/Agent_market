@@ -4,6 +4,8 @@
   --border: #e6e8eb;
   --text: #222;
   --muted: #7a7f87;
+  --brand-primary: #2f6dfb;
+  --brand-accent: #8694ff;
 }
 
 html, body {
@@ -29,7 +31,8 @@ html, body {
 }
 .brand { display:flex; align-items:center; gap:8px; font-weight:600; color:#3a49a4; }
 .brand i { font-size: 18px; }
-.toolbar { display:flex; gap:8px; }
+.toolbar { display:flex; gap:8px; align-items:center; }
+.toolbar select { height: 28px; padding: 2px 8px; border: 1px solid #d5d8dd; border-radius: 6px; background: #fff; }
 
 .sidebar {
   padding: 12px;
@@ -64,8 +67,9 @@ html, body {
 label { display:block; margin-top: 8px; font-size: 12px; color: #666; }
 input { width: 100%; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px; }
 .buttons { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
-button { padding: 6px 10px; border: 1px solid #d5d8dd; background: #fff; border-radius: 6px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
-button:hover { background: #f6f8ff; border-color: #c6d0ff; }
+button { padding: 6px 10px; border: 1px solid #d5d8dd; background: #fff; border-radius: 8px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.03); transition: box-shadow .15s ease, transform .05s ease; }
+button:hover { background: #f6f8ff; border-color: #c6d0ff; box-shadow: 0 6px 14px rgba(47,109,251,0.12); }
+button:active { transform: translateY(1px); }
 pre { white-space: pre-wrap; font-size: 12px; }
 .summary { margin-top: 12px; font-size: 12px; background: #fafafa; border: 1px solid var(--border); padding: 8px; border-radius: 6px; }
 
@@ -73,7 +77,7 @@ pre { white-space: pre-wrap; font-size: 12px; }
 .node-palette { margin: 6px 0 8px 0; border: 1px dashed var(--border); padding: 8px; border-radius: 8px; background: #fcfdff; }
 .palette-title { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .palette-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.palette-item { font-size: 12px; padding: 8px 10px; border: 1px solid #dfe3ea; border-radius: 8px; background: #fff; cursor: grab; user-select: none; transition: box-shadow .15s ease, transform .05s ease; display:flex; align-items:center; gap:6px; }
+.palette-item { font-size: 12px; padding: 8px 10px; border: 1px solid #dfe3ea; border-radius: 10px; background: #fff; cursor: grab; user-select: none; transition: box-shadow .18s ease, transform .06s ease; display:flex; align-items:center; gap:6px; }
 .palette-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
 .palette-item:active { cursor: grabbing; transform: scale(0.98); }
 
@@ -81,15 +85,17 @@ pre { white-space: pre-wrap; font-size: 12px; }
 .react-flow { width: 100%; height: 100%; }
 .react-flow__pane { cursor: grab; }
 .react-flow__pane:active { cursor: grabbing; }
+.react-flow__background { background-color: rgba(134,148,255,0.04) !important; }
 
 /* 自定义节点样式 */
 .am-node {
   min-width: 180px;
   background: linear-gradient(180deg, #ffffff, #f7faff);
   border: 1px solid #dfe3ea;
-  border-radius: 10px;
-  box-shadow: 0 4px 14px rgba(40, 60, 120, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(40, 60, 120, 0.08);
   overflow: hidden;
+  transition: box-shadow .2s ease, transform .06s ease;
 }
 .am-node .header { display:flex; align-items:center; gap:6px; padding:8px 10px; background: linear-gradient(90deg, #eef3ff, #f7f9ff); border-bottom: 1px solid #e8ecf5; height:auto; }
 .am-node .header .title { font-size: 12px; font-weight:600; color:#2f3a8a; }
@@ -101,6 +107,7 @@ pre { white-space: pre-wrap; font-size: 12px; }
 .am-node .actions { margin-top:6px; display:flex; gap:6px; }
 .am-node .actions .mini { padding:4px 6px; font-size:11px; border-radius:6px; border:1px solid #d5d8dd; background:#fff; cursor:pointer; }
 .am-node .actions .mini:hover { background:#f6f8ff; border-color:#c6d0ff; }
+.am-node:hover { box-shadow: 0 10px 28px rgba(47,109,251,0.18); }
 
 /* 暗色主题 */
 [data-theme='dark'] {
@@ -121,6 +128,14 @@ pre { white-space: pre-wrap; font-size: 12px; }
 [data-theme='dark'] .am-node .footer { background:#0f1623; border-top-color:#263047; color:#9aa3b2; }
 [data-theme='dark'] .am-node .actions .mini { background:#0f172a; border-color:#2a3550; color:#dbe4ff; }
 [data-theme='dark'] .am-node .actions .mini:hover { background:#0e1b3a; border-color:#3a4a7a; }
+
+/* 品牌主题 */
+[data-brand='ocean'] { --brand-primary:#2f6dfb; --brand-accent:#8694ff; }
+[data-brand='forest'] { --brand-primary:#18a957; --brand-accent:#64d39b; }
+[data-brand='sunset'] { --brand-primary:#ff6b6b; --brand-accent:#f7a778; }
+.brand { color: var(--brand-primary); }
+button:hover { box-shadow: 0 6px 14px color-mix(in oklab, var(--brand-primary) 25%, transparent); }
+.am-node:hover { box-shadow: 0 12px 28px color-mix(in oklab, var(--brand-primary) 22%, transparent); }
 
 /* 右键菜单 */
 .ctx-menu {

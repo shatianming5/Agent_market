@@ -59,6 +59,7 @@ function App() {
     { id: 'e2', source: 'n2', target: 'n3', type: 'smoothstep', animated: true },
   ])
   const [selected, setSelected] = useState(null)
+  const [snap, setSnap] = useState(true)
   const nodeTypes = React.useMemo ? React.useMemo(() => ({ amNode: CustomNode }), []) : { amNode: CustomNode }
   const defaultEdgeOptions = { animated: true, type: 'smoothstep', style: { stroke: '#8694ff', strokeWidth: 1.6 }, markerEnd: MarkerType.ArrowClosed ? { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#8694ff' } : undefined }
 
@@ -202,6 +203,31 @@ function App() {
       } catch (e) { console.warn('export error', e); alert('导出失败: '+e) }
     }
     try { const saved = localStorage.getItem('am_theme'); if (saved) document.documentElement.setAttribute('data-theme', saved) } catch {}
+    // brand select
+    const brandSel = document.getElementById('brandSelect'); if (brandSel) {
+      try {
+        const savedBrand = localStorage.getItem('am_brand') || 'ocean'
+        brandSel.value = savedBrand; document.documentElement.setAttribute('data-brand', savedBrand)
+      } catch {}
+      brandSel.onchange = () => {
+        const v = brandSel.value || 'ocean'
+        document.documentElement.setAttribute('data-brand', v)
+        try { localStorage.setItem('am_brand', v) } catch {}
+      }
+    }
+    // snap toggle
+    const snapBtn = document.getElementById('btnSnap'); if (snapBtn) snapBtn.onclick = () => setSnap(s => !s)
+    // align buttons
+    const ax = document.getElementById('btnAlignX'); if (ax) ax.onclick = () => {
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('请选择2个以上节点')
+      const refY = sels[0].position?.y || 0
+      setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: n.position.x, y: refY } }) : n))
+    }
+    const ay = document.getElementById('btnAlignY'); if (ay) ay.onclick = () => {
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('请选择2个以上节点')
+      const refX = sels[0].position?.x || 0
+      setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: refX, y: n.position.y } }) : n))
+    }
     const btnFeat = document.getElementById('btnFeatTop')
     if (btnFeat) btnFeat.onclick = async () => {
       const file = document.getElementById('featureFile').value || 'user_data/freqai_features.json'
@@ -691,6 +717,7 @@ function App() {
   return h(RF, { nodes, edges, nodeTypes, defaultEdgeOptions, fitView: true, onConnect, onNodesChange, onEdgesChange, onNodeClick, onDrop, onDragOver,
     onNodeContextMenu, onEdgeContextMenu,
     panOnDrag: [0,1,2], selectionOnDrag: false, panOnScroll: false, zoomOnScroll: true, zoomOnPinch: true,
+    snapToGrid: !!snap, snapGrid: [16,16],
     nodesDraggable: true, nodesConnectable: true, elementsSelectable: true, onInit: (inst) => { window.__rf = inst } }, [
     h(Background, { variant: 'dots', gap: 16, size: 1, key: 'bg' }),
     h(Controls, { key: 'ctl' }),
