@@ -1,4 +1,4 @@
-const { createElement: h, useState, useEffect, useCallback } = window.React
+﻿const { createElement: h, useState, useEffect, useCallback } = window.React
 const { createRoot } = window.ReactDOM
 
 // ReactFlow UMD safety
@@ -36,7 +36,7 @@ function wireFallback() {
   try {
     const apiEl = document.getElementById('apiUrl'); if (apiEl) apiEl.value = API
     const applyBtn = document.getElementById('applyApi'); if (applyBtn) applyBtn.onclick = async () => {
-      try { const val = (document.getElementById('apiUrl')?.value || '').trim(); if (!val) return; setApiUrl(val); const r = await fetch(`${API}/health`); const j = await r.json(); alert(`API 探测成功: ${API} /health: ${JSON.stringify(j)}`) } catch (e) { alert(`API 探测失败: ${API}, 调用 /health 出错: ${e}`) }
+      try { const val = (document.getElementById('apiUrl')?.value || '').trim(); if (!val) return; setApiUrl(val); const r = await fetch(`${API}/health`); const j = await r.json(); alert(`API æŽ¢æµ‹æˆåŠŸ: ${API} /health: ${JSON.stringify(j)}`) } catch (e) { alert(`API æŽ¢æµ‹å¤±è´¥: ${API}, è°ƒç”¨ /health å‡ºé”™: ${e}`) }
     }
   } catch {}
   // Expr
@@ -44,24 +44,24 @@ function wireFallback() {
     try {
       const body = { config: document.getElementById('cfg').value, feature_file: document.getElementById('featureFile').value, output: 'user_data/freqai_expressions.json', timeframe: document.getElementById('timeframe').value, llm_model: document.getElementById('llmModel').value, llm_count: parseInt(document.getElementById('llmCount').value||'3',10), llm_loops:1, llm_timeout:60, feedback_top:0 }
       const r = await fetch(`${API}/run/expression`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-      const j = await r.json(); if (j.job_id) { try { setStatus && setStatus('表达式', j.job_id, true) } catch {} ; await fallbackPollLogs(j.job_id); try { setStatus && setStatus('表达式', j.job_id, false) } catch {} } else { alert(JSON.stringify(j)) }
-    } catch(e) { alert('表达式启动失败: '+e) }
+      const j = await r.json(); if (j.job_id) { try { setStatus && setStatus('è¡¨è¾¾å¼', j.job_id, true) } catch {} ; await fallbackPollLogs(j.job_id); try { setStatus && setStatus('è¡¨è¾¾å¼', j.job_id, false) } catch {} } else { alert(JSON.stringify(j)) }
+    } catch(e) { alert('è¡¨è¾¾å¼å¯åŠ¨å¤±è´¥: '+e) }
   }
   // Backtest
   const bb = document.getElementById('btnBacktest'); if (bb) bb.onclick = async () => {
     try {
       const body = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
       const r = await fetch(`${API}/run/backtest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-      const j = await r.json(); if (j.job_id) { try { setStatus && setStatus('回测', j.job_id, true) } catch {} ; await fallbackPollLogs(j.job_id); try { setStatus && setStatus('回测', j.job_id, false) } catch {} } else { alert(JSON.stringify(j)) }
-    } catch(e) { alert('回测启动失败: '+e) }
+      const j = await r.json(); if (j.job_id) { try { setStatus && setStatus('å›žæµ‹', j.job_id, true) } catch {} ; await fallbackPollLogs(j.job_id); try { setStatus && setStatus('å›žæµ‹', j.job_id, false) } catch {} } else { alert(JSON.stringify(j)) }
+    } catch(e) { alert('å›žæµ‹å¯åŠ¨å¤±è´¥: '+e) }
   }
   // Summary
   const bs = document.getElementById('btnSummary'); if (bs) bs.onclick = async () => {
-    try { const r = await fetch(`${API}/results/latest-summary`); const j = await r.json(); const summaryEl=document.getElementById('summary'); if (summaryEl) summaryEl.textContent = JSON.stringify(j,null,2) } catch(e) { alert('加载摘要失败: '+e) }
+    try { const r = await fetch(`${API}/results/latest-summary`); const j = await r.json(); const summaryEl=document.getElementById('summary'); if (summaryEl) summaryEl.textContent = JSON.stringify(j,null,2) } catch(e) { alert('åŠ è½½æ‘˜è¦å¤±è´¥: '+e) }
   }
 }
 
-// API base: default same-origin, controlled by input框
+// API base: default same-origin, controlled by inputæ¡†
 let API = (typeof location !== 'undefined' && /^https?:/i.test(location.origin || '')) ? location.origin.replace(/\/$/, '') : 'http://127.0.0.1:8000'
 function setApiUrl(url) {
   try {
@@ -86,10 +86,10 @@ function setStatus(phase, jobId, running) {
   if (!el) return
   if (running) {
     el.className = 'status running'
-    el.innerHTML = `<i class="ri-loader-4-line spin"></i> ${phase} 运行中 · job ${jobId}`
+    el.innerHTML = `<i class="ri-loader-4-line spin"></i> ${phase} è¿è¡Œä¸­ Â· job ${jobId}`
   } else {
     el.className = 'status'
-    el.innerHTML = `<i class="ri-check-line"></i> ${phase} 完成 · job ${jobId}`
+    el.innerHTML = `<i class="ri-check-line"></i> ${phase} å®Œæˆ Â· job ${jobId}`
   }
 }
 
@@ -114,10 +114,10 @@ async function pollLogs(jobId) {
     const bar = document.getElementById('statusBar')
     if (last && last.code && last.code !== 'OK') {
       bar.className = 'status failed'
-      bar.innerHTML = `<i class="ri-error-warning-line"></i> 脚本失败 (code=${last.code})`
+      bar.innerHTML = `<i class="ri-error-warning-line"></i> è„šæœ¬å¤±è´¥ (code=${last.code})`
       const retryBtn = document.createElement('button')
-      retryBtn.textContent = '重试上次操作'
-      retryBtn.onclick = () => { try { window.__retryLast && window.__retryLast() } catch(e) { alert('重试失败: '+e) } }
+      retryBtn.textContent = 'é‡è¯•ä¸Šæ¬¡æ“ä½œ'
+      retryBtn.onclick = () => { try { window.__retryLast && window.__retryLast() } catch(e) { alert('é‡è¯•å¤±è´¥: '+e) } }
       const cards = document.getElementById('cards') || bar.parentElement
       cards && cards.appendChild(retryBtn)
     } else if (last && last.code === 'OK') {
@@ -155,12 +155,12 @@ async function showSummary() {
       const pf = Number(m.profit_pct || 0)
       const pfColor = (isFinite(pf) && pf >= 0) ? '#166534' : '#b91c1c'
       cards.innerHTML = `
-        <div class="card"><div class="k">收益%</div><div class="v" style="color:${pfColor}">${m.profit_pct ?? '--'}</div></div>
-        <div class="card"><div class="k">交易数</div><div class="v">${m.trades ?? '--'}</div></div>
-        <div class="card"><div class="k">胜率</div><div class="v">${m.winrate ?? '--'}</div></div>
-        <div class="card"><div class="k">最大回撤</div><div class="v">${m.max_dd ?? '--'}</div></div>
-        <div class="card"><div class="k">最近训练</div><div class="v">${trainModel ?? '--'}</div></div>
-        <div class="card"><div class="k">验证RMSE</div><div class="v">${trainRMSE ?? '--'}</div></div>
+        <div class="card"><div class="k">æ”¶ç›Š%</div><div class="v" style="color:${pfColor}">${m.profit_pct ?? '--'}</div></div>
+        <div class="card"><div class="k">äº¤æ˜“æ•°</div><div class="v">${m.trades ?? '--'}</div></div>
+        <div class="card"><div class="k">èƒœçŽ‡</div><div class="v">${m.winrate ?? '--'}</div></div>
+        <div class="card"><div class="k">æœ€å¤§å›žæ’¤</div><div class="v">${m.max_dd ?? '--'}</div></div>
+        <div class="card"><div class="k">æœ€è¿‘è®­ç»ƒ</div><div class="v">${trainModel ?? '--'}</div></div>
+        <div class="card"><div class="k">éªŒè¯RMSE</div><div class="v">${trainRMSE ?? '--'}</div></div>
       `
     }
   } catch {}
@@ -178,7 +178,7 @@ async function showSummary() {
       if (window.echarts) {
         const _el = document.getElementById('chart')
         const chart = (window.echarts.getInstanceByDom && _el) ? (echarts.getInstanceByDom(_el) || echarts.init(_el)) : echarts.init(_el)
-        chart.setOption({ grid:{left:40,right:16,top:10,bottom:30}, xAxis:{ type:'category', data:xs, axisLabel:{ rotate:45 } }, yAxis:{ type:'value', scale:true }, tooltip:{ trigger:'axis' }, series:[{ name:'累计收益(USDT)', type:'line', data:ys }] })
+        chart.setOption({ grid:{left:40,right:16,top:10,bottom:30}, xAxis:{ type:'category', data:xs, axisLabel:{ rotate:45 } }, yAxis:{ type:'value', scale:true }, tooltip:{ trigger:'axis' }, series:[{ name:'ç´¯è®¡æ”¶ç›Š(USDT)', type:'line', data:ys }] })
       }
     }
   } catch (e) { console.warn('chart error', e) }
@@ -199,14 +199,14 @@ function CustomNode({ id, data }) {
   if (typeKey === 'bt') rows.push(['range', info.timerange||'--'])
   const locked = !!data?.locked
   return h('div', { className: 'am-node' + (locked ? ' locked' : '') }, [
-    h('div', { className: 'header' }, [ h(Icon, { type: typeKey }), h('div', { className: 'title' }, [ data?.label||id, locked ? h('i', { className: 'ri-lock-2-line', title: '已锁定' }) : null ]), h('div', { className: 'badge' }, typeKey) ]),
+    h('div', { className: 'header' }, [ h(Icon, { type: typeKey }), h('div', { className: 'title' }, [ data?.label||id, locked ? h('i', { className: 'ri-lock-2-line', title: 'å·²é”å®š' }) : null ]), h('div', { className: 'badge' }, typeKey) ]),
     h('div', { className: 'body' }, rows.map(([k,v]) => h('div', { className: 'kv' }, [ h('span', null, k), h('b', null, String(v)) ]))),
     h('div', { className: 'footer' }, [
       h('div', null, (info.output||info.results_dir||'')),
       h('div', { className: 'actions' }, [
-        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__runNode && window.__runNode(id) } catch(e){} } }, '运行'),
-        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__configureNode && window.__configureNode(id) } catch(e){} } }, '配置'),
-        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { showSummary() } catch(e){} } }, '摘要'),
+        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__runNode && window.__runNode(id) } catch(e){} } }, 'è¿è¡Œ'),
+        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__configureNode && window.__configureNode(id) } catch(e){} } }, 'é…ç½®'),
+        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { showSummary() } catch(e){} } }, 'æ‘˜è¦'),
       ])
     ]),
     h(Handle, { type: 'target', position: Position.Left }),
@@ -237,8 +237,8 @@ function App() {
       if (!val) return
       setApiUrl(val)
       try {
-        const r = await fetch(`${API}/health`); const j = await r.json(); alert(`API 探测成功: ${API} /health: ${JSON.stringify(j)}`)
-      } catch (e) { alert(`API 探测失败: ${API}, 调用 /health 出错: ${e}`) }
+        const r = await fetch(`${API}/health`); const j = await r.json(); alert(`API æŽ¢æµ‹æˆåŠŸ: ${API} /health: ${JSON.stringify(j)}`)
+      } catch (e) { alert(`API æŽ¢æµ‹å¤±è´¥: ${API}, è°ƒç”¨ /health å‡ºé”™: ${e}`) }
     }
     const themeBtn = document.getElementById('btnTheme'); if (themeBtn) themeBtn.onclick = () => {
       const cur = document.documentElement.getAttribute('data-theme') || 'light'
@@ -249,7 +249,7 @@ function App() {
     const btnFit = document.getElementById('btnFit'); if (btnFit) btnFit.onclick = () => { try { window.__rf && window.__rf.fitView() } catch {} }
     const btnClear = document.getElementById('btnClear'); if (btnClear) btnClear.onclick = () => { setNodes([]); setEdges([]) }
     const layoutBtn = document.getElementById('btnLayout'); if (layoutBtn) layoutBtn.onclick = () => {
-      // 简易水平布局
+      // ç®€æ˜“æ°´å¹³å¸ƒå±€
       const sorted = (nodes||[]).slice().sort((a,b)=> (a.position?.x||0)-(b.position?.x||0))
       const y = 120
       setNodes(sorted.map((n,i) => ({ ...n, position: { x: 80 + i*260, y } })))
@@ -263,17 +263,17 @@ function App() {
       setGrid([v,v])
     }
     const ax = document.getElementById('btnAlignX'); if (ax) ax.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('至少选中2个节点')
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('è‡³å°‘é€‰ä¸­2ä¸ªèŠ‚ç‚¹')
       const refY = sels[0].position?.y || 0
       setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: n.position.x, y: refY } }) : n))
     }
     const ay = document.getElementById('btnAlignY'); if (ay) ay.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('至少选中2个节点')
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('è‡³å°‘é€‰ä¸­2ä¸ªèŠ‚ç‚¹')
       const refX = sels[0].position?.x || 0
       setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: refX, y: n.position.y } }) : n))
     }
     const distX = document.getElementById('btnDistX'); if (distX) distX.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('至少选中3个节点'); return }
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('è‡³å°‘é€‰ä¸­3ä¸ªèŠ‚ç‚¹'); return }
       const sorted = sels.slice().sort((a,b)=> (a.position?.x||0)-(b.position?.x||0))
       const minx = sorted[0].position.x, maxx = sorted[sorted.length-1].position.x
       const step = (maxx - minx) / (sorted.length - 1)
@@ -281,7 +281,7 @@ function App() {
       setNodes(nds => nds.map(n => map.has(n.id) ? ({ ...n, position: { x: map.get(n.id), y: n.position.y } }) : n))
     }
     const distY = document.getElementById('btnDistY'); if (distY) distY.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('至少选中3个节点'); return }
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('è‡³å°‘é€‰ä¸­3ä¸ªèŠ‚ç‚¹'); return }
       const sorted = sels.slice().sort((a,b)=> (a.position?.y||0)-(b.position?.y||0))
       const miny = sorted[0].position.y, maxy = sorted[sorted.length-1].position.y
       const step = (maxy - miny) / (sorted.length - 1)
@@ -314,7 +314,7 @@ function App() {
       }
       window.__retryLast = async () => {
         const r = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const j = await r.json(); if (j.job_id) { setStatus('表达式', j.job_id, true); await pollLogs(j.job_id); setStatus('表达式', j.job_id, false) } else { alert(JSON.stringify(j)) }
+        const j = await r.json(); if (j.job_id) { setStatus('è¡¨è¾¾å¼', j.job_id, true); await pollLogs(j.job_id); setStatus('è¡¨è¾¾å¼', j.job_id, false) } else { alert(JSON.stringify(j)) }
       }
       await window.__retryLast()
     }
@@ -331,12 +331,12 @@ function App() {
       }
       window.__retryLast = async () => {
         const r = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const j = await r.json(); if (j.job_id) { setStatus('回测', j.job_id, true); await pollLogs(j.job_id); setStatus('回测', j.job_id, false) } else { alert(JSON.stringify(j)) }
+        const j = await r.json(); if (j.job_id) { setStatus('å›žæµ‹', j.job_id, true); await pollLogs(j.job_id); setStatus('å›žæµ‹', j.job_id, false) } else { alert(JSON.stringify(j)) }
       }
       await window.__retryLast()
     }
     if (bs) bs.onclick = () => showSummary()
-    const cancel = document.getElementById('btnCancelJob'); if (cancel) cancel.onclick = async () => { try { /* requires job id track; skipped */ alert('请在任务执行时通过接口取消') } catch {} }
+    const cancel = document.getElementById('btnCancelJob'); if (cancel) cancel.onclick = async () => { try { /* requires job id track; skipped */ alert('è¯·åœ¨ä»»åŠ¡æ‰§è¡Œæ—¶é€šè¿‡æŽ¥å£å–æ¶ˆ') } catch {} }
   }, [])
 
   // Settings load/save/apply
@@ -351,7 +351,7 @@ function App() {
         document.getElementById('llmBaseUrl').value = s.llm_base_url || ''
         document.getElementById('llmModelSet').value = s.llm_model || ''
         document.getElementById('defaultTf').value = s.default_timeframe || ''
-      } catch(e) { alert('加载失败: '+e) }
+      } catch(e) { alert('åŠ è½½å¤±è´¥: '+e) }
     }
     if (saveBtn) saveBtn.onclick = async () => {
       const base = (document.getElementById('llmBaseUrl')?.value || '').trim()
@@ -359,14 +359,14 @@ function App() {
       const tf = (document.getElementById('defaultTf')?.value || '').trim()
       const body = {}; if (base) body.llm_base_url = base; if (model) body.llm_model = model; if (tf) body.default_timeframe = tf
       const r = await fetch(`${API}/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const j = await r.json(); if (j.status === 'ok') alert('已保存设置') else alert('保存失败: '+JSON.stringify(j))
+      const j = await r.json(); if (j.status === 'ok') alert('å·²ä¿å­˜è®¾ç½®') else alert('ä¿å­˜å¤±è´¥: '+JSON.stringify(j))
     }
     if (applyBtn) applyBtn.onclick = () => {
       const model = (document.getElementById('llmModelSet')?.value || '').trim()
       const tf = (document.getElementById('defaultTf')?.value || '').trim()
       const mainLlm = document.getElementById('llmModel'); if (mainLlm && model) mainLlm.value = model
       const mainTf = document.getElementById('timeframe'); if (mainTf && tf) mainTf.value = tf
-      alert('已应用到表单')
+      alert('å·²åº”ç”¨åˆ°è¡¨å•')
     }
   }, [])
 
@@ -392,7 +392,7 @@ function App() {
       const fs = document.getElementById('flowStatus')
       if (fs) {
         const steps = (body.steps && Array.isArray(body.steps) && body.steps.length) ? body.steps : ['feature','expression','ml','rl','backtest']
-        fs.innerHTML = '<div style="margin-bottom:6px">步骤:</div>' + steps.map(s => `<span class="tag tag-running" data-step="${s}"><i class="ri-time-line"></i> ${s}</span>`).join(' ')
+        fs.innerHTML = '<div style="margin-bottom:6px">æ­¥éª¤:</div>' + steps.map(s => `<span class="tag tag-running" data-step="${s}"><i class="ri-time-line"></i> ${s}</span>`).join(' ')
         const controls = document.createElement('div'); controls.className = 'buttons'
         controls.innerHTML = `
           <button class="btn" id="qFeature"><i class="ri-database-2-line"></i> Feature</button>
@@ -479,10 +479,10 @@ function App() {
   // Results list / compare / gallery / aggregate
   useEffect(() => {
     const listBtn = document.getElementById('btnList'); if (listBtn) listBtn.onclick = async () => {
-      try { const res = await fetch(`${API}/results/list`); const data = await res.json(); const el = document.getElementById('comparePanel'); if (el) el.textContent = JSON.stringify(data, null, 2) } catch(e) { alert('加载失败:'+e) }
+      try { const res = await fetch(`${API}/results/list`); const data = await res.json(); const el = document.getElementById('comparePanel'); if (el) el.textContent = JSON.stringify(data, null, 2) } catch(e) { alert('åŠ è½½å¤±è´¥:'+e) }
     }
     const cmpBtn = document.getElementById('btnCompare'); if (cmpBtn) cmpBtn.onclick = async () => {
-      const a = (document.getElementById('resA').value||'').trim(); const b = (document.getElementById('resB').value||'').trim(); if (!a || !b) return alert('请先输入结果 A 与 B')
+      const a = (document.getElementById('resA').value||'').trim(); const b = (document.getElementById('resB').value||'').trim(); if (!a || !b) return alert('è¯·å…ˆè¾“å…¥ç»“æžœ A ä¸Ž B')
       const rd = 'user_data/backtest_results'
       const [ra, rb] = await Promise.all([
         fetch(`${API}/results/summary?name=${encodeURIComponent(a)}`),
@@ -494,12 +494,12 @@ function App() {
       const el = document.getElementById('comparePanel')
       if (el) el.innerHTML = `
         <table style="width:100%; font-size:12px; border-collapse:collapse">
-          <tr><th>指标</th><th>A (${a})</th><th>B (${b})</th></tr>
-          <tr><td>收益%</td><td>${ma.profit_pct ?? '--'}</td><td>${mb.profit_pct ?? '--'}</td></tr>
-          <tr><td>收益(USDT)</td><td>${ma.profit_abs ?? '--'}</td><td>${mb.profit_abs ?? '--'}</td></tr>
-          <tr><td>交易数</td><td>${ma.trades ?? '--'}</td><td>${mb.trades ?? '--'}</td></tr>
-          <tr><td>胜率</td><td>${ma.winrate ?? '--'}</td><td>${mb.winrate ?? '--'}</td></tr>
-          <tr><td>最大回撤(USDT)</td><td>${ma.max_dd ?? '--'}</td><td>${mb.max_dd ?? '--'}</td></tr>
+          <tr><th>æŒ‡æ ‡</th><th>A (${a})</th><th>B (${b})</th></tr>
+          <tr><td>æ”¶ç›Š%</td><td>${ma.profit_pct ?? '--'}</td><td>${mb.profit_pct ?? '--'}</td></tr>
+          <tr><td>æ”¶ç›Š(USDT)</td><td>${ma.profit_abs ?? '--'}</td><td>${mb.profit_abs ?? '--'}</td></tr>
+          <tr><td>äº¤æ˜“æ•°</td><td>${ma.trades ?? '--'}</td><td>${mb.trades ?? '--'}</td></tr>
+          <tr><td>èƒœçŽ‡</td><td>${ma.winrate ?? '--'}</td><td>${mb.winrate ?? '--'}</td></tr>
+          <tr><td>æœ€å¤§å›žæ’¤(USDT)</td><td>${ma.max_dd ?? '--'}</td><td>${mb.max_dd ?? '--'}</td></tr>
         </table>`
     }
     const gbtn = document.getElementById('btnGallery'); if (gbtn) gbtn.onclick = async () => {
@@ -516,12 +516,12 @@ function App() {
             return `
               <div class="mini-card">
                 <div class="title">${x.name}</div>
-                <div class="row"><span>收益%</span><b>${x.profit_total_pct ?? '--'}</b></div>
-                <div class="row"><span>交易数</span><b>${x.trades ?? '--'}</b></div>
-                <div class="row"><span>最大回撤</span><b>${x.max_drawdown_abs ?? '--'}</b></div>
+                <div class="row"><span>æ”¶ç›Š%</span><b>${x.profit_total_pct ?? '--'}</b></div>
+                <div class="row"><span>äº¤æ˜“æ•°</span><b>${x.trades ?? '--'}</b></div>
+                <div class="row"><span>æœ€å¤§å›žæ’¤</span><b>${x.max_drawdown_abs ?? '--'}</b></div>
                 <div class="mini-bar"><i style="width:${width}%; background:${color}"></i></div>
               </div>`
-          }).join('') || '<em>暂无</em>'
+          }).join('') || '<em>æš‚æ— </em>'
           gp.innerHTML = `<div class="card-grid">${html}</div>`
         }
       })
@@ -529,7 +529,7 @@ function App() {
     const abtn = document.getElementById('btnAgg'); if (abtn) abtn.onclick = async () => {
       await runWithLoading(abtn, async () => {
         const names = (document.getElementById('aggNames').value||'').trim()
-        if (!names) return alert('请输入若干结果名称, 例如 a.zip,b.zip')
+        if (!names) return alert('è¯·è¾“å…¥è‹¥å¹²ç»“æžœåç§°, ä¾‹å¦‚ a.zip,b.zip')
         const res = await fetch(`${API}/results/aggregate?names=${encodeURIComponent(names)}`)
         const data = await res.json()
         const ap = document.getElementById('aggPanel')
@@ -543,7 +543,7 @@ function App() {
             chart.setOption({ grid:{left:40,right:16,top:10,bottom:60}, xAxis:{ type:'category', data:x, axisLabel:{ rotate:60 } }, yAxis:{ type:'value', scale:true }, tooltip:{ trigger:'axis' }, series:[{ type:'bar', data:y }] })
           }
           const info = document.getElementById('aggInfo')
-          if (info) info.innerHTML = `均值收益: ${data.mean_profit ?? '--'} | 收益波动: ${data.std_profit ?? '--'} | 鲁棒分: ${data.robust_score ?? '--'}`
+          if (info) info.innerHTML = `å‡å€¼æ”¶ç›Š: ${data.mean_profit ?? '--'} | æ”¶ç›Šæ³¢åŠ¨: ${data.std_profit ?? '--'} | é²æ£’åˆ†: ${data.robust_score ?? '--'}`
         }
       })
     }
@@ -578,13 +578,13 @@ function boot() {
   const hasReact = !!(window.React && window.ReactDOM)
   const hasRF = !!window.ReactFlow
   if (!hasReact || !hasRF) {
-    console.warn('[fallback] 缺少依赖: React=', hasReact, ' ReactFlow=', hasRF, '，启用降级绑定')
-    try { wireFallback() } catch (e2) { console.error('fallback 失败', e2) }
+    console.warn('[fallback] ç¼ºå°‘ä¾èµ–: React=', hasReact, ' ReactFlow=', hasRF, 'ï¼Œå¯ç”¨é™çº§ç»‘å®š')
+    try { wireFallback() } catch (e2) { console.error('fallback å¤±è´¥', e2) }
     return
   }
   try { createRoot(document.getElementById('root')).render(h(App)) } catch (e) {
-    console.warn('[fallback] 渲染失败，启用降级绑定', e)
-    try { wireFallback() } catch (e2) { console.error('fallback 失败', e2) }
+    console.warn('[fallback] æ¸²æŸ“å¤±è´¥ï¼Œå¯ç”¨é™çº§ç»‘å®š', e)
+    try { wireFallback() } catch (e2) { console.error('fallback å¤±è´¥', e2) }
   }
 }
 
@@ -600,3 +600,4 @@ document.addEventListener('DOMContentLoaded', () => {
   const onDragStart = (e) => { const typeKey = e.target?.getAttribute?.('data-nodetype'); if (!typeKey) return; e.dataTransfer.setData('application/node-type', typeKey); e.dataTransfer.effectAllowed = 'move' }
   paletteItems.forEach(el => el.addEventListener('dragstart', onDragStart))
 })
+

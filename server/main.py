@@ -283,7 +283,7 @@ def run_expression(req: ExpressionReq = Body(...)):
     if req.feedback:
         cmd += ['--feedback', req.feedback]
 
-    env = os.environ.copy()
+    if (ROOT / 'scripts' / 'backtest_wrapper.py').exists():\n        cmd = [py, str(ROOT / 'scripts' / 'backtest_wrapper.py'), '--'] + cmd\nenv = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     # Prefer API key from request; fallback to .env / process env
     llm_key = req.llm_api_key or os.environ.get('LLM_API_KEY')
@@ -336,7 +336,7 @@ def run_backtest(req: BacktestReq = Body(...)):
         ]
     if req.export:
         cmd += ['--export', 'trades', '--export-filename', req.export_filename]
-    env = os.environ.copy()
+    if (ROOT / 'scripts' / 'backtest_wrapper.py').exists():\n        cmd = [py, str(ROOT / 'scripts' / 'backtest_wrapper.py'), '--'] + cmd\nenv = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=7200, kind='backtest', meta={"timerange": req.timerange})
     return {"status": "started", "job_id": job_id, "kind": "backtest", "cmd": cmd}
@@ -358,7 +358,7 @@ def run_hyperopt(req: HyperoptReq = Body(...)):
         cmd += ['--spaces'] + req.spaces.split()
     if req.freqaimodel:
         cmd += ['--freqaimodel', req.freqaimodel]
-    env = os.environ.copy()
+    if (ROOT / 'scripts' / 'backtest_wrapper.py').exists():\n        cmd = [py, str(ROOT / 'scripts' / 'backtest_wrapper.py'), '--'] + cmd\nenv = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=1800, kind='hyperopt', meta={"timerange": req.timerange})
     return {"status": "started", "job_id": job_id, "kind": "hyperopt", "cmd": cmd}
@@ -369,7 +369,7 @@ def run_rl_train(req: RLTrainReq = Body(...)):
     py = sys.executable
     script = str(ROOT / 'scripts' / 'train_rl.py')
     cmd = [py, script, '--config', req.config]
-    env = os.environ.copy()
+    if (ROOT / 'scripts' / 'backtest_wrapper.py').exists():\n        cmd = [py, str(ROOT / 'scripts' / 'backtest_wrapper.py'), '--'] + cmd\nenv = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=7200, kind='rl_train')
     return {"status": "started", "job_id": job_id, "kind": "rl_train", "cmd": cmd}
@@ -439,7 +439,7 @@ def run_train(req: TrainReq = Body(...)):
     else:
         return {"status": "error", "code": "MISSING_CONFIG", "message": "Either 'config' (path) or 'config_obj' (inline JSON) must be provided"}
     cmd = [py, script, '--config', str(cfg_path)]
-    env = os.environ.copy()
+    if (ROOT / 'scripts' / 'backtest_wrapper.py').exists():\n        cmd = [py, str(ROOT / 'scripts' / 'backtest_wrapper.py'), '--'] + cmd\nenv = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env, kind='train')
     return {"status": "started", "job_id": job_id, "kind": "train", "cmd": cmd}
@@ -477,7 +477,7 @@ def run_flow(req: FlowReq = Body(...)):
             parts = [str(p) for p in req.steps if p]
         if parts:
             cmd += ['--steps'] + parts
-    env = os.environ.copy()
+    if (ROOT / 'scripts' / 'backtest_wrapper.py').exists():\n        cmd = [py, str(ROOT / 'scripts' / 'backtest_wrapper.py'), '--'] + cmd\nenv = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env, kind='flow')
     return {"status": "started", "job_id": job_id, "kind": "flow", "cmd": cmd}
@@ -508,7 +508,7 @@ def run_feature(req: FeatureReq = Body(...)):
         parts = parsed
         if parts:
             cmd += ['--pairs'] + parts
-    env = os.environ.copy()
+    if (ROOT / 'scripts' / 'backtest_wrapper.py').exists():\n        cmd = [py, str(ROOT / 'scripts' / 'backtest_wrapper.py'), '--'] + cmd\nenv = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env, kind='feature', meta={"timeframe": req.timeframe})
     return {"status": "started", "job_id": job_id, "kind": "feature", "cmd": cmd}
@@ -983,6 +983,9 @@ def _load_settings() -> dict:
 def _save_settings(obj: dict) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PATH.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+
 
 
 
