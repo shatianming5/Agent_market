@@ -1,22 +1,65 @@
-﻿import { createElement as h, useState, useEffect, useCallback } from 'https://unpkg.com/react@18/umd/react.development.js'
-import { createRoot } from 'https://unpkg.com/react-dom@18/umd/react-dom.development.js'
-import ReactFlow, { Background, Controls, MiniMap } from 'https://unpkg.com/reactflow@11.10.2/dist/standalone.js'
+﻿const { createElement: h, useState, useEffect, useCallback } = window.React
+const { createRoot } = window.ReactDOM
+// 兼容 UMD 版本的 ReactFlow 全局导出
+const RFLib = window.ReactFlow || {}
+const RF = RFLib.ReactFlow || RFLib.default || (typeof RFLib === 'function' ? RFLib : RFLib)
+const Background = RFLib.Background || (RFLib.default && RFLib.default.Background) || (() => null)
+const Controls = RFLib.Controls || (RFLib.default && RFLib.default.Controls) || (() => null)
+const MiniMap = RFLib.MiniMap || (RFLib.default && RFLib.default.MiniMap) || (() => null)
+const Handle = RFLib.Handle || (() => null)
+const Position = RFLib.Position || { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' }
+const MarkerType = RFLib.MarkerType || {}
+try { console.log('[rf]', Object.keys(RFLib)) } catch {}
+const applyNodeChanges = RFLib.applyNodeChanges || ((chs, nds) => nds)
+const applyEdgeChanges = RFLib.applyEdgeChanges || ((chs, eds) => eds)
+const addEdgeLib = RFLib.addEdge || ((params, eds) => eds.concat({ id: (params.id || ('e' + Math.random().toString(16).slice(2,8))), ...params }))
 
 const API = 'http://127.0.0.1:8000'
 
+function Icon({ type }) {
+  const map = { data: 'ri-database-2-line', expr: 'ri-function-line', bt: 'ri-line-chart-line', fb: 'ri-feedback-line', ho: 'ri-sliders-2-line', mv: 'ri-shuffle-line' }
+  const cls = map[type] || 'ri-shape-2-line'
+  return h('i', { className: cls })
+}
+
+function CustomNode({ id, data }) {
+  const typeKey = data?.typeKey || 'node'
+  const info = data?.cfg || {}
+  const rows = []
+  if (typeKey === 'data') rows.push(['tf', info.timeframe||'--'], ['pairs', (info.pairs||'--').split(' ').length])
+  if (typeKey === 'expr') rows.push(['llm', info.llm_model||'--'], ['count', info.llm_count||'--'])
+  if (typeKey === 'bt') rows.push(['range', info.timerange||'--'])
+  if (typeKey === 'ho') rows.push(['epochs', info.epochs||'--'])
+  return h('div', { className: 'am-node' }, [
+    h('div', { className: 'header' }, [ h(Icon, { type: typeKey }), h('div', { className: 'title' }, data?.label||id), h('div', { className: 'badge' }, typeKey) ]),
+    h('div', { className: 'body' }, rows.map(([k,v]) => h('div', { className: 'kv' }, [ h('span', null, k), h('b', null, String(v)) ]))),
+    h('div', { className: 'footer' }, [
+      h('div', null, (info.output||info.results_dir||'')),
+      h('div', { className: 'actions' }, [
+        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__runNode && window.__runNode(id) } catch(e){} } }, '运行'),
+        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window._simulateClicks && window._simulateClicks('summary') } catch(e){} } }, '摘要'),
+      ])
+    ]),
+    h(Handle, { type: 'target', position: Position.Left }),
+    h(Handle, { type: 'source', position: Position.Right }),
+  ])
+}
+
 function App() {
   const [nodes, setNodes] = useState([
-    { id: 'n1', position: { x: 50, y: 100 }, data: { label: 'Data', typeKey: 'data', cfg: { pairs: 'BTC/USDT ETH/USDT SOL/USDT ADA/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' } }, type: 'input' },
-    { id: 'n2', position: { x: 300, y: 100 }, data: { label: 'Expression(LLM)', typeKey: 'expr', cfg: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' } } },
-    { id: 'n3', position: { x: 560, y: 100 }, data: { label: 'Backtest', typeKey: 'bt', cfg: { timerange: '20210101-20211231' } }, type: 'output' },
-    { id: 'n4', position: { x: 820, y: 100 }, data: { label: 'Feedback', typeKey: 'fb', cfg: { results_dir: 'user_data/backtest_results' } } },
-    { id: 'n5', position: { x: 1060, y: 100 }, data: { label: 'Hyperopt', typeKey: 'ho', cfg: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' } } },
+    { id: 'n1', type: 'amNode', position: { x: 50, y: 120 }, data: { label: 'Data', typeKey: 'data', cfg: { pairs: 'BTC/USDT ETH/USDT SOL/USDT ADA/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' } } },
+    { id: 'n2', type: 'amNode', position: { x: 320, y: 120 }, data: { label: 'Expression(LLM)', typeKey: 'expr', cfg: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' } } },
+    { id: 'n3', type: 'amNode', position: { x: 610, y: 120 }, data: { label: 'Backtest', typeKey: 'bt', cfg: { timerange: '20210101-20211231' } } },
+    { id: 'n4', type: 'amNode', position: { x: 900, y: 120 }, data: { label: 'Feedback', typeKey: 'fb', cfg: { results_dir: 'user_data/backtest_results' } } },
+    { id: 'n5', type: 'amNode', position: { x: 1180, y: 120 }, data: { label: 'Hyperopt', typeKey: 'ho', cfg: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' } } },
   ])
   const [edges, setEdges] = useState([
-    { id: 'e1', source: 'n1', target: 'n2' },
-    { id: 'e2', source: 'n2', target: 'n3' },
+    { id: 'e1', source: 'n1', target: 'n2', type: 'smoothstep', animated: true },
+    { id: 'e2', source: 'n2', target: 'n3', type: 'smoothstep', animated: true },
   ])
   const [selected, setSelected] = useState(null)
+  const nodeTypes = React.useMemo ? React.useMemo(() => ({ amNode: CustomNode }), []) : { amNode: CustomNode }
+  const defaultEdgeOptions = { animated: true, type: 'smoothstep', style: { stroke: '#8694ff', strokeWidth: 1.6 }, markerEnd: MarkerType.ArrowClosed ? { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#8694ff' } : undefined }
 
   const logsEl = document.getElementById('logs')
   const summaryEl = document.getElementById('summary')
@@ -31,6 +74,7 @@ function App() {
       const chunk = (data.logs || []).join('\n')
       if (chunk) {
         logsEl.textContent += chunk + '\n'
+        try { logsEl.scrollTop = logsEl.scrollHeight } catch {}
       }
       offset = data.next || offset
       if (!data.running) break
@@ -77,6 +121,28 @@ function App() {
     const data = await res.json()
     summaryEl.textContent = JSON.stringify(data, null, 2)
     try {
+      // 指标卡片
+      const toMetrics = (s) => {
+        const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}
+        return {
+          profit_pct: c.profit_total_pct ?? s.profit_total_pct,
+          trades: c.trades ?? s.trades,
+          winrate: c.winrate ?? s.winrate,
+          max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
+        }
+      }
+      const m = toMetrics(data)
+      const cards = document.getElementById('cards')
+      if (cards) {
+        cards.innerHTML = `
+          <div class="card"><div class="k">总收益%</div><div class="v">${m.profit_pct ?? '--'}</div></div>
+          <div class="card"><div class="k">交易数</div><div class="v">${m.trades ?? '--'}</div></div>
+          <div class="card"><div class="k">胜率</div><div class="v">${m.winrate ?? '--'}</div></div>
+          <div class="card"><div class="k">最大回撤(USDT)</div><div class="v">${m.max_dd ?? '--'}</div></div>
+        `
+      }
+    } catch {}
+    try {
       if (Array.isArray(data.trades)) {
         const sorted = data.trades.slice().sort((a,b) => (a.open_timestamp||0) - (b.open_timestamp||0))
         let cum = 0
@@ -93,7 +159,7 @@ function App() {
           xAxis: { type: 'category', data: xs, axisLabel: { rotate: 45 } },
           yAxis: { type: 'value', scale: true },
           tooltip: { trigger: 'axis' },
-          series: [{ name: 'ç´¯ç§¯æ”¶ç›Š(USDT)', type: 'line', data: ys }],
+          series: [{ name: '累计收益(USDT)', type: 'line', data: ys }],
         })
       }
     } catch (e) { console.warn('chart error', e) }
@@ -106,6 +172,24 @@ function App() {
     if (be) be.onclick = runExpr
     if (bb) bb.onclick = runBacktest
     if (bs) bs.onclick = showSummary
+    const fit = document.getElementById('btnFit'); if (fit) fit.onclick = () => { try { window.__rf && window.__rf.fitView && window.__rf.fitView({ padding: 0.2 }) } catch {} }
+    const clr = document.getElementById('btnClear'); if (clr) clr.onclick = () => { setNodes([]); setEdges([]) }
+    const theme = document.getElementById('btnTheme'); if (theme) theme.onclick = () => {
+      const root = document.documentElement
+      const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+      root.setAttribute('data-theme', next)
+      try { localStorage.setItem('am_theme', next) } catch {}
+    }
+    const exportBtn = document.getElementById('btnExport'); if (exportBtn) exportBtn.onclick = async () => {
+      try {
+        const el = document.querySelector('.canvas')
+        if (!el || !window.html2canvas) return alert('找不到画布或导出库')
+        const canvas = await window.html2canvas(el, { backgroundColor: null, scale: 2 })
+        const url = canvas.toDataURL('image/png')
+        const a = document.createElement('a'); a.href = url; a.download = 'flow.png'; a.click()
+      } catch (e) { console.warn('export error', e); alert('导出失败: '+e) }
+    }
+    try { const saved = localStorage.getItem('am_theme'); if (saved) document.documentElement.setAttribute('data-theme', saved) } catch {}
     const btnFeat = document.getElementById('btnFeatTop')
     if (btnFeat) btnFeat.onclick = async () => {
       const file = document.getElementById('featureFile').value || 'user_data/freqai_features.json'
@@ -114,34 +198,19 @@ function App() {
       if (featTopEl) featTopEl.textContent = JSON.stringify(data, null, 2)
     }
     // 暴露给全局：用于拖拽添加节点
-    window.__setNodes = (node) => {
-      setNodes(nds => nds.concat(node))
+    window.__setNodes = (node) => setNodes(nds => nds.concat(node))
+    // 绑定调色板的拖拽开始，写入 dataTransfer
+    const paletteItems = Array.from(document.querySelectorAll('.palette-item'))
+    const onDragStart = (e) => {
+      const typeKey = e.target?.getAttribute?.('data-nodetype')
+      if (!typeKey) return
+      e.dataTransfer.setData('application/node-type', typeKey)
+      e.dataTransfer.effectAllowed = 'move'
     }
-    // 为画布绑定拖拽事件
-    const rf = document.querySelector('.react-flow')
-    if (rf) {
-      const onOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }
-      const onDrop = (e) => {
-        e.preventDefault()
-        const typeKey = e.dataTransfer.getData('application/node-type')
-        if (!typeKey) return
-        const bounds = rf.getBoundingClientRect()
-        const position = { x: e.clientX - bounds.left, y: e.clientY - bounds.top }
-        const id = 'n' + Math.random().toString(16).slice(2,8)
-        const labelMap = { data: 'Data', expr: 'Expression(LLM)', bt: 'Backtest', fb: 'Feedback', ho: 'Hyperopt', mv: 'MultiValidate' }
-        const cfgMap = {
-          data: { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' },
-          expr: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' },
-          bt: { timerange: '20210101-20211231' },
-          fb: { results_dir: 'user_data/backtest_results' },
-          ho: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' },
-          mv: { timeranges: '20210101-20210331,20210401-20210630' },
-        }
-        const node = { id, position, data: { label: labelMap[typeKey] || typeKey, typeKey, cfg: cfgMap[typeKey] || {} } }
-        setNodes(nds => nds.concat(node))
-      }
-      rf.addEventListener('dragover', onOver)
-      rf.addEventListener('drop', onDrop)
+    paletteItems.forEach(el => el.addEventListener('dragstart', onDragStart))
+    // 清理函数，防止重复绑定
+    return () => {
+      paletteItems.forEach(el => el.removeEventListener('dragstart', onDragStart))
     }
     const btnFeatPlot = document.getElementById('btnFeatPlot')
     if (btnFeatPlot) btnFeatPlot.onclick = async () => {
@@ -242,13 +311,53 @@ function App() {
     }
   }, [])
 
+  // ReactFlow 画布的拖拽回调，确保可以把调色板节点丢到画布
+  const onDragOver = useCallback((e) => {
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  }, [])
+  const onDrop = useCallback((e) => {
+    e.preventDefault()
+    const pane = document.querySelector('.react-flow')
+    const bounds = pane ? pane.getBoundingClientRect() : { left: 0, top: 0 }
+    const typeKey = e.dataTransfer.getData('application/node-type') || ''
+    if (!typeKey) return
+    let x = e.clientX - bounds.left
+    let y = e.clientY - bounds.top
+    try {
+      const vp = document.querySelector('.react-flow__viewport')
+      const m = vp ? window.getComputedStyle(vp).transform : 'none'
+      if (m && m !== 'none' && m.startsWith('matrix(')) {
+        const nums = m.replace('matrix(', '').replace(')', '').split(',').map(parseFloat)
+        const scale = nums[0] || 1
+        const tx = nums[4] || 0
+        const ty = nums[5] || 0
+        x = (x - tx) / scale
+        y = (y - ty) / scale
+      }
+    } catch {}
+    const position = { x, y }
+    const id = 'n' + Math.random().toString(16).slice(2,8)
+    const labelMap = { data: 'Data', expr: 'Expression(LLM)', bt: 'Backtest', fb: 'Feedback', ho: 'Hyperopt', mv: 'MultiValidate' }
+    const cfgMap = {
+      data: { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' },
+      expr: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' },
+      bt: { timerange: '20210101-20211231' },
+      fb: { results_dir: 'user_data/backtest_results' },
+      ho: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' },
+      mv: { timeranges: '20210101-20210331,20210401-20210630' },
+    }
+    const node = { id, type: 'amNode', position, data: { label: labelMap[typeKey] || typeKey, typeKey, cfg: cfgMap[typeKey] || {} } }
+    setNodes(nds => nds.concat(node))
+  }, [])
+
   // Node helpers
   function genId(prefix='n') { return prefix + Math.random().toString(16).slice(2,8) }
   const onConnect = useCallback((params) => {
-    setEdges((eds) => eds.concat({ id: genId('e'), ...params }))
+    setEdges((eds) => addEdgeLib({ id: genId('e'), ...params }, eds))
   }, [])
-  const onNodesChange = useCallback((chs) => {}, [])
-  const onEdgesChange = useCallback((chs) => {}, [])
+  const onNodesChange = useCallback((chs) => { setNodes((nds) => applyNodeChanges(chs, nds)) }, [])
+  const onEdgesChange = useCallback((chs) => { setEdges((eds) => applyEdgeChanges(chs, eds)) }, [])
   const onNodeClick = useCallback((_, n) => { setSelected(n) }, [])
 
   function nodeCfgSchema(typeKey) {
@@ -279,9 +388,9 @@ function App() {
 
   function renderNodeForm() {
     const el = document.getElementById('nodeForm')
-    if (!selected) { el.innerHTML = '<em>æœªé€‰ä¸­èŠ‚ç‚¹</em>'; return }
+    if (!selected) { el.innerHTML = '<em>未选中节点</em>'; return }
     const typeKey = selected?.data?.typeKey
-    if (!typeKey) { el.innerHTML = '<em>æœªçŸ¥èŠ‚ç‚¹</em>'; return }
+    if (!typeKey) { el.innerHTML = '<em>未知节点</em>'; return }
     const cfg = selected.data.cfg || {}
     const schema = nodeCfgSchema(typeKey)
     let html = `<div><b>${selected.data.label}</b> (${typeKey})</div>`
@@ -420,33 +529,105 @@ function App() {
     }
   }
 
+  // 单节点执行：供自定义节点“运行”按钮调用
+  async function runNodeById(nodeId) {
+    const n = (nodes || []).find(x => x.id === nodeId)
+    if (!n || !n.data || !n.data.typeKey) return
+    let feedbackPath = null
+    if (n.data.typeKey === 'data') {
+      const body = {
+        config: document.getElementById('cfg').value,
+        output: n.data.cfg?.output || 'user_data/freqai_features_multi.json',
+        timeframe: n.data.cfg?.timeframe || document.getElementById('timeframe').value,
+        pairs: n.data.cfg?.pairs || 'BTC/USDT ETH/USDT',
+      }
+      const res = await fetch(`${API}/run/feature`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json(); await pollLogs(data.job_id)
+    }
+    if (n.data.typeKey === 'expr') {
+      const body = {
+        config: document.getElementById('cfg').value,
+        feature_file: document.getElementById('featureFile').value,
+        output: 'user_data/freqai_expressions.json',
+        timeframe: n.data.cfg?.timeframe || '4h',
+        llm_model: n.data.cfg?.llm_model || 'gpt-3.5-turbo',
+        llm_count: Number(n.data.cfg?.llm_count || 12),
+        llm_loops: 1,
+        llm_timeout: 60,
+        feedback_top: 0,
+        llm_api_key: document.getElementById('apiKey').value || undefined,
+        feedback: undefined,
+      }
+      const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json(); await pollLogs(data.job_id)
+    }
+    if (n.data.typeKey === 'bt') {
+      const body = {
+        config: document.getElementById('cfg').value,
+        strategy: 'ExpressionLongStrategy',
+        strategy_path: 'freqtrade/user_data/strategies',
+        timerange: n.data.cfg?.timerange || document.getElementById('timerange').value,
+        freqaimodel: 'LightGBMRegressor',
+        export: true,
+        export_filename: 'user_data/backtest_results/latest_trades_multi',
+      }
+      const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json(); await pollLogs(data.job_id); await showSummary()
+    }
+    if (n.data.typeKey === 'fb') {
+      const body = { results_dir: n.data.cfg?.results_dir || 'user_data/backtest_results', out: 'user_data/llm_feedback/latest_backtest_summary.json' }
+      const res = await fetch(`${API}/results/prepare-feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const fb = await res.json(); feedbackPath = fb.feedback_path || null
+    }
+    if (n.data.typeKey === 'ho') {
+      const body = {
+        config: document.getElementById('cfg').value,
+        strategy: 'ExpressionLongStrategy',
+        strategy_path: 'freqtrade/user_data/strategies',
+        timerange: n.data.cfg?.timerange || '20210101-20210430',
+        spaces: n.data.cfg?.spaces || 'buy sell protection',
+        hyperopt_loss: n.data.cfg?.loss || 'SharpeHyperOptLoss',
+        epochs: Number(n.data.cfg?.epochs || 20),
+        freqaimodel: 'LightGBMRegressor',
+        job_workers: -1,
+      }
+      const res = await fetch(`${API}/run/hyperopt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json(); await pollLogs(data.job_id)
+    }
+  }
+
+  useEffect(() => { window.__runNode = (id) => runNodeById(id) }, [nodes])
+
   function saveFlow() {
     const payload = { nodes, edges }
     localStorage.setItem('agent_market_flow', JSON.stringify(payload))
-    alert('å·²ä¿å­˜åˆ° localStorage')
+    alert('已保存到 localStorage')
   }
   function loadFlow() {
     const raw = localStorage.getItem('agent_market_flow')
-    if (!raw) return alert('æ²¡æœ‰ä¿å­˜çš„ flow')
+    if (!raw) return alert('没有保存的 flow')
     try {
       const obj = JSON.parse(raw)
       setNodes(obj.nodes||[])
       setEdges(obj.edges||[])
-    } catch(e) { alert('è§£æžå¤±è´¥:'+e) }
+    } catch(e) { alert('解析失败:'+e) }
   }
 
   useEffect(() => {
-    document.getElementById('addData').onclick = () => addNode('data')
-    document.getElementById('addExpr').onclick = () => addNode('expr')
-    document.getElementById('addBt').onclick = () => addNode('bt')
-    document.getElementById('addHo').onclick = () => addNode('ho')
-    document.getElementById('addFb').onclick = () => addNode('fb')
-    document.getElementById('runFlow').onclick = runFlow
-    document.getElementById('saveFlow').onclick = saveFlow
-    document.getElementById('loadFlow').onclick = loadFlow
+    const run = document.getElementById('runFlow'); if (run) run.onclick = runFlow
+    const save = document.getElementById('saveFlow'); if (save) save.onclick = saveFlow
+    const load = document.getElementById('loadFlow'); if (load) load.onclick = loadFlow
+    const del = document.getElementById('delNode'); if (del) del.onclick = () => {
+      if (!selected) return;
+      setNodes(nds => nds.filter(n => n.id !== selected.id))
+      setEdges(eds => eds.filter(e => e.source !== selected.id && e.target !== selected.id))
+      setSelected(null)
+    }
   }, [])
 
-  return h(ReactFlow, { nodes, edges, fitView: true, onConnect, onNodesChange, onEdgesChange, onNodeClick, onDrop, onDragOver }, [
+  return h(RF, { nodes, edges, nodeTypes, defaultEdgeOptions, fitView: true, onConnect, onNodesChange, onEdgesChange, onNodeClick, onDrop, onDragOver,
+    panOnDrag: [0,1,2], selectionOnDrag: false, panOnScroll: false, zoomOnScroll: true, zoomOnPinch: true,
+    nodesDraggable: true, nodesConnectable: true, elementsSelectable: true, onInit: (inst) => { window.__rf = inst } }, [
     h(Background, { variant: 'dots', gap: 16, size: 1, key: 'bg' }),
     h(Controls, { key: 'ctl' }),
     h(MiniMap, { key: 'mm' }),
@@ -464,4 +645,8 @@ createRoot(document.getElementById('root')).render(h(App))
 
 
 
-function addNodeAt(typeKey, position){ const id='n'+Math.random().toString(16).slice(2,8); const labelMap={data:'Data',expr:'Expression(LLM)',bt:'Backtest',fb:'Feedback',ho:'Hyperopt',mv:'MultiValidate'}; const cfgMap={data:{pairs:'BTC/USDT ETH/USDT',timeframe:'4h',output:'user_data/freqai_features_multi.json'},expr:{llm_model:'gpt-3.5-turbo',llm_count:12,timeframe:'4h'},bt:{timerange:'20210101-20211231'},fb:{results_dir:'user_data/backtest_results'},ho:{timerange:'20210101-20210430',spaces:'buy sell protection',epochs:20,loss:'SharpeHyperOptLoss'},mv:{timeranges:'20210101-20210331,20210401-20210630'}}; const node={id,position,data:{label:labelMap[typeKey]||typeKey,typeKey,cfg:cfgMap[typeKey]||{}}}; window.__setNodes && window.__setNodes(node); }
+function addNodeAt(typeKey, position){ const id='n'+Math.random().toString(16).slice(2,8); const labelMap={data:'Data',expr:'Expression(LLM)',bt:'Backtest',fb:'Feedback',ho:'Hyperopt',mv:'MultiValidate'}; const cfgMap={data:{pairs:'BTC/USDT ETH/USDT',timeframe:'4h',output:'user_data/freqai_features_multi.json'},expr:{llm_model:'gpt-3.5-turbo',llm_count:12,timeframe:'4h'},bt:{timerange:'20210101-20211231'},fb:{results_dir:'user_data/backtest_results'},ho:{timerange:'20210101-20210430',spaces:'buy sell protection',epochs:20,loss:'SharpeHyperOptLoss'},mv:{timeranges:'20210101-20210331,20210401-20210630'}}; const node={id,type:'amNode',position,data:{label:labelMap[typeKey]||typeKey,typeKey,cfg:cfgMap[typeKey]||{}}}; window.__setNodes && window.__setNodes(node); }
+
+
+
+

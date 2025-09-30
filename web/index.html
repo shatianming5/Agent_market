@@ -1,40 +1,41 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent Market Flow (MVP)</title>
     <link rel="stylesheet" href="https://unpkg.com/reactflow@11.10.2/dist/style.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="header">
+      <div class="brand">
+        <i class="ri-flow-chart"></i>
+        <span>Agent Market Flow</span>
+      </div>
+      <div class="toolbar">
+        <button id="btnFit" title="适配视图"><i class="ri-focus-2-line"></i> 适配</button>
+        <button id="btnClear" title="清理画布"><i class="ri-eraser-line"></i> 清理</button>
+        <button id="btnTheme" title="切换主题"><i class="ri-contrast-2-line"></i> 主题</button>
+        <button id="btnExport" title="导出画布"><i class="ri-image-2-line"></i> 导出</button>
+      </div>
+    </div>
     <div id="app">
       <div class="sidebar">
-        <h3>Flow Builder</h3>
+        <h3>流程构建</h3>
         <div class="node-palette">
           <div class="palette-title">拖到画布来创建节点</div>
           <div class="palette-list">
-            <div class="palette-item" draggable="true" data-nodetype="data">数据(Data)</div>
-            <div class="palette-item" draggable="true" data-nodetype="expr">表达式(LLM)</div>
-            <div class="palette-item" draggable="true" data-nodetype="bt">回测(Backtest)</div>
-            <div class="palette-item" draggable="true" data-nodetype="fb">反馈(Feedback)</div>
-            <div class="palette-item" draggable="true" data-nodetype="ho">超参优化(Hyperopt)</div>
-            <div class="palette-item" draggable="true" data-nodetype="mv">多区间验证(MultiValidate)</div>
+            <div class="palette-item" draggable="true" data-nodetype="data"><i class="ri-database-2-line"></i> 数据 Data</div>
+            <div class="palette-item" draggable="true" data-nodetype="expr"><i class="ri-function-line"></i> 表达式 LLM</div>
+            <div class="palette-item" draggable="true" data-nodetype="bt"><i class="ri-line-chart-line"></i> 回测 Backtest</div>
+            <div class="palette-item" draggable="true" data-nodetype="fb"><i class="ri-feedback-line"></i> 反馈 Feedback</div>
+            <div class="palette-item" draggable="true" data-nodetype="ho"><i class="ri-sliders-2-line"></i> 超参 Hyperopt</div>
+            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> 多区间验证</div>
           </div>
         </div>
-        <div class="buttons" style="margin-bottom:6px">
-          <button id="addData">+ Data</button>
-          <button id="addExpr">+ Expression</button>
-          <button id="addBt">+ Backtest</button>
-          <button id="addHo">+ Hyperopt</button>
-          <button id="addMv">+ MultiValidate</button>
-          <button id="addFb">+ Feedback</button>
-          <button id="runFlow" style="margin-left:6px">▶ 运行Flow</button>
-        </div>
-        <div class="buttons" style="margin-bottom:6px">
-          <button id="saveFlow">保存</button>
-          <button id="loadFlow">加载</button>
-        </div>
+        
 
         <h4>选中节点配置</h4>
         <div id="nodeForm" class="panel"></div>
@@ -69,9 +70,9 @@
           <input id="timerange" value="20210101-20210331" />
         </div>
         <div class="buttons">
-          <button id="btnExpr">运行 表达式(LLM)</button>
-          <button id="btnBacktest">运行 回测</button>
-          <button id="btnSummary">查看 摘要</button>
+          <button id="btnExpr">运行表达式(LLM)</button>
+          <button id="btnBacktest">运行回测</button>
+          <button id="btnSummary">查看摘要</button>
         </div>
         <div class="summary" id="summary"></div>
         <div id="chart" style="height:240px;margin-top:8px;"></div>
@@ -98,13 +99,18 @@
       </div>
       <div class="logs">
         <h3>日志</h3>
+        <div class="cards" id="cards"></div>
         <pre id="logs"></pre>
       </div>
     </div>
-    <script type="module" src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script type="module" src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script type="module" src="https://unpkg.com/reactflow@11.10.2/dist/standalone.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/reactflow@11.10.2/dist/reactflow.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-    <script type="module" src="app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="app.js"></script>
   </body>
   </html>
+
+
+
