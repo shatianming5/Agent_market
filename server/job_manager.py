@@ -20,6 +20,8 @@ class Job:
     running: bool = False
     logfile: Optional[Path] = None
     timeout_sec: Optional[int] = None
+    kind: Optional[str] = None
+    meta: Optional[dict] = None
 
 
 class JobManager:
@@ -27,12 +29,12 @@ class JobManager:
         self._jobs: Dict[str, Job] = {}
         self._lock = threading.Lock()
 
-    def start(self, cmd: List[str], cwd: Optional[Path] = None, env: Optional[dict] = None, timeout_sec: Optional[int] = None) -> str:
+    def start(self, cmd: List[str], cwd: Optional[Path] = None, env: Optional[dict] = None, timeout_sec: Optional[int] = None, kind: Optional[str] = None, meta: Optional[dict] = None) -> str:
         job_id = uuid.uuid4().hex[:12]
         logdir = Path('user_data') / 'job_logs'
         logdir.mkdir(parents=True, exist_ok=True)
         logfile = logdir / f"{job_id}.log"
-        job = Job(id=job_id, cmd=cmd, cwd=cwd, env=env, logfile=logfile, timeout_sec=timeout_sec)
+        job = Job(id=job_id, cmd=cmd, cwd=cwd, env=env, logfile=logfile, timeout_sec=timeout_sec, kind=kind, meta=meta)
         self._jobs[job_id] = job
         self._spawn(job)
         return job_id
@@ -103,6 +105,10 @@ class JobManager:
                 "running": job.running,
                 "returncode": job.returncode,
                 "lines": len(job.logs),
+                "status": ("running" if job.running else ("completed" if job.returncode is not None else "pending")),
+                "code": (None if job.returncode is None else ("OK" if job.returncode == 0 else "SCRIPT_FAILED")),
+                "kind": job.kind,
+                "meta": job.meta,
             }
 
     def logs(self, job_id: str, offset: int = 0) -> dict:
@@ -119,6 +125,10 @@ class JobManager:
                 "next": start + len(chunk),
                 "running": job.running,
                 "returncode": job.returncode,
+                "status": ("running" if job.running else ("completed" if job.returncode is not None else "pending")),
+                "code": (None if job.returncode is None else ("OK" if job.returncode == 0 else "SCRIPT_FAILED")),
+                "kind": job.kind,
+                "meta": job.meta,
                 "logs": chunk,
             }
 

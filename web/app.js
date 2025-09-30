@@ -1,6 +1,7 @@
-﻿const { createElement: h, useState, useEffect, useCallback } = window.React
+const { createElement: h, useState, useEffect, useCallback } = window.React
 const { createRoot } = window.ReactDOM
-// 兼容 UMD 版本的 ReactFlow 全局导出
+
+// ReactFlow UMD safety
 const RFLib = window.ReactFlow || {}
 const RF = RFLib.ReactFlow || RFLib.default || (typeof RFLib === 'function' ? RFLib : RFLib)
 const Background = RFLib.Background || (RFLib.default && RFLib.default.Background) || (() => null)
@@ -9,32 +10,130 @@ const MiniMap = RFLib.MiniMap || (RFLib.default && RFLib.default.MiniMap) || (()
 const Handle = RFLib.Handle || (() => null)
 const Position = RFLib.Position || { Top: 'top', Bottom: 'bottom', Left: 'left', Right: 'right' }
 const MarkerType = RFLib.MarkerType || {}
-try { console.log('[rf]', Object.keys(RFLib)) } catch {}
 const applyNodeChanges = RFLib.applyNodeChanges || ((chs, nds) => nds)
 const applyEdgeChanges = RFLib.applyEdgeChanges || ((chs, eds) => eds)
 const addEdgeLib = RFLib.addEdge || ((params, eds) => eds.concat({ id: (params.id || ('e' + Math.random().toString(16).slice(2,8))), ...params }))
 
-const API = 'http://127.0.0.1:8000'
+// API base: default same-origin, controlled by input框
+let API = (typeof location !== 'undefined' && /^https?:/i.test(location.origin || '')) ? location.origin.replace(/\/$/, '') : 'http://127.0.0.1:8000'
+function setApiUrl(url) {
+  try {
+    API = (url || API).replace(/\/$/, '')
+    const el = document.getElementById('apiUrl'); if (el) el.value = API
+  } catch {}
+}
 
+// Helpers
+function setLoading(btn, on) {
+  try {
+    if (!btn) return
+    if (on) { btn.classList.add('is-loading'); btn.disabled = true } else { btn.classList.remove('is-loading'); btn.disabled = false }
+  } catch {}
+}
+async function runWithLoading(btn, fn) {
+  setLoading(btn, true)
+  try { await fn() } finally { setLoading(btn, false) }
+}
 function setStatus(phase, jobId, running) {
   const el = document.getElementById('statusBar')
   if (!el) return
   if (running) {
     el.className = 'status running'
-    el.innerHTML = `<i class="ri-loader-4-line spin"></i> ${phase} 进行中 · job ${jobId}`
+    el.innerHTML = `<i class="ri-loader-4-line spin"></i> ${phase} 运行中 · job ${jobId}`
   } else {
     el.className = 'status'
     el.innerHTML = `<i class="ri-check-line"></i> ${phase} 完成 · job ${jobId}`
   }
 }
 
-async function getJobStatus(jobId) {
-  const r = await fetch(`${API}/jobs/${jobId}/logs?offset=0`)
-  return await r.json()
+async function pollLogs(jobId) {
+  const logsEl = document.getElementById('logs')
+  let offset = 0
+  let last = null
+  while (true) {
+    const res = await fetch(`${API}/jobs/${jobId}/logs?offset=${offset}`)
+    const data = await res.json()
+    last = data
+    const chunk = (data.logs || []).join('\n')
+    if (chunk) {
+      logsEl.textContent += chunk + '\n'
+      try { logsEl.scrollTop = logsEl.scrollHeight } catch {}
+    }
+    offset = data.next || offset
+    if (!data.running) break
+    await new Promise(r => setTimeout(r, 800))
+  }
+  try {
+    const bar = document.getElementById('statusBar')
+    if (last && last.code && last.code !== 'OK') {
+      bar.className = 'status failed'
+      bar.innerHTML = `<i class="ri-error-warning-line"></i> 脚本失败 (code=${last.code})`
+      const retryBtn = document.createElement('button')
+      retryBtn.textContent = '重试上次操作'
+      retryBtn.onclick = () => { try { window.__retryLast && window.__retryLast() } catch(e) { alert('重试失败: '+e) } }
+      const cards = document.getElementById('cards') || bar.parentElement
+      cards && cards.appendChild(retryBtn)
+    } else if (last && last.code === 'OK') {
+      bar.className = 'status ok'
+    }
+  } catch {}
 }
 
-function setNodeStatus(setNodes, nodeId, status, extra={}) {
-  setNodes(nds => nds.map(n => n.id === nodeId ? ({ ...n, data: { ...(n.data||{}), status, ...extra } }) : n))
+async function showSummary() {
+  const summaryEl = document.getElementById('summary')
+  const res = await fetch(`${API}/results/latest-summary`)
+  const data = await res.json()
+  summaryEl.textContent = JSON.stringify(data, null, 2)
+  try {
+    const toMetrics = (s) => {
+      const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}
+      return {
+        profit_pct: c.profit_total_pct ?? s.profit_total_pct,
+        trades: c.trades ?? s.trades,
+        winrate: c.winrate ?? s.winrate,
+        max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
+      }
+    }
+    const m = toMetrics(data)
+    const cards = document.getElementById('cards')
+    if (cards) {
+      let train = null
+      try {
+        const tr = await fetch(`${API}/results/latest-training`)
+        const tj = await tr.json()
+        if (!tj.status || tj.status !== 'error') train = tj
+      } catch {}
+      const trainRMSE = train && train.metrics ? (train.metrics.rmse_valid ?? train.metrics.rmse_train) : null
+      const trainModel = train ? train.model : null
+      const pf = Number(m.profit_pct || 0)
+      const pfColor = (isFinite(pf) && pf >= 0) ? '#166534' : '#b91c1c'
+      cards.innerHTML = `
+        <div class="card"><div class="k">收益%</div><div class="v" style="color:${pfColor}">${m.profit_pct ?? '--'}</div></div>
+        <div class="card"><div class="k">交易数</div><div class="v">${m.trades ?? '--'}</div></div>
+        <div class="card"><div class="k">胜率</div><div class="v">${m.winrate ?? '--'}</div></div>
+        <div class="card"><div class="k">最大回撤</div><div class="v">${m.max_dd ?? '--'}</div></div>
+        <div class="card"><div class="k">最近训练</div><div class="v">${trainModel ?? '--'}</div></div>
+        <div class="card"><div class="k">验证RMSE</div><div class="v">${trainRMSE ?? '--'}</div></div>
+      `
+    }
+  } catch {}
+  try {
+    if (Array.isArray(data.trades)) {
+      const sorted = data.trades.slice().sort((a,b) => (a.open_timestamp||0) - (b.open_timestamp||0))
+      let cum = 0
+      const ys = []
+      const xs = []
+      for (const t of sorted) {
+        cum += Number(t.profit_abs || 0)
+        ys.push(cum)
+        xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10))
+      }
+      if (window.echarts) {
+        const chart = echarts.init(document.getElementById('chart'))
+        chart.setOption({ grid:{left:40,right:16,top:10,bottom:30}, xAxis:{ type:'category', data:xs, axisLabel:{ rotate:45 } }, yAxis:{ type:'value', scale:true }, tooltip:{ trigger:'axis' }, series:[{ name:'累计收益(USDT)', type:'line', data:ys }] })
+      }
+    }
+  } catch (e) { console.warn('chart error', e) }
 }
 
 function Icon({ type }) {
@@ -50,7 +149,6 @@ function CustomNode({ id, data }) {
   if (typeKey === 'data') rows.push(['tf', info.timeframe||'--'], ['pairs', (info.pairs||'--').split(' ').length])
   if (typeKey === 'expr') rows.push(['llm', info.llm_model||'--'], ['count', info.llm_count||'--'])
   if (typeKey === 'bt') rows.push(['range', info.timerange||'--'])
-  if (typeKey === 'ho') rows.push(['epochs', info.epochs||'--'])
   const locked = !!data?.locked
   return h('div', { className: 'am-node' + (locked ? ' locked' : '') }, [
     h('div', { className: 'header' }, [ h(Icon, { type: typeKey }), h('div', { className: 'title' }, [ data?.label||id, locked ? h('i', { className: 'ri-lock-2-line', title: '已锁定' }) : null ]), h('div', { className: 'badge' }, typeKey) ]),
@@ -60,7 +158,7 @@ function CustomNode({ id, data }) {
       h('div', { className: 'actions' }, [
         h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__runNode && window.__runNode(id) } catch(e){} } }, '运行'),
         h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__configureNode && window.__configureNode(id) } catch(e){} } }, '配置'),
-        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window._simulateClicks && window._simulateClicks('summary') } catch(e){} } }, '摘要'),
+        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { showSummary() } catch(e){} } }, '摘要'),
       ])
     ]),
     h(Handle, { type: 'target', position: Position.Left }),
@@ -70,235 +168,64 @@ function CustomNode({ id, data }) {
 
 function App() {
   const [nodes, setNodes] = useState([
-    { id: 'n1', type: 'amNode', position: { x: 50, y: 120 }, data: { label: 'Data', typeKey: 'data', cfg: { pairs: 'BTC/USDT ETH/USDT SOL/USDT ADA/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' } } },
+    { id: 'n1', type: 'amNode', position: { x: 50, y: 120 }, data: { label: 'Data', typeKey: 'data', cfg: { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' } } },
     { id: 'n2', type: 'amNode', position: { x: 320, y: 120 }, data: { label: 'Expression(LLM)', typeKey: 'expr', cfg: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' } } },
     { id: 'n3', type: 'amNode', position: { x: 610, y: 120 }, data: { label: 'Backtest', typeKey: 'bt', cfg: { timerange: '20210101-20211231' } } },
-    { id: 'n4', type: 'amNode', position: { x: 900, y: 120 }, data: { label: 'Feedback', typeKey: 'fb', cfg: { results_dir: 'user_data/backtest_results' } } },
-    { id: 'n5', type: 'amNode', position: { x: 1180, y: 120 }, data: { label: 'Hyperopt', typeKey: 'ho', cfg: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' } } },
   ])
   const [edges, setEdges] = useState([
     { id: 'e1', source: 'n1', target: 'n2', type: 'smoothstep', animated: true },
     { id: 'e2', source: 'n2', target: 'n3', type: 'smoothstep', animated: true },
   ])
-  const [selected, setSelected] = useState(null)
   const [snap, setSnap] = useState(true)
   const [grid, setGrid] = useState([16,16])
-  const nodeTypes = React.useMemo ? React.useMemo(() => ({ amNode: CustomNode }), []) : { amNode: CustomNode }
+  const nodeTypes = (window.React && React.useMemo) ? React.useMemo(() => ({ amNode: CustomNode }), []) : { amNode: CustomNode }
   const defaultEdgeOptions = { animated: true, type: 'smoothstep', style: { stroke: '#8694ff', strokeWidth: 1.6 }, markerEnd: MarkerType.ArrowClosed ? { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#8694ff' } : undefined }
 
-  const logsEl = document.getElementById('logs')
-  const summaryEl = document.getElementById('summary')
-  const featTopEl = document.getElementById('featTop')
-  const compareEl = document.getElementById('comparePanel')
-
-  async function pollLogs(jobId) {
-    let offset = 0
-    while (true) {
-      const res = await fetch(`${API}/jobs/${jobId}/logs?offset=${offset}`)
-      const data = await res.json()
-      const chunk = (data.logs || []).join('\n')
-      if (chunk) {
-        logsEl.textContent += chunk + '\n'
-        try { logsEl.scrollTop = logsEl.scrollHeight } catch {}
-      }
-      offset = data.next || offset
-      if (!data.running) break
-      await new Promise(r => setTimeout(r, 800))
-    }
-  }
-
-  async function runExpr() {
-    logsEl.textContent = ''
-    const body = {
-      config: document.getElementById('cfg').value,
-      feature_file: document.getElementById('featureFile').value,
-      output: 'user_data/freqai_expressions.json',
-      timeframe: document.getElementById('timeframe').value,
-      llm_model: document.getElementById('llmModel').value,
-      llm_count: parseInt(document.getElementById('llmCount').value || '3'),
-      llm_loops: 1,
-      llm_timeout: 60,
-      feedback_top: 0
-    }
-    const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const data = await res.json()\n    if (data.job_id) setStatus('表达式', data.job_id, true)\n    await pollLogs(data.job_id)\n    if (data.job_id) setStatus('表达式', data.job_id, false)
-  }
-
-  async function runBacktest() {
-    const body = {
-      config: document.getElementById('cfg').value,
-      strategy: 'ExpressionLongStrategy',
-      strategy_path: 'freqtrade/user_data/strategies',
-      timerange: document.getElementById('timerange').value,
-      freqaimodel: 'LightGBMRegressor',
-      export: true,
-      export_filename: 'user_data/backtest_results/latest_trades_multi',
-    }
-    const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const data = await res.json()\n    if (data.job_id) setStatus('表达式', data.job_id, true)\n    await pollLogs(data.job_id)\n    if (data.job_id) setStatus('表达式', data.job_id, false)
-  }
-
-  async function showSummary() {
-    const res = await fetch(`${API}/results/latest-summary`)
-    const data = await res.json()
-    summaryEl.textContent = JSON.stringify(data, null, 2)
-    try {
-      // 指标卡片
-      const toMetrics = (s) => {
-        const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}
-        return {
-          profit_pct: c.profit_total_pct ?? s.profit_total_pct,
-          trades: c.trades ?? s.trades,
-          winrate: c.winrate ?? s.winrate,
-          max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
-        }
-      }
-      const m = toMetrics(data)
-      const cards = document.getElementById('cards')
-      if (cards) {
-        // 同时拉取最新训练摘要（如存在）
-        let train = null
-        try {
-          const tr = await fetch(`${API}/results/latest-training`)
-          const tj = await tr.json()
-          if (!tj.error) train = tj
-        } catch {}
-        const trainRMSE = train && train.metrics ? train.metrics.rmse_valid ?? train.metrics.rmse_train : null
-        const trainModel = train ? train.model : null
-        cards.innerHTML = `
-          <div class="card"><div class="k">总收益%</div><div class="v">${m.profit_pct ?? '--'}</div></div>
-          <div class="card"><div class="k">交易数</div><div class="v">${m.trades ?? '--'}</div></div>
-          <div class="card"><div class="k">胜率</div><div class="v">${m.winrate ?? '--'}</div></div>
-          <div class="card"><div class="k">最大回撤(USDT)</div><div class="v">${m.max_dd ?? '--'}</div></div>
-          <div class="card"><div class="k">训练模型</div><div class="v">${trainModel ?? '--'}</div></div>
-          <div class="card"><div class="k">训练RMSE</div><div class="v">${trainRMSE ?? '--'}</div></div>
-        `
-      }
-    } catch {}
-    try {
-      if (Array.isArray(data.trades)) {
-        const sorted = data.trades.slice().sort((a,b) => (a.open_timestamp||0) - (b.open_timestamp||0))
-        let cum = 0
-        const ys = []
-        const xs = []
-        for (const t of sorted) {
-          cum += Number(t.profit_abs || 0)
-          ys.push(cum)
-          xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10))
-        }
-        const chart = echarts.init(document.getElementById('chart'))
-        chart.setOption({
-          grid: { left: 40, right: 16, top: 10, bottom: 30 },
-          xAxis: { type: 'category', data: xs, axisLabel: { rotate: 45 } },
-          yAxis: { type: 'value', scale: true },
-          tooltip: { trigger: 'axis' },
-          series: [{ name: '累计收益(USDT)', type: 'line', data: ys }],
-        })
-      }
-    } catch (e) { console.warn('chart error', e) }
-  }
-
+  // Connect toolbar
   useEffect(() => {
-    const be = document.getElementById('btnExpr')
-    const bb = document.getElementById('btnBacktest')
-    const bs = document.getElementById('btnSummary')
-    if (be) be.onclick = runExpr
-    if (bb) bb.onclick = runBacktest
-    if (bs) bs.onclick = showSummary
-    const fit = document.getElementById('btnFit'); if (fit) fit.onclick = () => { try { window.__rf && window.__rf.fitView && window.__rf.fitView({ padding: 0.2 }) } catch {} }
-    const clr = document.getElementById('btnClear'); if (clr) clr.onclick = () => { setNodes([]); setEdges([]) }
-    const theme = document.getElementById('btnTheme'); if (theme) theme.onclick = () => {
-      const root = document.documentElement
-      const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
-      root.setAttribute('data-theme', next)
-      try { localStorage.setItem('am_theme', next) } catch {}
-    }
-    const layout = document.getElementById('btnLayout'); if (layout) layout.onclick = () => {
+    const apiEl = document.getElementById('apiUrl'); if (apiEl) apiEl.value = API
+    const applyBtn = document.getElementById('applyApi'); if (applyBtn) applyBtn.onclick = async () => {
+      const val = (document.getElementById('apiUrl')?.value || '').trim()
+      if (!val) return
+      setApiUrl(val)
       try {
-        if (!window.dagre) { alert('布局库未加载'); return }
-        const g = new window.dagre.graphlib.Graph(); g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80 }); g.setDefaultEdgeLabel(() => ({}))
-        const byId = Object.fromEntries(nodes.map(n => [n.id, n]))
-        nodes.forEach(n => g.setNode(n.id, { width: 220, height: 120 }))
-        edges.forEach(e => { if (byId[e.source] && byId[e.target]) g.setEdge(e.source, e.target) })
-        window.dagre.layout(g)
-        const laid = nodes.map(n => { const p = g.node(n.id) || { x: n.position.x, y: n.position.y }; return { ...n, position: { x: p.x - 110, y: p.y - 60 } } })
-        setNodes(laid)
-      } catch (e) { console.warn('layout error', e); alert('布局失败: '+e) }
+        const r = await fetch(`${API}/health`); const j = await r.json(); alert(`API 探测成功: ${API} /health: ${JSON.stringify(j)}`)
+      } catch (e) { alert(`API 探测失败: ${API}, 调用 /health 出错: ${e}`) }
     }
-    const exportBtn = document.getElementById('btnExport'); if (exportBtn) exportBtn.onclick = async () => {
-      try {
-        const el = document.querySelector('.canvas')
-        if (!el || !window.html2canvas) return alert('找不到画布或导出库')
-        const canvas = await window.html2canvas(el, { backgroundColor: null, scale: 2 })
-        const url = canvas.toDataURL('image/png')
-        const a = document.createElement('a'); a.href = url; a.download = 'flow.png'; a.click()
-      } catch (e) { console.warn('export error', e); alert('导出失败: '+e) }
+    const themeBtn = document.getElementById('btnTheme'); if (themeBtn) themeBtn.onclick = () => {
+      const cur = document.documentElement.getAttribute('data-theme') || 'light'
+      const next = cur === 'dark' ? 'light' : 'dark'
+      document.documentElement.setAttribute('data-theme', next)
     }
-    const trainBt = document.getElementById('btnTrainBt'); if (trainBt) trainBt.onclick = async () => {
-      try {
-        logsEl.textContent = ''
-        // Inline 训练配置（使用快速参数）
-        const featureFile = (document.getElementById('featureFile')?.value || 'user_data/freqai_features.json')
-        const timeframe = (document.getElementById('timeframe')?.value || '1h')
-        const pairs = 'BTC/USDT ETH/USDT'.split(' ')
-        const trainBody = {
-          config_obj: {
-            data: { feature_file: featureFile, data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe, pairs },
-            model: { name: 'lightgbm', params: { objective: 'regression', metric: 'rmse', learning_rate: 0.04, num_leaves: 63, feature_fraction: 0.8, subsample: 0.85, num_boost_round: 200 } },
-            training: { validation_ratio: 0.2 },
-            output: { model_dir: 'artifacts/models/inline_ml' },
-          }
-        }
-        const tr = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(trainBody) })
-        const tj = await tr.json(); if (!tj.job_id) { alert('训练启动失败: '+JSON.stringify(tj)); return }
-        await pollLogs(tj.job_id)
-        // 回测（使用快速参数 config/timerange）
-        const btReq = {
-          config: document.getElementById('cfg').value,
-          strategy: 'ExpressionLongStrategy',
-          strategy_path: 'freqtrade/user_data/strategies',
-          timerange: document.getElementById('timerange').value || '20210101-20211231',
-          freqaimodel: 'LightGBMRegressor',
-          export: true,
-          export_filename: 'user_data/backtest_results/latest_trades_multi',
-        }
-        const rb = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
-        const jb = await rb.json(); if (!jb.job_id) { alert('回测启动失败: '+JSON.stringify(jb)); return }
-        await pollLogs(jb.job_id)
-        await showSummary()
-      } catch (e) { console.warn('train->bt error', e); alert('训练→回测 失败: '+e) }
+    const brandSel = document.getElementById('brandSelect'); if (brandSel) brandSel.onchange = () => { document.documentElement.setAttribute('data-brand', brandSel.value || 'ocean') }
+    const btnFit = document.getElementById('btnFit'); if (btnFit) btnFit.onclick = () => { try { window.__rf && window.__rf.fitView() } catch {} }
+    const btnClear = document.getElementById('btnClear'); if (btnClear) btnClear.onclick = () => { setNodes([]); setEdges([]) }
+    const layoutBtn = document.getElementById('btnLayout'); if (layoutBtn) layoutBtn.onclick = () => {
+      // 简易水平布局
+      const sorted = (nodes||[]).slice().sort((a,b)=> (a.position?.x||0)-(b.position?.x||0))
+      const y = 120
+      setNodes(sorted.map((n,i) => ({ ...n, position: { x: 80 + i*260, y } })))
     }
-    try { const saved = localStorage.getItem('am_theme'); if (saved) document.documentElement.setAttribute('data-theme', saved) } catch {}
-    // brand select
-    const brandSel = document.getElementById('brandSelect'); if (brandSel) {
-      try {
-        const savedBrand = localStorage.getItem('am_brand') || 'ocean'
-        brandSel.value = savedBrand; document.documentElement.setAttribute('data-brand', savedBrand)
-      } catch {}
-      brandSel.onchange = () => {
-        const v = brandSel.value || 'ocean'
-        document.documentElement.setAttribute('data-brand', v)
-        try { localStorage.setItem('am_brand', v) } catch {}
-      }
-    }
-    // snap toggle
     const snapBtn = document.getElementById('btnSnap'); if (snapBtn) snapBtn.onclick = () => setSnap(s => !s)
-    const gridInput = document.getElementById('gridSize'); if (gridInput) {
-      gridInput.onchange = () => {
-        const v = Math.max(2, parseInt(gridInput.value||'16',10)||16)
-        setGrid([v,v])
-      }
+    const gridInput = document.getElementById('gridSize'); if (gridInput) gridInput.onchange = () => { const v = Math.max(2, parseInt(gridInput.value||'16',10)||16); setGrid([v,v]) }
+    const snapStrength = document.getElementById('snapStrength'); if (snapStrength) snapStrength.onchange = () => {
+      const mode = snapStrength.value || 'medium'
+      const base = Math.max(2, parseInt((document.getElementById('gridSize')?.value)||'16',10)||16)
+      const v = mode === 'strong' ? Math.max(2, Math.round(base/2)) : (mode==='weak'? base*2 : base)
+      setGrid([v,v])
     }
-    const snapStrength = document.getElementById('snapStrength'); if (snapStrength) {
-      snapStrength.onchange = () => {
-        const mode = snapStrength.value || 'medium'
-        const base = Math.max(2, parseInt((document.getElementById('gridSize')?.value)||'16',10)||16)
-        const v = mode === 'strong' ? Math.max(2, Math.round(base/2)) : (mode==='weak'? base*2 : base)
-        setGrid([v,v])
-      }
+    const ax = document.getElementById('btnAlignX'); if (ax) ax.onclick = () => {
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('至少选中2个节点')
+      const refY = sels[0].position?.y || 0
+      setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: n.position.x, y: refY } }) : n))
+    }
+    const ay = document.getElementById('btnAlignY'); if (ay) ay.onclick = () => {
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('至少选中2个节点')
+      const refX = sels[0].position?.x || 0
+      setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: refX, y: n.position.y } }) : n))
     }
     const distX = document.getElementById('btnDistX'); if (distX) distX.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('请选择3个以上节点'); return }
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('至少选中3个节点'); return }
       const sorted = sels.slice().sort((a,b)=> (a.position?.x||0)-(b.position?.x||0))
       const minx = sorted[0].position.x, maxx = sorted[sorted.length-1].position.x
       const step = (maxx - minx) / (sorted.length - 1)
@@ -306,741 +233,269 @@ function App() {
       setNodes(nds => nds.map(n => map.has(n.id) ? ({ ...n, position: { x: map.get(n.id), y: n.position.y } }) : n))
     }
     const distY = document.getElementById('btnDistY'); if (distY) distY.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('请选择3个以上节点'); return }
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('至少选中3个节点'); return }
       const sorted = sels.slice().sort((a,b)=> (a.position?.y||0)-(b.position?.y||0))
       const miny = sorted[0].position.y, maxy = sorted[sorted.length-1].position.y
       const step = (maxy - miny) / (sorted.length - 1)
       const map = new Map(sorted.map((n,i)=> [n.id, miny + i*step]))
       setNodes(nds => nds.map(n => map.has(n.id) ? ({ ...n, position: { x: n.position.x, y: map.get(n.id) } }) : n))
     }
-    // align buttons
-    const ax = document.getElementById('btnAlignX'); if (ax) ax.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('请选择2个以上节点')
-      const refY = sels[0].position?.y || 0
-      setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: n.position.x, y: refY } }) : n))
-    }
-    const ay = document.getElementById('btnAlignY'); if (ay) ay.onclick = () => {
-      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('请选择2个以上节点')
-      const refX = sels[0].position?.x || 0
-      setNodes(nds => nds.map(n => n.selected ? ({ ...n, position: { x: refX, y: n.position.y } }) : n))
-    }
-    const btnFeat = document.getElementById('btnFeatTop')
-    if (btnFeat) btnFeat.onclick = async () => {
-      const file = document.getElementById('featureFile').value || 'user_data/freqai_features.json'
-      const res = await fetch(`${API}/features/top?file=${encodeURIComponent(file)}&limit=10`)
-      const data = await res.json()
-      if (featTopEl) featTopEl.textContent = JSON.stringify(data, null, 2)
-    }
-    // 暴露给全局：用于拖拽添加节点
-    window.__setNodes = (node) => setNodes(nds => nds.concat(node))
-    // 绑定调色板的拖拽开始，写入 dataTransfer
-    const paletteItems = Array.from(document.querySelectorAll('.palette-item'))
-    const onDragStart = (e) => {
-      const typeKey = e.target?.getAttribute?.('data-nodetype')
-      if (!typeKey) return
-      e.dataTransfer.setData('application/node-type', typeKey)
-      e.dataTransfer.effectAllowed = 'move'
-    }
-    paletteItems.forEach(el => el.addEventListener('dragstart', onDragStart))
-    const btnRunAgentFlow = document.getElementById('btnRunAgentFlow')
-    if (btnRunAgentFlow) btnRunAgentFlow.onclick = async () => {
-      const cfg = (document.getElementById('flowCfg')?.value || 'configs/agent_flow_multi.json')
-      const stepsRaw = (document.getElementById('flowSteps')?.value || '').trim()
-      const body = { config: cfg }
-      if (stepsRaw) { body.steps = stepsRaw.split(/\s+/) }
+  }, [nodes])
+
+  // Node editing stubs
+  useEffect(() => { window.__runNode = async (id) => { /* could implement run by nodeId */ } }, [])
+
+  // Wire core buttons
+  useEffect(() => {
+    const logsEl = document.getElementById('logs')
+    const be = document.getElementById('btnExpr')
+    const bb = document.getElementById('btnBacktest')
+    const bs = document.getElementById('btnSummary')
+    if (be) be.onclick = async () => {
       logsEl.textContent = ''
-      const res = await fetch(`${API}/flow/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json()
-      await await pollLogs(data.job_id)
-      await showSummary()
-    }
-    // 清理函数，防止重复绑定
-    return () => {
-      paletteItems.forEach(el => el.removeEventListener('dragstart', onDragStart))
-    }
-    const btnFeatPlot = document.getElementById('btnFeatPlot')
-    if (btnFeatPlot) btnFeatPlot.onclick = async () => {
-      const file = document.getElementById('featureFile').value || 'user_data/freqai_features.json'
-      const res = await fetch(`${API}/features/top?file=${encodeURIComponent(file)}&limit=10`)
-      const data = await res.json()
-      const items = data.items || []
-      const names = items.map(x => x.name)
-      const vals = items.map(x => x.score)
-      const chart = echarts.init(document.getElementById('featChart'))
-      chart.setOption({
-        grid: { left: 40, right: 16, top: 10, bottom: 60 },
-        xAxis: { type: 'category', data: names, axisLabel: { rotate: 60 } },
-        yAxis: { type: 'value', scale: true },
-        tooltip: { trigger: 'axis' },
-        series: [{ name: 'score', type: 'bar', data: vals }],
-      })
-    }
-    const btnList = document.getElementById('btnList')
-    if (btnList) btnList.onclick = async () => {
-      const res = await fetch(`${API}/results/list`)
-      const data = await res.json()
-      if (data.items && data.items.length) {
-        const [a,b] = data.items
-        if (a) document.getElementById('resA').value = a.name
-        if (b) document.getElementById('resB').value = b.name
-      }
-    }
-    const btnCmp = document.getElementById('btnCompare')
-    if (btnCmp) btnCmp.onclick = async () => {
-      const a = (document.getElementById('resA').value||'').trim()
-      const b = (document.getElementById('resB').value||'').trim()
-      if (!a || !b) return alert('请填写结果文件名 A / B')
-      const [sa, sb] = await Promise.all([
-        fetch(`${API}/results/summary?name=${encodeURIComponent(a)}`).then(r => r.json()),
-        fetch(`${API}/results/summary?name=${encodeURIComponent(b)}`).then(r => r.json()),
-      ])
-      function toSeries(summary, label) {
-        const trades = Array.isArray(summary.trades) ? summary.trades.slice().sort((x,y)=> (x.open_timestamp||0)-(y.open_timestamp||0)) : []
-        let cum = 0
-        const xs = []
-        const ys = []
-        const dd = []
-        let peak = 0
-        for (const t of trades) { cum += Number(t.profit_abs||0); xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10)); ys.push(cum); peak = Math.max(peak, cum); dd.push(peak ? (cum - peak) : 0) }
-        return { xs, ys, dd, label }
-      }
-      const A = toSeries(sa, 'A:'+a)
-      const B = toSeries(sb, 'B:'+b)
-      if (compareEl) {
-        compareEl.innerHTML = '<div id="cmpEquity" style="height:220px;margin:6px 0;"></div><div id="cmpDD" style="height:160px;margin:6px 0 10px 0;"></div>'
-        const eq = echarts.init(document.getElementById('cmpEquity'))
-        const dd = echarts.init(document.getElementById('cmpDD'))
-        const x = A.xs.length >= B.xs.length ? A.xs : B.xs
-        eq.setOption({
-          grid: { left: 40, right: 16, top: 10, bottom: 20 },
-          xAxis: { type: 'category', data: x, boundaryGap: false },
-          yAxis: { type: 'value', scale: true },
-          tooltip: { trigger: 'axis' }, legend: {}, dataZoom: [{ type:'inside' }, { type:'slider' }],
-          series: [ { name: A.label, type: 'line', data: A.ys, smooth: true }, { name: B.label, type: 'line', data: B.ys, smooth: true } ]
-        })
-        dd.setOption({
-          grid: { left: 40, right: 16, top: 10, bottom: 16 },
-          xAxis: { type: 'category', data: x, boundaryGap: false, axisLabel: { show: false } },
-          yAxis: { type: 'value', scale: true },
-          tooltip: { trigger: 'axis' }, legend: {}, dataZoom: [{ type:'inside' }, { type:'slider' }],
-          series: [ { name: A.label, type: 'line', data: A.dd, smooth: true, areaStyle: {} }, { name: B.label, type: 'line', data: B.dd, smooth: true, areaStyle: {} } ]
-        })
-        try { echarts.connect([eq, dd]) } catch {}
-        function metrics(s) {
-          const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}
-          return {
-            profit_pct: c.profit_total_pct ?? s.profit_total_pct,
-            profit_abs: c.profit_total_abs ?? s.profit_total_abs,
-            trades: c.trades ?? s.trades,
-            winrate: c.winrate ?? s.winrate,
-            max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
-          }
-        }
-      const ma = metrics(sa), mb = metrics(sb)
-      const tbl = document.createElement('div')
-      tbl.innerHTML = `<table border="1" cellspacing="0" cellpadding="4" style="width:100%; font-size:12px; margin-top:6px">
-            <tr><th>指标</th><th>A (${a})</th><th>B (${b})</th></tr>
-            <tr><td>总收益%</td><td>${ma.profit_pct ?? '--'}</td><td>${mb.profit_pct ?? '--'}</td></tr>
-            <tr><td>总收益(USDT)</td><td>${ma.profit_abs ?? '--'}</td><td>${mb.profit_abs ?? '--'}</td></tr>
-            <tr><td>交易数</td><td>${ma.trades ?? '--'}</td><td>${mb.trades ?? '--'}</td></tr>
-            <tr><td>胜率</td><td>${ma.winrate ?? '--'}</td><td>${mb.winrate ?? '--'}</td></tr>
-            <tr><td>最大回撤(USDT)</td><td>${ma.max_dd ?? '--'}</td><td>${mb.max_dd ?? '--'}</td></tr>
-          </table>`
-        compareEl.appendChild(tbl)
-      }
-      summaryEl.textContent = JSON.stringify({ A: sa, B: sb }, null, 2)
-    }
-    const btnGallery = document.getElementById('btnGallery')
-    if (btnGallery) btnGallery.onclick = async () => {
-      const res = await fetch(`${API}/results/gallery`)
-      const data = await res.json()
-      const gp = document.getElementById('galleryPanel')
-      if (gp) {
-        const items = (data.items||[]).map(x => `<div>${x.name} · 收益%: ${x.profit_total_pct??'--'} · 交易: ${x.trades??'--'} · 回撤: ${x.max_drawdown_abs??'--'}</div>`).join('') || '<em>无</em>'
-        gp.innerHTML = items
-      }
-    }
-    const btnAgg = document.getElementById('btnAgg')
-    if (btnAgg) btnAgg.onclick = async () => {
-      const names = (document.getElementById('aggNames').value||'').trim()
-      if (!names) return alert('请输入逗号分隔的结果名')
-      const res = await fetch(`${API}/results/aggregate?names=${encodeURIComponent(names)}`)
-      const data = await res.json()
-      const ap = document.getElementById('aggPanel')
-      if (ap) ap.textContent = JSON.stringify(data, null, 2)
-    }
-    // 提供简单的点击模拟器，便于快速自测（在浏览器控制台运行：_simulateClicks('expr')）
-    window._simulateClicks = async (what = 'expr') => {
-      const map = {
-        expr: 'btnExpr',
-        backtest: 'btnBacktest',
-        summary: 'btnSummary',
-      }
-      const id = map[what] || what
-      const el = document.getElementById(id)
-      if (!el) { console.warn('simulate: not found', id); return false }
-      el.click()
-      return true
-    }
-  }, [])
-
-  // ReactFlow 画布的拖拽回调，确保可以把调色板节点丢到画布
-  const onDragOver = useCallback((e) => {
-    e.preventDefault()
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-  }, [])
-  const onDrop = useCallback((e) => {
-    e.preventDefault()
-    const pane = document.querySelector('.react-flow')
-    const bounds = pane ? pane.getBoundingClientRect() : { left: 0, top: 0 }
-    const typeKey = e.dataTransfer.getData('application/node-type') || ''
-    if (!typeKey) return
-    let x = e.clientX - bounds.left
-    let y = e.clientY - bounds.top
-    try {
-      const vp = document.querySelector('.react-flow__viewport')
-      const m = vp ? window.getComputedStyle(vp).transform : 'none'
-      if (m && m !== 'none' && m.startsWith('matrix(')) {
-        const nums = m.replace('matrix(', '').replace(')', '').split(',').map(parseFloat)
-        const scale = nums[0] || 1
-        const tx = nums[4] || 0
-        const ty = nums[5] || 0
-        x = (x - tx) / scale
-        y = (y - ty) / scale
-      }
-    } catch {}
-    const position = { x, y }
-    const id = 'n' + Math.random().toString(16).slice(2,8)
-    const labelMap = { data: 'Data', expr: 'Expression(LLM)', bt: 'Backtest', ml: 'Train(ML)', rl: 'Train(RL)', fb: 'Feedback', ho: 'Hyperopt', mv: 'MultiValidate' }
-    const cfgMap = {
-      data: { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' },
-      expr: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' },
-      ml: { config: 'configs/train_pytorch_mlp.json', inline: false, model: 'lightgbm', params: '{}', feature_file: 'user_data/freqai_features_multi.json', timeframe: '4h', pairs: 'BTC/USDT ETH/USDT', autobt: false },
-      rl: { config: 'configs/train_ppo.json' },
-      bt: { timerange: '20210101-20211231' },
-      fb: { results_dir: 'user_data/backtest_results' },
-      ho: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' },
-      mv: { timeranges: '20210101-20210331,20210401-20210630' },
-    }
-    const node = { id, type: 'amNode', position, data: { label: labelMap[typeKey] || typeKey, typeKey, cfg: cfgMap[typeKey] || {} } }
-    setNodes(nds => nds.concat(node))
-  }, [])
-
-  // Node helpers
-  function genId(prefix='n') { return prefix + Math.random().toString(16).slice(2,8) }
-  const onConnect = useCallback((params) => {
-    setEdges((eds) => addEdgeLib({ id: genId('e'), ...params }, eds))
-  }, [])
-  const onNodesChange = useCallback((chs) => { setNodes((nds) => applyNodeChanges(chs, nds)) }, [])
-  const onEdgesChange = useCallback((chs) => { setEdges((eds) => applyEdgeChanges(chs, eds)) }, [])
-  const onNodeClick = useCallback((_, n) => { setSelected(n) }, [])
-
-  function nodeCfgSchema(typeKey) {
-    if (typeKey === 'data') return [
-      { key: 'pairs', label: 'Pairs', def: 'BTC/USDT ETH/USDT' },
-      { key: 'timeframe', label: 'Timeframe', def: '4h' },
-      { key: 'output', label: 'Output', def: 'user_data/freqai_features_multi.json' },
-    ]
-    if (typeKey === 'expr') return [
-      { key: 'feature_file', label: 'Feature File', def: (document.getElementById('featureFile')?.value || 'user_data/freqai_features.json') },
-      { key: 'llm_model', label: 'LLM Model', def: 'gpt-3.5-turbo' },
-      { key: 'llm_count', label: 'LLM Count', def: 12, type: 'number' },
-      { key: 'timeframe', label: 'Timeframe', def: '4h' },
-    ]
-    if (typeKey === 'ml') return [
-      { key: 'config', label: 'Config', def: 'configs/train_pytorch_mlp.json' },
-      { key: 'inline', label: 'Inline(true/false)', def: false },
-      { key: 'model', label: 'Model', def: 'lightgbm' },
-      { key: 'params', label: 'Params(JSON)', def: '{}' },
-      { key: 'feature_file', label: 'Feature File', def: 'user_data/freqai_features_multi.json' },
-      { key: 'timeframe', label: 'Timeframe', def: '4h' },
-      { key: 'pairs', label: 'Pairs', def: 'BTC/USDT ETH/USDT' },
-      { key: 'autobt', label: 'AutoBacktest(true/false)', def: false },
-    ]
-    if (typeKey === 'rl') return [
-      { key: 'config', label: 'Config', def: 'configs/train_ppo.json' },
-    ]
-    if (typeKey === 'bt') return [
-      { key: 'timerange', label: 'Timerange', def: '20210101-20211231' },
-    ]
-    if (typeKey === 'fb') return [
-      { key: 'results_dir', label: 'Results Dir', def: 'user_data/backtest_results' },
-    ]
-    if (typeKey === 'ho') return [
-      { key: 'timerange', label: 'Timerange', def: '20210101-20210430' },
-      { key: 'spaces', label: 'Spaces', def: 'buy sell protection' },
-      { key: 'epochs', label: 'Epochs', def: 20, type: 'number' },
-      { key: 'loss', label: 'Loss', def: 'SharpeHyperOptLoss' },
-    ]
-    return []
-  }
-
-  function renderNodeForm() {
-    const el = document.getElementById('nodeForm')
-    if (!selected) { el.innerHTML = '<em>未选中节点</em>'; return }
-    const typeKey = selected?.data?.typeKey
-    if (!typeKey) { el.innerHTML = '<em>未知节点</em>'; return }
-    const cfg = selected.data.cfg || {}
-    const schema = nodeCfgSchema(typeKey)
-    let html = `<div><b>${selected.data.label}</b> (${typeKey})</div>`
-    schema.forEach(s => {
-      const val = cfg[s.key] ?? s.def
-      const t = s.type === 'number' ? 'number' : 'text'
-      html += `<label>${s.label}</label><input data-k="${s.key}" type="${t}" value="${val}" />`
-    })
-    // 针对 ML 节点，提供更友好的模型选择与参数表单
-    if (typeKey === 'ml') {
-      html += `
-        <div class="panel" style="margin-top:8px; padding:8px; border:1px dashed #e6e8eb; border-radius:8px;">
-          <div style="font-weight:600; font-size:12px; margin-bottom:6px;">模型预设与参数</div>
-          <label>模型预设</label>
-          <select id="mlPresetSelect">
-            <option value="lightgbm">LightGBM</option>
-            <option value="xgboost">XGBoost</option>
-            <option value="catboost">CatBoost</option>
-            <option value="pytorch_mlp">PyTorch MLP</option>
-          </select>
-          <div id="mlPresetParams" style="margin-top:6px"></div>
-          <div class="buttons" style="margin-top:8px">
-            <button id="mlApplyPreset">应用参数到节点</button>
-          </div>
-          <div style="font-size:12px; color:#888; margin-top:4px;">提示：应用后会自动设置 inline=true，并写入 Params(JSON)。</div>
-        </div>
-      `
-    }
-    el.innerHTML = html
-    Array.from(el.querySelectorAll('input[data-k]')).forEach(inp => {
-      inp.addEventListener('change', (e) => {
-        const k = e.target.getAttribute('data-k')
-        const v = (e.target.type === 'number') ? Number(e.target.value) : e.target.value
-        setNodes(nds => nds.map(n => n.id === selected.id ? ({...n, data: {...n.data, cfg: {...(n.data.cfg||{}), [k]: v }}}) : n))
-        selected.data.cfg = {...selected.data.cfg, [k]: v}
-      })
-    })
-    if (typeKey === 'ml') {
-      // 构建动态参数表单
-      const presetSel = document.getElementById('mlPresetSelect')
-      const paramsBox = document.getElementById('mlPresetParams')
-      const applyBtn = document.getElementById('mlApplyPreset')
-      const existingModel = (cfg.model || cfg.config_model || 'lightgbm').toLowerCase()
-      try { presetSel.value = existingModel } catch {}
-
-      const renderParams = (modelName) => {
-        // 读取已存在的 JSON params 做预填
-        let saved = {}
-        try { saved = JSON.parse(cfg.params || '{}') } catch {}
-        const get = (k, defv) => (saved[k] !== undefined ? saved[k] : defv)
-        if (modelName === 'lightgbm') {
-          paramsBox.innerHTML = `
-            <label>learning_rate</label><input id="p_learning_rate" value="${get('learning_rate', 0.04)}" />
-            <label>num_leaves</label><input id="p_num_leaves" type="number" value="${get('num_leaves', 63)}" />
-            <label>feature_fraction</label><input id="p_feature_fraction" value="${get('feature_fraction', 0.8)}" />
-            <label>subsample</label><input id="p_subsample" value="${get('subsample', 0.85)}" />
-            <label>num_boost_round</label><input id="p_num_boost_round" type="number" value="${get('num_boost_round', 220)}" />
-          `
-        } else if (modelName === 'xgboost') {
-          paramsBox.innerHTML = `
-            <label>eta(learning_rate)</label><input id="p_eta" value="${get('eta', 0.05)}" />
-            <label>max_depth</label><input id="p_max_depth" type="number" value="${get('max_depth', 6)}" />
-            <label>subsample</label><input id="p_subsample" value="${get('subsample', 0.8)}" />
-            <label>colsample_bytree</label><input id="p_colsample_bytree" value="${get('colsample_bytree', 0.8)}" />
-            <label>num_boost_round</label><input id="p_num_boost_round" type="number" value="${get('num_boost_round', 300)}" />
-          `
-        } else if (modelName === 'catboost') {
-          paramsBox.innerHTML = `
-            <label>iterations</label><input id="p_iterations" type="number" value="${get('iterations', 500)}" />
-            <label>depth</label><input id="p_depth" type="number" value="${get('depth', 6)}" />
-            <label>learning_rate</label><input id="p_learning_rate" value="${get('learning_rate', 0.03)}" />
-            <label>l2_leaf_reg</label><input id="p_l2_leaf_reg" value="${get('l2_leaf_reg', 3.0)}" />
-          `
-        } else { // pytorch_mlp
-          paramsBox.innerHTML = `
-            <label>hidden_dims(逗号分隔)</label><input id="p_hidden_dims" value="${(get('hidden_dims', [128,64,32])||[]).join(',')}" />
-            <label>dropout</label><input id="p_dropout" value="${get('dropout', 0.1)}" />
-            <label>epochs</label><input id="p_epochs" type="number" value="${get('epochs', 25)}" />
-            <label>batch_size</label><input id="p_batch_size" type="number" value="${get('batch_size', 128)}" />
-            <label>learning_rate</label><input id="p_learning_rate" value="${get('learning_rate', 0.001)}" />
-            <label>use_cuda(true/false)</label><input id="p_use_cuda" value="${get('use_cuda', false)}" />
-          `
-        }
-      }
-      renderParams(presetSel.value)
-      presetSel.onchange = () => renderParams(presetSel.value)
-
-      applyBtn.onclick = () => {
-        const modelName = presetSel.value
-        let params = {}
-        if (modelName === 'lightgbm') {
-          params = {
-            objective: 'regression', metric: 'rmse',
-            learning_rate: parseFloat(document.getElementById('p_learning_rate').value||'0.04'),
-            num_leaves: parseInt(document.getElementById('p_num_leaves').value||'63',10),
-            feature_fraction: parseFloat(document.getElementById('p_feature_fraction').value||'0.8'),
-            subsample: parseFloat(document.getElementById('p_subsample').value||'0.85'),
-            num_boost_round: parseInt(document.getElementById('p_num_boost_round').value||'220',10),
-          }
-        } else if (modelName === 'xgboost') {
-          params = {
-            objective: 'reg:squarederror', eta: parseFloat(document.getElementById('p_eta').value||'0.05'),
-            max_depth: parseInt(document.getElementById('p_max_depth').value||'6',10),
-            subsample: parseFloat(document.getElementById('p_subsample').value||'0.8'),
-            colsample_bytree: parseFloat(document.getElementById('p_colsample_bytree').value||'0.8'),
-            num_boost_round: parseInt(document.getElementById('p_num_boost_round').value||'300',10),
-          }
-        } else if (modelName === 'catboost') {
-          params = {
-            iterations: parseInt(document.getElementById('p_iterations').value||'500',10),
-            depth: parseInt(document.getElementById('p_depth').value||'6',10),
-            learning_rate: parseFloat(document.getElementById('p_learning_rate').value||'0.03'),
-            l2_leaf_reg: parseFloat(document.getElementById('p_l2_leaf_reg').value||'3.0'),
-          }
-        } else {
-          const hd = (document.getElementById('p_hidden_dims').value||'128,64,32').split(',').map(x=>parseInt(x.trim(),10)).filter(Boolean)
-          params = {
-            hidden_dims: hd,
-            dropout: parseFloat(document.getElementById('p_dropout').value||'0.1'),
-            epochs: parseInt(document.getElementById('p_epochs').value||'25',10),
-            batch_size: parseInt(document.getElementById('p_batch_size').value||'128',10),
-            learning_rate: parseFloat(document.getElementById('p_learning_rate').value||'0.001'),
-            use_cuda: String(document.getElementById('p_use_cuda').value||'false').toLowerCase()==='true',
-          }
-        }
-        // 写回节点 cfg：model / params(JSON) / inline=true
-        setNodes(nds => nds.map(n => n.id === selected.id ? ({...n, data: {...n.data, cfg: {...(n.data.cfg||{}), model: modelName, params: JSON.stringify(params), inline: true }}}) : n))
-        selected.data.cfg = {...selected.data.cfg, model: modelName, params: JSON.stringify(params), inline: true}
-        alert('已应用到节点：模型='+modelName)
-      }
-    }
-  }
-
-  useEffect(() => { renderNodeForm() }, [selected, nodes])
-
-  function addNode(typeKey) {
-    const id = genId()
-    const label = typeKey === 'data' ? 'Data' : (typeKey === 'expr' ? 'Expression(LLM)' : (typeKey === 'bt' ? 'Backtest' : (typeKey === 'fb' ? 'Feedback' : (typeKey === 'ho' ? 'Hyperopt' : 'MultiValidate'))))
-    const cfg = typeKey === 'expr' ? { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' }
-      : (typeKey === 'bt' ? { timerange: '20210101-20211231' }
-      : (typeKey === 'data' ? { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' }
-      : (typeKey === 'fb' ? { results_dir: 'user_data/backtest_results' } : { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' })))
-    const node = { id, position: { x: 120 + Math.random()*320, y: 120 + Math.random()*180 }, data: { label, typeKey, cfg } }
-    setNodes(nds => nds.concat(node))
-  }
-
-  async function runFlow() {
-    logsEl.textContent = ''
-    let feedbackPath = null
-    // topo order (simple forward traversal)
-    const id2node = Object.fromEntries(nodes.map(n => [n.id, n]))
-    const incoming = {}
-    nodes.forEach(n => incoming[n.id] = 0)
-    edges.forEach(e => incoming[e.target] = (incoming[e.target]||0)+1)
-    const queue = nodes.filter(n => (incoming[n.id]||0) === 0).map(n => n.id)
-    const order = []
-    const outs = edges.reduce((m,e) => { (m[e.source] ||= []).push(e.target); return m }, {})
-    while (queue.length) {
-      const id = queue.shift()
-      order.push(id)
-      for (const nb of (outs[id]||[])) {
-        incoming[nb] -= 1
-        if (incoming[nb] === 0) queue.push(nb)
-      }
-    }
-    // execute in order: data -> expr -> bt -> fb
-    for (const id of order) {
-      const n = id2node[id]
-      if (!n?.data?.typeKey) continue
-      if (n.data.typeKey === 'data') {
-        const body = {
-          config: document.getElementById('cfg').value,
-          output: n.data.cfg?.output || 'user_data/freqai_features_multi.json',
-          timeframe: n.data.cfg?.timeframe || document.getElementById('timeframe').value,
-          pairs: n.data.cfg?.pairs || 'BTC/USDT ETH/USDT',
-        }
-        const res = await fetch(`${API}/run/feature`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const data = await res.json()
-        await await pollLogs(data.job_id)
-      }
-      if (n.data.typeKey === 'expr') {
-        const body = {
-          config: document.getElementById('cfg').value,
-          feature_file: document.getElementById('featureFile').value,
-          output: 'user_data/freqai_expressions.json',
-          timeframe: n.data.cfg?.timeframe || '4h',
-          llm_model: n.data.cfg?.llm_model || 'gpt-3.5-turbo',
-          llm_count: Number(n.data.cfg?.llm_count || 12),
-          llm_loops: 1,
-          llm_timeout: 60,
-          feedback_top: 0
-          feedback: feedbackPath || undefined,
-        }
-        const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const data = await res.json()
-        await await pollLogs(data.job_id)
-      }
-      if (n.data.typeKey === 'ml') {
-        const cfg = n.data.cfg || {}
-        let body
-        const inline = String(cfg.inline).toLowerCase() === 'true' || cfg.inline === true
-        if (inline) {
-          let paramsObj = {}
-          try { paramsObj = JSON.parse(cfg.params || '{}') } catch {}
-          body = {
-            config_obj: {
-              data: { feature_file: cfg.feature_file || 'user_data/freqai_features_multi.json', data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe: cfg.timeframe || '4h', pairs: String(cfg.pairs||'BTC/USDT').split(/\s+/) },
-              model: { name: cfg.model || 'lightgbm', params: paramsObj },
-              training: { validation_ratio: 0.2 },
-              output: { model_dir: 'artifacts/models/inline_ml' },
-            }
-          }
-        } else {
-          body = { config: cfg.config || 'configs/train_pytorch_mlp.json' }
-        }
-        const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const data = await res.json()
-        await await pollLogs(data.job_id)
-        const autobt = String(cfg.autobt).toLowerCase() === 'true' || cfg.autobt === true
-        if (autobt) {
-          const btReq = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
-          const rb = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
-          const jb = await rb.json(); await pollLogs(jb.job_id); await showSummary()
-        }
-      }
-      if (n.data.typeKey === 'rl') {
-        const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
-        const res = await fetch(`${API}/run/rl_train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const data = await res.json()
-        await await pollLogs(data.job_id)
-      }
-      if (n.data.typeKey === 'bt') {
-        const body = {
-          config: document.getElementById('cfg').value,
-          strategy: 'ExpressionLongStrategy',
-          strategy_path: 'freqtrade/user_data/strategies',
-          timerange: n.data.cfg?.timerange || document.getElementById('timerange').value,
-          freqaimodel: 'LightGBMRegressor',
-          export: true,
-          export_filename: 'user_data/backtest_results/latest_trades_multi',
-        }
-        const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const data = await res.json()
-        await await pollLogs(data.job_id)
-        await showSummary()
-      }
-      if (n.data.typeKey === 'fb') {
-        const body = { results_dir: n.data.cfg?.results_dir || 'user_data/backtest_results', out: 'user_data/llm_feedback/latest_backtest_summary.json' }
-        const res = await fetch(`${API}/results/prepare-feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const fb = await res.json()
-        feedbackPath = fb.feedback_path || null
-      }
-      if (n.data.typeKey === 'ho') {
-        const body = {
-          config: document.getElementById('cfg').value,
-          strategy: 'ExpressionLongStrategy',
-          strategy_path: 'freqtrade/user_data/strategies',
-          timerange: n.data.cfg?.timerange || '20210101-20210430',
-          spaces: n.data.cfg?.spaces || 'buy sell protection',
-          hyperopt_loss: n.data.cfg?.loss || 'SharpeHyperOptLoss',
-          epochs: Number(n.data.cfg?.epochs || 20),
-          freqaimodel: 'LightGBMRegressor',
-          job_workers: -1,
-        }
-        const res = await fetch(`${API}/run/hyperopt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-        const data = await res.json()
-        await await pollLogs(data.job_id)
-        // auto backtest after hyperopt
-        const btReq = {
-          config: document.getElementById('cfg').value,
-          strategy: 'ExpressionLongStrategy',
-          strategy_path: 'freqtrade/user_data/strategies',
-          timerange: n.data.cfg?.timerange || '20210101-20210430',
-          freqaimodel: 'LightGBMRegressor',
-          export: true,
-          export_filename: 'user_data/backtest_results/latest_trades_multi',
-        }
-        const btRes = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
-        const btJob = await btRes.json()
-        await pollLogs(btJob.job_id)
-        await showSummary()
-      }
-    }
-  }
-
-  // 单节点执行：供自定义节点“运行”按钮调用
-  async function runNodeById(nodeId) {
-    const n = (nodes || []).find(x => x.id === nodeId)
-    if (!n || !n.data || !n.data.typeKey) return
-    let feedbackPath = null
-    if (n.data.typeKey === 'data') {
       const body = {
         config: document.getElementById('cfg').value,
-        output: n.data.cfg?.output || 'user_data/freqai_features_multi.json',
-        timeframe: n.data.cfg?.timeframe || document.getElementById('timeframe').value,
-        pairs: n.data.cfg?.pairs || 'BTC/USDT ETH/USDT',
-      }
-      const res = await fetch(`${API}/run/feature`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await await pollLogs(data.job_id)
-    }
-    if (n.data.typeKey === 'expr') {
-      const body = {
-        config: document.getElementById('cfg').value,
-        feature_file: n.data.cfg?.feature_file || document.getElementById('featureFile').value,
+        feature_file: document.getElementById('featureFile').value,
         output: 'user_data/freqai_expressions.json',
-        timeframe: n.data.cfg?.timeframe || '4h',
-        llm_model: n.data.cfg?.llm_model || 'gpt-3.5-turbo',
-        llm_count: Number(n.data.cfg?.llm_count || 12),
+        timeframe: document.getElementById('timeframe').value,
+        llm_model: document.getElementById('llmModel').value,
+        llm_count: parseInt(document.getElementById('llmCount').value || '3', 10),
         llm_loops: 1,
         llm_timeout: 60,
-        feedback_top: 0
-        feedback: undefined,
+        feedback_top: 0,
       }
-      const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await await pollLogs(data.job_id)
+      window.__retryLast = async () => {
+        const r = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const j = await r.json(); if (j.job_id) { setStatus('表达式', j.job_id, true); await pollLogs(j.job_id); setStatus('表达式', j.job_id, false) } else { alert(JSON.stringify(j)) }
+      }
+      await window.__retryLast()
     }
-    if (n.data.typeKey === 'bt') {
+    if (bb) bb.onclick = async () => {
+      logsEl.textContent = ''
       const body = {
         config: document.getElementById('cfg').value,
         strategy: 'ExpressionLongStrategy',
         strategy_path: 'freqtrade/user_data/strategies',
-        timerange: n.data.cfg?.timerange || document.getElementById('timerange').value,
+        timerange: document.getElementById('timerange').value,
         freqaimodel: 'LightGBMRegressor',
         export: true,
         export_filename: 'user_data/backtest_results/latest_trades_multi',
       }
-      const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await await pollLogs(data.job_id); await showSummary()
-    }
-    if (n.data.typeKey === 'ml') {
-      const cfg = n.data.cfg || {}
-      let body
-      const inline = String(cfg.inline).toLowerCase() === 'true' || cfg.inline === true
-      if (inline) {
-        let paramsObj = {}
-        try { paramsObj = JSON.parse(cfg.params || '{}') } catch {}
-        body = {
-          config_obj: {
-            data: { feature_file: cfg.feature_file || 'user_data/freqai_features_multi.json', data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe: cfg.timeframe || '4h', pairs: String(cfg.pairs||'BTC/USDT').split(/\s+/) },
-            model: { name: cfg.model || 'lightgbm', params: paramsObj },
-            training: { validation_ratio: 0.2 },
-            output: { model_dir: 'artifacts/models/inline_ml' },
-          }
-        }
-      } else {
-        body = { config: cfg.config || 'configs/train_pytorch_mlp.json' }
+      window.__retryLast = async () => {
+        const r = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const j = await r.json(); if (j.job_id) { setStatus('回测', j.job_id, true); await pollLogs(j.job_id); setStatus('回测', j.job_id, false) } else { alert(JSON.stringify(j)) }
       }
-      const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await await pollLogs(data.job_id)
-      const autobt = String(cfg.autobt).toLowerCase() === 'true' || cfg.autobt === true
-      if (autobt) {
-        const btReq = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
-        const rb = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
-        const jb = await rb.json(); await pollLogs(jb.job_id); await showSummary()
-      }
+      await window.__retryLast()
     }
-    if (n.data.typeKey === 'rl') {
-      const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
-      const res = await fetch(`${API}/run/rl_train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await await pollLogs(data.job_id)
-    }
-    if (n.data.typeKey === 'fb') {
-      const body = { results_dir: n.data.cfg?.results_dir || 'user_data/backtest_results', out: 'user_data/llm_feedback/latest_backtest_summary.json' }
-      const res = await fetch(`${API}/results/prepare-feedback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const fb = await res.json(); feedbackPath = fb.feedback_path || null
-    }
-    if (n.data.typeKey === 'ho') {
-      const body = {
-        config: document.getElementById('cfg').value,
-        strategy: 'ExpressionLongStrategy',
-        strategy_path: 'freqtrade/user_data/strategies',
-        timerange: n.data.cfg?.timerange || '20210101-20210430',
-        spaces: n.data.cfg?.spaces || 'buy sell protection',
-        hyperopt_loss: n.data.cfg?.loss || 'SharpeHyperOptLoss',
-        epochs: Number(n.data.cfg?.epochs || 20),
-        freqaimodel: 'LightGBMRegressor',
-        job_workers: -1,
-      }
-      const res = await fetch(`${API}/run/hyperopt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await await pollLogs(data.job_id)
-    }
-  }
+    if (bs) bs.onclick = () => showSummary()
+    const cancel = document.getElementById('btnCancelJob'); if (cancel) cancel.onclick = async () => { try { /* requires job id track; skipped */ alert('请在任务执行时通过接口取消') } catch {} }
+  }, [])
 
-  useEffect(() => { window.__runNode = (id) => runNodeById(id) }, [nodes])
-  useEffect(() => { window.__configureNode = (id) => { try { const n = (nodes||[]).find(x=>x.id===id); if (!n) return; setSelected(n); document.getElementById('nodeForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch {} } }, [nodes])
-
-  function showCtxMenu(x, y, target) {
-    const el = document.getElementById('ctxMenu'); if (!el) return
-    const items = []
-    if (target.type === 'node') {
-      items.push({ k: 'copyNode', label: '复制节点' })
-      items.push({ k: 'toggleLock', label: '锁定/解锁' })
-      items.push({ k: 'deleteNode', label: '删除节点' })
-    } else if (target.type === 'edge') {
-      items.push({ k: 'deleteEdge', label: '删除连线' })
-    }
-    el.innerHTML = items.map(it => `<div class="item" data-k="${it.k}">${it.label}</div>`).join('')
-    el.style.left = `${x}px`; el.style.top = `${y}px`; el.style.display = 'block'
-    Array.from(el.querySelectorAll('.item')).forEach(item => {
-      item.addEventListener('click', () => {
-        const k = item.getAttribute('data-k')
-        if (k === 'deleteNode') {
-          setNodes(nds => nds.filter(n => n.id !== target.id))
-          setEdges(eds => eds.filter(e => e.source !== target.id && e.target !== target.id))
-        }
-        if (k === 'copyNode') {
-          const src = (nodes||[]).find(n => n.id === target.id); if (!src) return
-          const id = genId(); const pos = { x: (src.position?.x||0) + 40, y: (src.position?.y||0) + 40 }
-          const clone = { ...src, id, position: pos }
-          setNodes(nds => nds.concat(clone))
-        }
-        if (k === 'toggleLock') {
-          setNodes(nds => nds.map(n => n.id === target.id ? ({ ...n, draggable: !(n.draggable === false), data: { ...(n.data||{}), locked: !(n.draggable === false) ? true : false } }) : n))
-        }
-        if (k === 'deleteEdge') {
-          setEdges(eds => eds.filter(e => e.id !== target.id))
-        }
-        el.style.display = 'none'
-      })
-    })
-  }
-
-  function saveFlow() {
-    const payload = { nodes, edges }
-    localStorage.setItem('agent_market_flow', JSON.stringify(payload))
-    alert('已保存到 localStorage')
-  }
-  function loadFlow() {
-    const raw = localStorage.getItem('agent_market_flow')
-    if (!raw) return alert('没有保存的 flow')
-    try {
-      const obj = JSON.parse(raw)
-      setNodes(obj.nodes||[])
-      setEdges(obj.edges||[])
-    } catch(e) { alert('解析失败:'+e) }
-  }
-
+  // Settings load/save/apply
   useEffect(() => {
-    const run = document.getElementById('runFlow'); if (run) run.onclick = runFlow
-    const save = document.getElementById('saveFlow'); if (save) save.onclick = saveFlow
-    const load = document.getElementById('loadFlow'); if (load) load.onclick = loadFlow
-    const del = document.getElementById('delNode'); if (del) del.onclick = () => {
-      if (!selected) return;
-      setNodes(nds => nds.filter(n => n.id !== selected.id))
-      setEdges(eds => eds.filter(e => e.source !== selected.id && e.target !== selected.id))
-      setSelected(null)
+    const loadBtn = document.getElementById('btnLoadSettings')
+    const saveBtn = document.getElementById('btnSaveSettings')
+    const applyBtn = document.getElementById('btnApplySettings')
+    if (loadBtn) loadBtn.onclick = async () => {
+      try {
+        const r = await fetch(`${API}/settings`)
+        const s = await r.json()
+        document.getElementById('llmBaseUrl').value = s.llm_base_url || ''
+        document.getElementById('llmModelSet').value = s.llm_model || ''
+        document.getElementById('defaultTf').value = s.default_timeframe || ''
+      } catch(e) { alert('加载失败: '+e) }
+    }
+    if (saveBtn) saveBtn.onclick = async () => {
+      const base = (document.getElementById('llmBaseUrl')?.value || '').trim()
+      const model = (document.getElementById('llmModelSet')?.value || '').trim()
+      const tf = (document.getElementById('defaultTf')?.value || '').trim()
+      const body = {}; if (base) body.llm_base_url = base; if (model) body.llm_model = model; if (tf) body.default_timeframe = tf
+      const r = await fetch(`${API}/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const j = await r.json(); if (j.status === 'ok') alert('已保存设置') else alert('保存失败: '+JSON.stringify(j))
+    }
+    if (applyBtn) applyBtn.onclick = () => {
+      const model = (document.getElementById('llmModelSet')?.value || '').trim()
+      const tf = (document.getElementById('defaultTf')?.value || '').trim()
+      const mainLlm = document.getElementById('llmModel'); if (mainLlm && model) mainLlm.value = model
+      const mainTf = document.getElementById('timeframe'); if (mainTf && tf) mainTf.value = tf
+      alert('已应用到表单')
     }
   }, [])
 
-  const onNodeContextMenu = useCallback((e, n) => {
-    e.preventDefault(); showCtxMenu(e.clientX, e.clientY, { type: 'node', id: n.id })
-  }, [])
-  const onEdgeContextMenu = useCallback((e, eobj) => {
-    e.preventDefault(); showCtxMenu(e.clientX, e.clientY, { type: 'edge', id: eobj.id })
+  // Feature TopN
+  useEffect(() => {
+    const btn = document.getElementById('btnFeatTop'); if (btn) btn.onclick = async () => {
+      const file = document.getElementById('featureFile').value || 'user_data/freqai_features.json'
+      const res = await fetch(`${API}/features/top?file=${encodeURIComponent(file)}&limit=10`)
+      const data = await res.json()
+      const el = document.getElementById('featTop'); if (el) el.textContent = JSON.stringify(data, null, 2)
+    }
   }, [])
 
-  return h(RF, { nodes, edges, nodeTypes, defaultEdgeOptions, fitView: true, onConnect, onNodesChange, onEdgesChange, onNodeClick, onDrop, onDragOver,
-    onNodeContextMenu, onEdgeContextMenu,
-    panOnDrag: [0,1,2], selectionOnDrag: false, panOnScroll: false, zoomOnScroll: true, zoomOnPinch: true,
-    snapToGrid: !!snap, snapGrid: grid,
-    nodesDraggable: true, nodesConnectable: true, elementsSelectable: true, onInit: (inst) => { window.__rf = inst } }, [
+  // Agent Flow
+  useEffect(() => {
+    const btn = document.getElementById('btnRunAgentFlow')
+    if (!btn) return
+    btn.onclick = async () => {
+      const cfg = (document.getElementById('flowCfg')?.value || 'configs/agent_flow_multi.json')
+      const stepsRaw = (document.getElementById('flowSteps')?.value || '').trim()
+      const body = { config: cfg }
+      if (stepsRaw) body.steps = stepsRaw.split(/\s+/)
+      const fs = document.getElementById('flowStatus')
+      if (fs) {
+        const steps = (body.steps && Array.isArray(body.steps) && body.steps.length) ? body.steps : ['feature','expression','ml','rl','backtest']
+        fs.innerHTML = '<div style="margin-bottom:6px">步骤:</div>' + steps.map(s => `<span class="tag tag-running" data-step="${s}"><i class="ri-time-line"></i> ${s}</span>`).join(' ')
+        const controls = document.createElement('div'); controls.className = 'buttons'
+        controls.innerHTML = `
+          <button class="btn" id="qFeature"><i class="ri-database-2-line"></i> Feature</button>
+          <button class="btn" id="qExpr"><i class="ri-function-line"></i> Expr</button>
+          <button class="btn" id="qML"><i class="ri-cpu-line"></i> ML</button>
+          <button class="btn" id="qRL"><i class="ri-brain-line"></i> RL</button>
+          <button class="btn" id="qBT"><i class="ri-line-chart-line"></i> BT</button>
+        `
+        fs.appendChild(controls)
+        const bindQuick = (id, fn) => { const b = document.getElementById(id); if (b) b.onclick = () => runWithLoading(b, fn) }
+        bindQuick('qFeature', async () => {
+          const body = { config: document.getElementById('cfg').value, output: document.getElementById('featureFile').value, timeframe: document.getElementById('timeframe').value, pairs: 'BTC/USDT ETH/USDT' }
+          const r = await fetch(`${API}/run/feature`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
+        })
+        bindQuick('qExpr', async () => {
+          const body = { config: document.getElementById('cfg').value, feature_file: document.getElementById('featureFile').value, output:'user_data/freqai_expressions.json', timeframe: document.getElementById('timeframe').value, llm_model: document.getElementById('llmModel').value, llm_count: parseInt(document.getElementById('llmCount').value||'3',10), llm_loops:1, llm_timeout:60, feedback_top:0 }
+          const r = await fetch(`${API}/run/expression`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
+        })
+        bindQuick('qML', async () => {
+          const ff = document.getElementById('featureFile').value; const tf = document.getElementById('timeframe').value
+          const body = { config_obj: { data: { feature_file: ff, data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe: tf, pairs: ['BTC/USDT'] }, model: { name: 'lightgbm', params: { objective: 'regression', metric: 'rmse', num_boost_round: 120 } }, training: { validation_ratio: 0.2 }, output: { model_dir: 'artifacts/models/flow_ml' } } }
+          const r = await fetch(`${API}/run/train`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
+        })
+        bindQuick('qRL', async () => {
+          const body = { config: 'configs/train_ppo.json' }
+          const r = await fetch(`${API}/run/rl_train`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
+        })
+        bindQuick('qBT', async () => {
+          const body = { config: document.getElementById('cfg').value, strategy:'ExpressionLongStrategy', strategy_path:'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel:'LightGBMRegressor', export:true, export_filename:'user_data/backtest_results/latest_trades_multi' }
+          const r = await fetch(`${API}/run/backtest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
+        })
+      }
+      const r = await fetch(`${API}/flow/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const j = await r.json(); if (j.job_id) {
+        setStatus('Flow', j.job_id, true)
+        // progress polling
+        const stepsCsv = (body.steps && Array.isArray(body.steps) && body.steps.length) ? body.steps.join(',') : 'feature,expression,ml,rl,backtest'
+        let timer = setInterval(async () => {
+          try {
+            const pr = await fetch(`${API}/flow/progress/${j.job_id}?steps=${encodeURIComponent(stepsCsv)}`)
+            const pj = await pr.json()
+            const items = pj.steps || []
+            for (const it of items) {
+              const el = document.querySelector(`.tag[data-step="${it.name}"]`)
+              if (!el) continue
+              el.classList.remove('tag-ok','tag-failed','tag-running')
+              if (it.status === 'ok') el.classList.add('tag-ok')
+              else if (it.status === 'failed') el.classList.add('tag-failed')
+              else el.classList.add('tag-running')
+            }
+            if (!pj.running) { clearInterval(timer); timer = null }
+          } catch {}
+        }, 1000)
+        await pollLogs(j.job_id)
+        setStatus('Flow', j.job_id, false)
+      } else { alert(JSON.stringify(j)) }
+    }
+  }, [])
+
+  // Results list / compare / gallery / aggregate
+  useEffect(() => {
+    const listBtn = document.getElementById('btnList'); if (listBtn) listBtn.onclick = async () => {
+      try { const res = await fetch(`${API}/results/list`); const data = await res.json(); const el = document.getElementById('comparePanel'); if (el) el.textContent = JSON.stringify(data, null, 2) } catch(e) { alert('加载失败:'+e) }
+    }
+    const cmpBtn = document.getElementById('btnCompare'); if (cmpBtn) cmpBtn.onclick = async () => {
+      const a = (document.getElementById('resA').value||'').trim(); const b = (document.getElementById('resB').value||'').trim(); if (!a || !b) return alert('请先输入结果 A 与 B')
+      const rd = 'user_data/backtest_results'
+      const [ra, rb] = await Promise.all([
+        fetch(`${API}/results/summary?name=${encodeURIComponent(a)}`),
+        fetch(`${API}/results/summary?name=${encodeURIComponent(b)}`),
+      ])
+      const [sa, sb] = [await ra.json(), await rb.json()]
+      const toM = (s) => { const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}; return { profit_pct: c.profit_total_pct ?? s.profit_total_pct, profit_abs: c.profit_total_abs ?? s.profit_total_abs, trades: c.trades ?? s.trades, winrate: c.winrate ?? s.winrate, max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs } }
+      const ma = toM(sa), mb = toM(sb)
+      const el = document.getElementById('comparePanel')
+      if (el) el.innerHTML = `
+        <table style="width:100%; font-size:12px; border-collapse:collapse">
+          <tr><th>指标</th><th>A (${a})</th><th>B (${b})</th></tr>
+          <tr><td>收益%</td><td>${ma.profit_pct ?? '--'}</td><td>${mb.profit_pct ?? '--'}</td></tr>
+          <tr><td>收益(USDT)</td><td>${ma.profit_abs ?? '--'}</td><td>${mb.profit_abs ?? '--'}</td></tr>
+          <tr><td>交易数</td><td>${ma.trades ?? '--'}</td><td>${mb.trades ?? '--'}</td></tr>
+          <tr><td>胜率</td><td>${ma.winrate ?? '--'}</td><td>${mb.winrate ?? '--'}</td></tr>
+          <tr><td>最大回撤(USDT)</td><td>${ma.max_dd ?? '--'}</td><td>${mb.max_dd ?? '--'}</td></tr>
+        </table>`
+    }
+    const gbtn = document.getElementById('btnGallery'); if (gbtn) gbtn.onclick = async () => {
+      await runWithLoading(gbtn, async () => {
+        const res = await fetch(`${API}/results/gallery?limit=24`)
+        const data = await res.json()
+        const gp = document.getElementById('galleryPanel')
+        if (gp) {
+          const items = (data.items||[])
+          const html = items.map(x => {
+            const pct = Number(x.profit_total_pct||0)
+            const width = Math.max(0, Math.min(100, Math.round(Math.abs(pct))))
+            const color = pct >= 0 ? 'linear-gradient(90deg, #86efac, #22c55e)' : 'linear-gradient(90deg, #fecaca, #ef4444)'
+            return `
+              <div class="mini-card">
+                <div class="title">${x.name}</div>
+                <div class="row"><span>收益%</span><b>${x.profit_total_pct ?? '--'}</b></div>
+                <div class="row"><span>交易数</span><b>${x.trades ?? '--'}</b></div>
+                <div class="row"><span>最大回撤</span><b>${x.max_drawdown_abs ?? '--'}</b></div>
+                <div class="mini-bar"><i style="width:${width}%; background:${color}"></i></div>
+              </div>`
+          }).join('') || '<em>暂无</em>'
+          gp.innerHTML = `<div class="card-grid">${html}</div>`
+        }
+      })
+    }
+    const abtn = document.getElementById('btnAgg'); if (abtn) abtn.onclick = async () => {
+      await runWithLoading(abtn, async () => {
+        const names = (document.getElementById('aggNames').value||'').trim()
+        if (!names) return alert('请输入若干结果名称, 例如 a.zip,b.zip')
+        const res = await fetch(`${API}/results/aggregate?names=${encodeURIComponent(names)}`)
+        const data = await res.json()
+        const ap = document.getElementById('aggPanel')
+        if (ap) {
+          ap.innerHTML = '<div id="aggChart" style="height:220px"></div><div id="aggInfo" class="panel" style="margin-top:6px"></div>'
+          if (window.echarts) {
+            const chart = echarts.init(document.getElementById('aggChart'))
+            const items = data.items || []
+            const x = items.map(i => i.name)
+            const y = items.map(i => i.profit_total_pct || 0)
+            chart.setOption({ grid:{left:40,right:16,top:10,bottom:60}, xAxis:{ type:'category', data:x, axisLabel:{ rotate:60 } }, yAxis:{ type:'value', scale:true }, tooltip:{ trigger:'axis' }, series:[{ type:'bar', data:y }] })
+          }
+          const info = document.getElementById('aggInfo')
+          if (info) info.innerHTML = `均值收益: ${data.mean_profit ?? '--'} | 收益波动: ${data.std_profit ?? '--'} | 鲁棒分: ${data.robust_score ?? '--'}`
+        }
+      })
+    }
+  }, [])
+
+  const onConnect = useCallback((params) => setEdges((eds) => addEdgeLib(params, eds)), [])
+  const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), [])
+  const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), [])
+  const onNodeClick = useCallback((_, n) => { try { const el = document.getElementById('nodeForm'); if (el) el.textContent = JSON.stringify(n.data?.cfg||{}, null, 2) } catch {} }, [])
+  const onDrop = useCallback((ev) => {
+    ev.preventDefault()
+    const typeKey = ev.dataTransfer.getData('application/node-type')
+    if (!typeKey) return
+    const id = 'n' + Math.random().toString(16).slice(2,8)
+    const cfg = typeKey === 'expr' ? { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' }
+      : (typeKey === 'bt' ? { timerange: '20210101-20211231' }
+      : (typeKey === 'data' ? { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' } : {}))
+    const position = { x: ev.clientX - 400, y: ev.clientY - 120 }
+    const node = { id, type: 'amNode', position, data: { label: typeKey.toUpperCase(), typeKey, cfg } }
+    setNodes(nds => nds.concat(node))
+  }, [])
+  const onDragOver = useCallback((ev) => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move' }, [])
+
+  return h(RF, { nodes, edges, nodeTypes, defaultEdgeOptions, fitView: true, onConnect, onNodesChange, onEdgesChange, onNodeClick, onDrop, onDragOver, onInit: (inst) => { window.__rf = inst }, snapToGrid: !!snap, snapGrid: grid }, [
     h(Background, { variant: 'dots', gap: 16, size: 1, key: 'bg' }),
     h(Controls, { key: 'ctl' }),
     h(MiniMap, { key: 'mm' }),
@@ -1049,26 +504,9 @@ function App() {
 
 createRoot(document.getElementById('root')).render(h(App))
 
-
-
-
-
-
-
-
-
-
-function addNodeAt(typeKey, position){ const id='n'+Math.random().toString(16).slice(2,8); const labelMap={data:'Data',expr:'Expression(LLM)',bt:'Backtest',fb:'Feedback',ho:'Hyperopt',mv:'MultiValidate'}; const cfgMap={data:{pairs:'BTC/USDT ETH/USDT',timeframe:'4h',output:'user_data/freqai_features_multi.json'},expr:{llm_model:'gpt-3.5-turbo',llm_count:12,timeframe:'4h'},bt:{timerange:'20210101-20211231'},fb:{results_dir:'user_data/backtest_results'},ho:{timerange:'20210101-20210430',spaces:'buy sell protection',epochs:20,loss:'SharpeHyperOptLoss'},mv:{timeranges:'20210101-20210331,20210401-20210630'}}; const node={id,type:'amNode',position,data:{label:labelMap[typeKey]||typeKey,typeKey,cfg:cfgMap[typeKey]||{}}}; window.__setNodes && window.__setNodes(node); }
-
-
-
-
-
-
-
-
-
-
-
-
-
+// Drag helpers for palette
+document.addEventListener('DOMContentLoaded', () => {
+  const paletteItems = Array.from(document.querySelectorAll('.palette-item'))
+  const onDragStart = (e) => { const typeKey = e.target?.getAttribute?.('data-nodetype'); if (!typeKey) return; e.dataTransfer.setData('application/node-type', typeKey); e.dataTransfer.effectAllowed = 'move' }
+  paletteItems.forEach(el => el.addEventListener('dragstart', onDragStart))
+})

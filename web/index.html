@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -25,42 +25,62 @@
           <option value="strong">强</option>
           <option value="weak">弱</option>
         </select>
-        <button id="btnFit" title="适配视图"><i class="ri-focus-2-line"></i> 适配</button>
-        <button id="btnClear" title="清理画布"><i class="ri-eraser-line"></i> 清理</button>
-        <select id="brandSelect" title="品牌主题">
+        <button id="btnFit" title="视图适配"><i class="ri-focus-2-line"></i> 适配</button>
+        <button id="btnClear" title="清空画布"><i class="ri-eraser-line"></i> 清空</button>
+        <select id="brandSelect" title="主题配色">
           <option value="ocean">Ocean</option>
           <option value="forest">Forest</option>
           <option value="sunset">Sunset</option>
         </select>
-        <button id="btnTheme" title="切换主题"><i class="ri-contrast-2-line"></i> 主题</button>
+        <button id="btnTheme" title="深浅切换"><i class="ri-contrast-2-line"></i> 主题</button>
         <button id="btnExport" title="导出画布"><i class="ri-image-2-line"></i> 导出</button>
-        <button id="btnDistX" title="横向均匀分布"><i class="ri-swap-line"></i> 均匀X</button>
-        <button id="btnDistY" title="纵向均匀分布"><i class="ri-swap-column-line"></i> 均匀Y</button>
-        <button id="btnTrainBt" title="训练→回测 一键联动"><i class="ri-play-circle-line"></i> 训练→回测</button>
+        <button id="btnDistX" title="水平等间距"><i class="ri-swap-line"></i> 等距X</button>
+        <button id="btnDistY" title="垂直等间距"><i class="ri-swap-column-line"></i> 等距Y</button>
+        <button id="btnTrainBt" title="一键训练+回测"><i class="ri-play-circle-line"></i> 一键训练回测</button>
       </div>
     </div>
     <div id="app">
       <div class="sidebar">
-        <h3>流程构建</h3>
+        <h3>节点面板</h3>
         <div class="node-palette">
-          <div class="palette-title">拖到画布来创建节点</div>
+          <div class="palette-title">可拖拽功能节点</div>
           <div class="palette-list">
             <div class="palette-item" draggable="true" data-nodetype="data"><i class="ri-database-2-line"></i> 数据 Data</div>
             <div class="palette-item" draggable="true" data-nodetype="expr"><i class="ri-function-line"></i> 表达式 LLM</div>
             <div class="palette-item" draggable="true" data-nodetype="bt"><i class="ri-line-chart-line"></i> 回测 Backtest</div>
             <div class="palette-item" draggable="true" data-nodetype="ml"><i class="ri-cpu-line"></i> 训练 ML</div>
-            <div class="palette-item" draggable="true" data-nodetype="rl"><i class="ri-brain-line"></i> 训练 RL</div>
+            <div class="palette-item" draggable="true" data-nodetype="rl"><i class="ri-brain-line"></i> 强化学习 RL</div>
             <div class="palette-item" draggable="true" data-nodetype="fb"><i class="ri-feedback-line"></i> 反馈 Feedback</div>
-            <div class="palette-item" draggable="true" data-nodetype="ho"><i class="ri-sliders-2-line"></i> 超参 Hyperopt</div>
-            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> 多区间验证</div>
+            <div class="palette-item" draggable="true" data-nodetype="ho"><i class="ri-sliders-2-line"></i> 超参优化 Hyperopt</div>
+            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> 多时段验证</div>
           </div>
         </div>
-        
 
-        <h4>选中节点配置</h4>
+        <h4>节点设置</h4>
         <div id="nodeForm" class="panel"></div>
 
-        <h3 style="margin-top:14px">快速参数</h3>
+        <h3 style="margin-top:14px">后端/服务设置</h3>
+        <div>
+          <label>API</label>
+          <input id="apiUrl" value="http://127.0.0.1:8000" />
+          <button id="applyApi">应用</button>
+        </div>
+        <div class="panel" style="margin-top:8px;">
+          <div style="font-weight:600;margin-bottom:6px">服务设置</div>
+          <label>LLM Base URL</label>
+          <input id="llmBaseUrl" placeholder="https://..." />
+          <label>LLM Model</label>
+          <input id="llmModelSet" placeholder="gpt-3.5-turbo" />
+          <label>Default TF</label>
+          <input id="defaultTf" placeholder="4h" />
+          <div class="buttons" style="gap:6px; margin-top:6px;">
+            <button id="btnLoadSettings">加载设置</button>
+            <button id="btnSaveSettings">保存设置</button>
+            <button id="btnApplySettings">应用到表单</button>
+          </div>
+        </div>
+
+        <h3 style="margin-top:14px">常用参数</h3>
         <div>
           <label>Config</label>
           <input id="cfg" value="configs/config_freqai_multi.json" />
@@ -86,42 +106,43 @@
           <input id="timerange" value="20210101-20210331" />
         </div>
         <div class="buttons">
-          <button id="btnExpr">运行表达式(LLM)</button>
-          <button id="btnBacktest">运行回测</button>
-          <button id="btnSummary">查看摘要</button>
+          <button id="btnExpr" class="btn btn-primary"><i class="ri-function-line"></i> 生成表达式</button>
+          <button id="btnBacktest" class="btn btn-primary"><i class="ri-line-chart-line"></i> 回测</button>
+          <button id="btnSummary" class="btn"><i class="ri-bar-chart-2-line"></i> 加载摘要</button>
         </div>
         <div class="summary" id="summary"></div>
         <div id="chart" style="height:240px;margin-top:8px;"></div>
         <h4>特征 TopN</h4>
         <div class="buttons" style="margin-bottom:6px; gap:6px">
-          <button id="btnFeatTop">查看TopN</button>
-          <button id="btnFeatPlot">绘制柱状图</button>
+          <button id="btnFeatTop" class="btn"><i class="ri-list-check-2"></i> 查看 TopN</button>
+          <button id="btnFeatPlot" class="btn"><i class="ri-bar-chart-horizontal-line"></i> 绘制图表</button>
         </div>
         <div id="featTop" class="panel"></div>
         <div id="featChart" style="height:220px;margin:6px 0 12px 0;"></div>
-        <h4>Agent Flow（后端）</h4>
+        <h4>Agent Flow</h4>
         <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
           <input id="flowCfg" value="configs/agent_flow_multi.json" />
-          <input id="flowSteps" placeholder="可选：feature expression ml rl backtest（空=全流程）" />
-          <button id="btnRunAgentFlow">运行后端Flow</button>
+          <input id="flowSteps" placeholder="可选：指定步骤（例如: feature expression ml rl backtest）" />
+          <button id="btnRunAgentFlow" class="btn btn-primary"><i class="ri-play-circle-line"></i> 运行 Flow</button>
+          <div id="flowStatus" class="panel"></div>
         </div>
-        <h4>回测对比</h4>
+        <h4>结果</h4>
         <div class="buttons" style="gap:4px; display:flex; flex-direction:column; align-items:stretch;">
-          <button id="btnList">加载结果列表</button>
-          <input id="resA" placeholder="结果A文件名" />
-          <input id="resB" placeholder="结果B文件名" />
+          <button id="btnList" class="btn"><i class="ri-list-unordered"></i> 列出结果</button>
+          <input id="resA" placeholder="结果A名称" />
+          <input id="resB" placeholder="结果B名称" />
           <button id="btnCompare">对比</button>
         </div>
         <div id="comparePanel" class="panel"></div>
-        <h4>结果画廊 / 稳健评分</h4>
+        <h4>图集 / 聚合</h4>
         <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
-          <button id="btnGallery">加载画廊</button>
+          <button id="btnGallery">图集</button>
           <div id="galleryPanel" class="panel"></div>
-          <input id="aggNames" placeholder="逗号分隔的结果名 如 a.zip,b.zip" />
-          <button id="btnAgg">聚合评分</button>
+          <input id="aggNames" placeholder="输入多个名称，例如 a.zip,b.zip" />
+          <button id="btnAgg">聚合</button>
           <div id="aggPanel" class="panel"></div>
         </div>
-        <h4>多区间验证结果</h4>
+        <h4>多时段验证</h4>
         <div id="mvPanel" class="panel"></div>
       </div>
       <div class="canvas">
@@ -130,8 +151,8 @@
       <div class="logs">
         <h3>日志</h3>
         <div style="display:flex; gap:6px; align-items:center;">
-          <div id="statusBar" class="status" style="flex:1 1 auto;">状态：空闲</div>
-          <button id="btnCancelJob" title="取消当前任务">取消</button>
+          <div id="statusBar" class="status" style="flex:1 1 auto;">状态: 空</div>
+          <button id="btnCancelJob" title="取消当前任务">取消任务</button>
         </div>
         <div class="cards" id="cards"></div>
         <pre id="logs"></pre>
@@ -147,6 +168,4 @@
     <script src="app.js"></script>
   </body>
   </html>
-
-
 
