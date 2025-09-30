@@ -747,20 +747,25 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
     running = bool(res.get('running'))
     code = res.get('code')
     returncode = res.get('returncode')
-    lines = [str(x).lower() for x in (res.get('logs') or [])]
+    raw_lines = [str(x) for x in (res.get('logs') or [])]
+    lines = [x.lower() for x in raw_lines]
     steps_list = [s for s in (steps.split(',') if steps else ['feature','expression','ml','rl','backtest']) if s]
 
     # Prefer explicit flow markers printed by scripts/agent_flow.py
     # [FLOW] STEP_START <name> / STEP_OK <name> / STEP_FAIL <name>
     markers = { 'start': set(), 'ok': set(), 'fail': set() }
     phases: dict[str, str] = {}
-    for ln in lines:
+    start_idx: dict[str, int] = {}
+    # scan with index for dynamic estimates
+    for idx, ln in enumerate(lines):
         if '[flow]' in ln and 'step_' in ln:
             # normalize
             if 'step_start' in ln:
                 for nm in ['feature','expression','ml','rl','backtest']:
                     if f' {nm}' in ln:
                         markers['start'].add(nm)
+                        if nm not in start_idx:
+                            start_idx[nm] = idx
             elif 'step_ok' in ln:
                 for nm in ['feature','expression','ml','rl','backtest']:
                     if f' {nm}' in ln:
@@ -775,8 +780,12 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                 if f' phase {nm} ' in ln:
                     if ' prepare' in ln:
                         phases[nm] = 'prepare'
+                        if nm not in start_idx:
+                            start_idx[nm] = idx
                     elif ' execute' in ln:
                         phases[nm] = 'execute'
+                        if nm not in start_idx:
+                            start_idx[nm] = idx
                     elif ' summarize' in ln:
                         phases[nm] = 'summarize'
 
@@ -790,6 +799,7 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
     }
     # Identify last seen step
     last_seen = -1
+    total_lines = len(lines)
     for idx, name in enumerate(steps_list):
         keys = kw.get(name, [name])
         if any(any(k in ln for k in keys) for ln in lines):
@@ -826,7 +836,7 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                 else:
                     status = 'pending'
                     phase = None
-        # percent mapping per-phase
+        # percent mapping per-phase (with dynamic boost during execute based on log growth)
         percent = 0
         if status == 'pending':
             percent = 0
@@ -834,7 +844,14 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
             if phase == 'prepare':
                 percent = 10
             elif phase == 'execute':
-                percent = 50
+                base = 50
+                # dynamic increment based on lines from start
+                sidx = start_idx.get(name, total_lines)
+                exec_span = max(1, total_lines - sidx)
+                # heuristic expected span
+                expected = 200
+                ratio = min(1.0, exec_span / expected)
+                percent = int(base + 40 * ratio)
             elif phase == 'summarize':
                 percent = 95
             else:
@@ -852,10 +869,18 @@ def flow_stream(job_id: str, steps: Optional[str] = None):
     steps_list = [s for s in (steps.split(',') if steps else ['feature','expression','ml','rl','backtest']) if s]
 
     def _gen():
-        # initial event
-        payload = flow_progress(job_id, steps=(','.join(steps_list)))
-        yield f"event: progress\ndata: {_jsonmod.dumps(payload, ensure_ascii=False)}\n\n"
         last_next = 0
+        # initial
+        init_logs = jobs.logs(job_id, last_next)
+        if isinstance(init_logs, dict) and init_logs.get('error'):
+            err = _error('JOB_NOT_FOUND', str(init_logs.get('error')))
+            yield f"event: progress\ndata: {_jsonmod.dumps(err, ensure_ascii=False)}\n\n"
+            return
+        last_next = int(init_logs.get('next') or last_next)
+        payload = flow_progress(job_id, steps=(','.join(steps_list)))
+        payload['delta'] = init_logs.get('logs') or []
+        payload['next'] = last_next
+        yield f"event: progress\ndata: {_jsonmod.dumps(payload, ensure_ascii=False)}\n\n"
         while True:
             data = jobs.logs(job_id, last_next)
             if isinstance(data, dict) and data.get('error'):
@@ -864,6 +889,8 @@ def flow_stream(job_id: str, steps: Optional[str] = None):
                 break
             last_next = int(data.get('next') or last_next)
             payload = flow_progress(job_id, steps=(','.join(steps_list)))
+            payload['delta'] = data.get('logs') or []
+            payload['next'] = last_next
             yield f"event: progress\ndata: {_jsonmod.dumps(payload, ensure_ascii=False)}\n\n"
             if not data.get('running'):
                 break

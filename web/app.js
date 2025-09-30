@@ -390,7 +390,20 @@ function App() {
             if (it.status === 'ok') el.classList.add('tag-ok')
             else if (it.status === 'failed') el.classList.add('tag-failed')
             else el.classList.add('tag-running')
+            // show phase + percent
+            const pct = (typeof it.percent === 'number') ? ` ${it.percent}%` : ''
+            const phase = it.phase ? ` (${it.phase}${pct})` : (pct ? ` (${pct})` : '')
+            el.innerHTML = `<i class="ri-time-line"></i> ${it.name}${phase}`
           }
+          // append log delta if present
+          try {
+            const delta = pj && pj.delta
+            if (delta && Array.isArray(delta) && delta.length) {
+              const logsEl = document.getElementById('logs')
+              logsEl.textContent += delta.join('\n') + '\n'
+              try { logsEl.scrollTop = logsEl.scrollHeight } catch {}
+            }
+          } catch {}
         }
         let es = null, timer = null
         try {
