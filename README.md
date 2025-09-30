@@ -100,7 +100,22 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 - 常见环境问题：
   - 回测/超参依赖 freqtrade；若未安装，对应功能无法执行。
   - LLM 相关需正确配置 `.env` 或通过 /settings 设置。
-  - 大量结果渲染时建议逐步加载图集以保证性能。
+- 大量结果渲染时建议逐步加载图集以保证性能。
+
+## 维护与清理
+
+- 一键清理（默认目标包含 artifacts、.pytest_cache、user_data 下常见生成目录）
+  - `python scripts/clean_workspace.py`
+- 仅预览将被删除的内容
+  - `python scripts/clean_workspace.py --dry-run`
+- 清理后保留空目录（便于挂载/后续写入）
+  - `python scripts/clean_workspace.py --keep-dirs`
+- 指定自定义清理目标
+  - `python scripts/clean_workspace.py user_data/tmp artifacts/cache`
+- Windows 快捷脚本（PowerShell）
+  - 直接运行：`./scripts/clean_workspace.ps1`
+  - 预览：`./scripts/clean_workspace.ps1 -DryRun`
+  - 保留空目录：`./scripts/clean_workspace.ps1 -KeepDirs`
 
 ## 许可证
 
