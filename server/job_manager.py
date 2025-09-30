@@ -18,6 +18,8 @@ class Job:
     logs: List[str] = field(default_factory=list)
     returncode: Optional[int] = None
     running: bool = False
+    logfile: Optional[Path] = None
+    timeout_sec: Optional[int] = None
 
 
 class JobManager:
@@ -25,9 +27,12 @@ class JobManager:
         self._jobs: Dict[str, Job] = {}
         self._lock = threading.Lock()
 
-    def start(self, cmd: List[str], cwd: Optional[Path] = None, env: Optional[dict] = None) -> str:
+    def start(self, cmd: List[str], cwd: Optional[Path] = None, env: Optional[dict] = None, timeout_sec: Optional[int] = None) -> str:
         job_id = uuid.uuid4().hex[:12]
-        job = Job(id=job_id, cmd=cmd, cwd=cwd, env=env)
+        logdir = Path('user_data') / 'job_logs'
+        logdir.mkdir(parents=True, exist_ok=True)
+        logfile = logdir / f"{job_id}.log"
+        job = Job(id=job_id, cmd=cmd, cwd=cwd, env=env, logfile=logfile, timeout_sec=timeout_sec)
         self._jobs[job_id] = job
         self._spawn(job)
         return job_id
@@ -49,10 +54,21 @@ class JobManager:
         def _reader() -> None:
             try:
                 assert proc.stdout is not None
+                f = job.logfile.open('a', encoding='utf-8') if job.logfile else None
                 for line in proc.stdout:
+                    text = line.rstrip("\n")
                     with self._lock:
-                        job.logs.append(line.rstrip("\n"))
+                        job.logs.append(text)
+                    if f:
+                        try:
+                            f.write(text + "\n")
+                        except Exception:
+                            pass
             finally:
+                try:
+                    f and f.close()
+                except Exception:
+                    pass
                 proc.wait()
                 with self._lock:
                     job.returncode = proc.returncode
@@ -60,6 +76,21 @@ class JobManager:
 
         t = threading.Thread(target=_reader, daemon=True)
         t.start()
+
+        # optional timeout guard
+        if job.timeout_sec and job.timeout_sec > 0:
+            def _guard():
+                try:
+                    proc.wait(timeout=job.timeout_sec)
+                except Exception:
+                    with self._lock:
+                        if job.running and job.process and job.process.poll() is None:
+                            try:
+                                job.logs.append('[job] timeout reached, terminating')
+                                job.process.terminate()
+                            except Exception:
+                                pass
+            threading.Thread(target=_guard, daemon=True).start()
 
     def status(self, job_id: str) -> dict:
         job = self._jobs.get(job_id)
@@ -91,3 +122,17 @@ class JobManager:
                 "logs": chunk,
             }
 
+    def cancel(self, job_id: str) -> dict:
+        job = self._jobs.get(job_id)
+        if not job:
+            return {"error": "job not found"}
+        with self._lock:
+            if job.process and job.process.poll() is None:
+                try:
+                    job.process.terminate()
+                    job.logs.append('[job] cancelled by user')
+                    job.running = False
+                    return {"status": "terminated"}
+                except Exception as exc:
+                    return {"error": str(exc)}
+            return {"status": "not_running"}

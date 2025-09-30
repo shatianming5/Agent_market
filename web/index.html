@@ -121,7 +121,10 @@
       </div>
       <div class="logs">
         <h3>日志</h3>
-        <div id="statusBar" class="status">状态：空闲</div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <div id="statusBar" class="status" style="flex:1 1 auto;">状态：空闲</div>
+          <button id="btnCancelJob" title="取消当前任务">取消</button>
+        </div>
         <div class="cards" id="cards"></div>
         <pre id="logs"></pre>
       </div>

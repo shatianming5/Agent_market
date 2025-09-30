@@ -235,7 +235,9 @@ def root():
 @app.post("/run/expression")
 def run_expression(req: ExpressionReq = Body(...)):
     py = sys.executable
-    script = str(ROOT / 'freqtrade' / 'scripts' / 'freqai_expression_agent.py')
+    # Prefer wrapper to add retry/backoff/fallback
+    wrapper = ROOT / 'scripts' / 'expr_agent_wrapper.py'
+    script = str(wrapper if wrapper.exists() else (ROOT / 'freqtrade' / 'scripts' / 'freqai_expression_agent.py'))
     feature_file = req.feature_file
     if feature_file and not Path(feature_file).is_absolute() and feature_file.replace('\\','/').startswith('user_data/'):
         feature_file = '../' + feature_file.replace('\\','/')
@@ -411,6 +413,11 @@ def job_logs(job_id: str, offset: int = 0):
     return jobs.logs(job_id, offset)
 
 
+@app.post('/jobs/{job_id}/cancel')
+def job_cancel(job_id: str):
+    return jobs.cancel(job_id)
+
+
 # Results summary
 def _find_latest_zip(results_dir: Path) -> Optional[Path]:
     results_dir = results_dir.resolve()
@@ -468,3 +475,64 @@ def prepare_feedback(results_dir: str = 'user_data/backtest_results', out: str =
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
     return {"feedback_path": str(out_path)}
+
+
+@app.get('/results/gallery')
+def results_gallery(results_dir: str = 'user_data/backtest_results', limit: int = 20):
+    rd = Path(results_dir)
+    if not rd.is_absolute():
+        rd = (ROOT / rd).resolve()
+    if not rd.exists():
+        return {"error": f"Results dir not found: {rd}"}
+    zips = sorted(rd.glob('backtest-result-*.zip'), key=lambda p: p.stat().st_mtime, reverse=True)
+    items = []
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    from agent_market.agent_flow import AgentFlow, AgentFlowConfig  # type: ignore
+    flow = AgentFlow(AgentFlowConfig())
+    for zp in zips[:max(1, int(limit))]:
+        try:
+            summary = flow._build_backtest_summary(zp)
+            summary['name'] = zp.name
+            summary['mtime'] = zp.stat().st_mtime
+            items.append(summary)
+        except Exception:
+            continue
+    return {"dir": str(rd), "items": items}
+
+
+@app.get('/results/aggregate')
+def results_aggregate(names: str, results_dir: str = 'user_data/backtest_results'):
+    rd = Path(results_dir)
+    if not rd.is_absolute():
+        rd = (ROOT / rd).resolve()
+    if not rd.exists():
+        return {"error": f"Results dir not found: {rd}"}
+    if str(SRC) not in sys.path:
+        sys.path.insert(0, str(SRC))
+    from agent_market.agent_flow import AgentFlow, AgentFlowConfig  # type: ignore
+    flow = AgentFlow(AgentFlowConfig())
+    files = [rd / n for n in names.split(',') if n.strip()]
+    metrics = []
+    for f in files:
+        if not f.exists():
+            continue
+        try:
+            s = flow._build_backtest_summary(f)
+            metrics.append({
+                'name': f.name,
+                'profit_total_pct': s.get('profit_total_pct'),
+                'max_drawdown_abs': s.get('max_drawdown_abs'),
+                'trades': s.get('trades'),
+            })
+        except Exception:
+            continue
+    if not metrics:
+        return {"error": "no valid inputs"}
+    # simple robust score: mean_profit / (std_profit + 1e-9)
+    import numpy as _np  # noqa: N816
+    profs = _np.array([m.get('profit_total_pct') or 0.0 for m in metrics], dtype=float)
+    mean = float(_np.mean(profs))
+    std = float(_np.std(profs))
+    score = mean / (std + 1e-9)
+    return {"items": metrics, "mean_profit": mean, "std_profit": std, "robust_score": score}

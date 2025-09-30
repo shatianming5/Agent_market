@@ -12,6 +12,13 @@ import pandas as pd
 from agent_market.freqai.features import apply_configured_features
 from agent_market.freqai.model.base import ModelRegistry, TrainResult
 
+try:  # optional deps
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.preprocessing import StandardScaler, RobustScaler
+    _HAS_SKLEARN = True
+except Exception:
+    _HAS_SKLEARN = False
+
 
 @dataclass
 class Dataset:
@@ -91,8 +98,18 @@ class TrainingPipeline:
     def run(self) -> TrainResult:
         builder = FeatureDatasetBuilder(self.data_cfg)
         dataset = builder.build()
+
+        # Standardization (optional)
+        scaler_name = str(self.training_cfg.get('scaler', 'none')).lower()
+        X = dataset.features
+        scaler_obj = None
+        if _HAS_SKLEARN and scaler_name in ('standard', 'robust'):
+            scaler_obj = StandardScaler() if scaler_name == 'standard' else RobustScaler()
+            X = scaler_obj.fit_transform(X)
+
+        # Primary time split
         X_train, y_train, X_valid, y_valid = self._split(
-            dataset.features,
+            X,
             dataset.labels,
             float(self.training_cfg.get('validation_ratio', 0.2)),
         )
@@ -103,6 +120,38 @@ class TrainingPipeline:
         adapter = ModelRegistry.create(self.model_cfg.get('name', 'lightgbm'), params)
 
         result = adapter.fit(X_train, y_train, X_valid=X_valid, y_valid=y_valid)
+
+        # Rolling validation (optional)
+        rolling_splits = int(self.training_cfg.get('rolling_splits', 0) or 0)
+        rolling_metrics = None
+        if _HAS_SKLEARN and rolling_splits >= 2:
+            tscv = TimeSeriesSplit(n_splits=rolling_splits)
+            rmses = []
+            for tr_idx, va_idx in tscv.split(X):
+                Xt, Xv = X[tr_idx], X[va_idx]
+                yt, yv = dataset.labels[tr_idx], dataset.labels[va_idx]
+                ad = ModelRegistry.create(self.model_cfg.get('name', 'lightgbm'), params)
+                r = ad.fit(Xt, yt, X_valid=Xv, y_valid=yv)
+                rmse_v = float(r.metrics.get('rmse_valid') or r.metrics.get('rmse_train') or 0.0)
+                rmses.append(rmse_v)
+            if rmses:
+                rolling_metrics = {
+                    'rmse_valid_mean': float(np.mean(rmses)),
+                    'rmse_valid_std': float(np.std(rmses)),
+                    'splits': int(rolling_splits),
+                }
+
+        # Persist scaler
+        if scaler_obj is not None:
+            try:
+                import pickle  # noqa: PLC0415
+                model_dir.mkdir(parents=True, exist_ok=True)
+                with open(model_dir / 'scaler.pkl', 'wb') as f:
+                    pickle.dump({'type': scaler_name, 'features': dataset.columns, 'scaler': scaler_obj}, f)
+            except Exception:
+                pass
+
+        # Summary
         summary_path = model_dir / 'training_summary.json'
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary = {
@@ -113,6 +162,8 @@ class TrainingPipeline:
             'metrics': result.metrics,
             'model_path': str(result.model_path),
         }
+        if rolling_metrics:
+            summary['rolling'] = rolling_metrics
         summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
         return result
 
