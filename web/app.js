@@ -30,8 +30,9 @@ function CustomNode({ id, data }) {
   if (typeKey === 'expr') rows.push(['llm', info.llm_model||'--'], ['count', info.llm_count||'--'])
   if (typeKey === 'bt') rows.push(['range', info.timerange||'--'])
   if (typeKey === 'ho') rows.push(['epochs', info.epochs||'--'])
-  return h('div', { className: 'am-node' }, [
-    h('div', { className: 'header' }, [ h(Icon, { type: typeKey }), h('div', { className: 'title' }, data?.label||id), h('div', { className: 'badge' }, typeKey) ]),
+  const locked = !!data?.locked
+  return h('div', { className: 'am-node' + (locked ? ' locked' : '') }, [
+    h('div', { className: 'header' }, [ h(Icon, { type: typeKey }), h('div', { className: 'title' }, [ data?.label||id, locked ? h('i', { className: 'ri-lock-2-line', title: '已锁定' }) : null ]), h('div', { className: 'badge' }, typeKey) ]),
     h('div', { className: 'body' }, rows.map(([k,v]) => h('div', { className: 'kv' }, [ h('span', null, k), h('b', null, String(v)) ]))),
     h('div', { className: 'footer' }, [
       h('div', null, (info.output||info.results_dir||'')),
@@ -60,6 +61,7 @@ function App() {
   ])
   const [selected, setSelected] = useState(null)
   const [snap, setSnap] = useState(true)
+  const [grid, setGrid] = useState([16,16])
   const nodeTypes = React.useMemo ? React.useMemo(() => ({ amNode: CustomNode }), []) : { amNode: CustomNode }
   const defaultEdgeOptions = { animated: true, type: 'smoothstep', style: { stroke: '#8694ff', strokeWidth: 1.6 }, markerEnd: MarkerType.ArrowClosed ? { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#8694ff' } : undefined }
 
@@ -217,6 +219,36 @@ function App() {
     }
     // snap toggle
     const snapBtn = document.getElementById('btnSnap'); if (snapBtn) snapBtn.onclick = () => setSnap(s => !s)
+    const gridInput = document.getElementById('gridSize'); if (gridInput) {
+      gridInput.onchange = () => {
+        const v = Math.max(2, parseInt(gridInput.value||'16',10)||16)
+        setGrid([v,v])
+      }
+    }
+    const snapStrength = document.getElementById('snapStrength'); if (snapStrength) {
+      snapStrength.onchange = () => {
+        const mode = snapStrength.value || 'medium'
+        const base = Math.max(2, parseInt((document.getElementById('gridSize')?.value)||'16',10)||16)
+        const v = mode === 'strong' ? Math.max(2, Math.round(base/2)) : (mode==='weak'? base*2 : base)
+        setGrid([v,v])
+      }
+    }
+    const distX = document.getElementById('btnDistX'); if (distX) distX.onclick = () => {
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('请选择3个以上节点'); return }
+      const sorted = sels.slice().sort((a,b)=> (a.position?.x||0)-(b.position?.x||0))
+      const minx = sorted[0].position.x, maxx = sorted[sorted.length-1].position.x
+      const step = (maxx - minx) / (sorted.length - 1)
+      const map = new Map(sorted.map((n,i)=> [n.id, minx + i*step]))
+      setNodes(nds => nds.map(n => map.has(n.id) ? ({ ...n, position: { x: map.get(n.id), y: n.position.y } }) : n))
+    }
+    const distY = document.getElementById('btnDistY'); if (distY) distY.onclick = () => {
+      const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 3) { alert('请选择3个以上节点'); return }
+      const sorted = sels.slice().sort((a,b)=> (a.position?.y||0)-(b.position?.y||0))
+      const miny = sorted[0].position.y, maxy = sorted[sorted.length-1].position.y
+      const step = (maxy - miny) / (sorted.length - 1)
+      const map = new Map(sorted.map((n,i)=> [n.id, miny + i*step]))
+      setNodes(nds => nds.map(n => map.has(n.id) ? ({ ...n, position: { x: n.position.x, y: map.get(n.id) } }) : n))
+    }
     // align buttons
     const ax = document.getElementById('btnAlignX'); if (ax) ax.onclick = () => {
       const sels = (nodes||[]).filter(n => n.selected); if (sels.length < 2) return alert('请选择2个以上节点')
@@ -246,6 +278,18 @@ function App() {
       e.dataTransfer.effectAllowed = 'move'
     }
     paletteItems.forEach(el => el.addEventListener('dragstart', onDragStart))
+    const btnRunAgentFlow = document.getElementById('btnRunAgentFlow')
+    if (btnRunAgentFlow) btnRunAgentFlow.onclick = async () => {
+      const cfg = (document.getElementById('flowCfg')?.value || 'configs/agent_flow_multi.json')
+      const stepsRaw = (document.getElementById('flowSteps')?.value || '').trim()
+      const body = { config: cfg }
+      if (stepsRaw) { body.steps = stepsRaw.split(/\s+/) }
+      logsEl.textContent = ''
+      const res = await fetch(`${API}/flow/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json()
+      await pollLogs(data.job_id)
+      await showSummary()
+    }
     // 清理函数，防止重复绑定
     return () => {
       paletteItems.forEach(el => el.removeEventListener('dragstart', onDragStart))
@@ -717,7 +761,7 @@ function App() {
   return h(RF, { nodes, edges, nodeTypes, defaultEdgeOptions, fitView: true, onConnect, onNodesChange, onEdgesChange, onNodeClick, onDrop, onDragOver,
     onNodeContextMenu, onEdgeContextMenu,
     panOnDrag: [0,1,2], selectionOnDrag: false, panOnScroll: false, zoomOnScroll: true, zoomOnPinch: true,
-    snapToGrid: !!snap, snapGrid: [16,16],
+    snapToGrid: !!snap, snapGrid: grid,
     nodesDraggable: true, nodesConnectable: true, elementsSelectable: true, onInit: (inst) => { window.__rf = inst } }, [
     h(Background, { variant: 'dots', gap: 16, size: 1, key: 'bg' }),
     h(Controls, { key: 'ctl' }),

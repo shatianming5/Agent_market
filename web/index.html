@@ -19,6 +19,12 @@
         <button id="btnAlignX" title="水平对齐"><i class="ri-align-center"></i> 对齐X</button>
         <button id="btnAlignY" title="垂直对齐"><i class="ri-align-left"></i> 对齐Y</button>
         <button id="btnSnap" title="网格吸附"><i class="ri-grid-line"></i> 吸附</button>
+        <input id="gridSize" type="number" value="16" title="网格大小(px)" style="width:70px"/>
+        <select id="snapStrength" title="吸附强度">
+          <option value="medium">中</option>
+          <option value="strong">强</option>
+          <option value="weak">弱</option>
+        </select>
         <button id="btnFit" title="适配视图"><i class="ri-focus-2-line"></i> 适配</button>
         <button id="btnClear" title="清理画布"><i class="ri-eraser-line"></i> 清理</button>
         <select id="brandSelect" title="品牌主题">
@@ -28,6 +34,8 @@
         </select>
         <button id="btnTheme" title="切换主题"><i class="ri-contrast-2-line"></i> 主题</button>
         <button id="btnExport" title="导出画布"><i class="ri-image-2-line"></i> 导出</button>
+        <button id="btnDistX" title="横向均匀分布"><i class="ri-swap-line"></i> 均匀X</button>
+        <button id="btnDistY" title="纵向均匀分布"><i class="ri-swap-column-line"></i> 均匀Y</button>
       </div>
     </div>
     <div id="app">
@@ -88,6 +96,12 @@
         </div>
         <div id="featTop" class="panel"></div>
         <div id="featChart" style="height:220px;margin:6px 0 12px 0;"></div>
+        <h4>Agent Flow（后端）</h4>
+        <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
+          <input id="flowCfg" value="configs/agent_flow_multi.json" />
+          <input id="flowSteps" placeholder="可选：feature expression ml rl backtest（空=全流程）" />
+          <button id="btnRunAgentFlow">运行后端Flow</button>
+        </div>
         <h4>回测对比</h4>
         <div class="buttons" style="gap:4px; display:flex; flex-direction:column; align-items:stretch;">
           <button id="btnList">加载结果列表</button>
