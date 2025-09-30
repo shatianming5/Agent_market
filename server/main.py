@@ -779,7 +779,26 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
     lines = [str(x).lower() for x in (res.get('logs') or [])]
     steps_list = [s for s in (steps.split(',') if steps else ['feature','expression','ml','rl','backtest']) if s]
 
-    # Simple keyword map per step
+    # Prefer explicit flow markers printed by scripts/agent_flow.py
+    # [FLOW] STEP_START <name> / STEP_OK <name> / STEP_FAIL <name>
+    markers = { 'start': set(), 'ok': set(), 'fail': set() }
+    for ln in lines:
+        if '[flow]' in ln and 'step_' in ln:
+            # normalize
+            if 'step_start' in ln:
+                for nm in ['feature','expression','ml','rl','backtest']:
+                    if f' {nm}' in ln:
+                        markers['start'].add(nm)
+            elif 'step_ok' in ln:
+                for nm in ['feature','expression','ml','rl','backtest']:
+                    if f' {nm}' in ln:
+                        markers['ok'].add(nm)
+            elif 'step_fail' in ln:
+                for nm in ['feature','expression','ml','rl','backtest']:
+                    if f' {nm}' in ln:
+                        markers['fail'].add(nm)
+
+    # Simple keyword map per step（回退）
     kw = {
         'feature': ['feature_agent', 'freqai_feature_agent', '--pairs', 'freqai features', 'feature file'],
         'expression': ['expression_agent', 'freqai_expression_agent', '--llm', 'llm', 'expressions'],
@@ -795,18 +814,27 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
             last_seen = max(last_seen, idx)
     items = []
     for idx, name in enumerate(steps_list):
-        if last_seen < 0:
-            status = 'running' if running and idx == 0 else 'pending'
+        # explicit markers win
+        if name in markers['fail']:
+            status = 'failed'
+        elif name in markers['ok']:
+            status = 'ok'
+        elif name in markers['start']:
+            status = 'running'
         else:
-            if idx < last_seen:
-                status = 'ok'
-            elif idx == last_seen:
-                if running:
-                    status = 'running'
-                else:
-                    status = 'ok' if (returncode == 0 and code == 'OK') else 'failed'
+            # fallback heuristic
+            if last_seen < 0:
+                status = 'running' if running and idx == 0 else 'pending'
             else:
-                status = 'pending'
+                if idx < last_seen:
+                    status = 'ok'
+                elif idx == last_seen:
+                    if running:
+                        status = 'running'
+                    else:
+                        status = 'ok' if (returncode == 0 and code == 'OK') else 'failed'
+                else:
+                    status = 'pending'
         items.append({'name': name, 'status': status})
     return {'job_id': job_id, 'running': running, 'code': code, 'steps': items}
 

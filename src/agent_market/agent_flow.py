@@ -75,8 +75,14 @@ class AgentFlow:
             if requested and name not in requested:
                 continue
             if cfg:
-                logger.info("Executing step: %s", name)
-                runner(cfg)
+                logger.info("[FLOW] STEP_START %s", name)
+                try:
+                    runner(cfg)
+                except Exception as exc:
+                    logger.error("[FLOW] STEP_FAIL %s: %s", name, exc)
+                    raise
+                else:
+                    logger.info("[FLOW] STEP_OK %s", name)
             elif requested:
                 logger.warning("Step '%s' requested but no configuration provided", name)
 
