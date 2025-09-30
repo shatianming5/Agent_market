@@ -16,6 +16,18 @@ const addEdgeLib = RFLib.addEdge || ((params, eds) => eds.concat({ id: (params.i
 
 const API = 'http://127.0.0.1:8000'
 
+function setStatus(phase, jobId, running) {
+  const el = document.getElementById('statusBar')
+  if (!el) return
+  if (running) {
+    el.className = 'status running'
+    el.innerHTML = `<i class="ri-loader-4-line spin"></i> ${phase} 进行中 · job ${jobId}`
+  } else {
+    el.className = 'status'
+    el.innerHTML = `<i class="ri-check-line"></i> ${phase} 完成 · job ${jobId}`
+  }
+}
+
 function Icon({ type }) {
   const map = { data: 'ri-database-2-line', expr: 'ri-function-line', bt: 'ri-line-chart-line', fb: 'ri-feedback-line', ho: 'ri-sliders-2-line', mv: 'ri-shuffle-line' }
   const cls = map[type] || 'ri-shape-2-line'
@@ -100,8 +112,7 @@ function App() {
       feedback_top: 0
     }
     const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const data = await res.json()
-    pollLogs(data.job_id)
+    const data = await res.json()\n    if (data.job_id) setStatus('表达式', data.job_id, true)\n    await pollLogs(data.job_id)\n    if (data.job_id) setStatus('表达式', data.job_id, false)
   }
 
   async function runBacktest() {
@@ -115,8 +126,7 @@ function App() {
       export_filename: 'user_data/backtest_results/latest_trades_multi',
     }
     const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    const data = await res.json()
-    pollLogs(data.job_id)
+    const data = await res.json()\n    if (data.job_id) setStatus('表达式', data.job_id, true)\n    await pollLogs(data.job_id)\n    if (data.job_id) setStatus('表达式', data.job_id, false)
   }
 
   async function showSummary() {
@@ -332,7 +342,7 @@ function App() {
       logsEl.textContent = ''
       const res = await fetch(`${API}/flow/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json()
-      await pollLogs(data.job_id)
+      await await pollLogs(data.job_id)
       await showSummary()
     }
     // 清理函数，防止重复绑定
@@ -720,7 +730,7 @@ function App() {
         }
         const res = await fetch(`${API}/run/feature`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
-        await pollLogs(data.job_id)
+        await await pollLogs(data.job_id)
       }
       if (n.data.typeKey === 'expr') {
         const body = {
@@ -737,7 +747,7 @@ function App() {
         }
         const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
-        await pollLogs(data.job_id)
+        await await pollLogs(data.job_id)
       }
       if (n.data.typeKey === 'ml') {
         const cfg = n.data.cfg || {}
@@ -759,7 +769,7 @@ function App() {
         }
         const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
-        await pollLogs(data.job_id)
+        await await pollLogs(data.job_id)
         const autobt = String(cfg.autobt).toLowerCase() === 'true' || cfg.autobt === true
         if (autobt) {
           const btReq = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
@@ -771,7 +781,7 @@ function App() {
         const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
         const res = await fetch(`${API}/run/rl_train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
-        await pollLogs(data.job_id)
+        await await pollLogs(data.job_id)
       }
       if (n.data.typeKey === 'bt') {
         const body = {
@@ -785,7 +795,7 @@ function App() {
         }
         const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
-        await pollLogs(data.job_id)
+        await await pollLogs(data.job_id)
         await showSummary()
       }
       if (n.data.typeKey === 'fb') {
@@ -808,7 +818,7 @@ function App() {
         }
         const res = await fetch(`${API}/run/hyperopt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
-        await pollLogs(data.job_id)
+        await await pollLogs(data.job_id)
         // auto backtest after hyperopt
         const btReq = {
           config: document.getElementById('cfg').value,
@@ -840,7 +850,7 @@ function App() {
         pairs: n.data.cfg?.pairs || 'BTC/USDT ETH/USDT',
       }
       const res = await fetch(`${API}/run/feature`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await pollLogs(data.job_id)
+      const data = await res.json(); await await pollLogs(data.job_id)
     }
     if (n.data.typeKey === 'expr') {
       const body = {
@@ -856,7 +866,7 @@ function App() {
         feedback: undefined,
       }
       const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await pollLogs(data.job_id)
+      const data = await res.json(); await await pollLogs(data.job_id)
     }
     if (n.data.typeKey === 'bt') {
       const body = {
@@ -869,7 +879,7 @@ function App() {
         export_filename: 'user_data/backtest_results/latest_trades_multi',
       }
       const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await pollLogs(data.job_id); await showSummary()
+      const data = await res.json(); await await pollLogs(data.job_id); await showSummary()
     }
     if (n.data.typeKey === 'ml') {
       const cfg = n.data.cfg || {}
@@ -890,7 +900,7 @@ function App() {
         body = { config: cfg.config || 'configs/train_pytorch_mlp.json' }
       }
       const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await pollLogs(data.job_id)
+      const data = await res.json(); await await pollLogs(data.job_id)
       const autobt = String(cfg.autobt).toLowerCase() === 'true' || cfg.autobt === true
       if (autobt) {
         const btReq = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
@@ -901,7 +911,7 @@ function App() {
     if (n.data.typeKey === 'rl') {
       const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
       const res = await fetch(`${API}/run/rl_train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await pollLogs(data.job_id)
+      const data = await res.json(); await await pollLogs(data.job_id)
     }
     if (n.data.typeKey === 'fb') {
       const body = { results_dir: n.data.cfg?.results_dir || 'user_data/backtest_results', out: 'user_data/llm_feedback/latest_backtest_summary.json' }
@@ -921,7 +931,7 @@ function App() {
         job_workers: -1,
       }
       const res = await fetch(`${API}/run/hyperopt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const data = await res.json(); await pollLogs(data.job_id)
+      const data = await res.json(); await await pollLogs(data.job_id)
     }
   }
 
@@ -1021,6 +1031,10 @@ createRoot(document.getElementById('root')).render(h(App))
 
 
 function addNodeAt(typeKey, position){ const id='n'+Math.random().toString(16).slice(2,8); const labelMap={data:'Data',expr:'Expression(LLM)',bt:'Backtest',fb:'Feedback',ho:'Hyperopt',mv:'MultiValidate'}; const cfgMap={data:{pairs:'BTC/USDT ETH/USDT',timeframe:'4h',output:'user_data/freqai_features_multi.json'},expr:{llm_model:'gpt-3.5-turbo',llm_count:12,timeframe:'4h'},bt:{timerange:'20210101-20211231'},fb:{results_dir:'user_data/backtest_results'},ho:{timerange:'20210101-20210430',spaces:'buy sell protection',epochs:20,loss:'SharpeHyperOptLoss'},mv:{timeranges:'20210101-20210331,20210401-20210630'}}; const node={id,type:'amNode',position,data:{label:labelMap[typeKey]||typeKey,typeKey,cfg:cfgMap[typeKey]||{}}}; window.__setNodes && window.__setNodes(node); }
+
+
+
+
 
 
 

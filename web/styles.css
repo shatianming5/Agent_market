@@ -33,6 +33,7 @@ html, body {
 .brand i { font-size: 18px; }
 .toolbar { display:flex; gap:8px; align-items:center; }
 .toolbar select { height: 28px; padding: 2px 8px; border: 1px solid #d5d8dd; border-radius: 6px; background: #fff; }
+.toolbar input[type=number] { height:28px; padding: 2px 6px; border:1px solid #d5d8dd; border-radius:6px; width:70px; }
 
 .sidebar {
   padding: 12px;
@@ -55,6 +56,13 @@ html, body {
   overflow: auto;
   background: var(--panel-bg);
 }
+/* 状态条 */
+.status { margin: 0 0 8px 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: #fff; display:flex; align-items:center; gap:6px; }
+.status.running { background: #f6f8ff; border-color: #c6d0ff; }
+.spin { animation: spin 1s linear infinite; display:inline-block; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+[data-theme='dark'] .status { background:#0f172a; border-color:#263047; }
+[data-theme='dark'] .status.running { background:#111b37; border-color:#3a4a7a; }
 /* 指标卡片 */
 .cards { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:8px; margin-bottom:8px; }
 .card { padding:10px 12px; background:#fff; border:1px solid #e6e8eb; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.04); }
@@ -98,7 +106,7 @@ pre { white-space: pre-wrap; font-size: 12px; }
   transition: box-shadow .2s ease, transform .06s ease;
 }
 .am-node .header { display:flex; align-items:center; gap:6px; padding:8px 10px; background: linear-gradient(90deg, #eef3ff, #f7f9ff); border-bottom: 1px solid #e8ecf5; height:auto; }
-.am-node .header .title { font-size: 12px; font-weight:600; color:#2f3a8a; }
+.am-node .header .title { font-size: 12px; font-weight:600; color:#2f3a8a; display:flex; align-items:center; gap:6px; }
 .am-node .header .badge { margin-left:auto; font-size:10px; color:#546; background:#eef3ff; border:1px solid #dbe3ff; padding:2px 6px; border-radius:999px; }
 .am-node .body { padding:8px 10px; font-size:12px; color:#333; }
 .am-node .body .kv { display:flex; justify-content:space-between; gap:6px; }
