@@ -36,7 +36,17 @@ class LightGBMAdapter(BaseModelAdapter):
         if X_valid is not None and X_valid.size:
             dvalid = lgb.Dataset(X_valid, label=y_valid)
             valid_sets.append(dvalid)
-        booster = lgb.train(params, dtrain, num_boost_round=num_boost_round, valid_sets=valid_sets)
+        # progress callback for Flow percent estimation
+        def _progress_cb(env):
+            try:
+                cur = int(getattr(env, 'iteration', 0)) + 1
+                tot = max(1, int(num_boost_round))
+                if cur == 1 or cur == tot or (tot >= 10 and cur % max(1, tot // 10) == 0):
+                    pct = int(cur * 100 / tot)
+                    print(f"[FLOW] EPOCH {cur}/{tot} PROGRESS {pct}%")
+            except Exception:
+                pass
+        booster = lgb.train(params, dtrain, num_boost_round=num_boost_round, valid_sets=valid_sets, callbacks=[_progress_cb])
         self.model = booster
         metrics = {'rmse_train': _rmse(booster.predict(X_train), y_train)}
         if X_valid is not None and X_valid.size:
@@ -88,7 +98,22 @@ class XGBoostAdapter(BaseModelAdapter):
         if X_valid is not None and X_valid.size:
             dvalid = xgb.DMatrix(X_valid, label=y_valid)
             evals.append((dvalid, 'valid'))
-        booster = xgb.train(params, dtrain, num_boost_round=num_boost_round, evals=evals, verbose_eval=False)
+        # progress callback for Flow percent estimation
+        try:
+            from xgboost.callback import TrainingCallback  # type: ignore
+            class _ProgressCB(TrainingCallback):
+                def __init__(self, tot: int):
+                    self.tot = max(1, int(tot))
+                def after_iteration(self, model, epoch: int, evals_log=None):  # noqa: D401
+                    cur = epoch + 1
+                    if cur == 1 or cur == self.tot or (self.tot >= 10 and cur % max(1, self.tot // 10) == 0):
+                        pct = int(cur * 100 / self.tot)
+                        print(f"[FLOW] EPOCH {cur}/{self.tot} PROGRESS {pct}%")
+                    return False
+            callbacks = [_ProgressCB(num_boost_round)]
+        except Exception:
+            callbacks = []
+        booster = xgb.train(params, dtrain, num_boost_round=num_boost_round, evals=evals, verbose_eval=False, callbacks=callbacks)
         self.model = booster
         metrics = {'rmse_train': _rmse(booster.predict(dtrain), y_train)}
         if dvalid is not None:
