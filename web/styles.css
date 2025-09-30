@@ -10,3 +10,10 @@ button { padding: 6px 10px; border: 1px solid #ddd; background: #fff; border-rad
 button:hover { background: #f6f6f6; }
 pre { white-space: pre-wrap; font-size: 12px; }
 .summary { margin-top: 12px; font-size: 12px; background: #fafafa; border: 1px solid #eee; padding: 8px; border-radius: 4px; }
+
+/* 节点面板（n8n风格） */
+.node-palette { margin: 6px 0 8px 0; border: 1px dashed #ddd; padding: 8px; border-radius: 6px; background: #fcfcfc; }
+.palette-title { font-size: 12px; color: #888; margin-bottom: 6px; }
+.palette-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.palette-item { font-size: 12px; padding: 6px 8px; border: 1px solid #ddd; border-radius: 6px; background: #fff; cursor: grab; user-select: none; }
+.palette-item:active { cursor: grabbing; }

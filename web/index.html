@@ -11,6 +11,17 @@
     <div id="app">
       <div class="sidebar">
         <h3>Flow Builder</h3>
+        <div class="node-palette">
+          <div class="palette-title">拖到画布来创建节点</div>
+          <div class="palette-list">
+            <div class="palette-item" draggable="true" data-nodetype="data">数据(Data)</div>
+            <div class="palette-item" draggable="true" data-nodetype="expr">表达式(LLM)</div>
+            <div class="palette-item" draggable="true" data-nodetype="bt">回测(Backtest)</div>
+            <div class="palette-item" draggable="true" data-nodetype="fb">反馈(Feedback)</div>
+            <div class="palette-item" draggable="true" data-nodetype="ho">超参优化(Hyperopt)</div>
+            <div class="palette-item" draggable="true" data-nodetype="mv">多区间验证(MultiValidate)</div>
+          </div>
+        </div>
         <div class="buttons" style="margin-bottom:6px">
           <button id="addData">+ Data</button>
           <button id="addExpr">+ Expression</button>
