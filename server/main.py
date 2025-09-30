@@ -158,6 +158,42 @@ def results_summary(name: str, results_dir: str = 'user_data/backtest_results'):
 def health():
     return {"status": "ok"}
 
+@app.get("/")
+def root():
+    return {
+        "message": "Agent Market API",
+        "docs": "/docs",
+        "health": "/health",
+        "note": "注意：/run/* 路由使用 POST 方法，请按需传 JSON body",
+        "endpoints": [
+            "GET /health",
+            "GET /docs",
+            "POST /run/feature",
+            "POST /run/expression",
+            "POST /run/backtest",
+            "POST /run/hyperopt",
+            "POST /results/prepare-feedback",
+            "GET /results/latest-summary",
+            "GET /results/list",
+            "GET /results/summary?name=...",
+            "GET /features/top",
+            "GET /jobs/{job_id}/status",
+            "GET /jobs/{job_id}/logs?offset=0",
+        ],
+        "examples": {
+            "expression": {
+                "method": "POST",
+                "path": "/run/expression",
+                "body_keys": ["config", "feature_file", "output", "timeframe", "llm_model", "llm_count"]
+            },
+            "backtest": {
+                "method": "POST",
+                "path": "/run/backtest",
+                "body_keys": ["config", "strategy", "strategy_path", "timerange", "freqaimodel"]
+            }
+        }
+    }
+
 
 @app.post("/run/expression")
 def run_expression(req: ExpressionReq = Body(...)):

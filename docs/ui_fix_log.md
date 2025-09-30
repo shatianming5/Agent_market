@@ -22,3 +22,11 @@
   - 新增 window._simulateClicks（支持 expr/backtest/summary），便于在浏览器控制台执行 _simulateClicks('expr') 快速验证；
   - web/styles.css 为 .sidebar 提升 z-index，避免画布层覆盖；
 - 验证：在浏览器控制台执行 _simulateClicks('expr') 能触发“运行 表达式(LLM)”，日志实时输出；
+
+
+## 2025-09-29 23:36:47
+- 问题：访问 http://127.0.0.1:8000/ 返回 {detail: Not Found}
+- 深度原因：FastAPI 未定义根路由，默认仅暴露我们注册的具体路由（如 /health、/run/*），根路径会 404。
+- 改动：在 server/main.py 新增 GET / 根路由，返回接口索引、注意事项与示例，便于从根路径快速上手。
+- 验证：重启 uvicorn 后访问 / 返回 endpoints/examples；访问 /docs 有交互式文档；/health 返回 ok。
+
