@@ -14,6 +14,53 @@ const applyNodeChanges = RFLib.applyNodeChanges || ((chs, nds) => nds)
 const applyEdgeChanges = RFLib.applyEdgeChanges || ((chs, eds) => eds)
 const addEdgeLib = RFLib.addEdge || ((params, eds) => eds.concat({ id: (params.id || ('e' + Math.random().toString(16).slice(2,8))), ...params }))
 
+// -------- Fallback (no React/ReactFlow) helpers --------
+async function fallbackPollLogs(jobId) {
+  const logsEl = document.getElementById('logs')
+  let offset = 0
+  while (true) {
+    try {
+      const r = await fetch(`${API}/jobs/${jobId}/logs?offset=${offset}`)
+      const j = await r.json()
+      const chunk = (j.logs || []).join('\n')
+      if (chunk) { logsEl.textContent += chunk + '\n'; try { logsEl.scrollTop = logsEl.scrollHeight } catch {} }
+      offset = j.next || offset
+      if (!j.running) break
+      await new Promise(r => setTimeout(r, 800))
+    } catch { break }
+  }
+}
+
+function wireFallback() {
+  // API apply
+  try {
+    const apiEl = document.getElementById('apiUrl'); if (apiEl) apiEl.value = API
+    const applyBtn = document.getElementById('applyApi'); if (applyBtn) applyBtn.onclick = async () => {
+      try { const val = (document.getElementById('apiUrl')?.value || '').trim(); if (!val) return; setApiUrl(val); const r = await fetch(`${API}/health`); const j = await r.json(); alert(`API 探测成功: ${API} /health: ${JSON.stringify(j)}`) } catch (e) { alert(`API 探测失败: ${API}, 调用 /health 出错: ${e}`) }
+    }
+  } catch {}
+  // Expr
+  const be = document.getElementById('btnExpr'); if (be) be.onclick = async () => {
+    try {
+      const body = { config: document.getElementById('cfg').value, feature_file: document.getElementById('featureFile').value, output: 'user_data/freqai_expressions.json', timeframe: document.getElementById('timeframe').value, llm_model: document.getElementById('llmModel').value, llm_count: parseInt(document.getElementById('llmCount').value||'3',10), llm_loops:1, llm_timeout:60, feedback_top:0 }
+      const r = await fetch(`${API}/run/expression`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+      const j = await r.json(); if (j.job_id) { await fallbackPollLogs(j.job_id) } else { alert(JSON.stringify(j)) }
+    } catch(e) { alert('表达式启动失败: '+e) }
+  }
+  // Backtest
+  const bb = document.getElementById('btnBacktest'); if (bb) bb.onclick = async () => {
+    try {
+      const body = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
+      const r = await fetch(`${API}/run/backtest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+      const j = await r.json(); if (j.job_id) { await fallbackPollLogs(j.job_id) } else { alert(JSON.stringify(j)) }
+    } catch(e) { alert('回测启动失败: '+e) }
+  }
+  // Summary
+  const bs = document.getElementById('btnSummary'); if (bs) bs.onclick = async () => {
+    try { const r = await fetch(`${API}/results/latest-summary`); const j = await r.json(); const summaryEl=document.getElementById('summary'); if (summaryEl) summaryEl.textContent = JSON.stringify(j,null,2) } catch(e) { alert('加载摘要失败: '+e) }
+  }
+}
+
 // API base: default same-origin, controlled by input框
 let API = (typeof location !== 'undefined' && /^https?:/i.test(location.origin || '')) ? location.origin.replace(/\/$/, '') : 'http://127.0.0.1:8000'
 function setApiUrl(url) {
@@ -526,7 +573,7 @@ function App() {
   ])
 }
 
-createRoot(document.getElementById('root')).render(h(App))
+try { createRoot(document.getElementById('root')).render(h(App)) } catch (e) { console.warn('[fallback] React/ReactFlow 未加载或渲染失败，启用降级绑定', e); try { wireFallback() } catch(e2) { console.error('fallback 失败', e2) } }
 
 // Drag helpers for palette
 document.addEventListener('DOMContentLoaded', () => {
