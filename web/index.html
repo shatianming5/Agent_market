@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -15,58 +15,58 @@
         <span>Agent Market Flow</span>
       </div>
       <div class="toolbar">
-        <button id="btnLayout" title="自动布局"><i class="ri-mind-map"></i> 自动布局</button>
-        <button id="btnAlignX" title="对齐 X"><i class="ri-align-center"></i> 对齐 X</button>
-        <button id="btnAlignY" title="对齐 Y"><i class="ri-align-left"></i> 对齐 Y</button>
-        <button id="btnSnap" title="网格吸附"><i class="ri-grid-line"></i> 吸附</button>
-        <input id="gridSize" type="number" value="16" title="网格尺寸(px)" style="width:70px"/>
-        <select id="snapStrength" title="吸附强度">
-          <option value="medium">中</option>
-          <option value="strong">强</option>
-          <option value="weak">弱</option>
+        <button id="btnLayout" title="è‡ªåŠ¨å¸ƒå±€"><i class="ri-mind-map"></i> è‡ªåŠ¨å¸ƒå±€</button>
+        <button id="btnAlignX" title="å¯¹é½ X"><i class="ri-align-center"></i> å¯¹é½ X</button>
+        <button id="btnAlignY" title="å¯¹é½ Y"><i class="ri-align-left"></i> å¯¹é½ Y</button>
+        <button id="btnSnap" title="ç½‘æ ¼å¸é™„"><i class="ri-grid-line"></i> å¸é™„</button>
+        <input id="gridSize" type="number" value="16" title="ç½‘æ ¼å°ºå¯¸(px)" style="width:70px"/>
+        <select id="snapStrength" title="å¸é™„å¼ºåº¦">
+          <option value="medium">ä¸­</option>
+          <option value="strong">å¼º</option>
+          <option value="weak">å¼±</option>
         </select>
-        <button id="btnFit" title="适配画布"><i class="ri-focus-2-line"></i> 适配</button>
-        <button id="btnClear" title="清空画布"><i class="ri-eraser-line"></i> 清空</button>
-        <select id="brandSelect" title="主题风格">
+        <button id="btnFit" title="é€‚é…ç”»å¸ƒ"><i class="ri-focus-2-line"></i> é€‚é…</button>
+        <button id="btnClear" title="æ¸…ç©ºç”»å¸ƒ"><i class="ri-eraser-line"></i> æ¸…ç©º</button>
+        <select id="brandSelect" title="ä¸»é¢˜é£Žæ ¼">
           <option value="ocean">Ocean</option>
           <option value="forest">Forest</option>
           <option value="sunset">Sunset</option>
         </select>
-        <button id="btnTheme" title="切换主题"><i class="ri-contrast-2-line"></i> 主题</button>
-        <button id="btnExport" title="导出为图片"><i class="ri-image-2-line"></i> 导出</button>
-        <button id="btnDistX" title="平均分布 X"><i class="ri-swap-line"></i> 分布 X</button>
-        <button id="btnDistY" title="平均分布 Y"><i class="ri-swap-column-line"></i> 分布 Y</button>
-        <button id="btnTrainBt" title="训练 + 回测"><i class="ri-play-circle-line"></i> 训练 + 回测</button>
+        <button id="btnTheme" title="åˆ‡æ¢ä¸»é¢˜"><i class="ri-contrast-2-line"></i> ä¸»é¢˜</button>
+        <button id="btnExport" title="å¯¼å‡ºä¸ºå›¾ç‰‡"><i class="ri-image-2-line"></i> å¯¼å‡º</button>
+        <button id="btnDistX" title="å¹³å‡åˆ†å¸ƒ X"><i class="ri-swap-line"></i> åˆ†å¸ƒ X</button>
+        <button id="btnDistY" title="å¹³å‡åˆ†å¸ƒ Y"><i class="ri-swap-column-line"></i> åˆ†å¸ƒ Y</button>
+        <button id="btnTrainBt" title="è®­ç»ƒ + å›žæµ‹"><i class="ri-play-circle-line"></i> è®­ç»ƒ + å›žæµ‹</button>
       </div>
     </div>
     <div id="app">
       <div class="sidebar">
-        <h3>节点库</h3>
+        <h3>èŠ‚ç‚¹åº“</h3>
         <div class="node-palette">
-          <div class="palette-title">可拖拽的节点</div>
+          <div class="palette-title">å¯æ‹–æ‹½çš„èŠ‚ç‚¹</div>
           <div class="palette-list">
-            <div class="palette-item" draggable="true" data-nodetype="data"><i class="ri-database-2-line"></i> 数据 Data</div>
-            <div class="palette-item" draggable="true" data-nodetype="expr"><i class="ri-function-line"></i> 表达式 LLM</div>
-            <div class="palette-item" draggable="true" data-nodetype="bt"><i class="ri-line-chart-line"></i> 回测 Backtest</div>
-            <div class="palette-item" draggable="true" data-nodetype="ml"><i class="ri-cpu-line"></i> 机器学习 ML</div>
-            <div class="palette-item" draggable="true" data-nodetype="rl"><i class="ri-brain-line"></i> 强化学习 RL</div>
-            <div class="palette-item" draggable="true" data-nodetype="fb"><i class="ri-feedback-line"></i> 反馈 Feedback</div>
-            <div class="palette-item" draggable="true" data-nodetype="ho"><i class="ri-sliders-2-line"></i> 超参优化 Hyperopt</div>
-            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> 结果对比</div>
+            <div class="palette-item" draggable="true" data-nodetype="data"><i class="ri-database-2-line"></i> æ•°æ® Data</div>
+            <div class="palette-item" draggable="true" data-nodetype="expr"><i class="ri-function-line"></i> è¡¨è¾¾å¼ LLM</div>
+            <div class="palette-item" draggable="true" data-nodetype="bt"><i class="ri-line-chart-line"></i> å›žæµ‹ Backtest</div>
+            <div class="palette-item" draggable="true" data-nodetype="ml"><i class="ri-cpu-line"></i> æœºå™¨å­¦ä¹  ML</div>
+            <div class="palette-item" draggable="true" data-nodetype="rl"><i class="ri-brain-line"></i> å¼ºåŒ–å­¦ä¹  RL</div>
+            <div class="palette-item" draggable="true" data-nodetype="fb"><i class="ri-feedback-line"></i> åé¦ˆ Feedback</div>
+            <div class="palette-item" draggable="true" data-nodetype="ho"><i class="ri-sliders-2-line"></i> è¶…å‚ä¼˜åŒ– Hyperopt</div>
+            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> ç»“æžœå¯¹æ¯”</div>
           </div>
         </div>
 
-        <h4>节点属性</h4>
+        <h4>èŠ‚ç‚¹å±žæ€§</h4>
         <div id="nodeForm" class="panel"></div>
 
-        <h3 style="margin-top:14px">服务设置</h3>
+        <h3 style="margin-top:14px">æœåŠ¡è®¾ç½®</h3>
         <div>
           <label>API</label>
           <input id="apiUrl" value="http://127.0.0.1:8000" />
-          <button id="applyApi">应用</button>
+          <button id="applyApi">åº”ç”¨</button>
         </div>
         <div class="panel" style="margin-top:8px;">
-          <div style="font-weight:600;margin-bottom:6px">后端服务设置</div>
+          <div style="font-weight:600;margin-bottom:6px">åŽç«¯æœåŠ¡è®¾ç½®</div>
           <label>LLM Base URL</label>
           <input id="llmBaseUrl" placeholder="https://..." />
           <label>LLM Model</label>
@@ -74,13 +74,13 @@
           <label>Default TF</label>
           <input id="defaultTf" placeholder="4h" />
           <div class="buttons" style="gap:6px; margin-top:6px;">
-            <button id="btnLoadSettings">加载设置</button>
-            <button id="btnSaveSettings">保存设置</button>
-            <button id="btnApplySettings">应用到表单</button>
+            <button id="btnLoadSettings">åŠ è½½è®¾ç½®</button>
+            <button id="btnSaveSettings">ä¿å­˜è®¾ç½®</button>
+            <button id="btnApplySettings">åº”ç”¨åˆ°è¡¨å•</button>
           </div>
         </div>
 
-        <h3 style="margin-top:14px">常用参数</h3>
+        <h3 style="margin-top:14px">å¸¸ç”¨å‚æ•°</h3>
         <div>
           <label>Config</label>
           <input id="cfg" value="configs/config_freqai_multi.json" />
@@ -106,53 +106,53 @@
           <input id="timerange" value="20210101-20210331" />
         </div>
         <div class="buttons">
-          <button id="btnExpr" class="btn btn-primary"><i class="ri-function-line"></i> 生成表达式</button>
-          <button id="btnBacktest" class="btn btn-primary"><i class="ri-line-chart-line"></i> 回测</button>
-          <button id="btnSummary" class="btn"><i class="ri-bar-chart-2-line"></i> 加载最新摘要</button>
+          <button id="btnExpr" class="btn btn-primary"><i class="ri-function-line"></i> ç”Ÿæˆè¡¨è¾¾å¼</button>
+          <button id="btnBacktest" class="btn btn-primary"><i class="ri-line-chart-line"></i> å›žæµ‹</button>
+          <button id="btnSummary" class="btn"><i class="ri-bar-chart-2-line"></i> åŠ è½½æœ€æ–°æ‘˜è¦</button>
         </div>
         <div class="summary" id="summary"></div>
         <div id="chart" style="height:240px;margin-top:8px;"></div>
-        <h4>特征 TopN</h4>
+        <h4>ç‰¹å¾ TopN</h4>
         <div class="buttons" style="margin-bottom:6px; gap:6px">
-          <button id="btnFeatTop" class="btn"><i class="ri-list-check-2"></i> 加载 TopN</button>
-          <button id="btnFeatPlot" class="btn"><i class="ri-bar-chart-horizontal-line"></i> 绘制柱状图</button>
+          <button id="btnFeatTop" class="btn"><i class="ri-list-check-2"></i> åŠ è½½ TopN</button>
+          <button id="btnFeatPlot" class="btn"><i class="ri-bar-chart-horizontal-line"></i> ç»˜åˆ¶æŸ±çŠ¶å›¾</button>
         </div>
         <div id="featTop" class="panel"></div>
         <div id="featChart" style="height:220px;margin:6px 0 12px 0;"></div>
         <h4>Agent Flow</h4>
         <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
           <input id="flowCfg" value="configs/agent_flow_multi.json" />
-          <input id="flowSteps" placeholder="可选步骤: feature expression ml rl backtest（留空则全流程）" />
-          <button id="btnRunAgentFlow" class="btn btn-primary"><i class="ri-play-circle-line"></i> 运行 Flow</button>
+          <input id="flowSteps" placeholder="å¯é€‰æ­¥éª¤: feature expression ml rl backtestï¼ˆç•™ç©ºåˆ™å…¨æµç¨‹ï¼‰" />
+          <button id="btnRunAgentFlow" class="btn btn-primary"><i class="ri-play-circle-line"></i> è¿è¡Œ Flow</button>
           <div id="flowStatus" class="panel"></div>
         </div>
-        <h4>结果</h4>
+        <h4>ç»“æžœ</h4>
         <div class="buttons" style="gap:4px; display:flex; flex-direction:column; align-items:stretch;">
-          <button id="btnList" class="btn"><i class="ri-list-unordered"></i> 列出结果</button>
-          <input id="resA" placeholder="请输入结果 A" />
-          <input id="resB" placeholder="请输入结果 B" />
-          <button id="btnCompare">对比</button>
+          <button id="btnList" class="btn"><i class="ri-list-unordered"></i> åˆ—å‡ºç»“æžœ</button>
+          <input id="resA" placeholder="è¯·è¾“å…¥ç»“æžœ A" />
+          <input id="resB" placeholder="è¯·è¾“å…¥ç»“æžœ B" />
+          <button id="btnCompare">å¯¹æ¯”</button>
         </div>
         <div id="comparePanel" class="panel"></div>
-        <h4>图集 / 聚合</h4>
+        <h4>å›¾é›† / èšåˆ</h4>
         <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
-          <button id="btnGallery">图集</button>
+          <button id="btnGallery">å›¾é›†</button>
           <div id="galleryPanel" class="panel"></div>
-          <input id="aggNames" placeholder="以逗号分隔的结果名，如 a.zip,b.zip" />
-          <button id="btnAgg">聚合</button>
+          <input id="aggNames" placeholder="ä»¥é€—å·åˆ†éš”çš„ç»“æžœåï¼Œå¦‚ a.zip,b.zip" />
+          <button id="btnAgg">èšåˆ</button>
           <div id="aggPanel" class="panel"></div>
         </div>
-        <h4>对比/移动</h4>
+        <h4>å¯¹æ¯”/ç§»åŠ¨</h4>
         <div id="mvPanel" class="panel"></div>
       </div>
       <div class="canvas">
         <div id="root" style="width:100%;height:100%"></div>
       </div>
       <div class="logs">
-        <h3>日志</h3>
+        <h3>æ—¥å¿—</h3>
         <div style="display:flex; gap:6px; align-items:center;">
-          <div id="statusBar" class="status" style="flex:1 1 auto;">就绪</div>
-          <button id="btnCancelJob" title="取消运行中的任务">取消任务</button>
+          <div id="statusBar" class="status" style="flex:1 1 auto;">å°±ç»ª</div>
+          <button id="btnCancelJob" title="å–æ¶ˆè¿è¡Œä¸­çš„ä»»åŠ¡">å–æ¶ˆä»»åŠ¡</button>
         </div>
         <div class="cards" id="cards"></div>
         <pre id="logs"></pre>
@@ -161,11 +161,12 @@
     <div id="ctxMenu" class="ctx-menu" style="display:none"></div>
     <script src="vendor/react.development.js"></script>
     <script src="vendor/react-dom.development.js"></script>
-    <script src="https://unpkg.com/reactflow@11.10.2/dist/reactflow.min.js"></script>
+    <script src="vendor/reactflow.min.js"></script>
     <script src="vendor/echarts.min.js"></script>
     <script src="vendor/dagre.min.js"></script>
     <script src="vendor/html2canvas.min.js"></script>
     <script src="app.js"></script>
   </body>
   </html>
+
 

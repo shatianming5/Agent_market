@@ -1,29 +1,40 @@
-# Changelog
+﻿# Changelog
 
 ## v0.2.2
 
 - Backend
-  - 清理并统一 GET /、/index、/health 的返回体为简洁 JSON（彻底去除乱码）。
-  - /flow/progress 提供每步状态 + 阶段（prepare/execute/summarize）+ 百分比估算。
-  - 新增 /flow/stream (SSE) 与 /flow/ws (WebSocket) 实时进度与日志推送。
-  - 统一错误返回结构 `_error(code,message)`，JobManager 标准化 code/status。
-  - 加强 /run/expression、/run/feature、/run/train、/run/backtest 的参数/路径校验。
-  - 新增 /settings 读写 LLM 与默认 timeframe 设置。
+  - æ¸…ç†å¹¶ç»Ÿä¸€ GET /ã€/indexã€/health çš„è¿”å›žä½“ä¸ºç®€æ´ JSONï¼ˆå½»åº•åŽ»é™¤ä¹±ç ï¼‰ã€‚
+  - /flow/progress æä¾›æ¯æ­¥çŠ¶æ€ + é˜¶æ®µï¼ˆprepare/execute/summarizeï¼‰+ ç™¾åˆ†æ¯”ä¼°ç®—ã€‚
+  - æ–°å¢ž /flow/stream (SSE) ä¸Ž /flow/ws (WebSocket) å®žæ—¶è¿›åº¦ä¸Žæ—¥å¿—æŽ¨é€ã€‚
+  - ç»Ÿä¸€é”™è¯¯è¿”å›žç»“æž„ `_error(code,message)`ï¼ŒJobManager æ ‡å‡†åŒ– code/statusã€‚
+  - åŠ å¼º /run/expressionã€/run/featureã€/run/trainã€/run/backtest çš„å‚æ•°/è·¯å¾„æ ¡éªŒã€‚
+  - æ–°å¢ž /settings è¯»å†™ LLM ä¸Žé»˜è®¤ timeframe è®¾ç½®ã€‚
 - Frontend
-  - 本地化 react/echarts/dagre/html2canvas 至 `web/vendor`，ReactFlow 仍走 CDN 并提供回退绑定。
-  - 加入全局 fetch 包装与“重试上次操作”，失败态与 Loading 更清晰。
-  - Flow 面板增加单步快捷按钮，SSE 优先展示细粒度进度。
-  - 图集/聚合卡片样式焕新（迷你图、极简配色）。
-  - 修复“前端无响应”的多处根因（依赖加载、事件绑定回退、日志轮询）。
+  - æœ¬åœ°åŒ– react/echarts/dagre/html2canvas è‡³ `web/vendor`ï¼ŒReactFlow ä»èµ° CDN å¹¶æä¾›å›žé€€ç»‘å®šã€‚
+  - åŠ å…¥å…¨å±€ fetch åŒ…è£…ä¸Žâ€œé‡è¯•ä¸Šæ¬¡æ“ä½œâ€ï¼Œå¤±è´¥æ€ä¸Ž Loading æ›´æ¸…æ™°ã€‚
+  - Flow é¢æ¿å¢žåŠ å•æ­¥å¿«æ·æŒ‰é’®ï¼ŒSSE ä¼˜å…ˆå±•ç¤ºç»†ç²’åº¦è¿›åº¦ã€‚
+  - å›¾é›†/èšåˆå¡ç‰‡æ ·å¼ç„•æ–°ï¼ˆè¿·ä½ å›¾ã€æžç®€é…è‰²ï¼‰ã€‚
+  - ä¿®å¤â€œå‰ç«¯æ— å“åº”â€çš„å¤šå¤„æ ¹å› ï¼ˆä¾èµ–åŠ è½½ã€äº‹ä»¶ç»‘å®šå›žé€€ã€æ—¥å¿—è½®è¯¢ï¼‰ã€‚
 - Tooling
-  - `scripts/frontend_smoke.mjs`：校验关键 DOM ID；若检测到乱码字符（U+FFFD）则失败。
-  - `scripts/clean_workspace.*`：一键清理临时与缓存文件，README 同步说明。
+  - `scripts/frontend_smoke.mjs`ï¼šæ ¡éªŒå…³é”® DOM IDï¼›è‹¥æ£€æµ‹åˆ°ä¹±ç å­—ç¬¦ï¼ˆU+FFFDï¼‰åˆ™å¤±è´¥ã€‚
+  - `scripts/clean_workspace.*`ï¼šä¸€é”®æ¸…ç†ä¸´æ—¶ä¸Žç¼“å­˜æ–‡ä»¶ï¼ŒREADME åŒæ­¥è¯´æ˜Žã€‚
 
 ## v0.2.1
 
-- Flow 进度与前后端联调增强；SSE/WS 初步接入；错误码标准化；UI 按钮与样式优化。
+- Flow è¿›åº¦ä¸Žå‰åŽç«¯è”è°ƒå¢žå¼ºï¼›SSE/WS åˆæ­¥æŽ¥å…¥ï¼›é”™è¯¯ç æ ‡å‡†åŒ–ï¼›UI æŒ‰é’®ä¸Žæ ·å¼ä¼˜åŒ–ã€‚
 
 ## v0.2.0
 
-- 初始 MVP：FastAPI 后端 + Web 前端；/run/* 任务发起与 JobManager；基础 Flow 与结果展示。
+- åˆå§‹ MVPï¼šFastAPI åŽç«¯ + Web å‰ç«¯ï¼›/run/* ä»»åŠ¡å‘èµ·ä¸Ž JobManagerï¼›åŸºç¡€ Flow ä¸Žç»“æžœå±•ç¤ºã€‚
 
+## v0.2.3
+
+- 本地化 ReactFlow（通过 esbuild 打包为 IIFE，全局 `window.ReactFlow`），彻底移除最后的 CDN 依赖。
+- 更新 `web/index.html` 使用 `vendor/reactflow.min.js`。
+- 新增 `npm run build:vendor`，可复现离线打包流程。
+
+## v0.2.3
+
+- 本地化 ReactFlow（通过 esbuild 打包为 IIFE，全局 `window.ReactFlow`），彻底移除最后的 CDN 依赖。
+- 更新 `web/index.html` 使用 `vendor/reactflow.min.js`。
+- 新增 `npm run build:vendor`，可复现离线打包流程。

@@ -2,11 +2,14 @@
   "name": "agent-market",
   "private": true,
   "type": "module",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "scripts": {
-    "test:front": "node scripts/frontend_smoke.mjs"
+    "test:front": "node scripts/frontend_smoke.mjs",
+    "build:vendor": "esbuild tools/reactflow_global.js --bundle --format=iife --global-name=ReactFlow --outfile=web/vendor/reactflow.min.js --minify --external:react --external:react-dom --external:react/jsx-runtime"
   },
   "devDependencies": {
-    "jsdom": "^24.0.0"
+    "jsdom": "^24.0.0",
+    "esbuild": "^0.23.0",
+    "reactflow": "11.10.2"
   }
 }

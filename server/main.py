@@ -50,7 +50,7 @@ def _load_dotenv_into_environ(env_path: Path) -> None:
 # Load .env from project root into process env
 _load_dotenv_into_environ(ROOT / '.env')
 
-app = FastAPI(title="Agent Market Server", version="0.2.2")
+app = FastAPI(title="Agent Market Server", version="0.2.3")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -941,4 +941,5 @@ def _load_settings() -> dict:
 def _save_settings(obj: dict) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     SETTINGS_PATH.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding='utf-8')
+
 
