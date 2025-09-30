@@ -269,7 +269,7 @@ def run_expression(req: ExpressionReq = Body(...)):
         env['LLM_BASE_URL'] = os.environ['LLM_BASE_URL']
     if os.environ.get('LLM_MODEL'):
         env['LLM_MODEL'] = os.environ['LLM_MODEL']
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=900)
     return {"job_id": job_id, "cmd": cmd}
 
 
@@ -287,7 +287,7 @@ def run_backtest(req: BacktestReq = Body(...)):
         cmd += ['--export', 'trades', '--export-filename', req.export_filename]
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=7200)
     return {"job_id": job_id, "cmd": cmd}
 
 
@@ -309,7 +309,7 @@ def run_hyperopt(req: HyperoptReq = Body(...)):
         cmd += ['--freqaimodel', req.freqaimodel]
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=1800)
     return {"job_id": job_id, "cmd": cmd}
 
 
@@ -320,7 +320,7 @@ def run_rl_train(req: RLTrainReq = Body(...)):
     cmd = [py, script, '--config', req.config]
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=7200)
     return {"job_id": job_id, "cmd": cmd}
 
 

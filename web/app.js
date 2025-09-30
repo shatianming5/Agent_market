@@ -28,6 +28,15 @@ function setStatus(phase, jobId, running) {
   }
 }
 
+async function getJobStatus(jobId) {
+  const r = await fetch(`${API}/jobs/${jobId}/logs?offset=0`)
+  return await r.json()
+}
+
+function setNodeStatus(setNodes, nodeId, status, extra={}) {
+  setNodes(nds => nds.map(n => n.id === nodeId ? ({ ...n, data: { ...(n.data||{}), status, ...extra } }) : n))
+}
+
 function Icon({ type }) {
   const map = { data: 'ri-database-2-line', expr: 'ri-function-line', bt: 'ri-line-chart-line', fb: 'ri-feedback-line', ho: 'ri-sliders-2-line', mv: 'ri-shuffle-line' }
   const cls = map[type] || 'ri-shape-2-line'
@@ -427,9 +436,9 @@ function App() {
             max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
           }
         }
-        const ma = metrics(sa), mb = metrics(sb)
-        const tbl = document.createElement('div')
-        tbl.innerHTML = `<table border="1" cellspacing="0" cellpadding="4" style="width:100%; font-size:12px; margin-top:6px">
+      const ma = metrics(sa), mb = metrics(sb)
+      const tbl = document.createElement('div')
+      tbl.innerHTML = `<table border="1" cellspacing="0" cellpadding="4" style="width:100%; font-size:12px; margin-top:6px">
             <tr><th>指标</th><th>A (${a})</th><th>B (${b})</th></tr>
             <tr><td>总收益%</td><td>${ma.profit_pct ?? '--'}</td><td>${mb.profit_pct ?? '--'}</td></tr>
             <tr><td>总收益(USDT)</td><td>${ma.profit_abs ?? '--'}</td><td>${mb.profit_abs ?? '--'}</td></tr>
@@ -440,6 +449,25 @@ function App() {
         compareEl.appendChild(tbl)
       }
       summaryEl.textContent = JSON.stringify({ A: sa, B: sb }, null, 2)
+    }
+    const btnGallery = document.getElementById('btnGallery')
+    if (btnGallery) btnGallery.onclick = async () => {
+      const res = await fetch(`${API}/results/gallery`)
+      const data = await res.json()
+      const gp = document.getElementById('galleryPanel')
+      if (gp) {
+        const items = (data.items||[]).map(x => `<div>${x.name} · 收益%: ${x.profit_total_pct??'--'} · 交易: ${x.trades??'--'} · 回撤: ${x.max_drawdown_abs??'--'}</div>`).join('') || '<em>无</em>'
+        gp.innerHTML = items
+      }
+    }
+    const btnAgg = document.getElementById('btnAgg')
+    if (btnAgg) btnAgg.onclick = async () => {
+      const names = (document.getElementById('aggNames').value||'').trim()
+      if (!names) return alert('请输入逗号分隔的结果名')
+      const res = await fetch(`${API}/results/aggregate?names=${encodeURIComponent(names)}`)
+      const data = await res.json()
+      const ap = document.getElementById('aggPanel')
+      if (ap) ap.textContent = JSON.stringify(data, null, 2)
     }
     // 提供简单的点击模拟器，便于快速自测（在浏览器控制台运行：_simulateClicks('expr')）
     window._simulateClicks = async (what = 'expr') => {
