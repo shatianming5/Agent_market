@@ -37,6 +37,7 @@ function CustomNode({ id, data }) {
       h('div', null, (info.output||info.results_dir||'')),
       h('div', { className: 'actions' }, [
         h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__runNode && window.__runNode(id) } catch(e){} } }, '运行'),
+        h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window.__configureNode && window.__configureNode(id) } catch(e){} } }, '配置'),
         h('button', { className: 'mini', onClick: (e) => { e.stopPropagation(); e.preventDefault(); try { window._simulateClicks && window._simulateClicks('summary') } catch(e){} } }, '摘要'),
       ])
     ]),
@@ -180,6 +181,18 @@ function App() {
       root.setAttribute('data-theme', next)
       try { localStorage.setItem('am_theme', next) } catch {}
     }
+    const layout = document.getElementById('btnLayout'); if (layout) layout.onclick = () => {
+      try {
+        if (!window.dagre) { alert('布局库未加载'); return }
+        const g = new window.dagre.graphlib.Graph(); g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80 }); g.setDefaultEdgeLabel(() => ({}))
+        const byId = Object.fromEntries(nodes.map(n => [n.id, n]))
+        nodes.forEach(n => g.setNode(n.id, { width: 220, height: 120 }))
+        edges.forEach(e => { if (byId[e.source] && byId[e.target]) g.setEdge(e.source, e.target) })
+        window.dagre.layout(g)
+        const laid = nodes.map(n => { const p = g.node(n.id) || { x: n.position.x, y: n.position.y }; return { ...n, position: { x: p.x - 110, y: p.y - 60 } } })
+        setNodes(laid)
+      } catch (e) { console.warn('layout error', e); alert('布局失败: '+e) }
+    }
     const exportBtn = document.getElementById('btnExport'); if (exportBtn) exportBtn.onclick = async () => {
       try {
         const el = document.querySelector('.canvas')
@@ -248,44 +261,51 @@ function App() {
         fetch(`${API}/results/summary?name=${encodeURIComponent(a)}`).then(r => r.json()),
         fetch(`${API}/results/summary?name=${encodeURIComponent(b)}`).then(r => r.json()),
       ])
-      const chart = echarts.init(document.getElementById('chart'))
       function toSeries(summary, label) {
         const trades = Array.isArray(summary.trades) ? summary.trades.slice().sort((x,y)=> (x.open_timestamp||0)-(y.open_timestamp||0)) : []
         let cum = 0
         const xs = []
         const ys = []
-        for (const t of trades) { cum += Number(t.profit_abs||0); xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10)); ys.push(cum) }
-        return { xs, ys, label }
+        const dd = []
+        let peak = 0
+        for (const t of trades) { cum += Number(t.profit_abs||0); xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10)); ys.push(cum); peak = Math.max(peak, cum); dd.push(peak ? (cum - peak) : 0) }
+        return { xs, ys, dd, label }
       }
       const A = toSeries(sa, 'A:'+a)
       const B = toSeries(sb, 'B:'+b)
-      const x = A.xs.length >= B.xs.length ? A.xs : B.xs
-      chart.setOption({
-        grid: { left: 40, right: 16, top: 10, bottom: 30 },
-        xAxis: { type: 'category', data: x, axisLabel: { rotate: 45 } },
-        yAxis: { type: 'value', scale: true },
-        tooltip: { trigger: 'axis' },
-        legend: {},
-        series: [
-          { name: A.label, type: 'line', data: A.ys },
-          { name: B.label, type: 'line', data: B.ys },
-        ],
-      })
-      function metrics(s) {
-        const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}
-        return {
-          profit_pct: c.profit_total_pct ?? s.profit_total_pct,
-          profit_abs: c.profit_total_abs ?? s.profit_total_abs,
-          trades: c.trades ?? s.trades,
-          winrate: c.winrate ?? s.winrate,
-          max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
-        }
-      }
-      const ma = metrics(sa)
-      const mb = metrics(sb)
       if (compareEl) {
-        compareEl.innerHTML = `
-          <table border="1" cellspacing="0" cellpadding="4" style="width:100%; font-size:12px">
+        compareEl.innerHTML = '<div id="cmpEquity" style="height:220px;margin:6px 0;"></div><div id="cmpDD" style="height:160px;margin:6px 0 10px 0;"></div>'
+        const eq = echarts.init(document.getElementById('cmpEquity'))
+        const dd = echarts.init(document.getElementById('cmpDD'))
+        const x = A.xs.length >= B.xs.length ? A.xs : B.xs
+        eq.setOption({
+          grid: { left: 40, right: 16, top: 10, bottom: 20 },
+          xAxis: { type: 'category', data: x, boundaryGap: false },
+          yAxis: { type: 'value', scale: true },
+          tooltip: { trigger: 'axis' }, legend: {}, dataZoom: [{ type:'inside' }, { type:'slider' }],
+          series: [ { name: A.label, type: 'line', data: A.ys, smooth: true }, { name: B.label, type: 'line', data: B.ys, smooth: true } ]
+        })
+        dd.setOption({
+          grid: { left: 40, right: 16, top: 10, bottom: 16 },
+          xAxis: { type: 'category', data: x, boundaryGap: false, axisLabel: { show: false } },
+          yAxis: { type: 'value', scale: true },
+          tooltip: { trigger: 'axis' }, legend: {}, dataZoom: [{ type:'inside' }, { type:'slider' }],
+          series: [ { name: A.label, type: 'line', data: A.dd, smooth: true, areaStyle: {} }, { name: B.label, type: 'line', data: B.dd, smooth: true, areaStyle: {} } ]
+        })
+        try { echarts.connect([eq, dd]) } catch {}
+        function metrics(s) {
+          const c = Array.isArray(s.strategy_comparison) && s.strategy_comparison.length ? s.strategy_comparison[0] : {}
+          return {
+            profit_pct: c.profit_total_pct ?? s.profit_total_pct,
+            profit_abs: c.profit_total_abs ?? s.profit_total_abs,
+            trades: c.trades ?? s.trades,
+            winrate: c.winrate ?? s.winrate,
+            max_dd: c.max_drawdown_abs ?? s.max_drawdown_abs,
+          }
+        }
+        const ma = metrics(sa), mb = metrics(sb)
+        const tbl = document.createElement('div')
+        tbl.innerHTML = `<table border="1" cellspacing="0" cellpadding="4" style="width:100%; font-size:12px; margin-top:6px">
             <tr><th>指标</th><th>A (${a})</th><th>B (${b})</th></tr>
             <tr><td>总收益%</td><td>${ma.profit_pct ?? '--'}</td><td>${mb.profit_pct ?? '--'}</td></tr>
             <tr><td>总收益(USDT)</td><td>${ma.profit_abs ?? '--'}</td><td>${mb.profit_abs ?? '--'}</td></tr>
@@ -293,6 +313,7 @@ function App() {
             <tr><td>胜率</td><td>${ma.winrate ?? '--'}</td><td>${mb.winrate ?? '--'}</td></tr>
             <tr><td>最大回撤(USDT)</td><td>${ma.max_dd ?? '--'}</td><td>${mb.max_dd ?? '--'}</td></tr>
           </table>`
+        compareEl.appendChild(tbl)
       }
       summaryEl.textContent = JSON.stringify({ A: sa, B: sb }, null, 2)
     }
@@ -367,6 +388,7 @@ function App() {
       { key: 'output', label: 'Output', def: 'user_data/freqai_features_multi.json' },
     ]
     if (typeKey === 'expr') return [
+      { key: 'feature_file', label: 'Feature File', def: (document.getElementById('featureFile')?.value || 'user_data/freqai_features.json') },
       { key: 'llm_model', label: 'LLM Model', def: 'gpt-3.5-turbo' },
       { key: 'llm_count', label: 'LLM Count', def: 12, type: 'number' },
       { key: 'timeframe', label: 'Timeframe', def: '4h' },
@@ -547,7 +569,7 @@ function App() {
     if (n.data.typeKey === 'expr') {
       const body = {
         config: document.getElementById('cfg').value,
-        feature_file: document.getElementById('featureFile').value,
+        feature_file: n.data.cfg?.feature_file || document.getElementById('featureFile').value,
         output: 'user_data/freqai_expressions.json',
         timeframe: n.data.cfg?.timeframe || '4h',
         llm_model: n.data.cfg?.llm_model || 'gpt-3.5-turbo',
@@ -597,6 +619,43 @@ function App() {
   }
 
   useEffect(() => { window.__runNode = (id) => runNodeById(id) }, [nodes])
+  useEffect(() => { window.__configureNode = (id) => { try { const n = (nodes||[]).find(x=>x.id===id); if (!n) return; setSelected(n); document.getElementById('nodeForm')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch {} } }, [nodes])
+
+  function showCtxMenu(x, y, target) {
+    const el = document.getElementById('ctxMenu'); if (!el) return
+    const items = []
+    if (target.type === 'node') {
+      items.push({ k: 'copyNode', label: '复制节点' })
+      items.push({ k: 'toggleLock', label: '锁定/解锁' })
+      items.push({ k: 'deleteNode', label: '删除节点' })
+    } else if (target.type === 'edge') {
+      items.push({ k: 'deleteEdge', label: '删除连线' })
+    }
+    el.innerHTML = items.map(it => `<div class="item" data-k="${it.k}">${it.label}</div>`).join('')
+    el.style.left = `${x}px`; el.style.top = `${y}px`; el.style.display = 'block'
+    Array.from(el.querySelectorAll('.item')).forEach(item => {
+      item.addEventListener('click', () => {
+        const k = item.getAttribute('data-k')
+        if (k === 'deleteNode') {
+          setNodes(nds => nds.filter(n => n.id !== target.id))
+          setEdges(eds => eds.filter(e => e.source !== target.id && e.target !== target.id))
+        }
+        if (k === 'copyNode') {
+          const src = (nodes||[]).find(n => n.id === target.id); if (!src) return
+          const id = genId(); const pos = { x: (src.position?.x||0) + 40, y: (src.position?.y||0) + 40 }
+          const clone = { ...src, id, position: pos }
+          setNodes(nds => nds.concat(clone))
+        }
+        if (k === 'toggleLock') {
+          setNodes(nds => nds.map(n => n.id === target.id ? ({ ...n, draggable: !(n.draggable === false), data: { ...(n.data||{}), locked: !(n.draggable === false) ? true : false } }) : n))
+        }
+        if (k === 'deleteEdge') {
+          setEdges(eds => eds.filter(e => e.id !== target.id))
+        }
+        el.style.display = 'none'
+      })
+    })
+  }
 
   function saveFlow() {
     const payload = { nodes, edges }
@@ -625,7 +684,15 @@ function App() {
     }
   }, [])
 
+  const onNodeContextMenu = useCallback((e, n) => {
+    e.preventDefault(); showCtxMenu(e.clientX, e.clientY, { type: 'node', id: n.id })
+  }, [])
+  const onEdgeContextMenu = useCallback((e, eobj) => {
+    e.preventDefault(); showCtxMenu(e.clientX, e.clientY, { type: 'edge', id: eobj.id })
+  }, [])
+
   return h(RF, { nodes, edges, nodeTypes, defaultEdgeOptions, fitView: true, onConnect, onNodesChange, onEdgesChange, onNodeClick, onDrop, onDragOver,
+    onNodeContextMenu, onEdgeContextMenu,
     panOnDrag: [0,1,2], selectionOnDrag: false, panOnScroll: false, zoomOnScroll: true, zoomOnPinch: true,
     nodesDraggable: true, nodesConnectable: true, elementsSelectable: true, onInit: (inst) => { window.__rf = inst } }, [
     h(Background, { variant: 'dots', gap: 16, size: 1, key: 'bg' }),

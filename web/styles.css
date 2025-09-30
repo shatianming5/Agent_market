@@ -121,3 +121,15 @@ pre { white-space: pre-wrap; font-size: 12px; }
 [data-theme='dark'] .am-node .footer { background:#0f1623; border-top-color:#263047; color:#9aa3b2; }
 [data-theme='dark'] .am-node .actions .mini { background:#0f172a; border-color:#2a3550; color:#dbe4ff; }
 [data-theme='dark'] .am-node .actions .mini:hover { background:#0e1b3a; border-color:#3a4a7a; }
+
+/* 右键菜单 */
+.ctx-menu {
+  position: fixed; z-index: 1000;
+  min-width: 160px; background: #fff; border: 1px solid #e6e8eb; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1); padding: 6px;
+}
+.ctx-menu .item { padding: 8px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; }
+.ctx-menu .item:hover { background: #f5f7ff; }
+.ctx-menu .sep { height: 1px; background: #eef1f6; margin: 6px 0; }
+[data-theme='dark'] .ctx-menu { background:#0f172a; border-color:#263047; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+[data-theme='dark'] .ctx-menu .item:hover { background:#111b37; }

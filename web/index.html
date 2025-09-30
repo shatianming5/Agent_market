@@ -15,6 +15,7 @@
         <span>Agent Market Flow</span>
       </div>
       <div class="toolbar">
+        <button id="btnLayout" title="自动布局"><i class="ri-mind-map"></i> 布局</button>
         <button id="btnFit" title="适配视图"><i class="ri-focus-2-line"></i> 适配</button>
         <button id="btnClear" title="清理画布"><i class="ri-eraser-line"></i> 清理</button>
         <button id="btnTheme" title="切换主题"><i class="ri-contrast-2-line"></i> 主题</button>
@@ -103,10 +104,12 @@
         <pre id="logs"></pre>
       </div>
     </div>
+    <div id="ctxMenu" class="ctx-menu" style="display:none"></div>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/reactflow@11.10.2/dist/reactflow.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="app.js"></script>
   </body>
