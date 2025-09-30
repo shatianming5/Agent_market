@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent Market Flow (MVP)</title>
-    <link rel="stylesheet" href="https://unpkg.com/reactflow@11.10.2/dist/style.css" />
+    <link rel="stylesheet" href="vendor/reactflow.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -15,58 +15,58 @@
         <span>Agent Market Flow</span>
       </div>
       <div class="toolbar">
-        <button id="btnLayout" title="自动布局"><i class="ri-mind-map"></i> 布局</button>
-        <button id="btnAlignX" title="水平对齐"><i class="ri-align-center"></i> 对齐X</button>
-        <button id="btnAlignY" title="垂直对齐"><i class="ri-align-left"></i> 对齐Y</button>
+        <button id="btnLayout" title="自动布局"><i class="ri-mind-map"></i> 自动布局</button>
+        <button id="btnAlignX" title="对齐 X"><i class="ri-align-center"></i> 对齐 X</button>
+        <button id="btnAlignY" title="对齐 Y"><i class="ri-align-left"></i> 对齐 Y</button>
         <button id="btnSnap" title="网格吸附"><i class="ri-grid-line"></i> 吸附</button>
-        <input id="gridSize" type="number" value="16" title="网格大小(px)" style="width:70px"/>
+        <input id="gridSize" type="number" value="16" title="网格尺寸(px)" style="width:70px"/>
         <select id="snapStrength" title="吸附强度">
           <option value="medium">中</option>
           <option value="strong">强</option>
           <option value="weak">弱</option>
         </select>
-        <button id="btnFit" title="视图适配"><i class="ri-focus-2-line"></i> 适配</button>
+        <button id="btnFit" title="适配画布"><i class="ri-focus-2-line"></i> 适配</button>
         <button id="btnClear" title="清空画布"><i class="ri-eraser-line"></i> 清空</button>
-        <select id="brandSelect" title="主题配色">
+        <select id="brandSelect" title="主题风格">
           <option value="ocean">Ocean</option>
           <option value="forest">Forest</option>
           <option value="sunset">Sunset</option>
         </select>
-        <button id="btnTheme" title="深浅切换"><i class="ri-contrast-2-line"></i> 主题</button>
-        <button id="btnExport" title="导出画布"><i class="ri-image-2-line"></i> 导出</button>
-        <button id="btnDistX" title="水平等间距"><i class="ri-swap-line"></i> 等距X</button>
-        <button id="btnDistY" title="垂直等间距"><i class="ri-swap-column-line"></i> 等距Y</button>
-        <button id="btnTrainBt" title="一键训练+回测"><i class="ri-play-circle-line"></i> 一键训练回测</button>
+        <button id="btnTheme" title="切换主题"><i class="ri-contrast-2-line"></i> 主题</button>
+        <button id="btnExport" title="导出为图片"><i class="ri-image-2-line"></i> 导出</button>
+        <button id="btnDistX" title="平均分布 X"><i class="ri-swap-line"></i> 分布 X</button>
+        <button id="btnDistY" title="平均分布 Y"><i class="ri-swap-column-line"></i> 分布 Y</button>
+        <button id="btnTrainBt" title="训练 + 回测"><i class="ri-play-circle-line"></i> 训练 + 回测</button>
       </div>
     </div>
     <div id="app">
       <div class="sidebar">
-        <h3>节点面板</h3>
+        <h3>节点库</h3>
         <div class="node-palette">
-          <div class="palette-title">可拖拽功能节点</div>
+          <div class="palette-title">可拖拽的节点</div>
           <div class="palette-list">
             <div class="palette-item" draggable="true" data-nodetype="data"><i class="ri-database-2-line"></i> 数据 Data</div>
             <div class="palette-item" draggable="true" data-nodetype="expr"><i class="ri-function-line"></i> 表达式 LLM</div>
             <div class="palette-item" draggable="true" data-nodetype="bt"><i class="ri-line-chart-line"></i> 回测 Backtest</div>
-            <div class="palette-item" draggable="true" data-nodetype="ml"><i class="ri-cpu-line"></i> 训练 ML</div>
+            <div class="palette-item" draggable="true" data-nodetype="ml"><i class="ri-cpu-line"></i> 机器学习 ML</div>
             <div class="palette-item" draggable="true" data-nodetype="rl"><i class="ri-brain-line"></i> 强化学习 RL</div>
             <div class="palette-item" draggable="true" data-nodetype="fb"><i class="ri-feedback-line"></i> 反馈 Feedback</div>
             <div class="palette-item" draggable="true" data-nodetype="ho"><i class="ri-sliders-2-line"></i> 超参优化 Hyperopt</div>
-            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> 多时段验证</div>
+            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> 结果对比</div>
           </div>
         </div>
 
-        <h4>节点设置</h4>
+        <h4>节点属性</h4>
         <div id="nodeForm" class="panel"></div>
 
-        <h3 style="margin-top:14px">后端/服务设置</h3>
+        <h3 style="margin-top:14px">服务设置</h3>
         <div>
           <label>API</label>
           <input id="apiUrl" value="http://127.0.0.1:8000" />
           <button id="applyApi">应用</button>
         </div>
         <div class="panel" style="margin-top:8px;">
-          <div style="font-weight:600;margin-bottom:6px">服务设置</div>
+          <div style="font-weight:600;margin-bottom:6px">后端服务设置</div>
           <label>LLM Base URL</label>
           <input id="llmBaseUrl" placeholder="https://..." />
           <label>LLM Model</label>
@@ -108,29 +108,29 @@
         <div class="buttons">
           <button id="btnExpr" class="btn btn-primary"><i class="ri-function-line"></i> 生成表达式</button>
           <button id="btnBacktest" class="btn btn-primary"><i class="ri-line-chart-line"></i> 回测</button>
-          <button id="btnSummary" class="btn"><i class="ri-bar-chart-2-line"></i> 加载摘要</button>
+          <button id="btnSummary" class="btn"><i class="ri-bar-chart-2-line"></i> 加载最新摘要</button>
         </div>
         <div class="summary" id="summary"></div>
         <div id="chart" style="height:240px;margin-top:8px;"></div>
         <h4>特征 TopN</h4>
         <div class="buttons" style="margin-bottom:6px; gap:6px">
-          <button id="btnFeatTop" class="btn"><i class="ri-list-check-2"></i> 查看 TopN</button>
-          <button id="btnFeatPlot" class="btn"><i class="ri-bar-chart-horizontal-line"></i> 绘制图表</button>
+          <button id="btnFeatTop" class="btn"><i class="ri-list-check-2"></i> 加载 TopN</button>
+          <button id="btnFeatPlot" class="btn"><i class="ri-bar-chart-horizontal-line"></i> 绘制柱状图</button>
         </div>
         <div id="featTop" class="panel"></div>
         <div id="featChart" style="height:220px;margin:6px 0 12px 0;"></div>
         <h4>Agent Flow</h4>
         <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
           <input id="flowCfg" value="configs/agent_flow_multi.json" />
-          <input id="flowSteps" placeholder="可选：指定步骤（例如: feature expression ml rl backtest）" />
+          <input id="flowSteps" placeholder="可选步骤: feature expression ml rl backtest（留空则全流程）" />
           <button id="btnRunAgentFlow" class="btn btn-primary"><i class="ri-play-circle-line"></i> 运行 Flow</button>
           <div id="flowStatus" class="panel"></div>
         </div>
         <h4>结果</h4>
         <div class="buttons" style="gap:4px; display:flex; flex-direction:column; align-items:stretch;">
           <button id="btnList" class="btn"><i class="ri-list-unordered"></i> 列出结果</button>
-          <input id="resA" placeholder="结果A名称" />
-          <input id="resB" placeholder="结果B名称" />
+          <input id="resA" placeholder="请输入结果 A" />
+          <input id="resB" placeholder="请输入结果 B" />
           <button id="btnCompare">对比</button>
         </div>
         <div id="comparePanel" class="panel"></div>
@@ -138,11 +138,11 @@
         <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
           <button id="btnGallery">图集</button>
           <div id="galleryPanel" class="panel"></div>
-          <input id="aggNames" placeholder="输入多个名称，例如 a.zip,b.zip" />
+          <input id="aggNames" placeholder="以逗号分隔的结果名，如 a.zip,b.zip" />
           <button id="btnAgg">聚合</button>
           <div id="aggPanel" class="panel"></div>
         </div>
-        <h4>多时段验证</h4>
+        <h4>对比/移动</h4>
         <div id="mvPanel" class="panel"></div>
       </div>
       <div class="canvas">
@@ -151,20 +151,20 @@
       <div class="logs">
         <h3>日志</h3>
         <div style="display:flex; gap:6px; align-items:center;">
-          <div id="statusBar" class="status" style="flex:1 1 auto;">状态: 空</div>
-          <button id="btnCancelJob" title="取消当前任务">取消任务</button>
+          <div id="statusBar" class="status" style="flex:1 1 auto;">就绪</div>
+          <button id="btnCancelJob" title="取消运行中的任务">取消任务</button>
         </div>
         <div class="cards" id="cards"></div>
         <pre id="logs"></pre>
       </div>
     </div>
     <div id="ctxMenu" class="ctx-menu" style="display:none"></div>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="vendor/react.development.js"></script>
+    <script src="vendor/react-dom.development.js"></script>
     <script src="https://unpkg.com/reactflow@11.10.2/dist/reactflow.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-    <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="vendor/echarts.min.js"></script>
+    <script src="vendor/dagre.min.js"></script>
+    <script src="vendor/html2canvas.min.js"></script>
     <script src="app.js"></script>
   </body>
   </html>

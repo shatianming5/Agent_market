@@ -1,29 +1,29 @@
-# Agent Market（LLM + FreqAI 研究/回测平台）
+# Agent Market：LLM + FreqAI 智能策略工作台
 
-Agent Market 是一个将大语言模型（LLM）与 FreqAI 交易研究流程整合的轻量级平台：在一个界面里完成特征工程、表达式生成、ML/RL 训练与回测，并提供标准化 API 与前端可视化控制（Agent Flow）。
+Agent Market 是一个将 LLM 表达式生成、特征工程、机器学习/强化学习训练与回测串联起来的全流程工作台。后端基于 FastAPI 提供统一 API，前端为简洁的 Flow/控制台，便于快速试验与组合能力。
 
-- 数据获取与清洗（可选脚本工具，支持 CCXT）
-- 基于 FreqAI 的特征与表达式生成（支持 LLM 协助）
-- ML/RL 训练与模型产出（LightGBM/XGBoost/CatBoost/PyTorch/Stable-Baselines3）
-- 使用 FastAPI 提供统一的后端接口，内置简单 Web 前端（/web/index.html）
+- 多源数据接入（含 CCXT 等）
+- 频交易 FreqAI 表达式生成、特征提取；可接驳自定义 LLM
+- 机器学习/强化学习训练（LightGBM/XGBoost/CatBoost/PyTorch/SB3）
+- FastAPI + Web 前端（静态目录 /web），可部署为一体化服务
 
-## 目录结构
+## 目录
 
 ```
-conf/                      # 配置辅助（如交易对列表等）
-configs/                   # Flow / 训练 / 回测 等 JSON 配置
-data/                      # 原始与清洗数据（按脚本输出约定）
-docs/                      # 设计与架构文档
-scripts/                   # 流程脚本（Flow、训练、回测、工具）
-server/                    # FastAPI 服务与路由
-src/agent_market/          # 业务逻辑（LLM/特征/训练/Flow 等）
-tests/                     # Pytest 用例
-web/                       # 前端静态资源
+conf/                      # 示例/模板配置
+configs/                   # Flow/训练/回测 等 JSON 配置
+data/                      # 原始/加工数据（可选）
+docs/                      # 文档
+scripts/                   # 各类脚本（Flow、训练、清理等）
+server/                    # FastAPI 后端
+src/agent_market/          # 业务核心（LLM/特征/训练/Flow）
+tests/                     # Pytest
+web/                       # 前端静态资源（/web/index.html）
 ```
 
 ## 快速开始
 
-1) 安装依赖（建议 venv）
+1) 创建虚拟环境并安装依赖
 ```
 python -m venv venv
 ./venv/Scripts/Activate.ps1   # Windows PowerShell
@@ -31,17 +31,17 @@ pip install -r requirements.txt
 pip install -r server/requirements.txt
 ```
 
-2)（可选）安装 freqtrade 以运行回测/超参
+2) 可选：安装 freqtrade（用于回测/超参等）
 ```
 git clone https://github.com/freqtrade/freqtrade.git --depth 1
 cd freqtrade && pip install -e . && cd ..
 ```
 
-3)（可选）配置 LLM（如需表达式生成）
+3) 配置 LLM（可选）
 在项目根目录创建 `.env`：
 ```
 LLM_BASE_URL=https://your-llm-endpoint/v1
-LLM_API_KEY=你的APIKey
+LLM_API_KEY=替换为你的APIKey
 LLM_MODEL=gpt-3.5-turbo
 ```
 
@@ -49,85 +49,67 @@ LLM_MODEL=gpt-3.5-turbo
 ```
 uvicorn server.main:app --host 0.0.0.0 --port 8000
 ```
-打开 `http://127.0.0.1:8000/web/index.html` 访问前端。默认同源 API，可在侧栏“API”输入框切换后端地址并“应用”。
+打开前端：`http://127.0.0.1:8000/web/index.html`
 
 ## 核心接口
 
-- 健康检查与入口：`GET /health`、`GET /`、`GET /docs`
-- 运行：
-  - `POST /run/feature`（生成特征）
-  - `POST /run/expression`（生成表达式，含 LLM）
-  - `POST /run/backtest`（回测）
-  - `POST /run/hyperopt`（超参）
-  - `POST /run/rl_train`（强化学习训练）
-  - `POST /run/train`（ML 训练，支持 config_obj 内联校验）
-  - `POST /flow/run`（按配置的多步 Flow 运行）
-- 作业：`GET /jobs/{id}/status`、`GET /jobs/{id}/logs?offset=0`、`POST /jobs/{id}/cancel`
-- 结果：
+- 健康检查：`GET /health`、根：`GET /`、文档：`GET /docs`
+- 任务发起：
+  - `POST /run/feature` 生成特征
+  - `POST /run/expression` 生成表达式（LLM）
+  - `POST /run/backtest` 回测
+  - `POST /run/hyperopt` 超参优化
+  - `POST /run/rl_train` 强化学习训练
+  - `POST /run/train` 机器学习训练（支持内嵌 config_obj 校验）
+  - `POST /flow/run` 运行 Agent Flow（可选步骤）
+- 任务管理：`GET /jobs/{id}/status`、`GET /jobs/{id}/logs?offset=0`、`POST /jobs/{id}/cancel`
+- 结果相关：
   - `GET /results/latest-summary`、`GET /results/list`、`GET /results/summary?name=...`
   - `GET /results/gallery`、`GET /results/aggregate?names=a.zip,b.zip`
   - `GET /features/top?file=...&limit=...`
-  - `POST /results/prepare-feedback`（为 LLM 反馈准备摘要）
+  - `POST /results/prepare-feedback` 生成 LLM 反馈输入
 - Flow 进度：`GET /flow/progress/{job_id}?steps=feature,expression,ml,rl,backtest`
-- 设置：`GET /settings`、`POST /settings`（llm_base_url/llm_model/default_timeframe）
-- Flow 进度（推送）：
-  - `GET /flow/stream/{job_id}`（SSE，event: progress，data 为 JSON）
-  - `WS /flow/ws/{job_id}`（WebSocket，消息为 JSON）
+- 服务设置：`GET|POST /settings`（llm_base_url/llm_model/default_timeframe）
+- 流式进度：
+  - `GET /flow/stream/{job_id}`（SSE，event: progress / data: JSON）
+  - `WS /flow/ws/{job_id}`（WebSocket，JSON）
 
-所有 /run/* 接口在参数校验失败时返回统一错误结构：
+标准错误示例（所有 /run/* 及相关接口遵循）：
 ```
 { "status": "error", "code": "INVALID_TIMEFRAME", "message": "..." }
 ```
-任务启动成功统一返回：
+任务启动返回：
 ```
 { "status": "started", "job_id": "...", "kind": "expression|feature|...", "cmd": [ ... ] }
 ```
 
 ## 前端使用要点
 
-- 顶部工具条：自动布局/对齐/等距/主题/导出等快捷按钮。
-- 左侧：
-  - API 切换与服务设置（/settings，加载/保存/应用到表单）
-  - 常用参数与“一键表达式/回测/加载摘要”
-  - 特征 TopN 与图表、Agent Flow（含单步快捷按钮）
-  - 结果 列表/对比、图集与聚合卡片
-- 右侧：
-  - 状态栏、日志、关键指标卡片（收益/交易数/胜率/最大回撤/最近训练/验证RMSE）
+- 顶部工具栏：自动布局/对齐/吸附/主题/导出等
+- 服务设置面板：对接 `/settings` 以读写当前后端配置
+- 常用参数区：一键“表达式生成/回测/摘要”
+- 特征 TopN 与 Agent Flow：快速查看特征与一键运行流
+- 结果：列表/对比；图集与聚合：多结果的快速浏览与对比
+- 状态与日志：运行态、成功/失败标识，日志实时追加（SSE 优先）
 
-失败任务会在状态栏高亮并提供“重试上次操作”按钮（基于最近一次 /run/* 提交参数）。
+备注：若 ReactFlow CDN 不可达，前端会自动降级为直接 DOM 绑定与轮询日志，功能可用但 Flow 画布交互受限。
 
-## 前端自动化校验（轻量 DOM 检查）
+## 自动化与清理
 
-- 安装前端依赖（仅 jsdom）
+- 前端 DOM 烟测（Node + JSDOM）：
   - `npm i`
-- 运行校验：检查关键按钮/输入框 ID 与中文标签存在性
   - `npm run test:front`
-- 位置：`scripts/frontend_smoke.mjs`
-
-## 故障排查
-
-- GET / 与 /index：已清除乱码，/ 返回简明入口；/docs 提供完整交互文档。
-- 前端字符串：已全量替换为 UTF-8 中文，避免历史乱码。
-- 常见环境问题：
-  - 回测/超参依赖 freqtrade；若未安装，对应功能无法执行。
-  - LLM 相关需正确配置 `.env` 或通过 /settings 设置。
-- 大量结果渲染时建议逐步加载图集以保证性能。
-
-## 维护与清理
-
-- 一键清理（默认目标包含 artifacts、.pytest_cache、user_data 下常见生成目录）
+- 工作区清理（删除临时/缓存/产物，可带 dry-run）：
   - `python scripts/clean_workspace.py`
-- 仅预览将被删除的内容
   - `python scripts/clean_workspace.py --dry-run`
-- 清理后保留空目录（便于挂载/后续写入）
-  - `python scripts/clean_workspace.py --keep-dirs`
-- 指定自定义清理目标
-  - `python scripts/clean_workspace.py user_data/tmp artifacts/cache`
-- Windows 快捷脚本（PowerShell）
-  - 直接运行：`./scripts/clean_workspace.ps1`
-  - 预览：`./scripts/clean_workspace.ps1 -DryRun`
-  - 保留空目录：`./scripts/clean_workspace.ps1 -KeepDirs`
 
-## 许可证
+## 已知问题
 
-本项目为内部/实验性质示例工程，未附带开源许可证。如需公开发布，请按需增补许可证与版权说明。
+- ReactFlow 仍使用 CDN（后续将本地化）；当网络受限时，仅 Flow 画布互动降级，其它核心流程可用。
+- 大量结果卡片渲染建议启用虚拟化优化（后续考虑）。
+
+## 版本与发布
+
+- 当前后端版本：`0.2.2`（见 `server/main.py`）
+- 变更记录：见 `CHANGELOG.md`
+- 详细说明：`RELEASE_NOTES_v0.2.2.md`

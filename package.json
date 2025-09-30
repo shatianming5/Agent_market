@@ -2,7 +2,7 @@
   "name": "agent-market",
   "private": true,
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "scripts": {
     "test:front": "node scripts/frontend_smoke.mjs"
   },

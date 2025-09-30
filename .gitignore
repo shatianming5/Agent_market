@@ -1,6 +1,10 @@
 __pycache__/
 *.pyc
 .env
+node_modules/
+user_data/server_settings.json
+user_data/job_logs/
+user_data/llm_raw/
 user_data/data/
 user_data/agent_logs/
 user_data/backtest_results/*.zip

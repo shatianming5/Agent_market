@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agent_market.freqai.model import gradient_boosting  # noqa: F401
-from agent_market.freqai.training.pipeline import TrainingPipeline
 # RL trainer is heavy (depends on gymnasium). Import lazily in run_rl_training.
 
 logger = logging.getLogger(__name__)
@@ -109,6 +108,8 @@ class AgentFlow:
         self._run_command(cmd, cwd=cfg.get("cwd"))
 
     def run_ml_training(self, cfg: Dict[str, Any]) -> None:
+        # Lazy import ML pipeline to avoid importing heavy deps when仅读取摘要
+        from agent_market.freqai.training.pipeline import TrainingPipeline  # type: ignore
         configs = cfg.get("configs")
         single = cfg.get("config")
         if configs and single:
