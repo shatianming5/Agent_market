@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.1 — Flow 实时进度推送与前端展示
+- 进度模型增强：按阶段（prepare/execute/summarize）估算百分比；execute 阶段根据日志增长动态提升进度。
+- 推送通道：
+  - 新增 SSE `GET /flow/stream/{job_id}`，事件类型 progress，data 为 JSON（含 steps[].status/phase/percent 与日志增量 delta）。
+  - 新增 WebSocket `/flow/ws/{job_id}`，消息为 JSON，同步与 SSE 一致。
+- 前端：
+  - Flow 面板优先使用 SSE 实时更新步骤标签，显示阶段与百分比；不可用时回退轮询。
+  - SSE 消息中的日志增量实时追加到日志面板。
+- 其他：
+  - 后端 smoke（17/17）与前端 DOM 校验脚本（Node + JSDOM）已纳入。
+  - 清理脚本（Python/PowerShell）与 README 维护说明完善。
+
 ## v0.2.0 — 中文化与联调（Flow 进度）
 - 清理 GET / 与 /index 文本乱码
 - 统一错误返回（_error），统一 jobs 错误包装
