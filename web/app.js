@@ -428,10 +428,12 @@ function App() {
     } catch {}
     const position = { x, y }
     const id = 'n' + Math.random().toString(16).slice(2,8)
-    const labelMap = { data: 'Data', expr: 'Expression(LLM)', bt: 'Backtest', fb: 'Feedback', ho: 'Hyperopt', mv: 'MultiValidate' }
+    const labelMap = { data: 'Data', expr: 'Expression(LLM)', bt: 'Backtest', ml: 'Train(ML)', rl: 'Train(RL)', fb: 'Feedback', ho: 'Hyperopt', mv: 'MultiValidate' }
     const cfgMap = {
       data: { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' },
       expr: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' },
+      ml: { config: 'configs/train_pytorch_mlp.json' },
+      rl: { config: 'configs/train_ppo.json' },
       bt: { timerange: '20210101-20211231' },
       fb: { results_dir: 'user_data/backtest_results' },
       ho: { timerange: '20210101-20210430', spaces: 'buy sell protection', epochs: 20, loss: 'SharpeHyperOptLoss' },
@@ -461,6 +463,12 @@ function App() {
       { key: 'llm_model', label: 'LLM Model', def: 'gpt-3.5-turbo' },
       { key: 'llm_count', label: 'LLM Count', def: 12, type: 'number' },
       { key: 'timeframe', label: 'Timeframe', def: '4h' },
+    ]
+    if (typeKey === 'ml') return [
+      { key: 'config', label: 'Config', def: 'configs/train_pytorch_mlp.json' },
+    ]
+    if (typeKey === 'rl') return [
+      { key: 'config', label: 'Config', def: 'configs/train_ppo.json' },
     ]
     if (typeKey === 'bt') return [
       { key: 'timerange', label: 'Timerange', def: '20210101-20211231' },
@@ -565,6 +573,18 @@ function App() {
         const data = await res.json()
         await pollLogs(data.job_id)
       }
+      if (n.data.typeKey === 'ml') {
+        const body = { config: n.data.cfg?.config || 'configs/train_pytorch_mlp.json' }
+        const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const data = await res.json()
+        await pollLogs(data.job_id)
+      }
+      if (n.data.typeKey === 'rl') {
+        const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
+        const res = await fetch(`${API}/run/rl_train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const data = await res.json()
+        await pollLogs(data.job_id)
+      }
       if (n.data.typeKey === 'bt') {
         const body = {
           config: document.getElementById('cfg').value,
@@ -662,6 +682,16 @@ function App() {
       }
       const res = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json(); await pollLogs(data.job_id); await showSummary()
+    }
+    if (n.data.typeKey === 'ml') {
+      const body = { config: n.data.cfg?.config || 'configs/train_pytorch_mlp.json' }
+      const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json(); await pollLogs(data.job_id)
+    }
+    if (n.data.typeKey === 'rl') {
+      const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
+      const res = await fetch(`${API}/run/rl_train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const data = await res.json(); await pollLogs(data.job_id)
     }
     if (n.data.typeKey === 'fb') {
       const body = { results_dir: n.data.cfg?.results_dir || 'user_data/backtest_results', out: 'user_data/llm_feedback/latest_backtest_summary.json' }

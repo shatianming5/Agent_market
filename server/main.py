@@ -106,6 +106,10 @@ class RLTrainReq(BaseModel):
     config: str = Field(..., description="Path to RL training JSON config (train_ppo.json)")
 
 
+class TrainReq(BaseModel):
+    config: str = Field(..., description="Path to ML training JSON config (train_*.json)")
+
+
 @app.get('/features/top')
 def features_top(file: str = 'user_data/freqai_features.json', limit: int = 20):
     """Return top-N features by score/correlation/mutual_info."""
@@ -310,6 +314,17 @@ def run_hyperopt(req: HyperoptReq = Body(...)):
 def run_rl_train(req: RLTrainReq = Body(...)):
     py = sys.executable
     script = str(ROOT / 'scripts' / 'train_rl.py')
+    cmd = [py, script, '--config', req.config]
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(SRC)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"job_id": job_id, "cmd": cmd}
+
+
+@app.post("/run/train")
+def run_train(req: TrainReq = Body(...)):
+    py = sys.executable
+    script = str(ROOT / 'scripts' / 'train_pipeline.py')
     cmd = [py, script, '--config', req.config]
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
