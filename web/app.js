@@ -197,6 +197,19 @@ function App() {
       }
       summaryEl.textContent = JSON.stringify({ A: sa, B: sb }, null, 2)
     }
+    // 提供简单的点击模拟器，便于快速自测（在浏览器控制台运行：_simulateClicks('expr')）
+    window._simulateClicks = async (what = 'expr') => {
+      const map = {
+        expr: 'btnExpr',
+        backtest: 'btnBacktest',
+        summary: 'btnSummary',
+      }
+      const id = map[what] || what
+      const el = document.getElementById(id)
+      if (!el) { console.warn('simulate: not found', id); return false }
+      el.click()
+      return true
+    }
   }, [])
 
   // Node helpers
