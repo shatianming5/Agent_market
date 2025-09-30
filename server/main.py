@@ -107,7 +107,8 @@ class RLTrainReq(BaseModel):
 
 
 class TrainReq(BaseModel):
-    config: str = Field(..., description="Path to ML training JSON config (train_*.json)")
+    config: Optional[str] = Field(None, description="Path to ML training JSON config (train_*.json)")
+    config_obj: Optional[dict] = Field(None, description="Inline ML training config (JSON object)")
 
 
 @app.get('/features/top')
@@ -325,11 +326,42 @@ def run_rl_train(req: RLTrainReq = Body(...)):
 def run_train(req: TrainReq = Body(...)):
     py = sys.executable
     script = str(ROOT / 'scripts' / 'train_pipeline.py')
-    cmd = [py, script, '--config', req.config]
+    cfg_path: Optional[Path] = None
+    if req.config:
+        cfg_path = (ROOT / req.config) if not Path(req.config).is_absolute() else Path(req.config)
+    elif req.config_obj:
+        tmp_dir = ROOT / 'user_data' / 'tmp'
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        # generate unique filename
+        from datetime import datetime  # noqa: PLC0415
+        cfg_path = tmp_dir / f"train_inline_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+        cfg_path.write_text(json.dumps(req.config_obj, ensure_ascii=False, indent=2), encoding='utf-8')
+    else:
+        return {"error": "Either 'config' (path) or 'config_obj' (inline JSON) must be provided"}
+    cmd = [py, script, '--config', str(cfg_path)]
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env)
     return {"job_id": job_id, "cmd": cmd}
+
+
+@app.get('/results/latest-training')
+def results_latest_training(models_dir: str = 'artifacts/models'):
+    base = Path(models_dir)
+    if not base.is_absolute():
+        base = (ROOT / base).resolve()
+    if not base.exists():
+        return {"error": f"Models dir not found: {base}"}
+    candidates = list(base.rglob('training_summary.json'))
+    if not candidates:
+        return {"error": f"No training_summary.json under {base}"}
+    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+    try:
+        payload = json.loads(latest.read_text(encoding='utf-8'))
+    except Exception as exc:  # pragma: no cover
+        return {"error": f"Failed to parse {latest}: {exc}"}
+    payload['summary_path'] = str(latest)
+    return payload
 
 
 @app.post("/flow/run")

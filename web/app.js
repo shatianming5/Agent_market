@@ -137,11 +137,22 @@ function App() {
       const m = toMetrics(data)
       const cards = document.getElementById('cards')
       if (cards) {
+        // 同时拉取最新训练摘要（如存在）
+        let train = null
+        try {
+          const tr = await fetch(`${API}/results/latest-training`)
+          const tj = await tr.json()
+          if (!tj.error) train = tj
+        } catch {}
+        const trainRMSE = train && train.metrics ? train.metrics.rmse_valid ?? train.metrics.rmse_train : null
+        const trainModel = train ? train.model : null
         cards.innerHTML = `
           <div class="card"><div class="k">总收益%</div><div class="v">${m.profit_pct ?? '--'}</div></div>
           <div class="card"><div class="k">交易数</div><div class="v">${m.trades ?? '--'}</div></div>
           <div class="card"><div class="k">胜率</div><div class="v">${m.winrate ?? '--'}</div></div>
           <div class="card"><div class="k">最大回撤(USDT)</div><div class="v">${m.max_dd ?? '--'}</div></div>
+          <div class="card"><div class="k">训练模型</div><div class="v">${trainModel ?? '--'}</div></div>
+          <div class="card"><div class="k">训练RMSE</div><div class="v">${trainRMSE ?? '--'}</div></div>
         `
       }
     } catch {}
@@ -432,7 +443,7 @@ function App() {
     const cfgMap = {
       data: { pairs: 'BTC/USDT ETH/USDT', timeframe: '4h', output: 'user_data/freqai_features_multi.json' },
       expr: { llm_model: 'gpt-3.5-turbo', llm_count: 12, timeframe: '4h' },
-      ml: { config: 'configs/train_pytorch_mlp.json' },
+      ml: { config: 'configs/train_pytorch_mlp.json', inline: false, model: 'lightgbm', params: '{}', feature_file: 'user_data/freqai_features_multi.json', timeframe: '4h', pairs: 'BTC/USDT ETH/USDT', autobt: false },
       rl: { config: 'configs/train_ppo.json' },
       bt: { timerange: '20210101-20211231' },
       fb: { results_dir: 'user_data/backtest_results' },
@@ -466,6 +477,13 @@ function App() {
     ]
     if (typeKey === 'ml') return [
       { key: 'config', label: 'Config', def: 'configs/train_pytorch_mlp.json' },
+      { key: 'inline', label: 'Inline(true/false)', def: false },
+      { key: 'model', label: 'Model', def: 'lightgbm' },
+      { key: 'params', label: 'Params(JSON)', def: '{}' },
+      { key: 'feature_file', label: 'Feature File', def: 'user_data/freqai_features_multi.json' },
+      { key: 'timeframe', label: 'Timeframe', def: '4h' },
+      { key: 'pairs', label: 'Pairs', def: 'BTC/USDT ETH/USDT' },
+      { key: 'autobt', label: 'AutoBacktest(true/false)', def: false },
     ]
     if (typeKey === 'rl') return [
       { key: 'config', label: 'Config', def: 'configs/train_ppo.json' },
@@ -574,10 +592,32 @@ function App() {
         await pollLogs(data.job_id)
       }
       if (n.data.typeKey === 'ml') {
-        const body = { config: n.data.cfg?.config || 'configs/train_pytorch_mlp.json' }
+        const cfg = n.data.cfg || {}
+        let body
+        const inline = String(cfg.inline).toLowerCase() === 'true' || cfg.inline === true
+        if (inline) {
+          let paramsObj = {}
+          try { paramsObj = JSON.parse(cfg.params || '{}') } catch {}
+          body = {
+            config_obj: {
+              data: { feature_file: cfg.feature_file || 'user_data/freqai_features_multi.json', data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe: cfg.timeframe || '4h', pairs: String(cfg.pairs||'BTC/USDT').split(/\s+/) },
+              model: { name: cfg.model || 'lightgbm', params: paramsObj },
+              training: { validation_ratio: 0.2 },
+              output: { model_dir: 'artifacts/models/inline_ml' },
+            }
+          }
+        } else {
+          body = { config: cfg.config || 'configs/train_pytorch_mlp.json' }
+        }
         const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const data = await res.json()
         await pollLogs(data.job_id)
+        const autobt = String(cfg.autobt).toLowerCase() === 'true' || cfg.autobt === true
+        if (autobt) {
+          const btReq = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
+          const rb = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
+          const jb = await rb.json(); await pollLogs(jb.job_id); await showSummary()
+        }
       }
       if (n.data.typeKey === 'rl') {
         const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
@@ -684,9 +724,31 @@ function App() {
       const data = await res.json(); await pollLogs(data.job_id); await showSummary()
     }
     if (n.data.typeKey === 'ml') {
-      const body = { config: n.data.cfg?.config || 'configs/train_pytorch_mlp.json' }
+      const cfg = n.data.cfg || {}
+      let body
+      const inline = String(cfg.inline).toLowerCase() === 'true' || cfg.inline === true
+      if (inline) {
+        let paramsObj = {}
+        try { paramsObj = JSON.parse(cfg.params || '{}') } catch {}
+        body = {
+          config_obj: {
+            data: { feature_file: cfg.feature_file || 'user_data/freqai_features_multi.json', data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe: cfg.timeframe || '4h', pairs: String(cfg.pairs||'BTC/USDT').split(/\s+/) },
+            model: { name: cfg.model || 'lightgbm', params: paramsObj },
+            training: { validation_ratio: 0.2 },
+            output: { model_dir: 'artifacts/models/inline_ml' },
+          }
+        }
+      } else {
+        body = { config: cfg.config || 'configs/train_pytorch_mlp.json' }
+      }
       const res = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json(); await pollLogs(data.job_id)
+      const autobt = String(cfg.autobt).toLowerCase() === 'true' || cfg.autobt === true
+      if (autobt) {
+        const btReq = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
+        const rb = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
+        const jb = await rb.json(); await pollLogs(jb.job_id); await showSummary()
+      }
     }
     if (n.data.typeKey === 'rl') {
       const body = { config: n.data.cfg?.config || 'configs/train_ppo.json' }
