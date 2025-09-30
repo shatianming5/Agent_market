@@ -93,6 +93,14 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 
 失败任务会在状态栏高亮并提供“重试上次操作”按钮（基于最近一次 /run/* 提交参数）。
 
+## 前端自动化校验（轻量 DOM 检查）
+
+- 安装前端依赖（仅 jsdom）
+  - `npm i`
+- 运行校验：检查关键按钮/输入框 ID 与中文标签存在性
+  - `npm run test:front`
+- 位置：`scripts/frontend_smoke.mjs`
+
 ## 故障排查
 
 - GET / 与 /index：已清除乱码，/ 返回简明入口；/docs 提供完整交互文档。
