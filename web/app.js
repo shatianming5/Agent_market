@@ -215,6 +215,40 @@ function App() {
         const a = document.createElement('a'); a.href = url; a.download = 'flow.png'; a.click()
       } catch (e) { console.warn('export error', e); alert('导出失败: '+e) }
     }
+    const trainBt = document.getElementById('btnTrainBt'); if (trainBt) trainBt.onclick = async () => {
+      try {
+        logsEl.textContent = ''
+        // Inline 训练配置（使用快速参数）
+        const featureFile = (document.getElementById('featureFile')?.value || 'user_data/freqai_features.json')
+        const timeframe = (document.getElementById('timeframe')?.value || '1h')
+        const pairs = 'BTC/USDT ETH/USDT'.split(' ')
+        const trainBody = {
+          config_obj: {
+            data: { feature_file: featureFile, data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe, pairs },
+            model: { name: 'lightgbm', params: { objective: 'regression', metric: 'rmse', learning_rate: 0.04, num_leaves: 63, feature_fraction: 0.8, subsample: 0.85, num_boost_round: 200 } },
+            training: { validation_ratio: 0.2 },
+            output: { model_dir: 'artifacts/models/inline_ml' },
+          }
+        }
+        const tr = await fetch(`${API}/run/train`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(trainBody) })
+        const tj = await tr.json(); if (!tj.job_id) { alert('训练启动失败: '+JSON.stringify(tj)); return }
+        await pollLogs(tj.job_id)
+        // 回测（使用快速参数 config/timerange）
+        const btReq = {
+          config: document.getElementById('cfg').value,
+          strategy: 'ExpressionLongStrategy',
+          strategy_path: 'freqtrade/user_data/strategies',
+          timerange: document.getElementById('timerange').value || '20210101-20211231',
+          freqaimodel: 'LightGBMRegressor',
+          export: true,
+          export_filename: 'user_data/backtest_results/latest_trades_multi',
+        }
+        const rb = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(btReq) })
+        const jb = await rb.json(); if (!jb.job_id) { alert('回测启动失败: '+JSON.stringify(jb)); return }
+        await pollLogs(jb.job_id)
+        await showSummary()
+      } catch (e) { console.warn('train->bt error', e); alert('训练→回测 失败: '+e) }
+    }
     try { const saved = localStorage.getItem('am_theme'); if (saved) document.documentElement.setAttribute('data-theme', saved) } catch {}
     // brand select
     const brandSel = document.getElementById('brandSelect'); if (brandSel) {
