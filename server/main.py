@@ -6,12 +6,16 @@ import json
 from pathlib import Path
 from typing import Optional, Tuple
 
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 import shutil
 import re
+import time
+import asyncio
+import json as _jsonmod
+from starlette.responses import StreamingResponse
 
 from .job_manager import JobManager
 
@@ -686,6 +690,7 @@ def get_settings():
 def post_settings(payload: dict = Body(...)):
     if not isinstance(payload, dict):
         return {"status": "error", "code": "INVALID_BODY", "message": "settings body must be a JSON object"}
+    allowed = {"llm_base_url", "llm_model", "default_timeframe", "note"}
     updates = {k: v for k, v in payload.items() if k in allowed}
     if not updates:
         return {"status": "error", "code": "NO_ALLOWED_KEYS", "message": f"allowed keys: {sorted(allowed)}"}
@@ -748,6 +753,7 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
     # Prefer explicit flow markers printed by scripts/agent_flow.py
     # [FLOW] STEP_START <name> / STEP_OK <name> / STEP_FAIL <name>
     markers = { 'start': set(), 'ok': set(), 'fail': set() }
+    phases: dict[str, str] = {}
     for ln in lines:
         if '[flow]' in ln and 'step_' in ln:
             # normalize
@@ -763,6 +769,16 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                 for nm in ['feature','expression','ml','rl','backtest']:
                     if f' {nm}' in ln:
                         markers['fail'].add(nm)
+        if '[flow]' in ln and 'phase ' in ln:
+            # [FLOW] PHASE <name> prepare|execute|summarize
+            for nm in ['feature','expression','ml','rl','backtest']:
+                if f' phase {nm} ' in ln:
+                    if ' prepare' in ln:
+                        phases[nm] = 'prepare'
+                    elif ' execute' in ln:
+                        phases[nm] = 'execute'
+                    elif ' summarize' in ln:
+                        phases[nm] = 'summarize'
 
     # Simple keyword map per step（回退）
     kw = {
@@ -779,30 +795,104 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
         if any(any(k in ln for k in keys) for ln in lines):
             last_seen = max(last_seen, idx)
     items = []
+    items = []
     for idx, name in enumerate(steps_list):
         # explicit markers win
         if name in markers['fail']:
             status = 'failed'
+            phase = phases.get(name) or 'execute'
         elif name in markers['ok']:
             status = 'ok'
+            phase = 'summarize'
         elif name in markers['start']:
             status = 'running'
+            phase = phases.get(name) or 'execute'
         else:
             # fallback heuristic
             if last_seen < 0:
                 status = 'running' if running and idx == 0 else 'pending'
+                phase = 'prepare' if status == 'running' else None
             else:
                 if idx < last_seen:
                     status = 'ok'
+                    phase = 'summarize'
                 elif idx == last_seen:
                     if running:
                         status = 'running'
+                        phase = 'execute'
                     else:
                         status = 'ok' if (returncode == 0 and code == 'OK') else 'failed'
+                        phase = 'summarize' if status == 'ok' else 'execute'
                 else:
                     status = 'pending'
-        items.append({'name': name, 'status': status})
+                    phase = None
+        # percent mapping per-phase
+        percent = 0
+        if status == 'pending':
+            percent = 0
+        elif status == 'running':
+            if phase == 'prepare':
+                percent = 10
+            elif phase == 'execute':
+                percent = 50
+            elif phase == 'summarize':
+                percent = 95
+            else:
+                percent = 10
+        elif status == 'ok':
+            percent = 100
+        elif status == 'failed':
+            percent = 50
+        items.append({'name': name, 'status': status, 'phase': phase, 'percent': percent})
     return {'job_id': job_id, 'running': running, 'code': code, 'steps': items}
+
+
+@app.get('/flow/stream/{job_id}')
+def flow_stream(job_id: str, steps: Optional[str] = None):
+    steps_list = [s for s in (steps.split(',') if steps else ['feature','expression','ml','rl','backtest']) if s]
+
+    def _gen():
+        # initial event
+        payload = flow_progress(job_id, steps=(','.join(steps_list)))
+        yield f"event: progress\ndata: {_jsonmod.dumps(payload, ensure_ascii=False)}\n\n"
+        last_next = 0
+        while True:
+            data = jobs.logs(job_id, last_next)
+            if isinstance(data, dict) and data.get('error'):
+                err = _error('JOB_NOT_FOUND', str(data.get('error')))
+                yield f"event: progress\ndata: {_jsonmod.dumps(err, ensure_ascii=False)}\n\n"
+                break
+            last_next = int(data.get('next') or last_next)
+            payload = flow_progress(job_id, steps=(','.join(steps_list)))
+            yield f"event: progress\ndata: {_jsonmod.dumps(payload, ensure_ascii=False)}\n\n"
+            if not data.get('running'):
+                break
+            time.sleep(1.0)
+
+    return StreamingResponse(_gen(), media_type='text/event-stream')
+
+
+@app.websocket('/flow/ws/{job_id}')
+async def flow_ws(websocket: WebSocket, job_id: str):
+    await websocket.accept()
+    try:
+        last_next = 0
+        while True:
+            data = jobs.logs(job_id, last_next)
+            if isinstance(data, dict) and data.get('error'):
+                await websocket.send_json(_error('JOB_NOT_FOUND', str(data.get('error'))))
+                break
+            last_next = int(data.get('next') or last_next)
+            payload = flow_progress(job_id)
+            await websocket.send_json(payload)
+            if not data.get('running'):
+                break
+            await asyncio.sleep(1.0)
+    except Exception:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 def _load_settings() -> dict:

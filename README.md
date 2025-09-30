@@ -70,6 +70,9 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
   - `POST /results/prepare-feedback`（为 LLM 反馈准备摘要）
 - Flow 进度：`GET /flow/progress/{job_id}?steps=feature,expression,ml,rl,backtest`
 - 设置：`GET /settings`、`POST /settings`（llm_base_url/llm_model/default_timeframe）
+- Flow 进度（推送）：
+  - `GET /flow/stream/{job_id}`（SSE，event: progress，data 为 JSON）
+  - `WS /flow/ws/{job_id}`（WebSocket，消息为 JSON）
 
 所有 /run/* 接口在参数校验失败时返回统一错误结构：
 ```

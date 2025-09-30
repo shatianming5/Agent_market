@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from agent_market.freqai.model import gradient_boosting  # noqa: F401
 from agent_market.freqai.training.pipeline import TrainingPipeline
-from agent_market.freqai.rl.trainer import RLTrainer
+# RL trainer is heavy (depends on gymnasium). Import lazily in run_rl_training.
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +76,15 @@ class AgentFlow:
                 continue
             if cfg:
                 logger.info("[FLOW] STEP_START %s", name)
+                logger.info("[FLOW] PHASE %s prepare", name)
                 try:
+                    logger.info("[FLOW] PHASE %s execute", name)
                     runner(cfg)
                 except Exception as exc:
                     logger.error("[FLOW] STEP_FAIL %s: %s", name, exc)
                     raise
                 else:
+                    logger.info("[FLOW] PHASE %s summarize", name)
                     logger.info("[FLOW] STEP_OK %s", name)
             elif requested:
                 logger.warning("Step '%s' requested but no configuration provided", name)
@@ -132,6 +135,8 @@ class AgentFlow:
             TrainingPipeline(job_cfg).run()
 
     def run_rl_training(self, cfg: Dict[str, Any]) -> None:
+        # Lazy import to avoid importing gymnasium on modules that don't need RL
+        from agent_market.freqai.rl.trainer import RLTrainer  # type: ignore
         config = cfg.get("config")
         if not isinstance(config, dict):
             raise ValueError("rl_training.config must be provided")

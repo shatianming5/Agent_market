@@ -380,25 +380,36 @@ function App() {
       const r = await fetch(`${API}/flow/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const j = await r.json(); if (j.job_id) {
         setStatus('Flow', j.job_id, true)
-        // progress polling
         const stepsCsv = (body.steps && Array.isArray(body.steps) && body.steps.length) ? body.steps.join(',') : 'feature,expression,ml,rl,backtest'
-        let timer = setInterval(async () => {
-          try {
-            const pr = await fetch(`${API}/flow/progress/${j.job_id}?steps=${encodeURIComponent(stepsCsv)}`)
-            const pj = await pr.json()
-            const items = pj.steps || []
-            for (const it of items) {
-              const el = document.querySelector(`.tag[data-step="${it.name}"]`)
-              if (!el) continue
-              el.classList.remove('tag-ok','tag-failed','tag-running')
-              if (it.status === 'ok') el.classList.add('tag-ok')
-              else if (it.status === 'failed') el.classList.add('tag-failed')
-              else el.classList.add('tag-running')
-            }
-            if (!pj.running) { clearInterval(timer); timer = null }
-          } catch {}
-        }, 1000)
+        const applyProgress = (pj) => {
+          const items = (pj && pj.steps) || []
+          for (const it of items) {
+            const el = document.querySelector(`.tag[data-step="${it.name}"]`)
+            if (!el) continue
+            el.classList.remove('tag-ok','tag-failed','tag-running')
+            if (it.status === 'ok') el.classList.add('tag-ok')
+            else if (it.status === 'failed') el.classList.add('tag-failed')
+            else el.classList.add('tag-running')
+          }
+        }
+        let es = null, timer = null
+        try {
+          es = new EventSource(`${API}/flow/stream/${j.job_id}?steps=${encodeURIComponent(stepsCsv)}`)
+          es.onmessage = (ev) => {
+            try { const pj = JSON.parse(ev.data); applyProgress(pj); if (pj && pj.running === false) { try { es.close() } catch {} } } catch {}
+          }
+          es.onerror = () => { try { es.close() } catch {} }
+        } catch (e) {
+          es = null
+        }
+        if (!es) {
+          timer = setInterval(async () => {
+            try { const pr = await fetch(`${API}/flow/progress/${j.job_id}?steps=${encodeURIComponent(stepsCsv)}`); const pj = await pr.json(); applyProgress(pj); if (!pj.running) { clearInterval(timer); timer = null } } catch {}
+          }, 1000)
+        }
         await pollLogs(j.job_id)
+        if (es) { try { es.close() } catch {} }
+        if (timer) { clearInterval(timer); timer = null }
         setStatus('Flow', j.job_id, false)
       } else { alert(JSON.stringify(j)) }
     }
