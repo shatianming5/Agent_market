@@ -583,40 +583,7 @@ def index():
     return {
         "message": "Agent Market API",
         "docs": "/docs",
-        "health": "/health",
-        "note": "Use POST /run/* with JSON body; see /docs.",
-        "endpoints": [
-            "GET /health",
-            "GET /docs",
-            "POST /run/feature",
-            "POST /run/expression",
-            "POST /run/backtest",
-            "POST /run/hyperopt",
-            "POST /run/rl_train",
-            "POST /run/train",
-            "POST /flow/run",
-            "POST /results/prepare-feedback",
-            "GET /results/latest-summary",
-            "GET /results/list",
-            "GET /results/summary?name=...",
-            "GET /results/gallery",
-            "GET /results/aggregate?names=...",
-            "GET /results/latest-training",
-            "GET /features/top?file=...&limit=...",
-            "GET /jobs/{job_id}/status",
-            "GET /jobs/{job_id}/logs?offset=0",
-            "POST /jobs/{job_id}/cancel",
-        ],
-        "examples": {
-            "feature": {"method": "POST", "path": "/run/feature", "body": {"config": "configs/config_freqai_multi.json", "output": "user_data/freqai_features_multi.json", "timeframe": "4h", "pairs": "BTC/USDT ETH/USDT"}},
-            "expression": {"method": "POST", "path": "/run/expression", "body": {"config": "configs/config_freqai_multi.json", "feature_file": "user_data/freqai_features_multi.json", "output": "user_data/freqai_expressions.json", "timeframe": "4h", "llm_model": "gpt-3.5-turbo", "llm_count": 12, "feedback_top": 0}},
-            "backtest": {"method": "POST", "path": "/run/backtest", "body": {"config": "configs/config_freqai_multi.json", "strategy": "ExpressionLongStrategy", "strategy_path": "freqtrade/user_data/strategies", "timerange": "20210101-20211231", "freqaimodel": "LightGBMRegressor", "export": True, "export_filename": "user_data/backtest_results/latest_trades_multi"}},
-            "hyperopt": {"method": "POST", "path": "/run/hyperopt", "body": {"config": "configs/config_freqai_multi.json", "strategy": "ExpressionLongStrategy", "strategy_path": "freqtrade/user_data/strategies", "timerange": "20210101-20210430", "spaces": "buy sell protection", "hyperopt_loss": "SharpeHyperOptLoss", "epochs": 20}},
-            "rl_train": {"method": "POST", "path": "/run/rl_train", "body": {"config": "configs/train_ppo.json"}},
-            "train": {"method": "POST", "path": "/run/train", "body": {"config_obj": {"data": {"feature_file": "user_data/freqai_features.json", "data_dir": "freqtrade/user_data/data", "exchange": "binanceus", "timeframe": "1h", "pairs": ["BTC/USDT"]}, "model": {"name": "lightgbm", "params": {"objective": "regression", "metric": "rmse", "num_boost_round": 200}}, "training": {"validation_ratio": 0.2}, "output": {"model_dir": "artifacts/models/auto"}}}},
-            "flow": {"method": "POST", "path": "/flow/run", "body": {"config": "configs/agent_flow_all.json", "steps": ["feature", "expression", "ml", "backtest"]}},
-            "latest_summary": {"method": "GET", "path": "/results/latest-summary"}
-        }
+        "health": "/health"
     }
 
 @app.post('/results/prepare-feedback')
@@ -719,7 +686,6 @@ def get_settings():
 def post_settings(payload: dict = Body(...)):
     if not isinstance(payload, dict):
         return {"status": "error", "code": "INVALID_BODY", "message": "settings body must be a JSON object"}
-        "note": "Use POST /run/* with JSON body; see /docs.",
     updates = {k: v for k, v in payload.items() if k in allowed}
     if not updates:
         return {"status": "error", "code": "NO_ALLOWED_KEYS", "message": f"allowed keys: {sorted(allowed)}"}
