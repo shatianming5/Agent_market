@@ -44,7 +44,7 @@ function wireFallback() {
     try {
       const body = { config: document.getElementById('cfg').value, feature_file: document.getElementById('featureFile').value, output: 'user_data/freqai_expressions.json', timeframe: document.getElementById('timeframe').value, llm_model: document.getElementById('llmModel').value, llm_count: parseInt(document.getElementById('llmCount').value||'3',10), llm_loops:1, llm_timeout:60, feedback_top:0 }
       const r = await fetch(`${API}/run/expression`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-      const j = await r.json(); if (j.job_id) { await fallbackPollLogs(j.job_id) } else { alert(JSON.stringify(j)) }
+      const j = await r.json(); if (j.job_id) { try { setStatus && setStatus('表达式', j.job_id, true) } catch {} ; await fallbackPollLogs(j.job_id); try { setStatus && setStatus('表达式', j.job_id, false) } catch {} } else { alert(JSON.stringify(j)) }
     } catch(e) { alert('表达式启动失败: '+e) }
   }
   // Backtest
@@ -52,7 +52,7 @@ function wireFallback() {
     try {
       const body = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
       const r = await fetch(`${API}/run/backtest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
-      const j = await r.json(); if (j.job_id) { await fallbackPollLogs(j.job_id) } else { alert(JSON.stringify(j)) }
+      const j = await r.json(); if (j.job_id) { try { setStatus && setStatus('回测', j.job_id, true) } catch {} ; await fallbackPollLogs(j.job_id); try { setStatus && setStatus('回测', j.job_id, false) } catch {} } else { alert(JSON.stringify(j)) }
     } catch(e) { alert('回测启动失败: '+e) }
   }
   // Summary
@@ -573,7 +573,25 @@ function App() {
   ])
 }
 
-try { createRoot(document.getElementById('root')).render(h(App)) } catch (e) { console.warn('[fallback] React/ReactFlow 未加载或渲染失败，启用降级绑定', e); try { wireFallback() } catch(e2) { console.error('fallback 失败', e2) } }
+function boot() {
+  const hasReact = !!(window.React && window.ReactDOM)
+  const hasRF = !!window.ReactFlow
+  if (!hasReact || !hasRF) {
+    console.warn('[fallback] 缺少依赖: React=', hasReact, ' ReactFlow=', hasRF, '，启用降级绑定')
+    try { wireFallback() } catch (e2) { console.error('fallback 失败', e2) }
+    return
+  }
+  try { createRoot(document.getElementById('root')).render(h(App)) } catch (e) {
+    console.warn('[fallback] 渲染失败，启用降级绑定', e)
+    try { wireFallback() } catch (e2) { console.error('fallback 失败', e2) }
+  }
+}
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  setTimeout(boot, 0)
+} else {
+  document.addEventListener('DOMContentLoaded', boot)
+}
 
 // Drag helpers for palette
 document.addEventListener('DOMContentLoaded', () => {
