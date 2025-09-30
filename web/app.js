@@ -1,4 +1,4 @@
-﻿import { createElement as h, useState, useMemo, useEffect, useCallback } from 'https://unpkg.com/react@18/umd/react.development.js'
+﻿import { createElement as h, useState, useEffect, useCallback } from 'https://unpkg.com/react@18/umd/react.development.js'
 import { createRoot } from 'https://unpkg.com/react-dom@18/umd/react-dom.development.js'
 import ReactFlow, { Background, Controls, MiniMap } from 'https://unpkg.com/reactflow@11.10.2/dist/standalone.js'
 
@@ -99,7 +99,7 @@ function App() {
     } catch (e) { console.warn('chart error', e) }
   }
 
-  useMemo(() => {
+  useEffect(() => {
     const be = document.getElementById('btnExpr')
     const bb = document.getElementById('btnBacktest')
     const bs = document.getElementById('btnSummary')
@@ -411,6 +411,9 @@ function App() {
 }
 
 createRoot(document.getElementById('root')).render(h(App))
+
+
+
 
 
 
