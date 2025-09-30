@@ -739,7 +739,11 @@ SETTINGS_PATH = ROOT / 'user_data' / 'server_settings.json'
 @app.get('/flow/progress/{job_id}')
 def flow_progress(job_id: str, steps: Optional[str] = None):
     """Best-effort progress estimation for flow jobs by scanning logs.
-    Returns per-step status: pending/running/ok/failed.
+    Returns per-step status: pending/running/ok/failed with fine-grained phase/percent.
+    Heuristics:
+      - Prefer explicit markers: [FLOW] STEP_START/PHASE/STEP_OK/STEP_FAIL
+      - During execute, estimate percent by (a) epoch X/Y, (b) detected progress % tokens,
+        (c) log growth compared to expected span per-step as fallback.
     """
     # Fetch all logs for this job
     res = jobs.logs(job_id, 0)
@@ -757,6 +761,20 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
     markers = { 'start': set(), 'ok': set(), 'fail': set() }
     phases: dict[str, str] = {}
     start_idx: dict[str, int] = {}
+    # Per-step expected log span for dynamic progress (tunable)
+    expected_span = {
+        'feature': 120,
+        'expression': 180,
+        'ml': 320,
+        'rl': 600,
+        'backtest': 400,
+    }
+
+    # Pre-compiled regexes for percent/epoch detection
+    import re as _re  # local alias
+    r_epoch = _re.compile(r"(?:epoch|iter)\s*(\d+)\s*/\s*(\d+)")
+    r_pct = _re.compile(r"(\d{1,3})\s*%")
+
     # scan with index for dynamic estimates
     for idx, ln in enumerate(lines):
         if '[flow]' in ln and 'step_' in ln:
@@ -837,30 +855,54 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                 else:
                     status = 'pending'
                     phase = None
-        # percent mapping per-phase (with dynamic boost during execute based on log growth)
+        # percent mapping per-phase (with dynamic boost during execute based on log growth / epochs / % tokens)
         percent = 0
         if status == 'pending':
             percent = 0
         elif status == 'running':
             if phase == 'prepare':
-                percent = 10
+                percent = 5
             elif phase == 'execute':
-                base = 50
-                # dynamic increment based on lines from start
+                base = 20  # execution occupies most share; start lower to give room for estimates
                 sidx = start_idx.get(name, total_lines)
                 exec_span = max(1, total_lines - sidx)
-                # heuristic expected span
-                expected = 200
-                ratio = min(1.0, exec_span / expected)
-                percent = int(base + 40 * ratio)
+                expected = expected_span.get(name, 200)
+                ratio = min(1.0, exec_span / max(1, expected))
+                # Try to detect epoch progress (overrides growth-based)
+                epoch_ratio = None
+                for raw in raw_lines[sidx:]:
+                    m = r_epoch.search(str(raw).lower())
+                    if m:
+                        cur, tot = m.groups()
+                        try:
+                            tot_i = max(1, int(tot))
+                            cur_i = min(max(0, int(cur)), tot_i)
+                            epoch_ratio = cur_i / tot_i
+                            break
+                        except Exception:
+                            pass
+                # Try to detect explicit percent tokens near the tail
+                pct_token = None
+                for raw in raw_lines[max(0, total_lines-30):]:
+                    m2 = r_pct.search(str(raw))
+                    if m2:
+                        try:
+                            v = int(m2.group(1))
+                            if 0 <= v <= 100:
+                                pct_token = v / 100.0
+                        except Exception:
+                            pass
+                dyn = epoch_ratio if epoch_ratio is not None else (pct_token if pct_token is not None else ratio)
+                percent = int(base + 75 * max(0.0, min(1.0, dyn)))
             elif phase == 'summarize':
-                percent = 95
+                percent = 98
             else:
                 percent = 10
         elif status == 'ok':
             percent = 100
         elif status == 'failed':
-            percent = 50
+            # mid-way failure, reflect incomplete progress
+            percent = max(20, int(100 * (start_idx.get(name, 0) / max(1, total_lines))))
         items.append({'name': name, 'status': status, 'phase': phase, 'percent': percent})
     return {'job_id': job_id, 'running': running, 'code': code, 'steps': items}
 

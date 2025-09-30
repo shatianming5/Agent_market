@@ -176,7 +176,8 @@ async function showSummary() {
         xs.push(new Date(t.open_timestamp||0).toISOString().slice(0,10))
       }
       if (window.echarts) {
-        const chart = echarts.init(document.getElementById('chart'))
+        const _el = document.getElementById('chart')
+        const chart = (window.echarts.getInstanceByDom && _el) ? (echarts.getInstanceByDom(_el) || echarts.init(_el)) : echarts.init(_el)
         chart.setOption({ grid:{left:40,right:16,top:10,bottom:30}, xAxis:{ type:'category', data:xs, axisLabel:{ rotate:45 } }, yAxis:{ type:'value', scale:true }, tooltip:{ trigger:'axis' }, series:[{ name:'累计收益(USDT)', type:'line', data:ys }] })
       }
     }
