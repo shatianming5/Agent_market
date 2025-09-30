@@ -15,6 +15,34 @@ from .job_manager import JobManager
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'src'
 
+
+def _load_dotenv_into_environ(env_path: Path) -> None:
+    """Lightweight .env loader without extra deps.
+    Supports KEY=VALUE lines, ignores comments and empty lines.
+    """
+    try:
+        if not env_path.exists():
+            return
+        for line in env_path.read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' not in line:
+                continue
+            k, v = line.split('=', 1)
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            # populate os.environ if missing or empty
+            if not os.environ.get(k):
+                os.environ[k] = v
+    except Exception:
+        # best-effort; don't crash server startup
+        pass
+
+
+# Load .env from project root into process env
+_load_dotenv_into_environ(ROOT / '.env')
+
 app = FastAPI(title="Agent Market Server", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
@@ -221,8 +249,15 @@ def run_expression(req: ExpressionReq = Body(...)):
 
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
-    if req.llm_api_key:
-        env['LLM_API_KEY'] = req.llm_api_key
+    # Prefer API key from request; fallback to .env / process env
+    llm_key = req.llm_api_key or os.environ.get('LLM_API_KEY')
+    if llm_key:
+        env['LLM_API_KEY'] = llm_key
+    # Also propagate base url / default model if present in env
+    if os.environ.get('LLM_BASE_URL'):
+        env['LLM_BASE_URL'] = os.environ['LLM_BASE_URL']
+    if os.environ.get('LLM_MODEL'):
+        env['LLM_MODEL'] = os.environ['LLM_MODEL']
     job_id = jobs.start(cmd, cwd=ROOT, env=env)
     return {"job_id": job_id, "cmd": cmd}
 

@@ -94,8 +94,7 @@ function App() {
       llm_count: parseInt(document.getElementById('llmCount').value || '3'),
       llm_loops: 1,
       llm_timeout: 60,
-      feedback_top: 0,
-      llm_api_key: document.getElementById('apiKey').value || undefined,
+      feedback_top: 0
     }
     const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const data = await res.json()
@@ -489,8 +488,7 @@ function App() {
           llm_count: Number(n.data.cfg?.llm_count || 12),
           llm_loops: 1,
           llm_timeout: 60,
-          feedback_top: 0,
-          llm_api_key: document.getElementById('apiKey').value || undefined,
+          feedback_top: 0
           feedback: feedbackPath || undefined,
         }
         const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -576,8 +574,7 @@ function App() {
         llm_count: Number(n.data.cfg?.llm_count || 12),
         llm_loops: 1,
         llm_timeout: 60,
-        feedback_top: 0,
-        llm_api_key: document.getElementById('apiKey').value || undefined,
+        feedback_top: 0
         feedback: undefined,
       }
       const res = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -713,6 +710,10 @@ createRoot(document.getElementById('root')).render(h(App))
 
 
 function addNodeAt(typeKey, position){ const id='n'+Math.random().toString(16).slice(2,8); const labelMap={data:'Data',expr:'Expression(LLM)',bt:'Backtest',fb:'Feedback',ho:'Hyperopt',mv:'MultiValidate'}; const cfgMap={data:{pairs:'BTC/USDT ETH/USDT',timeframe:'4h',output:'user_data/freqai_features_multi.json'},expr:{llm_model:'gpt-3.5-turbo',llm_count:12,timeframe:'4h'},bt:{timerange:'20210101-20211231'},fb:{results_dir:'user_data/backtest_results'},ho:{timerange:'20210101-20210430',spaces:'buy sell protection',epochs:20,loss:'SharpeHyperOptLoss'},mv:{timeranges:'20210101-20210331,20210401-20210630'}}; const node={id,type:'amNode',position,data:{label:labelMap[typeKey]||typeKey,typeKey,cfg:cfgMap[typeKey]||{}}}; window.__setNodes && window.__setNodes(node); }
+
+
+
+
 
 
 
