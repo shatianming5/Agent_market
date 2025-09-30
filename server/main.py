@@ -256,7 +256,8 @@ def run_expression(req: ExpressionReq = Body(...)):
     raw_feature_file = req.feature_file
     if wrapper.exists():
         cmd = [py, str(wrapper)]
-        feature_file_arg = raw_feature_file  # wrapper runs with cwd=ROOT
+        # Use absolute path to avoid freqtrade script resolving relative to config dir
+        feature_file_arg = str(ff_path)
     elif script_path.exists():
         cmd = [py, str(script_path)]
         feature_file_arg = (
