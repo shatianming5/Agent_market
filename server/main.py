@@ -102,6 +102,10 @@ class HyperoptReq(BaseModel):
     job_workers: int = Field(-1)
 
 
+class RLTrainReq(BaseModel):
+    config: str = Field(..., description="Path to RL training JSON config (train_ppo.json)")
+
+
 @app.get('/features/top')
 def features_top(file: str = 'user_data/freqai_features.json', limit: int = 20):
     """Return top-N features by score/correlation/mutual_info."""
@@ -296,6 +300,17 @@ def run_hyperopt(req: HyperoptReq = Body(...)):
         cmd += ['--spaces'] + req.spaces.split()
     if req.freqaimodel:
         cmd += ['--freqaimodel', req.freqaimodel]
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(SRC)
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"job_id": job_id, "cmd": cmd}
+
+
+@app.post("/run/rl_train")
+def run_rl_train(req: RLTrainReq = Body(...)):
+    py = sys.executable
+    script = str(ROOT / 'scripts' / 'train_rl.py')
+    cmd = [py, script, '--config', req.config]
     env = os.environ.copy()
     env['PYTHONPATH'] = str(SRC)
     job_id = jobs.start(cmd, cwd=ROOT, env=env)

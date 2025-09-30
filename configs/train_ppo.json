@@ -1,0 +1,22 @@
+{
+  "data": {
+    "feature_file": "user_data/freqai_features.json",
+    "data_dir": "freqtrade/user_data/data",
+    "exchange": "binanceus",
+    "timeframe": "1h",
+    "pairs": ["BTC/USDT"]
+  },
+  "training": {
+    "total_timesteps": 10000
+  },
+  "policy": "MlpPolicy",
+  "algo": {
+    "learning_rate": 0.0003,
+    "n_steps": 2048,
+    "batch_size": 64
+  },
+  "output": {
+    "model_dir": "artifacts/models/rl_ppo_demo"
+  }
+}
+
