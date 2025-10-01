@@ -1,0 +1,14 @@
+{
+  "model": "lightgbm",
+  "features": [
+    "feat_rsi_14",
+    "feat_return_z_5"
+  ],
+  "train_size": 6392,
+  "valid_size": 1598,
+  "metrics": {
+    "rmse_train": 4.1645991663544926e-08,
+    "rmse_valid": 1.5224008835148288e-07
+  },
+  "model_path": "D:\\Agent_market\\user_data\\tmp\\stress\\models_lightgbm\\lightgbm_model.txt"
+}

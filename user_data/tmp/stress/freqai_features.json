@@ -1,0 +1,1 @@
+{"label_period_candles": 3, "timeframe": "1h", "exchange": "binanceus", "pairs": ["BTC/USDT"], "features": [{"name": "feat_rsi_14", "type": "rsi", "period": 14}, {"name": "feat_return_z_5", "type": "return_zscore", "period": 5}]}

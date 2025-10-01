@@ -1,0 +1,13 @@
+{
+  "model": "pytorch_mlp",
+  "features": [
+    "feat_rsi_14",
+    "feat_return_z_5"
+  ],
+  "train_size": 6392,
+  "valid_size": 1598,
+  "metrics": {
+    "rmse_train": 4.1645991663544926e-08
+  },
+  "model_path": "D:\\Agent_market\\user_data\\tmp\\stress\\models_pytorch_mlp\\pytorch_mlp.pt"
+}

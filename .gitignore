@@ -1,4 +1,4 @@
-__pycache__/
+﻿__pycache__/
 *.pyc
 .env
 user_data/data/
@@ -19,3 +19,9 @@ user_data/freqaimodels/
 user_data/hyperopts/
 user_data/hyperopt_results/
 artifacts/
+
+node_modules/
+user_data/job_logs/
+user_data/llm_raw/
+user_data/server_settings.json
+
