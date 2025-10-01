@@ -1,10 +1,30 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
-from gymnasium import Env, spaces
+try:
+    from gymnasium import Env, spaces  # type: ignore
+    _HAS_GYM = True
+except Exception:  # pragma: no cover
+    # Minimal fallbacks to allow import without gymnasium installed
+    class Env:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            pass
+        def reset(self, *args, **kwargs):  # noqa: D401
+            return None
+        def step(self, *args, **kwargs):  # noqa: D401
+            return None
+    class _Spaces:  # type: ignore
+        class Discrete:
+            def __init__(self, n: int):
+                self.n = int(n)
+        class Box:
+            def __init__(self, low, high, shape=None, dtype=None):
+                self.low, self.high, self.shape, self.dtype = low, high, shape, dtype
+    spaces = _Spaces()  # type: ignore
+    _HAS_GYM = False
 
 from agent_market.freqai.training.pipeline import Dataset, FeatureDatasetBuilder
 
@@ -16,7 +36,7 @@ class TradingEnvConfig:
     reward_negative: float = -0.5
 
 
-class TradingEnv(Env[np.ndarray, int]):
+class TradingEnv(Env if not _HAS_GYM else Env[np.ndarray, int]):
     metadata = {"render_modes": []}
 
     def __init__(self, dataset: Dataset, config: Optional[TradingEnvConfig] = None):

@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 
 from agent_market.freqai.model import gradient_boosting  # noqa: F401
 from agent_market.freqai.training.pipeline import TrainingPipeline
-from agent_market.freqai.rl.trainer import RLTrainer
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +125,8 @@ class AgentFlow:
             TrainingPipeline(job_cfg).run()
 
     def run_rl_training(self, cfg: Dict[str, Any]) -> None:
+        # Lazy import to avoid heavy deps (gymnasium) when RL is not used
+        from agent_market.freqai.rl.trainer import RLTrainer  # type: ignore
         config = cfg.get("config")
         if not isinstance(config, dict):
             raise ValueError("rl_training.config must be provided")

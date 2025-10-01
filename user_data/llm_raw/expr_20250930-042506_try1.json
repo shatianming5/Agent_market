@@ -1,0 +1,1595 @@
+{
+    "label_period_candles": 18,
+    "timeframe": "4h",
+    "score_method": "correlation",
+    "complexity_penalty": 0.01,
+    "backtest_weight": 0.5,
+    "stability_windows": 3,
+    "stability_min_samples": 200,
+    "combo_top": 10,
+    "combo_types": [
+        "diff",
+        "ratio",
+        "product"
+    ],
+    "feature_combos": [
+        {
+            "name": "feat_combo_diff_return_skew_96_donchian_width_100",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_donchian_width_100"
+            ],
+            "formula": "feat_return_skew_96 - feat_donchian_width_100"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_donchian_width_100",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_donchian_width_100"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_donchian_width_100| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_donchian_width_100",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_donchian_width_100"
+            ],
+            "formula": "feat_return_skew_96 * feat_donchian_width_100"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_return_skew_48",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_return_skew_48"
+            ],
+            "formula": "feat_return_skew_96 - feat_return_skew_48"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_return_skew_48",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_return_skew_48"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_return_skew_48| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_return_skew_48",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_return_skew_48"
+            ],
+            "formula": "feat_return_skew_96 * feat_return_skew_48"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_price_zscore_200",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_return_skew_96 - feat_price_zscore_200"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_price_zscore_200",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_price_zscore_200| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_price_zscore_200",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_return_skew_96 * feat_price_zscore_200"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_donchian_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_return_skew_96 - feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_donchian_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_donchian_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_donchian_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_return_skew_96 * feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_atr_norm_7",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_return_skew_96 - feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_atr_norm_7",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_atr_norm_7| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_atr_norm_7",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_return_skew_96 * feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_return_skew_96 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_return_skew_96 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_return_skew_96 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_return_skew_96 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_return_skew_96 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_return_skew_96 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_96_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_return_skew_96 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_96_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_return_skew_96 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_96_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_96",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_return_skew_96 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_return_skew_48",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_return_skew_48"
+            ],
+            "formula": "feat_donchian_width_100 - feat_return_skew_48"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_return_skew_48",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_return_skew_48"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_return_skew_48| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_return_skew_48",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_return_skew_48"
+            ],
+            "formula": "feat_donchian_width_100 * feat_return_skew_48"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_price_zscore_200",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_donchian_width_100 - feat_price_zscore_200"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_price_zscore_200",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_price_zscore_200| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_price_zscore_200",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_donchian_width_100 * feat_price_zscore_200"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_donchian_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_donchian_width_100 - feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_donchian_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_donchian_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_donchian_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_donchian_width_100 * feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_atr_norm_7",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_donchian_width_100 - feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_atr_norm_7",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_atr_norm_7| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_atr_norm_7",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_donchian_width_100 * feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_donchian_width_100 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_donchian_width_100 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_donchian_width_100 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_donchian_width_100 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_donchian_width_100 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_donchian_width_100 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_100_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_donchian_width_100 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_100_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_donchian_width_100 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_100_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_100",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_donchian_width_100 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_48_price_zscore_200",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_return_skew_48 - feat_price_zscore_200"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_48_price_zscore_200",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_return_skew_48 / (|feat_price_zscore_200| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_48_price_zscore_200",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_price_zscore_200"
+            ],
+            "formula": "feat_return_skew_48 * feat_price_zscore_200"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_48_donchian_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_return_skew_48 - feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_48_donchian_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_return_skew_48 / (|feat_donchian_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_48_donchian_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_return_skew_48 * feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_48_atr_norm_7",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_return_skew_48 - feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_48_atr_norm_7",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_return_skew_48 / (|feat_atr_norm_7| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_48_atr_norm_7",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_return_skew_48 * feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_48_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_return_skew_48 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_48_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_return_skew_48 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_48_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_return_skew_48 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_48_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_return_skew_48 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_48_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_return_skew_48 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_48_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_return_skew_48 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_48_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_return_skew_48 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_48_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_return_skew_48 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_48_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_return_skew_48 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_return_skew_48_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_return_skew_48 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_return_skew_48_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_return_skew_48 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_return_skew_48_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_return_skew_48",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_return_skew_48 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_price_zscore_200_donchian_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_price_zscore_200 - feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_price_zscore_200_donchian_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_price_zscore_200 / (|feat_donchian_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_price_zscore_200_donchian_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_donchian_width_20"
+            ],
+            "formula": "feat_price_zscore_200 * feat_donchian_width_20"
+        },
+        {
+            "name": "feat_combo_diff_price_zscore_200_atr_norm_7",
+            "type": "combo_diff",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_price_zscore_200 - feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_ratio_price_zscore_200_atr_norm_7",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_price_zscore_200 / (|feat_atr_norm_7| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_price_zscore_200_atr_norm_7",
+            "type": "combo_product",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_price_zscore_200 * feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_diff_price_zscore_200_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_price_zscore_200 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_price_zscore_200_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_price_zscore_200 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_price_zscore_200_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_price_zscore_200 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_price_zscore_200_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_price_zscore_200 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_price_zscore_200_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_price_zscore_200 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_price_zscore_200_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_price_zscore_200 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_price_zscore_200_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_price_zscore_200 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_price_zscore_200_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_price_zscore_200 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_price_zscore_200_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_price_zscore_200 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_price_zscore_200_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_price_zscore_200 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_price_zscore_200_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_price_zscore_200 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_price_zscore_200_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_price_zscore_200",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_price_zscore_200 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_20_atr_norm_7",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_donchian_width_20 - feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_20_atr_norm_7",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_donchian_width_20 / (|feat_atr_norm_7| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_20_atr_norm_7",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_donchian_width_20 * feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_20_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_donchian_width_20 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_20_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_donchian_width_20 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_20_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_donchian_width_20 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_20_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_donchian_width_20 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_20_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_donchian_width_20 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_20_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_donchian_width_20 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_20_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_donchian_width_20 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_20_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_donchian_width_20 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_20_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_donchian_width_20 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_donchian_width_20_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_donchian_width_20 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_donchian_width_20_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_donchian_width_20 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_donchian_width_20_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_donchian_width_20",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_donchian_width_20 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_7 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_7 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_7 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_7 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_7 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_7 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_atr_norm_7 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_atr_norm_7 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_5_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_range_pct_5 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_5_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_range_pct_5 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_5_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_range_pct_5 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_5_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_5 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_5_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_5 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_5_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_5 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_5_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_5 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_5_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_5 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_5_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_5 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_10_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_10 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_10_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_10 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_10_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_10 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_10_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_10 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_10_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_10 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_10_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_10 * feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_20_volume_zscore_80",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_20 - feat_volume_zscore_80"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_20_volume_zscore_80",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_20 / (|feat_volume_zscore_80| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_20_volume_zscore_80",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_volume_zscore_80"
+            ],
+            "formula": "feat_range_pct_20 * feat_volume_zscore_80"
+        }
+    ],
+    "feature_columns": [
+        "feat_return_skew_96",
+        "feat_donchian_width_100",
+        "feat_return_skew_48",
+        "feat_price_zscore_200",
+        "feat_donchian_width_20",
+        "feat_atr_norm_7",
+        "feat_range_pct_5",
+        "feat_range_pct_10",
+        "feat_range_pct_20",
+        "feat_volume_zscore_80",
+        "feat_bb_width_10",
+        "feat_bb_width_20",
+        "feat_atr_norm_14",
+        "feat_adx_28",
+        "feat_realized_vol_24",
+        "feat_realized_vol_48",
+        "feat_donchian_width_55",
+        "feat_realized_vol_12",
+        "feat_atr_norm_21",
+        "feat_mfi_9",
+        "feat_mfi_14",
+        "feat_bb_width_40",
+        "feat_rsi_35",
+        "feat_volume_zscore_40",
+        "feat_volume_zscore_20",
+        "feat_price_zscore_100",
+        "feat_adx_21",
+        "feat_volume_ratio_20",
+        "feat_realized_vol_96",
+        "feat_rsi_28",
+        "feat_volume_ratio_40",
+        "feat_mfi_28",
+        "feat_mfi_21",
+        "feat_return_skew_24",
+        "feat_volume_ratio_10",
+        "feat_rsi_21",
+        "feat_cmo_20",
+        "feat_ema_pct_55",
+        "feat_rsi_14",
+        "feat_cmo_14",
+        "feat_adx_7",
+        "feat_obv_delta_10",
+        "feat_cmo_9",
+        "feat_cmf_20",
+        "feat_linearreg_slope_20",
+        "feat_vwap_slope_10",
+        "feat_momentum_12",
+        "feat_vwap_pct_20",
+        "feat_tema_pct_10",
+        "feat_adx_14",
+        "feat_ema_pct_34",
+        "feat_roc_5",
+        "feat_sma_pct_60",
+        "feat_sma_pct_20",
+        "feat_kama_pct_10",
+        "feat_kama_pct_21",
+        "feat_momentum_6",
+        "feat_linearreg_slope_5",
+        "feat_linearreg_slope_40",
+        "feat_volume_ratio_5",
+        "feat_obv_delta_5",
+        "feat_ema_pct_20",
+        "feat_wma_pct_40",
+        "feat_price_zscore_50",
+        "feat_roc_20",
+        "feat_cmf_40",
+        "feat_roc_10",
+        "feat_vwap_slope_40",
+        "feat_ema_pct_13",
+        "feat_wma_pct_10",
+        "feat_vwap_slope_20",
+        "feat_vwap_pct_40",
+        "feat_kama_pct_40",
+        "feat_tema_pct_20",
+        "feat_cmf_10",
+        "feat_wma_pct_20",
+        "feat_cci_20",
+        "feat_sma_pct_10",
+        "feat_return_zscore_40",
+        "feat_return_zscore_10",
+        "feat_sma_pct_40",
+        "feat_momentum_24",
+        "feat_cci_14",
+        "feat_momentum_3",
+        "feat_psar_ratio",
+        "feat_cci_40",
+        "feat_roc_40",
+        "feat_tema_pct_40",
+        "feat_vwap_pct_10",
+        "feat_linearreg_slope_10",
+        "feat_obv_delta_1",
+        "feat_return_zscore_20",
+        "feat_combo_diff_return_skew_96_donchian_width_100",
+        "feat_combo_ratio_return_skew_96_donchian_width_100",
+        "feat_combo_product_return_skew_96_donchian_width_100",
+        "feat_combo_diff_return_skew_96_return_skew_48",
+        "feat_combo_ratio_return_skew_96_return_skew_48",
+        "feat_combo_product_return_skew_96_return_skew_48",
+        "feat_combo_diff_return_skew_96_price_zscore_200",
+        "feat_combo_ratio_return_skew_96_price_zscore_200",
+        "feat_combo_product_return_skew_96_price_zscore_200",
+        "feat_combo_diff_return_skew_96_donchian_width_20",
+        "feat_combo_ratio_return_skew_96_donchian_width_20",
+        "feat_combo_product_return_skew_96_donchian_width_20",
+        "feat_combo_diff_return_skew_96_atr_norm_7",
+        "feat_combo_ratio_return_skew_96_atr_norm_7",
+        "feat_combo_product_return_skew_96_atr_norm_7",
+        "feat_combo_diff_return_skew_96_range_pct_5",
+        "feat_combo_ratio_return_skew_96_range_pct_5",
+        "feat_combo_product_return_skew_96_range_pct_5",
+        "feat_combo_diff_return_skew_96_range_pct_10",
+        "feat_combo_ratio_return_skew_96_range_pct_10",
+        "feat_combo_product_return_skew_96_range_pct_10",
+        "feat_combo_diff_return_skew_96_range_pct_20",
+        "feat_combo_ratio_return_skew_96_range_pct_20",
+        "feat_combo_product_return_skew_96_range_pct_20",
+        "feat_combo_diff_return_skew_96_volume_zscore_80",
+        "feat_combo_ratio_return_skew_96_volume_zscore_80",
+        "feat_combo_product_return_skew_96_volume_zscore_80",
+        "feat_combo_diff_donchian_width_100_return_skew_48",
+        "feat_combo_ratio_donchian_width_100_return_skew_48",
+        "feat_combo_product_donchian_width_100_return_skew_48",
+        "feat_combo_diff_donchian_width_100_price_zscore_200",
+        "feat_combo_ratio_donchian_width_100_price_zscore_200",
+        "feat_combo_product_donchian_width_100_price_zscore_200",
+        "feat_combo_diff_donchian_width_100_donchian_width_20",
+        "feat_combo_ratio_donchian_width_100_donchian_width_20",
+        "feat_combo_product_donchian_width_100_donchian_width_20",
+        "feat_combo_diff_donchian_width_100_atr_norm_7",
+        "feat_combo_ratio_donchian_width_100_atr_norm_7",
+        "feat_combo_product_donchian_width_100_atr_norm_7",
+        "feat_combo_diff_donchian_width_100_range_pct_5",
+        "feat_combo_ratio_donchian_width_100_range_pct_5",
+        "feat_combo_product_donchian_width_100_range_pct_5",
+        "feat_combo_diff_donchian_width_100_range_pct_10",
+        "feat_combo_ratio_donchian_width_100_range_pct_10",
+        "feat_combo_product_donchian_width_100_range_pct_10",
+        "feat_combo_diff_donchian_width_100_range_pct_20",
+        "feat_combo_ratio_donchian_width_100_range_pct_20",
+        "feat_combo_product_donchian_width_100_range_pct_20",
+        "feat_combo_diff_donchian_width_100_volume_zscore_80",
+        "feat_combo_ratio_donchian_width_100_volume_zscore_80",
+        "feat_combo_product_donchian_width_100_volume_zscore_80",
+        "feat_combo_diff_return_skew_48_price_zscore_200",
+        "feat_combo_ratio_return_skew_48_price_zscore_200",
+        "feat_combo_product_return_skew_48_price_zscore_200",
+        "feat_combo_diff_return_skew_48_donchian_width_20",
+        "feat_combo_ratio_return_skew_48_donchian_width_20",
+        "feat_combo_product_return_skew_48_donchian_width_20",
+        "feat_combo_diff_return_skew_48_atr_norm_7",
+        "feat_combo_ratio_return_skew_48_atr_norm_7",
+        "feat_combo_product_return_skew_48_atr_norm_7",
+        "feat_combo_diff_return_skew_48_range_pct_5",
+        "feat_combo_ratio_return_skew_48_range_pct_5",
+        "feat_combo_product_return_skew_48_range_pct_5",
+        "feat_combo_diff_return_skew_48_range_pct_10",
+        "feat_combo_ratio_return_skew_48_range_pct_10",
+        "feat_combo_product_return_skew_48_range_pct_10",
+        "feat_combo_diff_return_skew_48_range_pct_20",
+        "feat_combo_ratio_return_skew_48_range_pct_20",
+        "feat_combo_product_return_skew_48_range_pct_20",
+        "feat_combo_diff_return_skew_48_volume_zscore_80",
+        "feat_combo_ratio_return_skew_48_volume_zscore_80",
+        "feat_combo_product_return_skew_48_volume_zscore_80",
+        "feat_combo_diff_price_zscore_200_donchian_width_20",
+        "feat_combo_ratio_price_zscore_200_donchian_width_20",
+        "feat_combo_product_price_zscore_200_donchian_width_20",
+        "feat_combo_diff_price_zscore_200_atr_norm_7",
+        "feat_combo_ratio_price_zscore_200_atr_norm_7",
+        "feat_combo_product_price_zscore_200_atr_norm_7",
+        "feat_combo_diff_price_zscore_200_range_pct_5",
+        "feat_combo_ratio_price_zscore_200_range_pct_5",
+        "feat_combo_product_price_zscore_200_range_pct_5",
+        "feat_combo_diff_price_zscore_200_range_pct_10",
+        "feat_combo_ratio_price_zscore_200_range_pct_10",
+        "feat_combo_product_price_zscore_200_range_pct_10",
+        "feat_combo_diff_price_zscore_200_range_pct_20",
+        "feat_combo_ratio_price_zscore_200_range_pct_20",
+        "feat_combo_product_price_zscore_200_range_pct_20",
+        "feat_combo_diff_price_zscore_200_volume_zscore_80",
+        "feat_combo_ratio_price_zscore_200_volume_zscore_80",
+        "feat_combo_product_price_zscore_200_volume_zscore_80",
+        "feat_combo_diff_donchian_width_20_atr_norm_7",
+        "feat_combo_ratio_donchian_width_20_atr_norm_7",
+        "feat_combo_product_donchian_width_20_atr_norm_7",
+        "feat_combo_diff_donchian_width_20_range_pct_5",
+        "feat_combo_ratio_donchian_width_20_range_pct_5",
+        "feat_combo_product_donchian_width_20_range_pct_5",
+        "feat_combo_diff_donchian_width_20_range_pct_10",
+        "feat_combo_ratio_donchian_width_20_range_pct_10",
+        "feat_combo_product_donchian_width_20_range_pct_10",
+        "feat_combo_diff_donchian_width_20_range_pct_20",
+        "feat_combo_ratio_donchian_width_20_range_pct_20",
+        "feat_combo_product_donchian_width_20_range_pct_20",
+        "feat_combo_diff_donchian_width_20_volume_zscore_80",
+        "feat_combo_ratio_donchian_width_20_volume_zscore_80",
+        "feat_combo_product_donchian_width_20_volume_zscore_80",
+        "feat_combo_diff_atr_norm_7_range_pct_5",
+        "feat_combo_ratio_atr_norm_7_range_pct_5",
+        "feat_combo_product_atr_norm_7_range_pct_5",
+        "feat_combo_diff_atr_norm_7_range_pct_10",
+        "feat_combo_ratio_atr_norm_7_range_pct_10",
+        "feat_combo_product_atr_norm_7_range_pct_10",
+        "feat_combo_diff_atr_norm_7_range_pct_20",
+        "feat_combo_ratio_atr_norm_7_range_pct_20",
+        "feat_combo_product_atr_norm_7_range_pct_20",
+        "feat_combo_diff_atr_norm_7_volume_zscore_80",
+        "feat_combo_ratio_atr_norm_7_volume_zscore_80",
+        "feat_combo_product_atr_norm_7_volume_zscore_80",
+        "feat_combo_diff_range_pct_5_range_pct_10",
+        "feat_combo_ratio_range_pct_5_range_pct_10",
+        "feat_combo_product_range_pct_5_range_pct_10",
+        "feat_combo_diff_range_pct_5_range_pct_20",
+        "feat_combo_ratio_range_pct_5_range_pct_20",
+        "feat_combo_product_range_pct_5_range_pct_20",
+        "feat_combo_diff_range_pct_5_volume_zscore_80",
+        "feat_combo_ratio_range_pct_5_volume_zscore_80",
+        "feat_combo_product_range_pct_5_volume_zscore_80",
+        "feat_combo_diff_range_pct_10_range_pct_20",
+        "feat_combo_ratio_range_pct_10_range_pct_20",
+        "feat_combo_product_range_pct_10_range_pct_20",
+        "feat_combo_diff_range_pct_10_volume_zscore_80",
+        "feat_combo_ratio_range_pct_10_volume_zscore_80",
+        "feat_combo_product_range_pct_10_volume_zscore_80",
+        "feat_combo_diff_range_pct_20_volume_zscore_80",
+        "feat_combo_ratio_range_pct_20_volume_zscore_80",
+        "feat_combo_product_range_pct_20_volume_zscore_80"
+    ],
+    "gp_enabled": false,
+    "llm_enabled": true,
+    "llm_status": "success",
+    "llm_params": {
+        "base_url": "https://api.zhizengzeng.com/v1",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.2,
+        "max_tokens": 1024,
+        "count": 3
+    },
+    "expression_origin": "llm",
+    "expressions": [
+        {
+            "name": "exp_1",
+            "expression": "roll_mean(ema(abs(shift(feat_return_skew_96, 1)), 20), 10)",
+            "score": 0.04341104212078409,
+            "score_metric": "correlation",
+            "adjusted_score": 2.0031880795199197,
+            "complexity": 5,
+            "complexity_penalty": 0.951229424500714,
+            "signal_return": 64.19368574529612,
+            "signal_sharpe": 4.250135715527051,
+            "signal_mean": 0.7483165101496964,
+            "signal_std": 0.6268312019118524,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.0267689294058151,
+                0.049752484205740875,
+                0.17107538726572974
+            ],
+            "stability_mean": 0.06468631402188517,
+            "stability_std": 0.0814569737736465,
+            "stability_min": -0.0267689294058151,
+            "stability_max": 0.17107538726572974,
+            "origin": "llm",
+            "entry_threshold": 1.9093787995267766,
+            "entry_quantile": 0.95,
+            "entry_expectation": 0.018838072553767914,
+            "entry_winrate": 0.6141975308641975,
+            "entry_coverage": 0.05006954102920723,
+            "entry_samples": 648,
+            "exit_threshold": -0.7223191958237001,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.007175464391154127,
+            "exit_winrate": 0.5092707045735476,
+            "exit_coverage": 0.2500386339051151,
+            "exit_samples": 3236,
+            "llm_description": "10-period rolling mean of 20-period EMA of absolute value of lagged 96-period return skewness",
+            "llm_reason": "Combines long-term skewness information with short-term EMA trend to capture potential reversal signals.",
+            "llm_category": "mean_reversion",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "exp_2",
+            "expression": "pct_change(roll_std(feat_realized_vol_24, 10), 5)",
+            "score": 0.008450833970510125,
+            "score_metric": "correlation",
+            "adjusted_score": 0.2875078318204741,
+            "complexity": 3,
+            "complexity_penalty": 0.9704455335485082,
+            "signal_return": 8.535939079183356,
+            "signal_sharpe": 0.5629712586798837,
+            "signal_mean": 0.7160014318387445,
+            "signal_std": 3.0145851071150367,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                0.016026759429461596,
+                -0.002461212433712499,
+                0.008230568302423687
+            ],
+            "stability_mean": 0.007265371766057595,
+            "stability_std": 0.007578477383078084,
+            "stability_min": -0.002461212433712499,
+            "stability_max": 0.016026759429461596,
+            "origin": "llm",
+            "entry_threshold": 1.1642381987789432,
+            "entry_quantile": 0.95,
+            "entry_expectation": 0.008555034976974742,
+            "entry_winrate": 0.5548686244204019,
+            "entry_coverage": 0.050007729169887154,
+            "entry_samples": 647,
+            "exit_threshold": -0.37617770175720167,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.005164223296681905,
+            "exit_winrate": 0.5279752704791345,
+            "exit_coverage": 0.25003864584943575,
+            "exit_samples": 3235,
+            "llm_description": "5-period percentage change of 10-period rolling standard deviation of 24-period realized volatility",
+            "llm_reason": "Utilizes volatility changes to identify potential momentum shifts in the short term.",
+            "llm_category": "volatility",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "exp_3",
+            "expression": "clip(roll_mean(feat_mfi_9, 20) - roll_mean(feat_mfi_14, 20), -0.5, 0.5)",
+            "score": -0.00663394507346652,
+            "score_metric": "correlation",
+            "adjusted_score": 0.13184560117535707,
+            "complexity": 5,
+            "complexity_penalty": 0.951229424500714,
+            "signal_return": 4.3183147652996965,
+            "signal_sharpe": 0.2848589496445674,
+            "signal_mean": 0.007661253033417987,
+            "signal_std": 0.4846003494561554,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.051243482477660494,
+                0.026224640356664088,
+                0.002545047527836033
+            ],
+            "stability_mean": -0.007491264864386791,
+            "stability_std": 0.03241268464345622,
+            "stability_min": -0.051243482477660494,
+            "stability_max": 0.026224640356664088,
+            "origin": "llm",
+            "entry_threshold": 1.0159686151756648,
+            "entry_quantile": 0.6,
+            "entry_expectation": 0.004739789762372316,
+            "entry_winrate": 0.531647689216343,
+            "entry_coverage": 0.4617644784659398,
+            "entry_samples": 5972,
+            "exit_threshold": -1.0475874657448252,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.004855666548683,
+            "exit_winrate": 0.536838464199239,
+            "exit_coverage": 0.44707337817985,
+            "exit_samples": 5782,
+            "llm_description": "20-period rolling mean of 9-period Money Flow Index minus 20-period rolling mean of 14-period Money Flow Index, clipped between -0.5 and 0.5",
+            "llm_reason": "Measures the difference in short-term and medium-term money flow trends while limiting extreme values.",
+            "llm_category": "other",
+            "llm_model": "gpt-3.5-turbo"
+        }
+    ],
+    "generated_at": "2025-09-30T08:25:06.267349+00:00"
+}

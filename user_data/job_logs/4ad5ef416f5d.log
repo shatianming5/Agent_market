@@ -1,0 +1,87 @@
+Traceback (most recent call last):
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\compat\_optional.py", line 135, in import_optional_dependency
+    module = importlib.import_module(name)
+  File "C:\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1324, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'pyarrow'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1340, in <module>
+    main()
+    ~~~~^^
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1150, in main
+    df = load_data(feature_cfg, timeframe)
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 111, in load_data
+    df = pd.read_feather(file)
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\io\feather_format.py", line 111, in read_feather
+    import_optional_dependency("pyarrow")
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\compat\_optional.py", line 138, in import_optional_dependency
+    raise ImportError(msg)
+ImportError: Missing optional dependency 'pyarrow'.  Use pip or conda to install pyarrow.
+Traceback (most recent call last):
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\compat\_optional.py", line 135, in import_optional_dependency
+    module = importlib.import_module(name)
+  File "C:\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1324, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'pyarrow'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1340, in <module>
+    main()
+    ~~~~^^
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1150, in main
+    df = load_data(feature_cfg, timeframe)
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 111, in load_data
+    df = pd.read_feather(file)
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\io\feather_format.py", line 111, in read_feather
+    import_optional_dependency("pyarrow")
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\compat\_optional.py", line 138, in import_optional_dependency
+    raise ImportError(msg)
+ImportError: Missing optional dependency 'pyarrow'.  Use pip or conda to install pyarrow.
+[wrapper] retries exhausted, falling back to classic expressions
+Traceback (most recent call last):
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\compat\_optional.py", line 135, in import_optional_dependency
+    module = importlib.import_module(name)
+  File "C:\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1324, in _find_and_load_unlocked
+ModuleNotFoundError: No module named 'pyarrow'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1340, in <module>
+    main()
+    ~~~~^^
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1150, in main
+    df = load_data(feature_cfg, timeframe)
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 111, in load_data
+    df = pd.read_feather(file)
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\io\feather_format.py", line 111, in read_feather
+    import_optional_dependency("pyarrow")
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\90646\AppData\Roaming\Python\Python313\site-packages\pandas\compat\_optional.py", line 138, in import_optional_dependency
+    raise ImportError(msg)
+ImportError: Missing optional dependency 'pyarrow'.  Use pip or conda to install pyarrow.
+[wrapper] run #1: C:\Python313\python.exe D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py --config D:\Agent_market\configs\config_freqai_multi.json --feature-file D:\Agent_market\user_data\freqai_features_multi.json --output user_data\freqai_expressions.json --timeframe 4h --feedback-top 0 --llm-model gpt-3.5-turbo --llm-count 3 --llm-loops 1 --llm-timeout 60.0
+[wrapper] saved raw: D:\Agent_market\user_data\llm_raw\expr_20250930-042249_try1.json
+[wrapper] run #2: C:\Python313\python.exe D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py --config D:\Agent_market\configs\config_freqai_multi.json --feature-file D:\Agent_market\user_data\freqai_features_multi.json --output user_data\freqai_expressions.json --timeframe 4h --feedback-top 0 --llm-model gpt-3.5-turbo --llm-count 3 --llm-loops 1 --llm-timeout 60.0
+[wrapper] saved raw: D:\Agent_market\user_data\llm_raw\expr_20250930-042253_try2.json
+[wrapper] classic: C:\Python313\python.exe D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py --config D:\Agent_market\configs\config_freqai_multi.json --feature-file D:\Agent_market\user_data\freqai_features_multi.json --output user_data\freqai_expressions.json --timeframe 4h --feedback-top 0

@@ -1,0 +1,1808 @@
+{
+    "label_period_candles": 12,
+    "timeframe": "1h",
+    "score_method": "correlation",
+    "complexity_penalty": 0.01,
+    "backtest_weight": 0.5,
+    "stability_windows": 3,
+    "stability_min_samples": 200,
+    "combo_top": 10,
+    "combo_types": [
+        "diff",
+        "ratio",
+        "product"
+    ],
+    "feature_combos": [
+        {
+            "name": "feat_combo_diff_momentum_24_atr_norm_7",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_momentum_24 - feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_atr_norm_7",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_momentum_24 / (|feat_atr_norm_7| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_atr_norm_7",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_7"
+            ],
+            "formula": "feat_momentum_24 * feat_atr_norm_7"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_bb_width_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_bb_width_10"
+            ],
+            "formula": "feat_momentum_24 - feat_bb_width_10"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_bb_width_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_bb_width_10"
+            ],
+            "formula": "feat_momentum_24 / (|feat_bb_width_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_bb_width_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_bb_width_10"
+            ],
+            "formula": "feat_momentum_24 * feat_bb_width_10"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_atr_norm_14",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_momentum_24 - feat_atr_norm_14"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_atr_norm_14",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_momentum_24 / (|feat_atr_norm_14| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_atr_norm_14",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_momentum_24 * feat_atr_norm_14"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_atr_norm_21",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_momentum_24 - feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_atr_norm_21",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_momentum_24 / (|feat_atr_norm_21| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_atr_norm_21",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_momentum_24 * feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_momentum_24 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_momentum_24 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_momentum_24 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_momentum_24 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_momentum_24 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_momentum_24 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_momentum_24 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_momentum_24 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_momentum_24 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_momentum_24 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_momentum_24 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_momentum_24 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_momentum_24_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_momentum_24",
+                "feat_roc_20"
+            ],
+            "formula": "feat_momentum_24 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_momentum_24_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_momentum_24",
+                "feat_roc_20"
+            ],
+            "formula": "feat_momentum_24 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_momentum_24_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_momentum_24",
+                "feat_roc_20"
+            ],
+            "formula": "feat_momentum_24 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_bb_width_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_bb_width_10"
+            ],
+            "formula": "feat_atr_norm_7 - feat_bb_width_10"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_bb_width_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_bb_width_10"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_bb_width_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_bb_width_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_bb_width_10"
+            ],
+            "formula": "feat_atr_norm_7 * feat_bb_width_10"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_atr_norm_14",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_atr_norm_7 - feat_atr_norm_14"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_atr_norm_14",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_atr_norm_14| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_atr_norm_14",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_atr_norm_7 * feat_atr_norm_14"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_atr_norm_21",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_atr_norm_7 - feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_atr_norm_21",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_atr_norm_21| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_atr_norm_21",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_atr_norm_7 * feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_7 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_7 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_7 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_7 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_7 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_7 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_7 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_7 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_7_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_7 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_7_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_7 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_7_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_7",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_7 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_10_atr_norm_14",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_bb_width_10 - feat_atr_norm_14"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_10_atr_norm_14",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_bb_width_10 / (|feat_atr_norm_14| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_10_atr_norm_14",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_atr_norm_14"
+            ],
+            "formula": "feat_bb_width_10 * feat_atr_norm_14"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_10_atr_norm_21",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_bb_width_10 - feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_10_atr_norm_21",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_bb_width_10 / (|feat_atr_norm_21| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_10_atr_norm_21",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_bb_width_10 * feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_10_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_bb_width_10 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_10_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_bb_width_10 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_10_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_bb_width_10 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_10_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_bb_width_10 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_10_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_bb_width_10 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_10_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_bb_width_10 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_10_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_bb_width_10 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_10_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_bb_width_10 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_10_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_bb_width_10 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_10_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_bb_width_10 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_10_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_bb_width_10 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_10_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_bb_width_10 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_10_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_roc_20"
+            ],
+            "formula": "feat_bb_width_10 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_10_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_roc_20"
+            ],
+            "formula": "feat_bb_width_10 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_10_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_10",
+                "feat_roc_20"
+            ],
+            "formula": "feat_bb_width_10 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_14_atr_norm_21",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_atr_norm_14 - feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_14_atr_norm_21",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_atr_norm_14 / (|feat_atr_norm_21| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_14_atr_norm_21",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_atr_norm_21"
+            ],
+            "formula": "feat_atr_norm_14 * feat_atr_norm_21"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_14_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_14 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_14_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_14 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_14_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_14 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_14_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_14 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_14_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_14 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_14_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_14 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_14_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_14 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_14_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_14 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_14_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_14 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_14_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_14 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_14_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_14 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_14_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_14 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_14_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_14 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_14_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_14 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_14_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_14",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_14 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_21_range_pct_5",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_21 - feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_21_range_pct_5",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_21 / (|feat_range_pct_5| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_21_range_pct_5",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_5"
+            ],
+            "formula": "feat_atr_norm_21 * feat_range_pct_5"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_21_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_21 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_21_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_21 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_21_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_atr_norm_21 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_21_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_21 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_21_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_21 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_21_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_atr_norm_21 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_21_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_21 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_21_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_21 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_21_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_atr_norm_21 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_atr_norm_21_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_21 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_atr_norm_21_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_21 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_atr_norm_21_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_atr_norm_21",
+                "feat_roc_20"
+            ],
+            "formula": "feat_atr_norm_21 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_5_range_pct_10",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_range_pct_5 - feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_5_range_pct_10",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_range_pct_5 / (|feat_range_pct_10| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_5_range_pct_10",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_10"
+            ],
+            "formula": "feat_range_pct_5 * feat_range_pct_10"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_5_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_5 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_5_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_5 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_5_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_5 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_5_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_5 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_5_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_5 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_5_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_5 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_5_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_5 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_5_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_5 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_5_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_5",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_5 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_10_range_pct_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_10 - feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_10_range_pct_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_10 / (|feat_range_pct_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_10_range_pct_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_range_pct_20"
+            ],
+            "formula": "feat_range_pct_10 * feat_range_pct_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_10_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_10 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_10_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_10 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_10_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_10 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_10_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_10 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_10_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_10 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_10_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_10",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_10 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_20_bb_width_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_20 - feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_20_bb_width_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_20 / (|feat_bb_width_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_20_bb_width_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_bb_width_20"
+            ],
+            "formula": "feat_range_pct_20 * feat_bb_width_20"
+        },
+        {
+            "name": "feat_combo_diff_range_pct_20_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_20 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_range_pct_20_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_20 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_range_pct_20_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_range_pct_20",
+                "feat_roc_20"
+            ],
+            "formula": "feat_range_pct_20 * feat_roc_20"
+        },
+        {
+            "name": "feat_combo_diff_bb_width_20_roc_20",
+            "type": "combo_diff",
+            "sources": [
+                "feat_bb_width_20",
+                "feat_roc_20"
+            ],
+            "formula": "feat_bb_width_20 - feat_roc_20"
+        },
+        {
+            "name": "feat_combo_ratio_bb_width_20_roc_20",
+            "type": "combo_ratio",
+            "sources": [
+                "feat_bb_width_20",
+                "feat_roc_20"
+            ],
+            "formula": "feat_bb_width_20 / (|feat_roc_20| + 1e-06)"
+        },
+        {
+            "name": "feat_combo_product_bb_width_20_roc_20",
+            "type": "combo_product",
+            "sources": [
+                "feat_bb_width_20",
+                "feat_roc_20"
+            ],
+            "formula": "feat_bb_width_20 * feat_roc_20"
+        }
+    ],
+    "feature_columns": [
+        "feat_momentum_24",
+        "feat_atr_norm_7",
+        "feat_bb_width_10",
+        "feat_atr_norm_14",
+        "feat_atr_norm_21",
+        "feat_range_pct_5",
+        "feat_range_pct_10",
+        "feat_range_pct_20",
+        "feat_bb_width_20",
+        "feat_roc_20",
+        "feat_bb_width_40",
+        "feat_sma_pct_40",
+        "feat_wma_pct_40",
+        "feat_vwap_pct_40",
+        "feat_tema_pct_20",
+        "feat_mfi_9",
+        "feat_mfi_28",
+        "feat_adx_7",
+        "feat_ema_pct_55",
+        "feat_mfi_21",
+        "feat_ema_pct_13",
+        "feat_ema_pct_34",
+        "feat_ema_pct_20",
+        "feat_adx_14",
+        "feat_return_zscore_10",
+        "feat_rsi_9",
+        "feat_adx_28",
+        "feat_volume_ratio_40",
+        "feat_tema_pct_10",
+        "feat_cci_40",
+        "feat_sma_pct_5",
+        "feat_sma_pct_60",
+        "feat_rsi_28",
+        "feat_tema_pct_40",
+        "feat_adx_21",
+        "feat_cmo_14",
+        "feat_rsi_14",
+        "feat_cci_20",
+        "feat_cmo_20",
+        "feat_sma_pct_20",
+        "feat_cmf_20",
+        "feat_rsi_21",
+        "feat_return_zscore_40",
+        "feat_cmf_10",
+        "feat_obv_delta_1",
+        "feat_cmo_9",
+        "feat_mfi_6",
+        "feat_momentum_3",
+        "feat_momentum_12",
+        "feat_return_zscore_20",
+        "feat_volume_ratio_20",
+        "feat_roc_10",
+        "feat_volume_ratio_10",
+        "feat_obv_delta_10",
+        "feat_vwap_pct_20",
+        "feat_roc_40",
+        "feat_wma_pct_10",
+        "feat_volume_ratio_5",
+        "feat_wma_pct_20",
+        "feat_cmf_40",
+        "feat_roc_5",
+        "feat_cci_14",
+        "feat_obv_delta_5",
+        "feat_vwap_pct_10",
+        "feat_momentum_6",
+        "feat_combo_diff_momentum_24_atr_norm_7",
+        "feat_combo_ratio_momentum_24_atr_norm_7",
+        "feat_combo_product_momentum_24_atr_norm_7",
+        "feat_combo_diff_momentum_24_bb_width_10",
+        "feat_combo_ratio_momentum_24_bb_width_10",
+        "feat_combo_product_momentum_24_bb_width_10",
+        "feat_combo_diff_momentum_24_atr_norm_14",
+        "feat_combo_ratio_momentum_24_atr_norm_14",
+        "feat_combo_product_momentum_24_atr_norm_14",
+        "feat_combo_diff_momentum_24_atr_norm_21",
+        "feat_combo_ratio_momentum_24_atr_norm_21",
+        "feat_combo_product_momentum_24_atr_norm_21",
+        "feat_combo_diff_momentum_24_range_pct_5",
+        "feat_combo_ratio_momentum_24_range_pct_5",
+        "feat_combo_product_momentum_24_range_pct_5",
+        "feat_combo_diff_momentum_24_range_pct_10",
+        "feat_combo_ratio_momentum_24_range_pct_10",
+        "feat_combo_product_momentum_24_range_pct_10",
+        "feat_combo_diff_momentum_24_range_pct_20",
+        "feat_combo_ratio_momentum_24_range_pct_20",
+        "feat_combo_product_momentum_24_range_pct_20",
+        "feat_combo_diff_momentum_24_bb_width_20",
+        "feat_combo_ratio_momentum_24_bb_width_20",
+        "feat_combo_product_momentum_24_bb_width_20",
+        "feat_combo_diff_momentum_24_roc_20",
+        "feat_combo_ratio_momentum_24_roc_20",
+        "feat_combo_product_momentum_24_roc_20",
+        "feat_combo_diff_atr_norm_7_bb_width_10",
+        "feat_combo_ratio_atr_norm_7_bb_width_10",
+        "feat_combo_product_atr_norm_7_bb_width_10",
+        "feat_combo_diff_atr_norm_7_atr_norm_14",
+        "feat_combo_ratio_atr_norm_7_atr_norm_14",
+        "feat_combo_product_atr_norm_7_atr_norm_14",
+        "feat_combo_diff_atr_norm_7_atr_norm_21",
+        "feat_combo_ratio_atr_norm_7_atr_norm_21",
+        "feat_combo_product_atr_norm_7_atr_norm_21",
+        "feat_combo_diff_atr_norm_7_range_pct_5",
+        "feat_combo_ratio_atr_norm_7_range_pct_5",
+        "feat_combo_product_atr_norm_7_range_pct_5",
+        "feat_combo_diff_atr_norm_7_range_pct_10",
+        "feat_combo_ratio_atr_norm_7_range_pct_10",
+        "feat_combo_product_atr_norm_7_range_pct_10",
+        "feat_combo_diff_atr_norm_7_range_pct_20",
+        "feat_combo_ratio_atr_norm_7_range_pct_20",
+        "feat_combo_product_atr_norm_7_range_pct_20",
+        "feat_combo_diff_atr_norm_7_bb_width_20",
+        "feat_combo_ratio_atr_norm_7_bb_width_20",
+        "feat_combo_product_atr_norm_7_bb_width_20",
+        "feat_combo_diff_atr_norm_7_roc_20",
+        "feat_combo_ratio_atr_norm_7_roc_20",
+        "feat_combo_product_atr_norm_7_roc_20",
+        "feat_combo_diff_bb_width_10_atr_norm_14",
+        "feat_combo_ratio_bb_width_10_atr_norm_14",
+        "feat_combo_product_bb_width_10_atr_norm_14",
+        "feat_combo_diff_bb_width_10_atr_norm_21",
+        "feat_combo_ratio_bb_width_10_atr_norm_21",
+        "feat_combo_product_bb_width_10_atr_norm_21",
+        "feat_combo_diff_bb_width_10_range_pct_5",
+        "feat_combo_ratio_bb_width_10_range_pct_5",
+        "feat_combo_product_bb_width_10_range_pct_5",
+        "feat_combo_diff_bb_width_10_range_pct_10",
+        "feat_combo_ratio_bb_width_10_range_pct_10",
+        "feat_combo_product_bb_width_10_range_pct_10",
+        "feat_combo_diff_bb_width_10_range_pct_20",
+        "feat_combo_ratio_bb_width_10_range_pct_20",
+        "feat_combo_product_bb_width_10_range_pct_20",
+        "feat_combo_diff_bb_width_10_bb_width_20",
+        "feat_combo_ratio_bb_width_10_bb_width_20",
+        "feat_combo_product_bb_width_10_bb_width_20",
+        "feat_combo_diff_bb_width_10_roc_20",
+        "feat_combo_ratio_bb_width_10_roc_20",
+        "feat_combo_product_bb_width_10_roc_20",
+        "feat_combo_diff_atr_norm_14_atr_norm_21",
+        "feat_combo_ratio_atr_norm_14_atr_norm_21",
+        "feat_combo_product_atr_norm_14_atr_norm_21",
+        "feat_combo_diff_atr_norm_14_range_pct_5",
+        "feat_combo_ratio_atr_norm_14_range_pct_5",
+        "feat_combo_product_atr_norm_14_range_pct_5",
+        "feat_combo_diff_atr_norm_14_range_pct_10",
+        "feat_combo_ratio_atr_norm_14_range_pct_10",
+        "feat_combo_product_atr_norm_14_range_pct_10",
+        "feat_combo_diff_atr_norm_14_range_pct_20",
+        "feat_combo_ratio_atr_norm_14_range_pct_20",
+        "feat_combo_product_atr_norm_14_range_pct_20",
+        "feat_combo_diff_atr_norm_14_bb_width_20",
+        "feat_combo_ratio_atr_norm_14_bb_width_20",
+        "feat_combo_product_atr_norm_14_bb_width_20",
+        "feat_combo_diff_atr_norm_14_roc_20",
+        "feat_combo_ratio_atr_norm_14_roc_20",
+        "feat_combo_product_atr_norm_14_roc_20",
+        "feat_combo_diff_atr_norm_21_range_pct_5",
+        "feat_combo_ratio_atr_norm_21_range_pct_5",
+        "feat_combo_product_atr_norm_21_range_pct_5",
+        "feat_combo_diff_atr_norm_21_range_pct_10",
+        "feat_combo_ratio_atr_norm_21_range_pct_10",
+        "feat_combo_product_atr_norm_21_range_pct_10",
+        "feat_combo_diff_atr_norm_21_range_pct_20",
+        "feat_combo_ratio_atr_norm_21_range_pct_20",
+        "feat_combo_product_atr_norm_21_range_pct_20",
+        "feat_combo_diff_atr_norm_21_bb_width_20",
+        "feat_combo_ratio_atr_norm_21_bb_width_20",
+        "feat_combo_product_atr_norm_21_bb_width_20",
+        "feat_combo_diff_atr_norm_21_roc_20",
+        "feat_combo_ratio_atr_norm_21_roc_20",
+        "feat_combo_product_atr_norm_21_roc_20",
+        "feat_combo_diff_range_pct_5_range_pct_10",
+        "feat_combo_ratio_range_pct_5_range_pct_10",
+        "feat_combo_product_range_pct_5_range_pct_10",
+        "feat_combo_diff_range_pct_5_range_pct_20",
+        "feat_combo_ratio_range_pct_5_range_pct_20",
+        "feat_combo_product_range_pct_5_range_pct_20",
+        "feat_combo_diff_range_pct_5_bb_width_20",
+        "feat_combo_ratio_range_pct_5_bb_width_20",
+        "feat_combo_product_range_pct_5_bb_width_20",
+        "feat_combo_diff_range_pct_5_roc_20",
+        "feat_combo_ratio_range_pct_5_roc_20",
+        "feat_combo_product_range_pct_5_roc_20",
+        "feat_combo_diff_range_pct_10_range_pct_20",
+        "feat_combo_ratio_range_pct_10_range_pct_20",
+        "feat_combo_product_range_pct_10_range_pct_20",
+        "feat_combo_diff_range_pct_10_bb_width_20",
+        "feat_combo_ratio_range_pct_10_bb_width_20",
+        "feat_combo_product_range_pct_10_bb_width_20",
+        "feat_combo_diff_range_pct_10_roc_20",
+        "feat_combo_ratio_range_pct_10_roc_20",
+        "feat_combo_product_range_pct_10_roc_20",
+        "feat_combo_diff_range_pct_20_bb_width_20",
+        "feat_combo_ratio_range_pct_20_bb_width_20",
+        "feat_combo_product_range_pct_20_bb_width_20",
+        "feat_combo_diff_range_pct_20_roc_20",
+        "feat_combo_ratio_range_pct_20_roc_20",
+        "feat_combo_product_range_pct_20_roc_20",
+        "feat_combo_diff_bb_width_20_roc_20",
+        "feat_combo_ratio_bb_width_20_roc_20",
+        "feat_combo_product_bb_width_20_roc_20"
+    ],
+    "gp_enabled": false,
+    "llm_enabled": true,
+    "llm_status": "success",
+    "llm_params": {
+        "base_url": "https://api.zhizengzeng.com/v1",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.2,
+        "max_tokens": 1024,
+        "count": 6
+    },
+    "expression_origin": "llm",
+    "expressions": [
+        {
+            "name": "volatility_1",
+            "expression": "roll_std(feat_bb_width_10, 10) / roll_std(feat_bb_width_20, 20) + 1e-6",
+            "score": 0.007874279018739463,
+            "score_metric": "correlation",
+            "adjusted_score": 1.755014352112077,
+            "complexity": 5,
+            "complexity_penalty": 0.951229424500714,
+            "signal_return": 44.211295219614435,
+            "signal_sharpe": 3.5243202057844485,
+            "signal_mean": 0.9665250757843401,
+            "signal_std": 0.7925219309022065,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                0.018487950322328826,
+                -0.001931017319504517,
+                0.008792588860320945
+            ],
+            "stability_mean": 0.00844984062104842,
+            "stability_std": 0.008339531048214586,
+            "stability_min": -0.001931017319504517,
+            "stability_max": 0.018487950322328826,
+            "origin": "llm",
+            "entry_threshold": -0.021296560062477526,
+            "entry_quantile": 0.6,
+            "entry_expectation": 0.0009102004178041426,
+            "entry_winrate": 0.5197213547922171,
+            "entry_coverage": 0.3999961566547523,
+            "entry_samples": 20815,
+            "exit_threshold": -0.7019217608111548,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.0002624142521955477,
+            "exit_winrate": 0.502229054573405,
+            "exit_coverage": 0.25000960836311925,
+            "exit_samples": 13010,
+            "llm_description": "Ratio of 10-period Bollinger Bands width standard deviation to 20-period Bollinger Bands width standard deviation.",
+            "llm_reason": "Compares short-term volatility to medium-term volatility in price movements.",
+            "llm_category": "volatility",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "composite_1",
+            "expression": "roll_mean(feat_atr_norm_7, 7) / roll_mean(feat_atr_norm_14, 14)",
+            "score": 0.008307861677505699,
+            "score_metric": "correlation",
+            "adjusted_score": 1.750692191717957,
+            "complexity": 4,
+            "complexity_penalty": 0.9607894391523232,
+            "signal_return": 44.32764524160984,
+            "signal_sharpe": 3.533250135951136,
+            "signal_mean": 0.9963728553805636,
+            "signal_std": 0.1818148712993555,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.011774746961926912,
+                0.015059482419757146,
+                0.0189530663268651
+            ],
+            "stability_mean": 0.007412600594898444,
+            "stability_std": 0.013660300841251178,
+            "stability_min": -0.011774746961926912,
+            "stability_max": 0.0189530663268651,
+            "origin": "llm",
+            "entry_threshold": 0.10210046414026164,
+            "entry_quantile": 0.6,
+            "entry_expectation": 0.0008704845726275757,
+            "entry_winrate": 0.5185416466519358,
+            "entry_coverage": 0.40000768580431945,
+            "entry_samples": 20818,
+            "exit_threshold": -0.6813587816947385,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.0005989258491932251,
+            "exit_winrate": 0.5231727000230574,
+            "exit_coverage": 0.25,
+            "exit_samples": 13011,
+            "llm_description": "Ratio of 7-day ATR normalized mean to 14-day ATR normalized mean",
+            "llm_reason": "Combining short-term and medium-term volatility signals",
+            "llm_category": "volatility",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "volume_1",
+            "expression": "-(pct_change(feat_volume_ratio_10, 10) + pct_change(feat_volume_ratio_20, 20))",
+            "score": 0.0013328893714948298,
+            "score_metric": "correlation",
+            "adjusted_score": 1.0916627385163185,
+            "complexity": 4,
+            "complexity_penalty": 0.9607894391523232,
+            "signal_return": 27.511859831341837,
+            "signal_sharpe": 2.1922037311582896,
+            "signal_mean": -12.727815853085074,
+            "signal_std": 3176.750988735983,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                0.006556095935602923,
+                0.0025854684004373734,
+                -0.005998541921964299
+            ],
+            "stability_mean": 0.0010476741380253324,
+            "stability_std": 0.0052394873368040865,
+            "stability_min": -0.005998541921964299,
+            "stability_max": 0.006556095935602923,
+            "origin": "llm_flipped",
+            "entry_threshold": 0.004737164275041329,
+            "entry_quantile": 0.6,
+            "entry_expectation": 0.0009288588467285295,
+            "entry_winrate": 0.5152534230122507,
+            "entry_coverage": 0.4000038434191056,
+            "entry_samples": 20815,
+            "exit_threshold": 0.004034904109065269,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.0007232222615214071,
+            "exit_winrate": 0.5136049192928517,
+            "exit_coverage": 0.25001441282164616,
+            "exit_samples": 13010,
+            "llm_description": "10-period and 20-period volume ratio percentage changes summed.",
+            "llm_reason": "Combines short-term and medium-term volume trends for forecasting.",
+            "llm_category": "volume",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "composite_4",
+            "expression": "roll_std(feat_volume_ratio_40, 40) / roll_mean(feat_volume_ratio_40, 40) + 1e-6",
+            "score": -0.006056432684715773,
+            "score_metric": "correlation",
+            "adjusted_score": 0.5898287097060392,
+            "complexity": 5,
+            "complexity_penalty": 0.951229424500714,
+            "signal_return": 15.152272322864896,
+            "signal_sharpe": 1.207393160361929,
+            "signal_mean": 5.794022504794725,
+            "signal_std": 3473.5773502380794,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.013615557239402776,
+                -0.020141634350374898,
+                0.011724554572864265
+            ],
+            "stability_mean": -0.007344212338971138,
+            "stability_std": 0.013744352155655792,
+            "stability_min": -0.020141634350374898,
+            "stability_max": 0.011724554572864265,
+            "origin": "llm",
+            "entry_threshold": 0.006103965342528127,
+            "entry_quantile": 0.95,
+            "entry_expectation": 0.0011678046422055693,
+            "entry_winrate": 0.5144175317185697,
+            "entry_coverage": 0.05000192241147295,
+            "entry_samples": 2601,
+            "exit_threshold": -0.002755490551188778,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.000924218973510486,
+            "exit_winrate": 0.5257977700884275,
+            "exit_coverage": 0.25000961205736477,
+            "exit_samples": 13005,
+            "llm_description": "Volatility of 40-day volume ratio normalized by its mean",
+            "llm_reason": "Assessing volatility in volume ratio over a longer period",
+            "llm_category": "volatility",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "composite_2",
+            "expression": "sign(roll_mean(feat_momentum_24, 24)) * abs(roll_mean(feat_momentum_24, 24))",
+            "score": -0.0202929402780106,
+            "score_metric": "correlation",
+            "adjusted_score": 0.40946098641821693,
+            "complexity": 6,
+            "complexity_penalty": 0.9417645335842487,
+            "signal_return": 10.833696756869553,
+            "signal_sharpe": 0.8630813725740597,
+            "signal_mean": 0.0017385504537966794,
+            "signal_std": 0.02619667936471298,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.022452338983225576,
+                -0.03346672495232769,
+                -0.015895802343162013
+            ],
+            "stability_mean": -0.023938288759571758,
+            "stability_std": 0.00724984438397082,
+            "stability_min": -0.03346672495232769,
+            "stability_max": -0.015895802343162013,
+            "origin": "llm",
+            "entry_threshold": 0.5751872206422128,
+            "entry_quantile": 0.7999999999999999,
+            "entry_expectation": 0.001538600315813673,
+            "entry_winrate": 0.5095608724896704,
+            "entry_coverage": 0.20000384364069645,
+            "entry_samples": 10407,
+            "exit_threshold": -0.44552059192631,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.0008429432955814566,
+            "exit_winrate": 0.5288646321777231,
+            "exit_coverage": 0.2500096091017412,
+            "exit_samples": 13009,
+            "llm_description": "Directional momentum strength based on 24-hour momentum mean",
+            "llm_reason": "Capturing momentum direction and magnitude",
+            "llm_category": "momentum",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "momentum_1",
+            "expression": "roll_mean(feat_momentum_24, 24)",
+            "score": -0.0202929402780106,
+            "score_metric": "correlation",
+            "adjusted_score": 0.4086866584732943,
+            "complexity": 2,
+            "complexity_penalty": 0.9801986733067553,
+            "signal_return": 10.833696756869553,
+            "signal_sharpe": 0.8630813725740597,
+            "signal_mean": 0.0017385504537966794,
+            "signal_std": 0.02619667936471298,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.022452338983225576,
+                -0.03346672495232769,
+                -0.015895802343162013
+            ],
+            "stability_mean": -0.023938288759571758,
+            "stability_std": 0.00724984438397082,
+            "stability_min": -0.03346672495232769,
+            "stability_max": -0.015895802343162013,
+            "origin": "llm",
+            "entry_threshold": 0.5751872206422128,
+            "entry_quantile": 0.7999999999999999,
+            "entry_expectation": 0.001538600315813673,
+            "entry_winrate": 0.5095608724896704,
+            "entry_coverage": 0.20000384364069645,
+            "entry_samples": 10407,
+            "exit_threshold": -0.44552059192631,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.0008429432955814566,
+            "exit_winrate": 0.5288646321777231,
+            "exit_coverage": 0.2500096091017412,
+            "exit_samples": 13009,
+            "llm_description": "24-period momentum mean.",
+            "llm_reason": "Indicates the average momentum over a longer period.",
+            "llm_category": "momentum",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "composite_3",
+            "expression": "pct_change(feat_range_pct_10, 10) + pct_change(feat_range_pct_20, 20)",
+            "score": 0.009854993770990122,
+            "score_metric": "correlation",
+            "adjusted_score": 0.3108056974794435,
+            "complexity": 4,
+            "complexity_penalty": 0.9607894391523232,
+            "signal_return": 7.641087894546821,
+            "signal_sharpe": 0.6087041285901011,
+            "signal_mean": 0.19354738734128676,
+            "signal_std": 1.3925663658774186,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.003342266864293824,
+                0.013536710937189288,
+                0.019580499617352917
+            ],
+            "stability_mean": 0.009924981230082794,
+            "stability_std": 0.009700403751079075,
+            "stability_min": -0.003342266864293824,
+            "stability_max": 0.019580499617352917,
+            "origin": "llm",
+            "entry_threshold": 0.12532084115953787,
+            "entry_quantile": 0.7,
+            "entry_expectation": 0.0009810057458653437,
+            "entry_winrate": 0.5224521170969189,
+            "entry_coverage": 0.29999807829044717,
+            "entry_samples": 15611,
+            "exit_threshold": -0.3790764950388059,
+            "exit_quantile": 0.25,
+            "exit_expectation": 0.0005802646978744646,
+            "exit_winrate": 0.5170637970791698,
+            "exit_coverage": 0.25001441282164616,
+            "exit_samples": 13010,
+            "llm_description": "Sum of 10-day and 20-day range percentage changes",
+            "llm_reason": "Aggregating short-term and medium-term range dynamics",
+            "llm_category": "trend",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "composite_6",
+            "expression": "clip(roll_mean(feat_rsi_9, 9), 20, 80) - 50",
+            "score": -0.01665972878802841,
+            "score_metric": "correlation",
+            "adjusted_score": 0.18192885079182206,
+            "complexity": 3,
+            "complexity_penalty": 0.9704455335485082,
+            "signal_return": 5.027721242070378,
+            "signal_sharpe": 0.40042190932425054,
+            "signal_mean": 0.8691284954715406,
+            "signal_std": 12.354600536120238,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.021066255161227752,
+                -0.005075995257108363,
+                -0.033473671744221944
+            ],
+            "stability_mean": -0.01987197405418602,
+            "stability_std": 0.011624019327486471,
+            "stability_min": -0.033473671744221944,
+            "stability_max": -0.005075995257108363,
+            "origin": "llm",
+            "entry_threshold": 1.7368294828065698,
+            "entry_quantile": 0.95,
+            "entry_expectation": 0.003540035348312785,
+            "entry_winrate": 0.5263157894736842,
+            "entry_coverage": 0.05001056696574382,
+            "entry_samples": 2603,
+            "exit_threshold": -1.6767436211197018,
+            "exit_quantile": 0.05,
+            "exit_expectation": -0.0013586705252834157,
+            "exit_winrate": 0.4971187091817134,
+            "exit_coverage": 0.05001056696574382,
+            "exit_samples": 2603,
+            "llm_description": "RSI 9-day mean clipped between 20 and 80, centered at 50",
+            "llm_reason": "Identifying potential overbought or oversold conditions",
+            "llm_category": "other",
+            "llm_model": "gpt-3.5-turbo"
+        },
+        {
+            "name": "composite_5",
+            "expression": "roll_mean(feat_ema_pct_20, 20) - roll_mean(feat_ema_pct_55, 55)",
+            "score": 0.002763217041236324,
+            "score_metric": "correlation",
+            "adjusted_score": 0.15001023052842627,
+            "complexity": 4,
+            "complexity_penalty": 0.9607894391523232,
+            "signal_return": 3.7741007231731505,
+            "signal_sharpe": 0.30076486895255733,
+            "signal_mean": 0.000509403014351388,
+            "signal_std": 0.015782800226228626,
+            "threshold_type": "zscore",
+            "stability_scores": [
+                -0.016328156049977356,
+                -0.009345062414596959,
+                0.02954041732371042
+            ],
+            "stability_mean": 0.0012890662863787015,
+            "stability_std": 0.020179115040986153,
+            "stability_min": -0.016328156049977356,
+            "stability_max": 0.02954041732371042,
+            "origin": "llm",
+            "entry_threshold": 1.0739050150788616,
+            "entry_quantile": 0.8999999999999999,
+            "entry_expectation": 0.002603098122179951,
+            "entry_winrate": 0.5520092289944242,
+            "entry_coverage": 0.10001346076187913,
+            "entry_samples": 5201,
+            "exit_threshold": -1.5452081041391674,
+            "exit_quantile": 0.05,
+            "exit_expectation": -0.0004135197346172,
+            "exit_winrate": 0.477124183006536,
+            "exit_coverage": 0.05001634521085322,
+            "exit_samples": 2601,
+            "llm_description": "Difference between 20-day EMA percentage mean and 55-day EMA percentage mean",
+            "llm_reason": "Contrasting short-term and long-term exponential moving averages",
+            "llm_category": "mean_reversion",
+            "llm_model": "gpt-3.5-turbo"
+        }
+    ],
+    "generated_at": "2025-09-28T07:26:47.108994+00:00"
+}

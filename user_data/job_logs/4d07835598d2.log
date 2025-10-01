@@ -1,0 +1,33 @@
+Traceback (most recent call last):
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1340, in <module>
+    main()
+    ~~~~^^
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1148, in main
+    feature_cfg = load_features_config(feature_file)
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 80, in load_features_config
+    raise FileNotFoundError(f"Feature file not found: {path}")
+FileNotFoundError: Feature file not found: D:\Agent_market\configs\user_data\freqai_features_multi.json
+Traceback (most recent call last):
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1340, in <module>
+    main()
+    ~~~~^^
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1148, in main
+    feature_cfg = load_features_config(feature_file)
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 80, in load_features_config
+    raise FileNotFoundError(f"Feature file not found: {path}")
+FileNotFoundError: Feature file not found: D:\Agent_market\configs\user_data\freqai_features_multi.json
+[wrapper] retries exhausted, falling back to classic expressions
+Traceback (most recent call last):
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1340, in <module>
+    main()
+    ~~~~^^
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 1148, in main
+    feature_cfg = load_features_config(feature_file)
+  File "D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py", line 80, in load_features_config
+    raise FileNotFoundError(f"Feature file not found: {path}")
+FileNotFoundError: Feature file not found: D:\Agent_market\configs\user_data\freqai_features_multi.json
+[wrapper] run #1: C:\Python313\python.exe D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py --config D:\Agent_market\configs\config_freqai_multi.json --feature-file user_data/freqai_features_multi.json --output user_data\freqai_expressions.json --timeframe 4h --feedback-top 0 --llm-model gpt-3.5-turbo --llm-count 3 --llm-loops 1 --llm-timeout 60.0
+[wrapper] saved raw: D:\Agent_market\user_data\llm_raw\expr_20250930-042154_try1.json
+[wrapper] run #2: C:\Python313\python.exe D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py --config D:\Agent_market\configs\config_freqai_multi.json --feature-file user_data/freqai_features_multi.json --output user_data\freqai_expressions.json --timeframe 4h --feedback-top 0 --llm-model gpt-3.5-turbo --llm-count 3 --llm-loops 1 --llm-timeout 60.0
+[wrapper] saved raw: D:\Agent_market\user_data\llm_raw\expr_20250930-042158_try2.json
+[wrapper] classic: C:\Python313\python.exe D:\Agent_market\freqtrade\scripts\freqai_expression_agent.py --config D:\Agent_market\configs\config_freqai_multi.json --feature-file user_data/freqai_features_multi.json --output user_data\freqai_expressions.json --timeframe 4h --feedback-top 0
