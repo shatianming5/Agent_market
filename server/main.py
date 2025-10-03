@@ -36,7 +36,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 app = FastAPI(title=SETTINGS.api_title, version=SETTINGS.api_version)
 app.add_middleware(CORSMiddleware, allow_origins=SETTINGS.allowed_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
-jobs = JobManager(max_seconds=SETTINGS.job_max_seconds)
+def _on_job_step(job_id: str, idx: int, total: int, label: str, ts: str) -> None:
+    try:
+        DB_HANDLE.log_job_step(job_id, idx, total, label, ts)
+    except Exception:
+        pass
+
+jobs = JobManager(max_seconds=SETTINGS.job_max_seconds, on_step=_on_job_step)
 
 # Initialize database
 DB_HANDLE = DB(SETTINGS.db_path)
@@ -966,6 +972,39 @@ def job_progress(job_id: str):
         'percent': pct,
         'elapsed': elapsed,
     }
+
+
+@app.get('/jobs/{job_id}/steps')
+def job_steps(job_id: str):
+    try:
+        steps = DB_HANDLE.get_job_steps(job_id)
+    except Exception as exc:
+        return {'status': 'error', 'message': str(exc)}
+    # compute durations using next step ts
+    try:
+        from datetime import datetime
+        parsed = []
+        for i, s in enumerate(steps):
+            dur = None
+            if i + 1 < len(steps):
+                try:
+                    t0 = datetime.fromisoformat(s['ts'].replace('Z','+00:00'))
+                    t1 = datetime.fromisoformat(steps[i+1]['ts'].replace('Z','+00:00'))
+                    dur = max(0, int((t1 - t0).total_seconds()))
+                except Exception:
+                    dur = None
+            parsed.append({**s, 'duration': dur})
+        return {'steps': parsed}
+    except Exception as exc:
+        return {'status': 'error', 'message': str(exc)}
+
+
+@app.get('/steps/stats')
+def steps_stats():
+    try:
+        return {'stats': DB_HANDLE.get_step_stats()}
+    except Exception as exc:
+        return {'status': 'error', 'message': str(exc)}
 
 
 @app.post('/jobs/dev/sleep')
