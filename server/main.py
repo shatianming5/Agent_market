@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import sys
@@ -96,7 +96,7 @@ class ExpressionReq(BaseModel):
     llm_api_key: Optional[str] = None
     feedback: Optional[str] = None
     feedback_top: int = 0
-    # 性能优化开关与可选阈值（不传则使用快速默认）
+    # æ€§èƒ½ä¼˜åŒ–å¼€å…³ä¸Žå¯é€‰é˜ˆå€¼ï¼ˆä¸ä¼ åˆ™ä½¿ç”¨å¿«é€Ÿé»˜è®¤ï¼‰
     fast: bool = True
     top: Optional[int] = None
     combo_top: Optional[int] = None
@@ -115,6 +115,25 @@ class BacktestReq(BaseModel):
     export_filename: str = Field("user_data/backtest_results/latest_trades_multi")
     fast: bool = True
     force_fast: Optional[bool] = None
+
+
+class DownloadDataReq(BaseModel):
+    config: str = Field(..., description="Path to freqtrade JSON config")
+    timeframe: Optional[str] = Field(None, description="Single timeframe, e.g. '1h'")
+    timeframes: Optional[list[str]] = Field(None, description="Multiple timeframes, e.g. ['1h','4h']")
+    pairs: Optional[list[str]] = Field(None, description="Pairs list, e.g. ['BTC/USDT','ETH/USDT']")
+    pairs_file: Optional[str] = Field(None, description="Path to pairs file")
+    timerange: Optional[str] = Field(None, description="Timerange like 20200701-20210131")
+    days: Optional[int] = Field(None, description="Limit to last N days")
+    exchange: Optional[str] = Field(None, description="Exchange name to use")
+    erase: bool = Field(False, description="Erase existing data before downloading")
+    new_pairs: bool = Field(False, description="Only download pairs not present yet")
+    dl_trades: bool = Field(False, description="Download trades data instead of OHLCV")
+
+
+class TrainMLReq(BaseModel):
+    config_path: Optional[str] = Field(None, description="Path to training config JSON")
+    config: Optional[dict] = Field(None, description="Inline training config object")
 
 
 class FlowReq(BaseModel):
@@ -172,7 +191,7 @@ def run_expression(req: ExpressionReq = Body(...)):
         '--llm-timeout', str(req.llm_timeout),
         '--feedback-top', str(req.feedback_top),
     ]
-    # 速度优先：限制候选规模，关闭组合特征，降低稳定性窗口
+    # é€Ÿåº¦ä¼˜å…ˆï¼šé™åˆ¶å€™é€‰è§„æ¨¡ï¼Œå…³é—­ç»„åˆç‰¹å¾ï¼Œé™ä½Žç¨³å®šæ€§çª—å£
     fast_mode = req.fast or (req.force_fast if req.force_fast is not None else SETTINGS.force_fast)
     if fast_mode:
         cmd += [
@@ -186,7 +205,7 @@ def run_expression(req: ExpressionReq = Body(...)):
         cmd += ['--feedback', req.feedback]
 
     env = os.environ.copy()
-    # 仅确保 src/ 可导入（避免覆盖 conda 内已安装的 freqtrade 包）
+    # ä»…ç¡®ä¿ src/ å¯å¯¼å…¥ï¼ˆé¿å…è¦†ç›– conda å†…å·²å®‰è£…çš„ freqtrade åŒ…ï¼‰
     env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
     # LLM credentials from request or environment
     if req.llm_api_key:
@@ -231,9 +250,12 @@ def run_backtest(req: BacktestReq = Body(...)):
             base = [binary, 'backtesting']
         else:
             base = [py, '-m', 'freqtrade', 'backtesting']
-    # 短时间范围优先（除非显式指定 fast=False）
+    # çŸ­æ—¶é—´èŒƒå›´ä¼˜å…ˆï¼ˆé™¤éžæ˜¾å¼æŒ‡å®š fast=Falseï¼‰
     fast_mode = req.fast or (req.force_fast if req.force_fast is not None else SETTINGS.force_fast)
-    timerange_value = '20210101-20210131' if fast_mode else req.timerange
+    if fast_mode:
+        timerange_value = req.timerange or '20200701-20210131'
+    else:
+        timerange_value = req.timerange
     cmd = (conda_prefix or []) + base + [
         '--config', str(cfg_path),
         '--strategy', req.strategy,
@@ -243,6 +265,103 @@ def run_backtest(req: BacktestReq = Body(...)):
     ]
     if req.export:
         cmd += ['--export', 'trades', '--export-filename', req.export_filename]
+    env = os.environ.copy()
+    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"status": "started", "job_id": job_id, "cmd": cmd}
+
+
+@app.post("/run/download-data")
+def run_download_data(req: DownloadDataReq = Body(...)):
+    cfg_path = Path(req.config)
+    if not cfg_path.is_absolute():
+        cfg_path = (ROOT / cfg_path).resolve()
+    if not cfg_path.exists():
+        return {"status": "error", "code": "CONFIG_NOT_FOUND", "message": f"Config file not found: {cfg_path}"}
+
+    env_py = _conda_env_python('freqtrade')
+    conda_prefix = _conda_prefix_args() if not env_py else None
+    py = env_py or ('python' if conda_prefix else sys.executable)
+
+    from shutil import which
+    if env_py:
+        base = [py, '-m', 'freqtrade', 'download-data']
+    else:
+        use_bin = which('freqtrade') is not None and conda_prefix is None
+        if use_bin:
+            base = ['freqtrade', 'download-data']
+        else:
+            base = [py, '-m', 'freqtrade', 'download-data']
+
+    cmd = (conda_prefix or []) + base + ['--config', str(cfg_path)]
+
+    # Timeframes
+    tfs = []
+    if req.timeframes:
+        tfs = [str(t) for t in req.timeframes if t]
+    elif req.timeframe:
+        tfs = [str(req.timeframe)]
+    for tf in tfs:
+        cmd += ['-t', tf]
+
+    # Pairs
+    if req.pairs_file:
+        p = Path(req.pairs_file)
+        if not p.is_absolute():
+            p = (ROOT / p).resolve()
+        cmd += ['--pairs-file', str(p)]
+    if req.pairs:
+        for pair in req.pairs:
+            cmd += ['-p', str(pair)]
+
+    # Other options
+    if req.exchange:
+        cmd += ['--exchange', req.exchange]
+    if req.timerange:
+        cmd += ['--timerange', req.timerange]
+    if isinstance(req.days, int) and req.days > 0:
+        cmd += ['--days', str(int(req.days))]
+    if req.erase:
+        cmd += ['--erase']
+    if req.new_pairs:
+        cmd += ['--new-pairs']
+    if req.dl_trades:
+        cmd += ['--dl-trades']
+
+    env = os.environ.copy()
+    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"status": "started", "job_id": job_id, "cmd": cmd}
+
+
+@app.post("/run/train-ml")
+def run_train_ml(req: TrainMLReq = Body(...)):
+    # Accept either config_path or inline config
+    cfg_path: Optional[Path] = None
+    if req.config_path:
+        cfg_path = Path(req.config_path)
+        if not cfg_path.is_absolute():
+            cfg_path = (ROOT / cfg_path).resolve()
+        if not cfg_path.exists():
+            return {"status": "error", "code": "TRAIN_CONFIG_NOT_FOUND", "message": f"Training config not found: {cfg_path}"}
+    elif req.config is not None:
+        # Write to a tmp file
+        tmp_dir = ROOT / 'user_data' / 'tmp'
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        import uuid, json
+        cfg_path = tmp_dir / f"train_{uuid.uuid4().hex[:8]}.json"
+        cfg_path.write_text(json.dumps(req.config, ensure_ascii=False, indent=2), encoding='utf-8')
+    else:
+        return {"status": "error", "code": "TRAIN_CONFIG_MISSING", "message": "Provide config_path or config"}
+
+    env_py = _conda_env_python('freqtrade')
+    conda_prefix = _conda_prefix_args() if not env_py else None
+    py = env_py or ('python' if conda_prefix else sys.executable)
+
+    script = ROOT / 'scripts' / 'train_ml.py'
+    if not script.exists():
+        return {"status": "error", "code": "TRAIN_SCRIPT_MISSING", "message": f"Script not found: {script}"}
+    cmd = (conda_prefix or []) + [py, str(script), '--config', str(cfg_path)]
     env = os.environ.copy()
     env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
     job_id = jobs.start(cmd, cwd=ROOT, env=env)
@@ -324,4 +443,54 @@ def job_stream(job_id: str, offset: int = 0):
             time.sleep(0.5)
 
     return StreamingResponse(gen(), media_type='text/event-stream')
+@app.get('/jobs/{job_id}/progress')
+def job_progress(job_id: str):
+    status = jobs.status(job_id)
+    if 'error' in status:
+        return status
+    data = jobs.logs(job_id, 0)
+    logs = data.get('logs', [])
+    current=0; total=0; label=''
+    import re, datetime as _dt
+    pat = re.compile(r"^\[STEP\]\s+\d{2}:\d{2}:\d{2}\s+(?:\[(\d+)/(\d+)\]\s+([^\n]+)|(.+))$")
+    for line in logs:
+        m = pat.match(line)
+        if not m:
+            continue
+        if m.group(1):
+            current = int(m.group(1) or 0)
+            total = int(m.group(2) or 0)
+            label = (m.group(3) or '').strip()
+    elapsed=None
+    try:
+        if status.get('started_at'):
+            t0 = _dt.datetime.fromisoformat(status['started_at'].replace('Z','+00:00'))
+            elapsed = int((_dt.datetime.now(_dt.timezone.utc) - t0).total_seconds())
+    except Exception:
+        pass
+    pct = int(min(100, (current/total*100))) if total else 0
+    return {
+        'id': status.get('id'),
+        'running': status.get('running'),
+        'started_at': status.get('started_at'),
+        'finished_at': status.get('finished_at'),
+        'current': current,
+        'total': total,
+        'label': label,
+        'percent': pct,
+        'elapsed': elapsed,
+    }
+
+
+@app.post('/jobs/dev/sleep')
+def job_dev_sleep(secs: int = 15):
+    if not os.environ.get('APP_DEV_JOBS'):
+        return {"error": "dev jobs disabled"}
+    py = sys.executable
+    code = f"import time; [print(f'line{{i}}') or time.sleep(1) for i in range({int(secs)})]"
+    cmd = [py, '-c', code]
+    env = os.environ.copy()
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"status": "started", "job_id": job_id}
+
 

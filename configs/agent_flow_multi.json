@@ -1,4 +1,10 @@
 {
+    "download": {
+        "config": "configs/config_freqai_multi.json",
+        "timeframes": ["4h"],
+        "pairs": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT"],
+        "timerange": "20200701-20210131"
+    },
     "feature":  {
                     "script":  "freqtrade/scripts/freqai_feature_agent.py",
                     "args":  [

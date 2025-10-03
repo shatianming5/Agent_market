@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import os
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AgentFlowConfig:
+    download: Optional[Dict[str, Any]] = None
     feature: Optional[Dict[str, Any]] = None
     expression: Optional[Dict[str, Any]] = None
     ml_training: Optional[Dict[str, Any]] = None
@@ -25,11 +27,12 @@ class AgentFlowConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentFlowConfig":
-        known_keys = {"feature", "expression", "ml_training", "rl_training", "backtest"}
+        known_keys = {"download", "feature", "expression", "ml_training", "rl_training", "backtest"}
         extra = set(data.keys()) - known_keys
         if extra:
             logger.warning("AgentFlowConfig received unknown keys: %s", ", ".join(sorted(extra)))
         return cls(
+            download=data.get("download"),
             feature=data.get("feature"),
             expression=data.get("expression"),
             ml_training=data.get("ml_training"),
@@ -49,7 +52,7 @@ def load_agent_flow_config(path: Path) -> AgentFlowConfig:
 
 
 class AgentFlow:
-    STEP_ORDER = ["feature", "expression", "ml", "rl", "backtest"]
+    STEP_ORDER = ["download", "feature", "expression", "ml", "rl", "backtest"]
 
     def __init__(self, config: AgentFlowConfig):
         self.config = config
@@ -64,6 +67,7 @@ class AgentFlow:
                 logger.warning("Ignoring unknown steps: %s", ", ".join(unknown))
             requested = [step for step in requested if step in self.STEP_ORDER]
         sequence = [
+            ("download", self.config.download, self.run_download),
             ("feature", self.config.feature, self.run_feature_generation),
             ("expression", self.config.expression, self.run_expression_generation),
             ("ml", self.config.ml_training, self.run_ml_training),
@@ -83,6 +87,48 @@ class AgentFlow:
         script = Path(cfg.get("script", "freqtrade/scripts/freqai_feature_agent.py"))
         args = list(map(str, cfg.get("args", [])))
         cmd = [sys.executable, str(script)] + args
+        self._run_command(cmd, cwd=cfg.get("cwd"))
+
+    def run_download(self, cfg: Dict[str, Any]) -> None:
+        # Build a freqtrade download-data command
+        cfg = dict(cfg)
+        cmd: List[str]
+        # Prefer console script, otherwise use module
+        prefix = self._conda_prefix()
+        if prefix:
+            base = ['freqtrade', 'download-data']
+        else:
+            base = [sys.executable, '-m', 'freqtrade', 'download-data']
+        cmd = (prefix or []) + base
+        config_path = cfg.get('config')
+        if not config_path:
+            raise ValueError("download.config is required")
+        cmd += ['--config', str(config_path)]
+
+        timeframes = cfg.get('timeframes') or ([cfg['timeframe']] if cfg.get('timeframe') else [])
+        for tf in timeframes:
+            cmd += ['-t', str(tf)]
+
+        pairs_file = cfg.get('pairs_file')
+        if pairs_file:
+            cmd += ['--pairs-file', str(pairs_file)]
+        pairs = cfg.get('pairs') or []
+        for pair in pairs:
+            cmd += ['-p', str(pair)]
+
+        if cfg.get('exchange'):
+            cmd += ['--exchange', str(cfg['exchange'])]
+        if cfg.get('timerange'):
+            cmd += ['--timerange', str(cfg['timerange'])]
+        if 'days' in cfg and cfg['days']:
+            cmd += ['--days', str(int(cfg['days']))]
+        if cfg.get('erase'):
+            cmd += ['--erase']
+        if cfg.get('new_pairs'):
+            cmd += ['--new-pairs']
+        if cfg.get('dl_trades'):
+            cmd += ['--dl-trades']
+        cmd += list(map(str, cfg.get('extra_args', [])))
         self._run_command(cmd, cwd=cfg.get("cwd"))
 
     def run_expression_generation(self, cfg: Dict[str, Any]) -> None:
@@ -154,9 +200,29 @@ class AgentFlow:
         self._collect_backtest_feedback(results_dir, feedback_path)
 
     @staticmethod
+    def _conda_prefix() -> Optional[List[str]]:
+        try:
+            out = subprocess.run(['conda', 'env', 'list'], capture_output=True, text=True)
+            if out.returncode == 0 and 'freqtrade' in out.stdout:
+                return ['conda', 'run', '--no-capture-output', '-n', 'freqtrade']
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
     def _run_command(cmd: List[str], cwd: Optional[str] = None) -> None:
         logger.info("Running command: %s", " ".join(cmd))
-        subprocess.run(cmd, cwd=cwd, check=True)
+        # Prefix with conda run for bare 'freqtrade' binary
+        prefix = None
+        if cmd and os.path.basename(cmd[0]).lower() == 'freqtrade':
+            prefix = AgentFlow._conda_prefix()
+        full_cmd = (prefix or []) + cmd
+        # 仅确保 src 可导入，避免覆盖 conda 内 freqtrade 包
+        root = Path(__file__).resolve().parents[2]
+        env = os.environ.copy()
+        py_paths = [str(root / 'src')]
+        env['PYTHONPATH'] = os.pathsep.join(py_paths + [env.get('PYTHONPATH', '')])
+        subprocess.run(full_cmd, cwd=cwd, check=True, env=env)
 
     def _collect_backtest_feedback(self, results_dir: Path, output_path: Path) -> None:
         try:

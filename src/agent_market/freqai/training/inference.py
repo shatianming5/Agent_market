@@ -28,6 +28,7 @@ class AuxModelPredictor:
         self._candidates = {
             'pytorch_mlp': SummaryInfo('pytorch_mlp', project_root / 'artifacts/models/pytorch_real/training_summary.json'),
             'rl_ppo': SummaryInfo('rl_ppo', project_root / 'artifacts/models/rl_real/training_summary.json'),
+            'lightgbm_multi': SummaryInfo('lightgbm_multi', project_root / 'artifacts/models/lightgbm_multi/training_summary.json'),
         }
 
     # ------------------------------------------------------------------
@@ -70,6 +71,16 @@ class AuxModelPredictor:
                 dataframe['rl_long_prob'] = long_prob
                 dataframe['rl_short_prob'] = short_prob
                 dataframe['rl_action'] = action
+            elif key == 'lightgbm_multi':
+                preds = self._predict_lightgbm(key, model_path, matrix)
+                if preds is None:
+                    continue
+                series = pd.Series(preds, index=dataframe.index, name='lgbm_prediction').astype(float)
+                z_series = self._zscore(series, window=200)
+                results['lgbm_prediction'] = series
+                results['lgbm_zscore'] = z_series
+                dataframe['lgbm_prediction'] = series
+                dataframe['lgbm_zscore'] = z_series
         return results
 
     # ------------------------------------------------------------------
@@ -106,7 +117,7 @@ class AuxModelPredictor:
             logger.debug("AuxModelPredictor: dataframe missing features %s", ', '.join(missing))
             return None
         matrix = dataframe[list(columns)].astype(float).replace([np.inf, -np.inf], np.nan)
-        matrix = matrix.fillna(method='ffill').fillna(method='bfill').fillna(0.0)
+        matrix = matrix.ffill().bfill().fillna(0.0)
         return matrix.to_numpy(dtype=np.float32)
 
     @staticmethod
@@ -170,6 +181,27 @@ class AuxModelPredictor:
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("AuxModelPredictor: RL prediction failed: %s", exc)
             return None
+
+    def _predict_lightgbm(self, key: str, model_path: Path, matrix: np.ndarray) -> Optional[np.ndarray]:
+        try:
+            import lightgbm as lgb  # type: ignore
+        except ImportError as exc:
+            logger.warning("AuxModelPredictor: LightGBM not available (%s)", exc)
+            return None
+        cache_key = (key, str(model_path))
+        cached = self._model_cache.get(cache_key)
+        mtime = model_path.stat().st_mtime
+        if not cached or cached.get('mtime') != mtime:
+            booster = lgb.Booster(model_file=str(model_path))
+            cached = {'model': booster, 'mtime': mtime}
+            self._model_cache[cache_key] = cached
+        booster = cached['model']
+        try:
+            preds = booster.predict(matrix)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("AuxModelPredictor: LightGBM predict failed: %s", exc)
+            return None
+        return preds.astype(np.float32)
 
 
 __all__ = ['AuxModelPredictor']
