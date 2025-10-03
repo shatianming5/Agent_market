@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r server/requirements.txt
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+      - name: Run tests
+        run: |
+          python -m pytest -q -rs
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deps (python)
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r server/requirements.txt
+          python -m pip install -r requirements.txt
+      - name: Start both and test connectivity
+        env:
+          APP_FORCE_FAST: '1'
+        run: |
+          python scripts/start_both_and_test.py
