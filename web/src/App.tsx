@@ -103,7 +103,7 @@ export default function App() {
     // Save enabled flags if expressions loaded
     try {
       if (btExprLoaded) {
-        await postJSON('/expressions', { expressions: btExpr })
+        await putJSON('/expressions', { expressions: btExpr })
       }
     } catch {}
     const res = await postJSON<{ status:string; job_id:string }>(`/run/backtest`, {
@@ -307,7 +307,7 @@ export default function App() {
                 setBtExprLoaded(true)
               } catch {}
             }}>Load Factors</button>
-            {btExprLoaded ? <button onClick={async ()=>{ try { await postJSON('/expressions', { expressions: btExpr }); alert('Factors saved'); } catch (e) { alert('Save failed') } }}>Save Factors</button> : null}
+            {btExprLoaded ? <button onClick={async ()=>{ try { await putJSON('/expressions', { expressions: btExpr }); alert('Factors saved'); } catch (e) { alert('Save failed') } }}>Save Factors</button> : null}
           </div>
           {btExprLoaded ? (
             <div style={{ border: '1px solid #eee', padding: 8, borderRadius: 4, maxHeight: 220, overflow: 'auto', marginBottom: 8 }}>

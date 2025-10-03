@@ -77,7 +77,7 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
     setLoading(true)
     setError('')
     try {
-      const stat = await postJSON('/expressions/validate', { expression: item.expression })
+      const stat = await postJSON('/expressions/validate', item.expression)
       setStaticIssues(prev => ({ ...prev, [idx]: stat }))
       const res = await postJSON('/expressions/preview', { pair, timeframe, expression: item.expression, config: 'configs/config_freqai_multi.json', apply_features: true })
       setPreviewIdx(idx); setPreviewStats(res)

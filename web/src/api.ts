@@ -16,6 +16,16 @@ export async function postJSON<T = any>(path: string, body: any): Promise<T> {
   return r.json()
 }
 
+export async function putJSON<T = any>(path: string, body: any): Promise<T> {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`PUT ${path} failed: ${r.status}`)
+  return r.json()
+}
+
 export type Agent = { id: string; name: string; created_at: string }
 export type Order = { id: string; agent_id: string; side: string; qty: number; status: string; created_at: string }
 

@@ -16,7 +16,7 @@ export default function StrategyParams() {
   async function save() {
     setSaving(true)
     try {
-      await postJSON('/strategy/params', data)
+      await putJSON('/strategy/params', data)
     } finally {
       setSaving(false)
     }
