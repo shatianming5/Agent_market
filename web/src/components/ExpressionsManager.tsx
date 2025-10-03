@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { getJSON, postJSON } from '../api'
 
 type ExpressionItem = { [k: string]: any }
@@ -15,6 +15,20 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
   const [timeframe, setTimeframe] = useState('4h')
   const [staticIssues, setStaticIssues] = useState<Record<number, any>>({})
   const [columns, setColumns] = useState<string[]>([])
+  // LLM generation form
+  const [llmModel, setLlmModel] = useState('gpt-4o-mini')
+  const [llmCount, setLlmCount] = useState(20)
+  const [llmLoops, setLlmLoops] = useState(1)
+  const [llmTimeout, setLlmTimeout] = useState(60)
+  const [apiKey, setApiKey] = useState('')
+  const [featureFile, setFeatureFile] = useState('user_data/freqai_features_multi.json')
+  const [outputPath, setOutputPath] = useState('user_data/freqai_expressions.json')
+  const [genJobId, setGenJobId] = useState<string | null>(null)
+  const [genPct, setGenPct] = useState(0)
+  const [genLabel, setGenLabel] = useState('')
+  const [genRunning, setGenRunning] = useState(false)
+  const [genElapsed, setGenElapsed] = useState<number | undefined>(undefined)
+  const pollRef = useRef<number | null>(null)
 
   async function load() {
     setLoading(true)
@@ -83,6 +97,75 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
     } catch {}
   }
 
+  async function generateExpressions() {
+    setError('')
+    try {
+      const res = await postJSON<{ status:string; job_id:string }>(`/run/expression`, {
+        config: 'configs/config_freqai_multi.json',
+        feature_file: featureFile,
+        output: outputPath,
+        timeframe,
+        llm_model: llmModel,
+        llm_count: llmCount,
+        llm_loops: llmLoops,
+        llm_timeout: llmTimeout,
+        feedback_top: 0,
+        fast: true,
+        llm_api_key: apiKey || undefined,
+      })
+      startTrack(res.job_id)
+    } catch (e:any) {
+      setError(e?.message || 'Failed to start generation')
+    }
+  }
+
+  function startTrack(id: string) {
+    setGenJobId(id); setGenRunning(true); setGenPct(0); setGenLabel('')
+    if (pollRef.current) window.clearInterval(pollRef.current)
+    pollRef.current = window.setInterval(async () => {
+      try {
+        const p = await getJSON<any>(`/jobs/${id}/progress`)
+        setGenPct(p.percent || 0)
+        setGenLabel(p.label || '')
+        setGenRunning(!!p.running)
+        setGenElapsed(p.elapsed)
+        if (!p.running) {
+          if (pollRef.current) window.clearInterval(pollRef.current)
+          pollRef.current = null
+          await load()
+          if (onJob) onJob()
+        }
+      } catch {}
+    }, 1200)
+  }
+
+  async function generateAndBacktest() {
+    await generateExpressions()
+    // naive chaining: wait until current job finishes then start backtest
+    const id = genJobId
+    if (!id) return
+    const wait = async () => {
+      try {
+        const st = await getJSON<any>(`/jobs/${id}/status`)
+        if (st && st.running === false) {
+          await postJSON('/run/backtest', {
+            config: 'configs/config_freqai_multi.json',
+            strategy: 'ExpressionLongStrategy',
+            strategy_path: 'freqtrade/user_data/strategies',
+            timerange: '20200701-20210131',
+            freqaimodel: 'LightGBMRegressor',
+            export: false,
+            fast: true,
+          })
+          if (onJob) onJob()
+          return
+        }
+      } catch {}
+      setTimeout(wait, 1500)
+    }
+    setTimeout(wait, 1500)
+  }
+
   return (
     <div>
       <h2>Expressions</h2>
@@ -92,6 +175,45 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
         <button onClick={saveAll} style={{ marginLeft: 8 }} disabled={loading}>Save All</button>
         <button onClick={load} style={{ marginLeft: 8 }} disabled={loading}>Reload</button>
         {error ? <span style={{ marginLeft: 8, color: 'crimson' }}>{error}</span> : null}
+      </div>
+      <div style={{ border: '1px solid #eee', padding: 8, borderRadius: 4, marginBottom: 8 }}>
+        <div style={{ fontWeight: 600 }}>LLM Generation</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+          <label>Model:</label>
+          <input value={llmModel} onChange={e => setLlmModel(e.target.value)} style={{ width: 160 }} />
+          <label>Count:</label>
+          <input type="number" value={llmCount} onChange={e => setLlmCount(parseInt(e.target.value || '0', 10))} style={{ width: 80 }} />
+          <label>Loops:</label>
+          <input type="number" value={llmLoops} onChange={e => setLlmLoops(parseInt(e.target.value || '0', 10))} style={{ width: 80 }} />
+          <label>Timeout(s):</label>
+          <input type="number" value={llmTimeout} onChange={e => setLlmTimeout(parseInt(e.target.value || '0', 10))} style={{ width: 100 }} />
+          <label>API Key:</label>
+          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} style={{ width: 220 }} placeholder="LLM_API_KEY (optional)" />
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
+          <label>Feature File:</label>
+          <input value={featureFile} onChange={e => setFeatureFile(e.target.value)} style={{ width: 320 }} />
+          <label>Output:</label>
+          <input value={outputPath} onChange={e => setOutputPath(e.target.value)} style={{ width: 320 }} />
+          <label>Timeframe:</label>
+          <input value={timeframe} onChange={e => setTimeframe(e.target.value)} style={{ width: 100 }} />
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <button onClick={generateExpressions} disabled={genRunning}>Generate via LLM</button>
+          <button onClick={generateAndBacktest} style={{ marginLeft: 8 }} disabled={genRunning}>Generate + Backtest</button>
+        </div>
+        {genJobId ? (
+          <div style={{ marginTop: 8 }}>
+            <div><b>Gen Job:</b> {genJobId}</div>
+            <div style={{ height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden', marginTop: 4 }}>
+              <div style={{ width: genPct + '%', height: '100%', background: '#0ea5e9' }} />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+              <span>{genLabel || 'running...'}</span>
+              <span>{genPct}% {genElapsed ? `(elapsed ${genElapsed}s)` : ''}</span>
+            </div>
+          </div>
+        ) : null}
       </div>
       <datalist id="expr-suggestions">
         {allowed.functions.map((f, i) => <option key={`f-${i}`} value={`${f}(`} />)}

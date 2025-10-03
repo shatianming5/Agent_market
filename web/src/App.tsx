@@ -229,3 +229,4 @@ async function runBacktest() {
     }
     setTimeout(tick, 1000)
   }
+}
