@@ -14,6 +14,7 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
   const [pair, setPair] = useState('ADA/USDT')
   const [timeframe, setTimeframe] = useState('4h')
   const [staticIssues, setStaticIssues] = useState<Record<number, any>>({})
+  const [columns, setColumns] = useState<string[]>([])
 
   async function load() {
     setLoading(true)
@@ -74,6 +75,14 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
     }
   }
 
+  async function loadColumns() {
+    try {
+      const qs = new URLSearchParams({ pair, timeframe, config: 'configs/config_freqai_multi.json', apply_features: 'true' })
+      const res = await getJSON<{ columns: string[] }>(`/data/columns?${qs.toString()}`)
+      setColumns(res.columns || [])
+    } catch {}
+  }
+
   return (
     <div>
       <h2>Expressions</h2>
@@ -84,6 +93,10 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
         <button onClick={load} style={{ marginLeft: 8 }} disabled={loading}>Reload</button>
         {error ? <span style={{ marginLeft: 8, color: 'crimson' }}>{error}</span> : null}
       </div>
+      <datalist id="expr-suggestions">
+        {allowed.functions.map((f, i) => <option key={`f-${i}`} value={`${f}(`} />)}
+        {columns.map((c, i) => <option key={`c-${i}`} value={c} />)}
+      </datalist>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
@@ -106,7 +119,7 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
             <tr key={idx}>
               <td><input type="checkbox" checked={!!item.enabled} onChange={e => update(idx, 'enabled', e.target.checked)} /></td>
               <td><input value={item.name || ''} onChange={e => update(idx, 'name', e.target.value)} style={{ width: 160 }} /></td>
-              <td><input value={item.expression || ''} onChange={e => update(idx, 'expression', e.target.value)} style={{ width: '100%' }} /></td>
+              <td><input list="expr-suggestions" value={item.expression || ''} onChange={e => update(idx, 'expression', e.target.value)} onFocus={loadColumns} style={{ width: '100%' }} /></td>
               <td><input value={item.entry_threshold ?? ''} onChange={e => update(idx, 'entry_threshold', e.target.value)} style={{ width: 80 }} /></td>
               <td><input value={item.exit_threshold ?? ''} onChange={e => update(idx, 'exit_threshold', e.target.value)} style={{ width: 80 }} /></td>
               <td><input value={item.offline_profit ?? ''} onChange={e => update(idx, 'offline_profit', e.target.value)} style={{ width: 80 }} /></td>
@@ -136,6 +149,7 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
         <span style={{ color: '#777' }}>
           Allowed funcs: {allowed.functions.join(', ')}
         </span>
+        <button onClick={loadColumns}>Reload Columns</button>
       </div>
       {previewStats ? (
         <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>

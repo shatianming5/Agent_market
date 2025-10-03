@@ -448,15 +448,15 @@ def data_check_missing(
             for pair in want_pairs:
                 f = base / f"{pair.replace('/','_')}-{tf}.feather"
                 if not f.exists():
-                    missing.append({'pair': pair, 'timeframe': tf, 'reason': 'no_file'})
+                    missing.append({'pair': pair, 'timeframe': tf, 'reason': 'no_file', 'suggestion': 'new_pairs'})
                     continue
                 try:
                     df = pd.read_feather(f, columns=['date'])
                 except Exception as exc:
-                    missing.append({'pair': pair, 'timeframe': tf, 'reason': f'read_error:{exc}'})
+                    missing.append({'pair': pair, 'timeframe': tf, 'reason': f'read_error:{exc}', 'suggestion': 'erase'})
                     continue
                 if df.empty:
-                    missing.append({'pair': pair, 'timeframe': tf, 'reason': 'empty'})
+                    missing.append({'pair': pair, 'timeframe': tf, 'reason': 'empty', 'suggestion': 'erase'})
                     continue
                 if start is not None and end is not None:
                     smin_ts = pd.to_datetime(df['date'].min())
@@ -478,10 +478,35 @@ def data_check_missing(
                     smin = smin_ts.to_pydatetime()
                     smax = smax_ts.to_pydatetime()
                     if smin > start or smax < end:
-                        insufficient.append({'pair': pair, 'timeframe': tf, 'file_start': smin.isoformat(), 'file_end': smax.isoformat(), 'want_start': start.isoformat(), 'want_end': end.isoformat()})
+                        insufficient.append({
+                            'pair': pair,
+                            'timeframe': tf,
+                            'file_start': smin.isoformat(),
+                            'file_end': smax.isoformat(),
+                            'want_start': start.isoformat(),
+                            'want_end': end.isoformat(),
+                            'missing_earlier': bool(smin > start),
+                            'missing_later': bool(smax < end),
+                            'suggestion': 'prepend' if smin > start else 'none'
+                        })
         return {"missing": missing, "insufficient": insufficient}
     except Exception as exc:
         return {"status": "error", "message": str(exc), "exchange": exch, "base": str(base), "pairs": want_pairs, "timeframes": want_tfs}
+
+
+@app.get('/data/columns')
+def data_columns(pair: str, timeframe: str, config: Optional[str] = None, apply_features: bool = True):
+    try:
+        df = _load_pair_df(config, pair, timeframe)
+    except FileNotFoundError as exc:
+        return {"status": "error", "code": "NO_DATA", "message": str(exc)}
+    feats = _load_feature_cfg() if apply_features else {'features': []}
+    try:
+        df2 = _apply_features(df.copy(), feats)
+    except Exception:
+        df2 = df
+    cols = [c for c in df2.columns if c != 'date']
+    return {"columns": cols}
 
 
 # --------------------------- Strategy Params & Backtest Summary ---------------------------
