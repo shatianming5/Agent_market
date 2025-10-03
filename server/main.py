@@ -187,7 +187,7 @@ def run_expression(req: ExpressionReq = Body(...)):
 
     env = os.environ.copy()
     # 仅确保 src/ 可导入（避免覆盖 conda 内已安装的 freqtrade 包）
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC), env.get('PYTHONPATH', '')])
+    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
     # LLM credentials from request or environment
     if req.llm_api_key:
         env['LLM_API_KEY'] = req.llm_api_key
@@ -244,7 +244,7 @@ def run_backtest(req: BacktestReq = Body(...)):
     if req.export:
         cmd += ['--export', 'trades', '--export-filename', req.export_filename]
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC), env.get('PYTHONPATH', '')])
+    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
     job_id = jobs.start(cmd, cwd=ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
 
@@ -264,7 +264,7 @@ def run_flow(req: FlowReq = Body(...)):
         if parts:
             cmd += ['--steps'] + parts
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC), env.get('PYTHONPATH', '')])
+    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
     job_id = jobs.start(cmd, cwd=ROOT, env=env)
     return {"job_id": job_id, "cmd": cmd}
 
