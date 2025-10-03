@@ -13,15 +13,19 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   const [missing, setMissing] = useState<any>({ missing: [], insufficient: [] })
   const [selMissing, setSelMissing] = useState<Record<string, boolean>>({})
   const [selInsuf, setSelInsuf] = useState<Record<string, boolean>>({})
+  const [error, setError] = useState<string>('')
   const [erase, setErase] = useState(false)
   const [newPairs, setNewPairs] = useState(false)
   const [prepend, setPrepend] = useState(false)
 
   async function refresh() {
     setLoading(true)
+    setError('')
     try {
       const res = await getJSON<{ timeframes: Record<string, SummaryRow[]> }>(`/data/summary?exchange=${encodeURIComponent(exchange)}&timeframes=${encodeURIComponent(timeframes)}`)
       setSummary(res.timeframes || {})
+    } catch (e:any) {
+      setError(e?.message || 'Refresh summary failed')
     } finally {
       setLoading(false)
     }
@@ -29,6 +33,7 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
 
   async function checkMissing() {
     setLoading(true)
+    setError('')
     try {
       const qs = new URLSearchParams({ exchange, timeframes, pairs, timerange })
       const res = await getJSON<{ missing: any[]; insufficient: any[] }>(`/data/check-missing?${qs.toString()}`)
@@ -38,6 +43,8 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
       for (const m of res.missing || []) nm[`${m.pair}|${m.timeframe}`] = true
       for (const m of res.insufficient || []) ni[`${m.pair}|${m.timeframe}`] = true
       setSelMissing(nm); setSelInsuf(ni)
+    } catch (e:any) {
+      setError(e?.message || 'Check missing failed')
     } finally {
       setLoading(false)
     }
@@ -69,6 +76,7 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   return (
     <div>
       <h2>Data Manager</h2>
+      {error ? <div style={{ color: 'crimson', marginBottom: 8 }}>{error}</div> : null}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
         <label>Exchange:</label>
         <input value={exchange} onChange={e => setExchange(e.target.value)} style={{ width: 140 }} />
