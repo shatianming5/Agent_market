@@ -71,7 +71,7 @@ export default function StrategyParams() {
           <div>strategy: {summary.strategy} source: {summary.source}</div>
           {summary.metrics ? (
             <div>
-              <div>trades: {summary.metrics.trades} profit_total_pct: {summary.metrics.profit_total_pct} winrate: {summary.metrics.winrate}</div>
+              <div>trades: \{Array.isArray(summary?.metrics?.trades) ? summary.metrics.trades.length : summary?.metrics?.trades\} profit_total_pct: \{(typeof summary?.metrics?.profit_total_pct === 'object' ? '' : summary?.metrics?.profit_total_pct)\} winrate: {summary.metrics.winrate}</div>
               <div>best_pair: {summary.metrics.best_pair?.key} worst_pair: {summary.metrics.worst_pair?.key}</div>
             </div>
           ) : null}
@@ -93,3 +93,4 @@ export default function StrategyParams() {
     </div>
   )
 }
+
