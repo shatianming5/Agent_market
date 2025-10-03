@@ -1,0 +1,12 @@
+#!/bin/sh
+# Pre-commit hook to block invalid JSX escape sequences like \{ or \} in TSX/JSX.
+
+node scripts/check_jsx_escapes.js
+rc=$?
+if [ $rc -ne 0 ]; then
+  echo "pre-commit: blocked due to invalid JSX escapes."
+  exit $rc
+fi
+
+exit 0
+
