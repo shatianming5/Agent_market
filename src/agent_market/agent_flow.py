@@ -96,6 +96,10 @@ class AgentFlow:
     def run_feature_generation(self, cfg: Dict[str, Any]) -> None:
         script = Path(cfg.get("script", "freqtrade/scripts/freqai_feature_agent.py"))
         args = list(map(str, cfg.get("args", [])))
+        # If no LLM API key in env and args未显式设置，降级为无LLM、仅用遗传规划（更稳健）
+        env = os.environ.copy()
+        if not env.get('LLM_API_KEY') and "--no-llm" not in args:
+            args += ["--no-llm", "--gp-enabled"]
         cmd = [sys.executable, str(script)] + args
         self._run_command(cmd, cwd=cfg.get("cwd"))
 
