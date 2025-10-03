@@ -23,6 +23,7 @@ if str(SRC) not in _sys.path:
     _sys.path.append(str(SRC))
 import pandas as _pd  # noqa: E402
 import json as _json  # noqa: E402
+import json  # ensure legacy usages still resolve
 try:
     from agent_market.freqai.features import apply_configured_features as _apply_features  # type: ignore
 except Exception:  # pragma: no cover - fallback if features module missing
@@ -420,28 +421,47 @@ def data_check_missing(
             return None, None
     start, end = parse_tr(timerange)
     import pandas as pd
-    missing = []
-    insufficient = []
-    for tf in want_tfs:
-        for pair in want_pairs:
-            f = base / f"{pair.replace('/','_')}-{tf}.feather"
-            if not f.exists():
-                missing.append({'pair': pair, 'timeframe': tf, 'reason': 'no_file'})
-                continue
-            try:
-                df = pd.read_feather(f, columns=['date'])
-            except Exception:
-                missing.append({'pair': pair, 'timeframe': tf, 'reason': 'read_error'})
-                continue
-            if df.empty:
-                missing.append({'pair': pair, 'timeframe': tf, 'reason': 'empty'})
-                continue
-            if start is not None and end is not None:
-                smin = pd.to_datetime(df['date'].min()).to_pydatetime()
-                smax = pd.to_datetime(df['date'].max()).to_pydatetime()
-                if smin > start or smax < end:
-                    insufficient.append({'pair': pair, 'timeframe': tf, 'file_start': smin.isoformat(), 'file_end': smax.isoformat(), 'want_start': start.isoformat(), 'want_end': end.isoformat()})
-    return {"missing": missing, "insufficient": insufficient}
+    try:
+        missing = []
+        insufficient = []
+        for tf in want_tfs:
+            for pair in want_pairs:
+                f = base / f"{pair.replace('/','_')}-{tf}.feather"
+                if not f.exists():
+                    missing.append({'pair': pair, 'timeframe': tf, 'reason': 'no_file'})
+                    continue
+                try:
+                    df = pd.read_feather(f, columns=['date'])
+                except Exception as exc:
+                    missing.append({'pair': pair, 'timeframe': tf, 'reason': f'read_error:{exc}'})
+                    continue
+                if df.empty:
+                    missing.append({'pair': pair, 'timeframe': tf, 'reason': 'empty'})
+                    continue
+                if start is not None and end is not None:
+                    smin_ts = pd.to_datetime(df['date'].min())
+                    smax_ts = pd.to_datetime(df['date'].max())
+                    try:
+                        smin_ts = smin_ts.tz_convert(None)  # type: ignore[attr-defined]
+                    except Exception:
+                        try:
+                            smin_ts = smin_ts.tz_localize(None)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                    try:
+                        smax_ts = smax_ts.tz_convert(None)  # type: ignore[attr-defined]
+                    except Exception:
+                        try:
+                            smax_ts = smax_ts.tz_localize(None)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                    smin = smin_ts.to_pydatetime()
+                    smax = smax_ts.to_pydatetime()
+                    if smin > start or smax < end:
+                        insufficient.append({'pair': pair, 'timeframe': tf, 'file_start': smin.isoformat(), 'file_end': smax.isoformat(), 'want_start': start.isoformat(), 'want_end': end.isoformat()})
+        return {"missing": missing, "insufficient": insufficient}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc), "exchange": exch, "base": str(base), "pairs": want_pairs, "timeframes": want_tfs}
 
 
 # --------------------------- Strategy Params & Backtest Summary ---------------------------
