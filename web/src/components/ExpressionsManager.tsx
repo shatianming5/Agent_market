@@ -13,6 +13,7 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
   const [previewStats, setPreviewStats] = useState<any | null>(null)
   const [pair, setPair] = useState('ADA/USDT')
   const [timeframe, setTimeframe] = useState('4h')
+  const [staticIssues, setStaticIssues] = useState<Record<number, any>>({})
 
   async function load() {
     setLoading(true)
@@ -61,6 +62,8 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
     setLoading(true)
     setError('')
     try {
+      const stat = await postJSON('/expressions/validate', { expression: item.expression })
+      setStaticIssues(prev => ({ ...prev, [idx]: stat }))
       const res = await postJSON('/expressions/preview', { pair, timeframe, expression: item.expression, config: 'configs/config_freqai_multi.json', apply_features: true })
       setPreviewIdx(idx); setPreviewStats(res)
     } catch (e: any) {
@@ -115,6 +118,12 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
               <td>
                 <button onClick={() => validateExpression(idx)}>Preview</button>
                 <button onClick={() => remove(idx)} style={{ marginLeft: 4 }}>Delete</button>
+                {staticIssues[idx] ? (
+                  <div style={{ color: 'crimson', marginTop: 4, fontSize: 12 }}>
+                    {staticIssues[idx].illegal_chars?.length ? `Illegal: ${staticIssues[idx].illegal_chars.join('')}` : ''}
+                    {staticIssues[idx].unknown_identifiers?.length ? ` Unknown: ${staticIssues[idx].unknown_identifiers.join(', ')}` : ''}
+                  </div>
+                ) : null}
               </td>
             </tr>
           ))}

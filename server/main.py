@@ -192,6 +192,26 @@ def expressions_allowed():
     return {"functions": allowed_funcs, "base_columns": base_cols}
 
 
+@app.post('/expressions/validate')
+def expressions_validate(expression: str = Body(...)):
+    # Very light static validation: flag illegal chars and unknown functions
+    import re
+    allowed_funcs = {'z','abs','sign','clip','shift','roll_mean','roll_std','pct_change','ema','rolling_max','rolling_min','log1p','tanh'}
+    illegal = re.findall(r"[^A-Za-z0-9_\s\(\)\+\-\*/%,\.:<>!=]", expression or '')
+    # Find identifiers (function candidates)
+    tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression or '')
+    # Common math names to ignore
+    ignore = {'e','pi'}
+    funcs = sorted({t for t in tokens if t.lower() in allowed_funcs})
+    unknown_funcs = sorted({t for t in tokens if t.lower() not in allowed_funcs and t not in ignore})
+    return {
+        'illegal_chars': list(dict.fromkeys(illegal)),
+        'allowed_funcs': sorted(list(allowed_funcs)),
+        'used_funcs': funcs,
+        'unknown_identifiers': unknown_funcs,
+    }
+
+
 @app.put('/expressions')
 def expressions_put(payload: ExpressionsPayload = Body(...)):
     path = _resolve_expressions_path()
@@ -531,11 +551,36 @@ def backtest_summary_latest():
         if not strategy_block:
             return {'status': 'error', 'message': 'Missing strategy block'}
         strat_name, metrics = next(iter(strategy_block.items()))
+        # Try to build per-pair summary
+        pairs = []
+        try:
+            pr = metrics.get('pair_results')
+            if isinstance(pr, list) and pr:
+                for r in pr:
+                    pairs.append({'pair': r.get('pair') or r.get('key'), 'trades': r.get('trades'), 'profit_total_pct': r.get('profit_total_pct')})
+            else:
+                # Fallback: derive from trades list if present
+                tlist = metrics.get('trades')
+                if isinstance(tlist, list):
+                    agg = {}
+                    for t in tlist:
+                        key = t.get('pair')
+                        if not key:
+                            continue
+                        a = agg.setdefault(key, {'pair': key, 'trades': 0, 'profit_total_pct': 0.0})
+                        a['trades'] += 1
+                        pratio = t.get('profit_ratio')
+                        if isinstance(pratio, (int, float)):
+                            a['profit_total_pct'] += float(pratio) * 100.0
+                    pairs = sorted(agg.values(), key=lambda x: x['pair'])
+        except Exception:
+            pairs = []
         comparison = data.get('strategy_comparison', [])
         return {
             'source': z.name,
             'strategy': strat_name,
             'metrics': metrics,
+            'pairs': pairs,
             'comparison': comparison,
         }
     except Exception as exc:

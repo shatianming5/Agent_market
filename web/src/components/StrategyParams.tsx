@@ -75,9 +75,21 @@ export default function StrategyParams() {
               <div>best_pair: {summary.metrics.best_pair?.key} worst_pair: {summary.metrics.worst_pair?.key}</div>
             </div>
           ) : null}
+          {Array.isArray(summary.pairs) && summary.pairs.length ? (
+            <div style={{ marginTop: 8 }}>
+              <h4>Per-Pair</h4>
+              <table>
+                <thead><tr><th>Pair</th><th>Trades</th><th>Profit %</th></tr></thead>
+                <tbody>
+                  {summary.pairs.map((p:any, i:number) => (
+                    <tr key={i}><td>{p.pair}</td><td style={{ textAlign:'right' }}>{p.trades}</td><td style={{ textAlign:'right' }}>{p.profit_total_pct}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
   )
 }
-

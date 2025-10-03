@@ -11,6 +11,8 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   const [summary, setSummary] = useState<Record<string, SummaryRow[]>>({})
   const [loading, setLoading] = useState(false)
   const [missing, setMissing] = useState<any>({ missing: [], insufficient: [] })
+  const [selMissing, setSelMissing] = useState<Record<string, boolean>>({})
+  const [selInsuf, setSelInsuf] = useState<Record<string, boolean>>({})
   const [erase, setErase] = useState(false)
   const [newPairs, setNewPairs] = useState(false)
   const [prepend, setPrepend] = useState(false)
@@ -31,6 +33,11 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
       const qs = new URLSearchParams({ exchange, timeframes, pairs, timerange })
       const res = await getJSON<{ missing: any[]; insufficient: any[] }>(`/data/check-missing?${qs.toString()}`)
       setMissing(res)
+      const nm: Record<string, boolean> = {}
+      const ni: Record<string, boolean> = {}
+      for (const m of res.missing || []) nm[`${m.pair}|${m.timeframe}`] = true
+      for (const m of res.insufficient || []) ni[`${m.pair}|${m.timeframe}`] = true
+      setSelMissing(nm); setSelInsuf(ni)
     } finally {
       setLoading(false)
     }
@@ -44,11 +51,10 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   }
 
   async function downloadMissing() {
-    await checkMissing()
     const tset = new Set<string>()
     const pset = new Set<string>()
-    for (const m of missing.missing || []) { tset.add(m.timeframe); pset.add(m.pair) }
-    for (const m of missing.insufficient || []) { tset.add(m.timeframe); pset.add(m.pair) }
+    for (const m of missing.missing || []) { if (selMissing[`${m.pair}|${m.timeframe}`]) { tset.add(m.timeframe); pset.add(m.pair) } }
+    for (const m of missing.insufficient || []) { if (selInsuf[`${m.pair}|${m.timeframe}`]) { tset.add(m.timeframe); pset.add(m.pair) } }
     const tfs = Array.from(tset)
     const plist = Array.from(pset)
     if (tfs.length === 0 || plist.length === 0) return
@@ -101,15 +107,31 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
         <h3>Missing / Insufficient</h3>
         <div>
           <b>Missing:</b> {missing.missing.length} items
-          <ul>
-            {missing.missing.map((m: any, i: number) => <li key={i}>{m.pair} {m.timeframe} - {m.reason}</li>)}
-          </ul>
+          <table>
+            <thead><tr><th></th><th>Pair</th><th>TF</th><th>Reason</th></tr></thead>
+            <tbody>
+              {missing.missing.map((m: any, i: number) => (
+                <tr key={`m-${i}`}>
+                  <td><input type="checkbox" checked={!!selMissing[`${m.pair}|${m.timeframe}`]} onChange={e => setSelMissing(prev => ({ ...prev, [`${m.pair}|${m.timeframe}`]: e.target.checked }))} /></td>
+                  <td>{m.pair}</td><td>{m.timeframe}</td><td>{m.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <div>
+        <div style={{ marginTop: 8 }}>
           <b>Insufficient:</b> {missing.insufficient.length} items
-          <ul>
-            {missing.insufficient.map((m: any, i: number) => <li key={i}>{m.pair} {m.timeframe} - have [{m.file_start} .. {m.file_end}] want [{m.want_start} .. {m.want_end}]</li>)}
-          </ul>
+          <table>
+            <thead><tr><th></th><th>Pair</th><th>TF</th><th>Have</th><th>Want</th></tr></thead>
+            <tbody>
+              {missing.insufficient.map((m: any, i: number) => (
+                <tr key={`i-${i}`}>
+                  <td><input type="checkbox" checked={!!selInsuf[`${m.pair}|${m.timeframe}`]} onChange={e => setSelInsuf(prev => ({ ...prev, [`${m.pair}|${m.timeframe}`]: e.target.checked }))} /></td>
+                  <td>{m.pair}</td><td>{m.timeframe}</td><td>[{m.file_start} .. {m.file_end}]</td><td>[{m.want_start} .. {m.want_end}]</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
