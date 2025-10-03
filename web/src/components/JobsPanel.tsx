@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { getJSON, postEmpty } from '../api'
 
 type JobStatus = { id: string; running: boolean; returncode: number | null; lines: number; started_at?: string; finished_at?: string }
@@ -10,6 +10,36 @@ export default function JobsPanel({ jobs, selectedJob, onOpen, onTerminate, jobL
   onTerminate: () => void
   jobLogs: { line: number; text: string }[]
 }) {
+  const [steps, setSteps] = useState<any[]>([])
+  const [stats, setStats] = useState<any[]>([])
+  const [summary, setSummary] = useState<any | null>(null)
+  const [isBacktest, setIsBacktest] = useState<boolean>(false)
+
+  useEffect(() => {
+    let timer: any
+    async function poll() {
+      if (!selectedJob) return
+      try {
+        const st = await getJSON<any>(`/jobs/${selectedJob.id}/status`)
+        try {
+          const cmd = (st && st.cmd) || []
+          const s = (Array.isArray(cmd) ? cmd.join(' ') : String(cmd || '')).toLowerCase()
+          setIsBacktest(s.includes('backtesting'))
+        } catch {}
+        const s = await getJSON<any>(`/jobs/${selectedJob.id}/steps`)
+        const st = await getJSON<any>('/steps/stats')
+        setSteps(s.steps || [])
+        setStats(st.stats || [])
+      } catch {}
+      timer = setTimeout(poll, 1500)
+    }
+    poll()
+    return () => { if (timer) clearTimeout(timer) }
+  }, [selectedJob?.id])
+
+  async function loadSummary() {
+    try { const s = await getJSON<any>('/backtest/summary/latest'); setSummary(s) } catch {}
+  }
   function parseStep(logs: string[]) {
     const re = /^\[STEP\]\s+\d{2}:\d{2}:\d{2}\s+(\d+)\/(\d+)\s+(.+)$/
     let current = 0, total = 0, label = ''
@@ -68,9 +98,46 @@ export default function JobsPanel({ jobs, selectedJob, onOpen, onTerminate, jobL
               {jobLogs.map(e => `${e.line}: ${e.text}`).join('\n')}
             </pre>
           </div>
+          {steps.length ? (
+            <div style={{ marginTop: 8 }}>
+              <h4>Steps</h4>
+              <table>
+                <thead><tr><th>#</th><th>Label</th><th>Duration(s)</th><th>Avg(s)</th><th>Delta</th></tr></thead>
+                <tbody>
+                  {steps.map((s:any, i:number) => {
+                    const stat = stats.find((x:any) => x.label === s.label)
+                    const avg = stat ? Math.round(stat.avg_seconds) : null
+                    const dur = typeof s.duration === 'number' ? s.duration : null
+                    const delta = (avg != null && dur != null) ? (dur - avg) : null
+                    return <tr key={i}><td>{s.idx}/{s.total}</td><td>{s.label}</td><td style={{ textAlign:'right' }}>{dur ?? '-'}</td><td style={{ textAlign:'right' }}>{avg ?? '-'}</td><td style={{ textAlign:'right', color: (delta!=null && delta>5)?'crimson':undefined }}>{delta ?? '-'}</td></tr>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {isBacktest ? (
+            <div style={{ marginTop: 8 }}>
+              <button onClick={loadSummary}>Show Last Backtest Summary</button>
+            </div>
+          ) : null}
+          {summary ? (
+            <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
+              <b>Last Summary</b>
+              <div>Strategy: {summary.strategy} Source: {summary.source}</div>
+              {Array.isArray(summary.pairs) && summary.pairs.length ? (
+                <table style={{ marginTop: 4 }}>
+                  <thead><tr><th>Pair</th><th>Trades</th><th>Profit %</th></tr></thead>
+                  <tbody>
+                    {summary.pairs.map((p:any, idx:number) => (
+                      <tr key={idx}><td>{p.pair}</td><td style={{ textAlign:'right' }}>{p.trades}</td><td style={{ textAlign:'right' }}>{p.profit_total_pct}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
   )
 }
-

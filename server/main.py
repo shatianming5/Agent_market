@@ -364,6 +364,64 @@ def expressions_preview(
     return resp
 
 
+@app.get('/features')
+def features_get(config_path: Optional[str] = None):
+    # Load active features JSON from default path
+    # Active path precedence: ROOT/user_data/freqai_features.json → ROOT/freqtrade/user_data/freqai_features.json
+    cand = [ROOT / 'user_data' / 'freqai_features.json', ROOT / 'freqtrade' / 'user_data' / 'freqai_features.json']
+    path = None
+    for p in cand:
+        if p.exists():
+            path = p
+            break
+    if not path:
+        return {"path": str((ROOT / 'user_data' / 'freqai_features.json').relative_to(ROOT)), "features": []}
+    try:
+        data = _json.loads(path.read_text(encoding='utf-8'))
+        return {"path": str(path.relative_to(ROOT)), "features": data.get('features', [])}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post('/config/use-features-file')
+def use_features_file(path: str = Body(..., embed=True)):
+    src = Path(path)
+    if not src.is_absolute():
+        src = (ROOT / src).resolve()
+    if not src.exists():
+        return {"status": "error", "message": f"File not found: {src}"}
+    try:
+        payload = _json.loads(src.read_text(encoding='utf-8'))
+        # validate minimal structure
+        if not isinstance(payload, dict):
+            return {"status": "error", "message": "Invalid features JSON"}
+        dest = ROOT / 'user_data' / 'freqai_features.json'
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(_json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {"status": "ok", "active": str(dest.relative_to(ROOT))}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@app.post('/config/use-expressions-file')
+def use_expressions_file(path: str = Body(..., embed=True)):
+    src = Path(path)
+    if not src.is_absolute():
+        src = (ROOT / src).resolve()
+    if not src.exists():
+        return {"status": "error", "message": f"File not found: {src}"}
+    try:
+        payload = _json.loads(src.read_text(encoding='utf-8'))
+        if not isinstance(payload, dict) or 'expressions' not in payload:
+            return {"status": "error", "message": "Invalid expressions JSON"}
+        dest = _resolve_expressions_path()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(_json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {"status": "ok", "active": str(dest.relative_to(ROOT))}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
 # --------------------------- Data Summary APIs ---------------------------
 
 
@@ -858,6 +916,62 @@ def run_train_ml(req: TrainMLReq = Body(...)):
     env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
     job_id = jobs.start(cmd, cwd=ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
+
+
+def _default_pairs_and_timeframe(cfg_path: Path) -> tuple[list[str], str]:
+    try:
+        payload = _json.loads(cfg_path.read_text(encoding='utf-8'))
+        exch = payload.get('exchange') or {}
+        pairs = exch.get('pair_whitelist') or []
+        timeframe = payload.get('timeframe') or '4h'
+        return [str(p) for p in pairs], str(timeframe)
+    except Exception:
+        return [], '4h'
+
+
+def _start_train_with_model(model_name: str, model_dir: str) -> dict:
+    cfg_path = (ROOT / 'configs' / 'config_freqai_multi.json').resolve()
+    if not cfg_path.exists():
+        return {"status": "error", "code": "CONFIG_NOT_FOUND", "message": f"Config file not found: {cfg_path}"}
+    pairs, timeframe = _default_pairs_and_timeframe(cfg_path)
+    if not pairs:
+        pairs = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'ADA/USDT']
+    inline = {
+        'model': { 'name': model_name, 'params': { 'model_dir': model_dir } },
+        'data': {
+            'feature_file': 'user_data/freqai_features_multi.json',
+            'data_dir': 'freqtrade/user_data/data',
+            'exchange': (_load_freqtrade_config(str(cfg_path)).get('exchange') or {}).get('name') or 'binanceus',
+            'timeframe': timeframe,
+            'pairs': pairs,
+            'label_period': 18,
+        },
+        'training': { 'validation_ratio': 0.2 },
+        'output': { 'model_dir': model_dir },
+    }
+    env_py = _conda_env_python('freqtrade')
+    conda_prefix = _conda_prefix_args() if not env_py else None
+    py = env_py or ('python' if conda_prefix else sys.executable)
+    script = ROOT / 'scripts' / 'train_ml.py'
+    tmp_dir = ROOT / 'user_data' / 'tmp'
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_cfg = tmp_dir / f"train_{model_name}_auto.json"
+    tmp_cfg.write_text(_json.dumps(inline, ensure_ascii=False, indent=2), encoding='utf-8')
+    cmd = (conda_prefix or []) + [py, str(script), '--config', str(tmp_cfg)]
+    env = os.environ.copy()
+    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
+    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    return {"status": "started", "job_id": job_id, "cmd": cmd}
+
+
+@app.post('/run/train-xgb')
+def run_train_xgb():
+    return _start_train_with_model('xgboost', 'artifacts/models/xgboost_multi')
+
+
+@app.post('/run/train-cat')
+def run_train_cat():
+    return _start_train_with_model('catboost', 'artifacts/models/catboost_multi')
 
 
 @app.post("/flow/run")

@@ -29,6 +29,8 @@ class AuxModelPredictor:
             'pytorch_mlp': SummaryInfo('pytorch_mlp', project_root / 'artifacts/models/pytorch_real/training_summary.json'),
             'rl_ppo': SummaryInfo('rl_ppo', project_root / 'artifacts/models/rl_real/training_summary.json'),
             'lightgbm_multi': SummaryInfo('lightgbm_multi', project_root / 'artifacts/models/lightgbm_multi/training_summary.json'),
+            'xgboost_multi': SummaryInfo('xgboost_multi', project_root / 'artifacts/models/xgboost_multi/training_summary.json'),
+            'catboost_multi': SummaryInfo('catboost_multi', project_root / 'artifacts/models/catboost_multi/training_summary.json'),
         }
 
     # ------------------------------------------------------------------
@@ -81,6 +83,26 @@ class AuxModelPredictor:
                 results['lgbm_zscore'] = z_series
                 dataframe['lgbm_prediction'] = series
                 dataframe['lgbm_zscore'] = z_series
+            elif key == 'xgboost_multi':
+                preds = self._predict_xgboost(key, model_path, matrix)
+                if preds is None:
+                    continue
+                series = pd.Series(preds, index=dataframe.index, name='xgb_prediction').astype(float)
+                z_series = self._zscore(series, window=200)
+                results['xgb_prediction'] = series
+                results['xgb_zscore'] = z_series
+                dataframe['xgb_prediction'] = series
+                dataframe['xgb_zscore'] = z_series
+            elif key == 'catboost_multi':
+                preds = self._predict_catboost(key, model_path, matrix)
+                if preds is None:
+                    continue
+                series = pd.Series(preds, index=dataframe.index, name='cat_prediction').astype(float)
+                z_series = self._zscore(series, window=200)
+                results['cat_prediction'] = series
+                results['cat_zscore'] = z_series
+                dataframe['cat_prediction'] = series
+                dataframe['cat_zscore'] = z_series
         return results
 
     # ------------------------------------------------------------------
@@ -202,6 +224,43 @@ class AuxModelPredictor:
             logger.warning("AuxModelPredictor: LightGBM predict failed: %s", exc)
             return None
         return preds.astype(np.float32)
+
+    def _predict_xgboost(self, key: str, model_path: Path, matrix: np.ndarray) -> Optional[np.ndarray]:
+        try:
+            import xgboost as xgb  # type: ignore
+        except ImportError as exc:
+            logger.warning("AuxModelPredictor: XGBoost not available (%s)", exc)
+            return None
+        try:
+            booster = xgb.Booster()
+            booster.load_model(str(model_path))
+            dm = xgb.DMatrix(matrix)
+            preds = booster.predict(dm)
+            return preds.astype(np.float32)
+        except Exception:
+            try:
+                import joblib  # type: ignore
+                model = joblib.load(str(model_path))
+                preds = model.predict(matrix)
+                return np.asarray(preds, dtype=np.float32)
+            except Exception as exc:
+                logger.warning("AuxModelPredictor: XGBoost predict failed: %s", exc)
+                return None
+
+    def _predict_catboost(self, key: str, model_path: Path, matrix: np.ndarray) -> Optional[np.ndarray]:
+        try:
+            import catboost  # type: ignore
+        except ImportError as exc:
+            logger.warning("AuxModelPredictor: CatBoost not available (%s)", exc)
+            return None
+        try:
+            model = catboost.CatBoostRegressor()
+            model.load_model(str(model_path))
+            preds = model.predict(matrix)
+            return np.asarray(preds, dtype=np.float32)
+        except Exception as exc:
+            logger.warning("AuxModelPredictor: CatBoost predict failed: %s", exc)
+            return None
 
 
 __all__ = ['AuxModelPredictor']
