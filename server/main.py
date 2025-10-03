@@ -136,6 +136,213 @@ class TrainMLReq(BaseModel):
     config: Optional[dict] = Field(None, description="Inline training config object")
 
 
+# --------------------------- Expressions Management ---------------------------
+
+
+class ExpressionsPayload(BaseModel):
+    expressions: list = Field(default_factory=list)
+
+
+def _expressions_candidates() -> list[Path]:
+    return [
+        ROOT / 'user_data' / 'freqai_expressions.json',
+        ROOT / 'freqtrade' / 'user_data' / 'freqai_expressions.json',
+    ]
+
+
+def _resolve_expressions_path() -> Path:
+    for p in _expressions_candidates():
+        if p.exists():
+            return p
+    # default to ROOT/user_data
+    target = ROOT / 'user_data' / 'freqai_expressions.json'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+@app.get('/expressions')
+def expressions_get():
+    path = _resolve_expressions_path()
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding='utf-8'))
+        else:
+            data = {'expressions': []}
+    except json.JSONDecodeError:
+        return {"status": "error", "code": "MALFORMED", "message": f"Expressions JSON malformed: {path}"}
+    return {"path": str(path.relative_to(ROOT)), "expressions": data.get('expressions', [])}
+
+
+@app.put('/expressions')
+def expressions_put(payload: ExpressionsPayload = Body(...)):
+    path = _resolve_expressions_path()
+    try:
+        obj = {'expressions': list(payload.expressions or [])}
+        path.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding='utf-8')
+    except Exception as exc:
+        return {"status": "error", "code": "WRITE_FAILED", "message": str(exc)}
+    return {"status": "ok", "path": str(path.relative_to(ROOT)), "count": len(payload.expressions or [])}
+
+
+@app.post('/expressions')
+def expressions_post(item: dict = Body(...)):
+    path = _resolve_expressions_path()
+    try:
+        data = {'expressions': []}
+        if path.exists():
+            data = json.loads(path.read_text(encoding='utf-8'))
+        items = list(data.get('expressions', []))
+        items.append(item)
+        data['expressions'] = items
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {"status": "ok", "index": len(items) - 1}
+    except Exception as exc:
+        return {"status": "error", "code": "WRITE_FAILED", "message": str(exc)}
+
+
+@app.patch('/expressions/{index}')
+def expressions_patch(index: int, item: dict = Body(...)):
+    path = _resolve_expressions_path()
+    try:
+        data = {'expressions': []}
+        if path.exists():
+            data = json.loads(path.read_text(encoding='utf-8'))
+        items = list(data.get('expressions', []))
+        if index < 0 or index >= len(items):
+            return {"status": "error", "code": "INDEX_OUT_OF_RANGE"}
+        items[index] = item
+        data['expressions'] = items
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {"status": "ok"}
+    except Exception as exc:
+        return {"status": "error", "code": "WRITE_FAILED", "message": str(exc)}
+
+
+@app.delete('/expressions/{index}')
+def expressions_delete(index: int):
+    path = _resolve_expressions_path()
+    try:
+        data = {'expressions': []}
+        if path.exists():
+            data = json.loads(path.read_text(encoding='utf-8'))
+        items = list(data.get('expressions', []))
+        if index < 0 or index >= len(items):
+            return {"status": "error", "code": "INDEX_OUT_OF_RANGE"}
+        removed = items.pop(index)
+        data['expressions'] = items
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {"status": "ok", "removed": removed}
+    except Exception as exc:
+        return {"status": "error", "code": "WRITE_FAILED", "message": str(exc)}
+
+
+# --------------------------- Data Summary APIs ---------------------------
+
+
+def _load_freqtrade_config(cfg: Optional[str]) -> dict:
+    if not cfg:
+        return {}
+    p = Path(cfg)
+    if not p.is_absolute():
+        p = (ROOT / p).resolve()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding='utf-8'))
+    except json.JSONDecodeError:
+        return {}
+
+
+@app.get('/data/summary')
+def data_summary(
+    config: Optional[str] = None,
+    exchange: Optional[str] = None,
+    timeframes: Optional[str] = None,
+):
+    cfg = _load_freqtrade_config(config)
+    datadir = Path(cfg.get('datadir') or 'freqtrade/user_data/data')
+    exch = exchange or (cfg.get('exchange', {}) or {}).get('name') or 'binanceus'
+    datadir = (ROOT / datadir).resolve() if not datadir.is_absolute() else datadir
+    base = datadir / exch
+    if not base.exists():
+        return {"exchange": exch, "timeframes": {}, "message": f"Data directory missing: {base}"}
+    tfs = []
+    if timeframes:
+        tfs = [t.strip() for t in timeframes.split(',') if t.strip()]
+    else:
+        # Infer timeframes from files
+        tfs = sorted({f.suffix.replace('.feather','').split('-')[-1] for f in base.glob('*.feather')})
+    import pandas as pd
+    res: dict[str, list[dict]] = {}
+    for tf in tfs:
+        rows = []
+        for f in base.glob(f'*-{tf}.feather'):
+            try:
+                df = pd.read_feather(f, columns=['date'])
+                rows.append({
+                    'pair': f.stem.replace(f'-{tf}', '').replace('_','/'),
+                    'count': int(df.shape[0]),
+                    'start': df['date'].min().isoformat() if not df.empty else None,
+                    'end': df['date'].max().isoformat() if not df.empty else None,
+                })
+            except Exception:
+                rows.append({'pair': f.stem.replace(f'-{tf}', '').replace('_','/'), 'count': 0, 'start': None, 'end': None})
+        res[tf] = rows
+    return {"exchange": exch, "root": str(base), "timeframes": res}
+
+
+@app.get('/data/check-missing')
+def data_check_missing(
+    config: Optional[str] = None,
+    exchange: Optional[str] = None,
+    timeframes: Optional[str] = None,
+    pairs: Optional[str] = None,
+    timerange: Optional[str] = None,
+):
+    from datetime import datetime
+    cfg = _load_freqtrade_config(config)
+    datadir = Path(cfg.get('datadir') or 'freqtrade/user_data/data')
+    exch = exchange or (cfg.get('exchange', {}) or {}).get('name') or 'binanceus'
+    datadir = (ROOT / datadir).resolve() if not datadir.is_absolute() else datadir
+    base = datadir / exch
+    want_pairs = [p.strip() for p in (pairs or '').split(',') if p.strip()]
+    want_tfs = [t.strip() for t in (timeframes or '').split(',') if t.strip()]
+    def parse_tr(tr: Optional[str]):
+        if not tr:
+            return None, None
+        try:
+            s, e = tr.split('-')
+            sdt = datetime.strptime(s, '%Y%m%d')
+            edt = datetime.strptime(e, '%Y%m%d')
+            return sdt, edt
+        except Exception:
+            return None, None
+    start, end = parse_tr(timerange)
+    import pandas as pd
+    missing = []
+    insufficient = []
+    for tf in want_tfs:
+        for pair in want_pairs:
+            f = base / f"{pair.replace('/','_')}-{tf}.feather"
+            if not f.exists():
+                missing.append({'pair': pair, 'timeframe': tf, 'reason': 'no_file'})
+                continue
+            try:
+                df = pd.read_feather(f, columns=['date'])
+            except Exception:
+                missing.append({'pair': pair, 'timeframe': tf, 'reason': 'read_error'})
+                continue
+            if df.empty:
+                missing.append({'pair': pair, 'timeframe': tf, 'reason': 'empty'})
+                continue
+            if start is not None and end is not None:
+                smin = pd.to_datetime(df['date'].min()).to_pydatetime()
+                smax = pd.to_datetime(df['date'].max()).to_pydatetime()
+                if smin > start or smax < end:
+                    insufficient.append({'pair': pair, 'timeframe': tf, 'file_start': smin.isoformat(), 'file_end': smax.isoformat(), 'want_start': start.isoformat(), 'want_end': end.isoformat()})
+    return {"missing": missing, "insufficient": insufficient}
+
+
 class FlowReq(BaseModel):
     config: str = Field(..., description="Path to agent_flow JSON config")
     steps: Optional[str] = Field(None, description="Space separated steps e.g. 'feature expression backtest'")
