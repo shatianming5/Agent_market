@@ -1,5 +1,5 @@
 {
-    "download": {
+    "download": {"prepend": true,
         "config": "configs/config_freqai_multi.json",
         "timeframes": ["4h"],
         "pairs": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "ADA/USDT"],
@@ -22,12 +22,12 @@
                              ]
                 },
     "expression":  {
-                       "script":  "freqtrade/scripts/freqai_expression_agent.py",
+                       "script":  "scripts/expr_agent_wrapper.py",
                        "args":  [
                                     "--config",
                                     "configs/config_freqai_multi.json",
                                     "--feature-file",
-                                    "../user_data/freqai_features_multi.json",
+                                    "user_data/freqai_features_multi.json",
                                     "--output",
                                     "user_data/freqai_expressions.json",
                                     "--timeframe",
@@ -170,3 +170,6 @@
                      "results_dir":  "user_data/backtest_results/multi_4h"
                  }
 }
+
+
+

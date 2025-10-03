@@ -138,11 +138,15 @@ class AgentFlow:
             cmd += ['--new-pairs']
         if cfg.get('dl_trades'):
             cmd += ['--dl-trades']
+        if cfg.get('prepend'):
+            cmd += ['--prepend']
         cmd += list(map(str, cfg.get('extra_args', [])))
         self._run_command(cmd, cwd=cfg.get("cwd"))
 
     def run_expression_generation(self, cfg: Dict[str, Any]) -> None:
-        script = Path(cfg.get("script", "freqtrade/scripts/freqai_expression_agent.py"))
+        # Prefer our stable wrapper which imports the installed freqtrade module.
+        wrapper = Path("scripts/expr_agent_wrapper.py")
+        script = wrapper if wrapper.exists() else Path(cfg.get("script", "freqtrade/scripts/freqai_expression_agent.py"))
         args = list(map(str, cfg.get("args", [])))
         feedback_path = Path(cfg.get("feedback_path", self.feedback_path))
         append_feedback = feedback_path.exists() and "--feedback" not in args
