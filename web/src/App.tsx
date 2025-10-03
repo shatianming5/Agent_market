@@ -16,6 +16,16 @@ export default function App() {
   const [selectedJob, setSelectedJob] = useState<JobStatus | null>(null)
   const [jobLogs, setJobLogs] = useState<{ line: number; text: string }[]>([])
   const [es, setEs] = useState<EventSource | null>(null)
+  const [btJobId, setBtJobId] = useState<string | null>(null)
+  const [btPct, setBtPct] = useState(0)
+  const [btLabel, setBtLabel] = useState('')
+  const [btRunning, setBtRunning] = useState(false)
+  const [btElapsed, setBtElapsed] = useState<number | undefined>(undefined)
+  const [flowJobId, setFlowJobId] = useState<string | null>(null)
+  const [flowPct, setFlowPct] = useState(0)
+  const [flowLabel, setFlowLabel] = useState('')
+  const [flowRunning, setFlowRunning] = useState(false)
+  const [flowElapsed, setFlowElapsed] = useState<number | undefined>(undefined)
 
   function parseStep(logs: string[]) {
     const re = /^\[STEP\]\s+\d{2}:\d{2}:\d{2}\s+(\d+)\/(\d+)\s+(.+)$/
@@ -62,7 +72,7 @@ export default function App() {
   }
 
   async function runBacktest() {
-    await postJSON('/run/backtest', {
+    const res = await postJSON<{ status:string; job_id:string }>(''/run/backtest'.replace("''",""), {
       config: 'configs/config_freqai_multi.json',
       strategy: 'ExpressionLongStrategy',
       strategy_path: 'freqtrade/user_data/strategies',
@@ -71,7 +81,7 @@ export default function App() {
       export: false,
       fast: true,
     })
-    await refreshJobs()
+    startTrack(res.job_id, 'bt')
   }
 
   async function terminateJob() {
@@ -108,9 +118,33 @@ export default function App() {
         <div>
           <div style={{ marginBottom: 8 }}>
             <button onClick={runBacktest}>Run Backtest</button>
-            <button onClick={async () => { await postJSON('/flow/run', { config: 'configs/agent_flow_multi.json' }); await refreshJobs() }} style={{ marginLeft: 8 }}>Run Full Flow</button>
+            <button onClick={runFlow} style={{ marginLeft: 8 }}>Run Full Flow</button>
           </div>
           <p>Backtest runs with current server config. Full Flow will execute: download → feature → expression → ml → backtest.</p>
+          {btJobId ? (
+            <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
+              <b>Backtest Job:</b> {btJobId}
+              <div style={{ height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden', marginTop: 4 }}>
+                <div style={{ width: btPct + '%', height: '100%', background: '#3b82f6' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span>{btLabel || 'running...'}</span>
+                <span>{btPct}% {btElapsed ? `(elapsed ${btElapsed}s)` : ''}</span>
+              </div>
+            </div>
+          ) : null}
+          {flowJobId ? (
+            <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
+              <b>Flow Job:</b> {flowJobId}
+              <div style={{ height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden', marginTop: 4 }}>
+                <div style={{ width: flowPct + '%', height: '100%', background: '#16a34a' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span>{flowLabel || 'running...'}</span>
+                <span>{flowPct}% {flowElapsed ? `(elapsed ${flowElapsed}s)` : ''}</span>
+              </div>
+            </div>
+          ) : null}
           <div style={{ marginTop: 12 }}>
             <StrategyParams />
           </div>
@@ -122,3 +156,33 @@ export default function App() {
     </div>
   )
 }
+  async function runFlow() {
+    const res = await postJSON<{ job_id: string }>('/flow/run', { config: 'configs/agent_flow_multi.json' })
+    startTrack(res.job_id, 'flow')
+  }
+
+  async function pollProgress(id: string, target: 'bt'|'flow') {
+    try {
+      const p = await getJSON<any>(`/jobs/${id}/progress`)
+      if (target === 'bt') {
+        setBtPct(p.percent || 0); setBtLabel(p.label || ''); setBtRunning(!!p.running); setBtElapsed(p.elapsed)
+      } else {
+        setFlowPct(p.percent || 0); setFlowLabel(p.label || ''); setFlowRunning(!!p.running); setFlowElapsed(p.elapsed)
+      }
+    } catch {}
+  }
+
+  function startTrack(id: string, target: 'bt'|'flow') {
+    if (target === 'bt') { setBtJobId(id); setBtRunning(true); setBtPct(0); setBtLabel('') } else { setFlowJobId(id); setFlowRunning(true); setFlowPct(0); setFlowLabel('') }
+    // light polling for simplicity
+    const tick = async () => {
+      await pollProgress(id, target)
+      const running = target === 'bt' ? btRunning : flowRunning
+      if (!(target === 'bt' ? btRunning : flowRunning)) {
+        await refreshJobs()
+        return
+      }
+      setTimeout(tick, 1200)
+    }
+    setTimeout(tick, 1000)
+  }

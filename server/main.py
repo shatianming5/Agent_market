@@ -392,8 +392,8 @@ def data_summary(
     if timeframes:
         tfs = [t.strip() for t in timeframes.split(',') if t.strip()]
     else:
-        # Infer timeframes from files
-        tfs = sorted({f.suffix.replace('.feather','').split('-')[-1] for f in base.glob('*.feather')})
+        # Infer timeframes from filenames like PAIR-TF.feather
+        tfs = sorted({(f.stem.rsplit('-', 1)[-1]) for f in base.glob('*.feather') if '-' in f.stem})
     import pandas as pd
     res: dict[str, list[dict]] = {}
     for tf in tfs:
@@ -717,7 +717,10 @@ def run_backtest(req: BacktestReq = Body(...)):
     binary = 'freqtrade'
     from shutil import which
     # Prefer direct env python if available to avoid "conda run" stdio issues
-    if env_py:
+    wrapper_bt = ROOT / 'scripts' / 'backtest_wrapper.py'
+    if wrapper_bt.exists():
+        base = [py, str(wrapper_bt)]
+    elif env_py:
         base = [py, '-m', 'freqtrade', 'backtesting']
     else:
         # If no direct env python, try console script, else fallback to -m
@@ -759,15 +762,20 @@ def run_download_data(req: DownloadDataReq = Body(...)):
     conda_prefix = _conda_prefix_args() if not env_py else None
     py = env_py or ('python' if conda_prefix else sys.executable)
 
-    from shutil import which
-    if env_py:
-        base = [py, '-m', 'freqtrade', 'download-data']
+    # Prefer wrapper to inject [STEP] progress lines
+    wrapper = ROOT / 'scripts' / 'download_data_wrapper.py'
+    if wrapper.exists():
+        base = [py, str(wrapper)]
     else:
-        use_bin = which('freqtrade') is not None and conda_prefix is None
-        if use_bin:
-            base = ['freqtrade', 'download-data']
-        else:
+        from shutil import which
+        if env_py:
             base = [py, '-m', 'freqtrade', 'download-data']
+        else:
+            use_bin = which('freqtrade') is not None and conda_prefix is None
+            if use_bin:
+                base = ['freqtrade', 'download-data']
+            else:
+                base = [py, '-m', 'freqtrade', 'download-data']
 
     cmd = (conda_prefix or []) + base + ['--config', str(cfg_path)]
 

@@ -59,6 +59,7 @@ class AgentFlow:
         self.feedback_path = Path("user_data/llm_feedback/latest_backtest_summary.json")
 
     def run(self, steps: Optional[List[str]] = None) -> None:
+        import time as _t
         requested = None
         if steps:
             requested = [step.lower() for step in steps]
@@ -74,7 +75,14 @@ class AgentFlow:
             ("rl", self.config.rl_training, self.run_rl_training),
             ("backtest", self.config.backtest, self.run_backtest),
         ]
-        for name, cfg, runner in sequence:
+        planned = [(n, c, r) for (n, c, r) in sequence if c and ((not requested) or (n in requested))]
+        total = len(planned) if planned else 0
+        current = 0
+        if total:
+            print(f"[STEP] {_t.strftime('%H:%M:%S')} [0/{total}] start", flush=True)
+        for name, cfg, runner in planned:
+            current += 1
+            print(f"[STEP] {_t.strftime('%H:%M:%S')} [{current}/{total}] {name}", flush=True)
             if requested and name not in requested:
                 continue
             if cfg:
@@ -82,6 +90,8 @@ class AgentFlow:
                 runner(cfg)
             elif requested:
                 logger.warning("Step '%s' requested but no configuration provided", name)
+        if total:
+            print(f"[STEP] {_t.strftime('%H:%M:%S')} [{total}/{total}] complete", flush=True)
 
     def run_feature_generation(self, cfg: Dict[str, Any]) -> None:
         script = Path(cfg.get("script", "freqtrade/scripts/freqai_feature_agent.py"))
