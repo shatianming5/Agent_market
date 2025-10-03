@@ -40,6 +40,13 @@ export default function App() {
   const [btExprMode, setBtExprMode] = useState<'all'|'enabled'|'disabled'>('all')
   const [btFeaturesActivePath, setBtFeaturesActivePath] = useState<string>('')
   const [btShowAllFactors, setBtShowAllFactors] = useState(false)
+  // Training jobs
+  const [trainJobId, setTrainJobId] = useState<string | null>(null)
+  const [trainPct, setTrainPct] = useState(0)
+  const [trainLabel, setTrainLabel] = useState('')
+  const [trainRunning, setTrainRunning] = useState(false)
+  const [trainElapsed, setTrainElapsed] = useState<number | undefined>(undefined)
+  const [trainMetrics, setTrainMetrics] = useState<any | null>(null)
 
   function parseStep(logs: string[]) {
     const re = /^\[STEP\]\s+\d{2}:\d{2}:\d{2}\s+(\d+)\/(\d+)\s+(.+)$/
@@ -108,15 +115,20 @@ export default function App() {
       export: false,
       fast: true,
     })
+    if (!res || !res.job_id) {
+      alert('Backtest failed to start: no job_id returned')
+      return
+    }
     startTrack(res.job_id, 'bt')
   }
 
   async function runFlow() {
     const res = await postJSON<{ job_id: string }>('/flow/run', { config: 'configs/agent_flow_multi.json' })
+    if (!res || !res.job_id) { alert('Flow failed to start: no job_id'); return }
     startTrack(res.job_id, 'flow')
   }
 
-  async function pollProgress(id: string, target: 'bt'|'flow') {
+  async function pollProgress(id: string, target: 'bt'|'flow'): Promise<boolean> {
     try {
       const p = await getJSON<any>(`/jobs/${id}/progress`)
       if (target === 'bt') {
@@ -124,6 +136,7 @@ export default function App() {
       } else {
         setFlowPct(p.percent || 0); setFlowLabel(p.label || ''); setFlowRunning(!!p.running); setFlowElapsed(p.elapsed)
       }
+      return !!p.running
     } catch {}
     try {
       const steps = await getJSON<any>(`/jobs/${id}/steps`)
@@ -131,14 +144,14 @@ export default function App() {
       if (target === 'bt') setBtSteps(steps.steps || []); else setFlowSteps(steps.steps || [])
       setStepStats(stats.stats || [])
     } catch {}
+    return true
   }
 
   function startTrack(id: string, target: 'bt'|'flow') {
     if (target === 'bt') { setBtJobId(id); setBtRunning(true); setBtPct(0); setBtLabel('') } else { setFlowJobId(id); setFlowRunning(true); setFlowPct(0); setFlowLabel('') }
     const tick = async () => {
-      await pollProgress(id, target)
-      const running = target === 'bt' ? btRunning : flowRunning
-      if (!(target === 'bt' ? btRunning : flowRunning)) {
+      const stillRunning = await pollProgress(id, target)
+      if (!stillRunning) {
         await refreshJobs()
         // Auto load summary after backtest
         if (target === 'bt') {
@@ -149,6 +162,72 @@ export default function App() {
         }
         return
       }
+      setTimeout(tick, 1200)
+    }
+    setTimeout(tick, 1000)
+  }
+
+  async function trainXGB() {
+    const res = await postJSON<{ status: string; job_id: string }>(`/run/train-xgb`, {})
+    startTrainTrack(res.job_id)
+  }
+
+  async function trainCAT() {
+    const res = await postJSON<{ status: string; job_id: string }>(`/run/train-cat`, {})
+    startTrainTrack(res.job_id)
+  }
+
+  async function startTrainTrack(id: string) {
+    setTrainJobId(id); setTrainRunning(true); setTrainPct(0); setTrainLabel(''); setTrainMetrics(null)
+    const tick = async () => {
+      try {
+        const p = await getJSON<any>(`/jobs/${id}/progress`)
+        setTrainPct(p.percent || 0)
+        setTrainLabel(p.label || '')
+        setTrainRunning(!!p.running)
+        setTrainElapsed(p.elapsed)
+        if (!p.running) {
+          // fetch logs and parse last JSON line
+          try {
+            const logs = await getJSON<any>(`/jobs/${id}/logs?offset=0&limit=1000&structured=true`)
+            const entries = logs.entries || []
+            for (let i=entries.length-1;i>=0;i--) {
+              const t = entries[i].text
+              try { const obj = JSON.parse(t); if (obj && obj.metrics) { setTrainMetrics(obj); break } } catch {}
+            }
+            // Fallback parsing for plain text lines ("Metrics:", "Model:")
+            try {
+              if (!trainMetrics) {
+                let metrics: Record<string, any> = {}
+                let model_path = ''
+                for (let i=entries.length-1;i>=0;i--) {
+                  const t = (entries[i].text || '').trim()
+                  if (!model_path && t.startsWith('Model:')) {
+                    model_path = t.replace(/^Model:\s*/, '')
+                  }
+                  if (Object.keys(metrics).length===0 && t.startsWith('Metrics:')) {
+                    const rest = t.replace(/^Metrics:\s*/, '')
+                    const parts = rest.split(/\s*,\s*/)
+                    for (const part of parts) {
+                      const kv = part.split(':')
+                      if (kv.length>=2) {
+                        const k = kv[0].trim();
+                        const vraw = kv.slice(1).join(':').trim();
+                        const vnum = Number(vraw)
+                        metrics[k] = isNaN(vnum) ? vraw : vnum
+                      }
+                    }
+                  }
+                }
+                if (Object.keys(metrics).length || model_path) {
+                  setTrainMetrics({ metrics, model_path })
+                }
+              }
+            } catch {}
+          } catch {}
+          return
+        }
+      } catch {}
       setTimeout(tick, 1200)
     }
     setTimeout(tick, 1000)
@@ -198,6 +277,23 @@ export default function App() {
               <option>RandomForestRegressor</option>
               <option>CatBoostRegressor</option>
             </select>
+            <button onClick={trainXGB}>Train XGB</button>
+            <button onClick={trainCAT}>Train CAT</button>
+            <button onClick={async ()=>{
+              try {
+                const cfg = {
+                  model: { name: 'lightgbm', params: { model_dir: 'artifacts/models/lightgbm_multi' } },
+                  data: {
+                    feature_file: 'user_data/freqai_features_multi.json',
+                    data_dir: 'freqtrade/user_data/data',
+                  },
+                  training: { validation_ratio: 0.2 },
+                  output: { model_dir: 'artifacts/models/lightgbm_multi' },
+                }
+                const res = await postJSON<{ status: string; job_id: string }>(`/run/train-ml`, { config: cfg })
+                startTrainTrack(res.job_id)
+              } catch {}
+            }}>Train LGBM</button>
             <label>Features file:</label>
             <input value={btFeaturePath} onChange={e => setBtFeaturePath(e.target.value)} style={{ width: 260 }} />
             <button onClick={async ()=>{ try { await postJSON('/config/use-features-file', { path: btFeaturePath }); alert('Features file applied.'); } catch { alert('Apply features failed') } }}>Use</button>
@@ -238,6 +334,24 @@ export default function App() {
             </div>
           ) : null}
           <p>Backtest runs with current server config. Full Flow will execute: download → feature → expression → ml → backtest.</p>
+          {trainJobId ? (
+            <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
+              <b>Training Job:</b> {trainJobId}
+              <div style={{ height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden', marginTop: 4 }}>
+                <div style={{ width: trainPct + '%', height: '100%', background: '#f59e0b' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                <span>{trainLabel || 'running...'}</span>
+                <span>{trainPct}% {trainElapsed ? `(elapsed ${trainElapsed}s)` : ''}</span>
+              </div>
+              {trainMetrics ? (
+                <div style={{ marginTop: 6 }}>
+                  <div><b>Metrics:</b> {Object.entries(trainMetrics.metrics || {}).map(([k,v]) => `${k}:${v}`).join(' , ')}</div>
+                  <div><b>Model:</b> {trainMetrics.model_path}</div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {btJobId ? (
             <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
               <b>Backtest Job:</b> {btJobId}
@@ -282,6 +396,16 @@ export default function App() {
                       </tbody>
                     </table>
                   ) : null}
+                  <div style={{ marginTop: 6 }}>
+                    <button onClick={()=>{ try { const blob = new Blob([JSON.stringify(btSummary,null,2)], { type:'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='backtest_summary.json'; a.click(); URL.revokeObjectURL(url);} catch {} }}>Export Summary (JSON)</button>
+                    <button style={{ marginLeft: 8 }} onClick={()=>{ try {
+                      const rows = (btExpr||[]).filter((x:any)=>!!x.enabled).map((x:any,i:number)=>({index:i+1,name:x.name||'',expression:x.expression||''}))
+                      const header = 'index,name,expression\n'
+                      const csv = header + rows.map(r=>`${r.index},"${(r.name||'').replace(/"/g,'""')}","${(r.expression||'').replace(/"/g,'""')}"`).join('\n')
+                      const blob = new Blob([csv], { type:'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='enabled_factors.csv'; a.click(); URL.revokeObjectURL(url);
+                    } catch {} }}>Export Enabled Factors (CSV)</button>
+                    <button style={{ marginLeft: 8 }} onClick={()=>{ try { const enabled = (btExpr||[]).filter((x:any)=>!!x.enabled); const blob = new Blob([JSON.stringify(enabled,null,2)], { type:'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='enabled_factors.json'; a.click(); URL.revokeObjectURL(url);} catch {} }}>Export Enabled Factors (JSON)</button>
+                  </div>
                 </div>
               ) : null}
             </div>

@@ -193,7 +193,7 @@ def expressions_get():
 
 @app.get('/expressions/allowed')
 def expressions_allowed():
-    allowed_funcs = ['z','abs','sign','clip','shift','roll_mean','roll_std','pct_change','ema','rolling_max','rolling_min','log1p','tanh']
+    allowed_funcs = ['z','abs','sign','clip','shift','roll_mean','roll_std','pct_change','ema','rolling_max','rolling_min','rolling','log1p','tanh']
     base_cols = ['date','open','high','low','close','volume','atr_pct_14','ema_fast_55','ema_slow_200','trend_score','trend_up','prediction','prediction_z']
     return {"functions": allowed_funcs, "base_columns": base_cols}
 
@@ -335,6 +335,8 @@ def expressions_preview(
         'ema': lambda s, span=5: s.ewm(span=int(span), adjust=False).mean(),
         'rolling_max': lambda s, w=5: s.rolling(int(w)).max(),
         'rolling_min': lambda s, w=5: s.rolling(int(w)).min(),
+        # alias: generic rolling -> mean for convenience in预览/提示
+        'rolling': lambda s, w=5: s.rolling(int(w)).mean(),
         'log1p': lambda s: __import__('numpy').log1p(s),
         'tanh': lambda s: __import__('numpy').tanh(s),
     }
@@ -810,6 +812,8 @@ def run_backtest(req: BacktestReq = Body(...)):
         cmd += ['--export', 'trades', '--export-filename', req.export_filename]
     env = os.environ.copy()
     env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
+    # Enable verbose per-pair step detection in wrapper
+    env['FT_VERBOSE_BT'] = env.get('FT_VERBOSE_BT', '1')
     job_id = jobs.start(cmd, cwd=ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
 

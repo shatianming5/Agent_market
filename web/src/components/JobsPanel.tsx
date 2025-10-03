@@ -13,23 +13,64 @@ export default function JobsPanel({ jobs, selectedJob, onOpen, onTerminate, jobL
   const [steps, setSteps] = useState<any[]>([])
   const [stats, setStats] = useState<any[]>([])
   const [summary, setSummary] = useState<any | null>(null)
+  const [trainResult, setTrainResult] = useState<any | null>(null)
   const [isBacktest, setIsBacktest] = useState<boolean>(false)
+  const [isTraining, setIsTraining] = useState<boolean>(false)
 
   useEffect(() => {
     let timer: any
     async function poll() {
       if (!selectedJob) return
       try {
-        const st = await getJSON<any>(`/jobs/${selectedJob.id}/status`)
+        const statusRes = await getJSON<any>(`/jobs/${selectedJob.id}/status`)
         try {
-          const cmd = (st && st.cmd) || []
+          const cmd = (statusRes && statusRes.cmd) || []
           const s = (Array.isArray(cmd) ? cmd.join(' ') : String(cmd || '')).toLowerCase()
           setIsBacktest(s.includes('backtesting'))
+          setIsTraining(s.includes('train_ml.py') || s.includes('train-xgb') || s.includes('train-cat'))
         } catch {}
-        const s = await getJSON<any>(`/jobs/${selectedJob.id}/steps`)
-        const st = await getJSON<any>('/steps/stats')
-        setSteps(s.steps || [])
-        setStats(st.stats || [])
+        const stepsRes = await getJSON<any>(`/jobs/${selectedJob.id}/steps`)
+        const statsRes = await getJSON<any>('/steps/stats')
+        setSteps(stepsRes.steps || [])
+        setStats(statsRes.stats || [])
+        // When job stops, auto pull summary or training metrics
+        if (statusRes && statusRes.running === false) {
+          if (isBacktest) {
+            try { const s = await getJSON<any>('/backtest/summary/latest'); setSummary(s) } catch {}
+          }
+          if (isTraining && !trainResult) {
+            try {
+              const logs = await getJSON<any>(`/jobs/${selectedJob.id}/logs?offset=0&limit=1000&structured=true`)
+              const entries = logs.entries || []
+              // try JSON last-line first
+              let parsed: any = null
+              for (let i=entries.length-1;i>=0;i--) {
+                const t = entries[i].text
+                try { const obj = JSON.parse(t); if (obj && obj.metrics) { parsed = obj; break } } catch {}
+              }
+              if (!parsed) {
+                // fallback parse plain text
+                let metrics: Record<string, any> = {}
+                let model_path = ''
+                for (let i=entries.length-1;i>=0;i--) {
+                  const t = (entries[i].text || '').trim()
+                  if (!model_path && t.startsWith('Model:')) model_path = t.replace(/^Model:\s*/, '')
+                  if (Object.keys(metrics).length===0 && t.startsWith('Metrics:')) {
+                    const parts = t.replace(/^Metrics:\s*/, '').split(/\s*,\s*/)
+                    for (const part of parts) {
+                      const kv = part.split(':'); if (kv.length>=2) {
+                        const k = kv[0].trim(); const vraw = kv.slice(1).join(':').trim(); const vnum = Number(vraw)
+                        metrics[k] = isNaN(vnum) ? vraw : vnum
+                      }
+                    }
+                  }
+                }
+                if (Object.keys(metrics).length || model_path) parsed = { metrics, model_path }
+              }
+              if (parsed) setTrainResult(parsed)
+            } catch {}
+          }
+        }
       } catch {}
       timer = setTimeout(poll, 1500)
     }
@@ -118,6 +159,13 @@ export default function JobsPanel({ jobs, selectedJob, onOpen, onTerminate, jobL
           {isBacktest ? (
             <div style={{ marginTop: 8 }}>
               <button onClick={loadSummary}>Show Last Backtest Summary</button>
+            </div>
+          ) : null}
+          {isTraining && trainResult ? (
+            <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
+              <b>Training Result</b>
+              <div>Metrics: {Object.entries(trainResult.metrics || {}).map(([k,v]) => `${k}:${v}`).join(' , ')}</div>
+              <div>Model: {trainResult.model_path}</div>
             </div>
           ) : null}
           {summary ? (

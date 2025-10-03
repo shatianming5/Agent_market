@@ -41,24 +41,30 @@ def main(argv: List[str]) -> int:
     print(f"[STEP] {now_label()} [{current}/{total}] start", flush=True)
 
     cmd = [sys.executable, '-m', 'freqtrade', 'backtesting'] + argv
+    # Optional verbose logs to detect per-pair completion events if available
+    if os.environ.get('FT_VERBOSE_BT') == '1' and '--loglevel' not in cmd:
+        cmd += ['--loglevel', 'DEBUG']
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
 
     # Ticker thread to emit per-pair steps if we have pairs and see strategy resolved
     ticker_stop = threading.Event()
     ticker_started = threading.Event()
 
-    def ticker():
+    completed_pairs: set[str] = set()
+
+    def emit_pair_step(pair_name: str):
         nonlocal current
+        current = min(current + 1, total)
+        print(f"[STEP] {now_label()} [{current}/{total}] backtest {pair_name}", flush=True)
+
+    def ticker():
+        # Fallback ticker: emit one step per pair at steady pace until process ends
         if not pairs:
             return
-        # wait a short grace period
-        # then emit one step per pair at steady pace until process ends
         i = 0
         while not ticker_stop.is_set() and i < len(pairs):
             i += 1
-            current = min(current + 1, total)
-            print(f"[STEP] {now_label()} [{current}/{total}] backtest {pairs[i-1]}", flush=True)
-            # sleep a bit, but allow fast completion
+            emit_pair_step(pairs[i-1])
             for _ in range(10):
                 if ticker_stop.is_set():
                     break
@@ -81,6 +87,17 @@ def main(argv: List[str]) -> int:
                 if pairs and not tick_thread:
                     tick_thread = threading.Thread(target=ticker, daemon=True)
                     tick_thread.start()
+            # Try detect per-pair completion logs when verbose enabled
+            if pairs and os.environ.get('FT_VERBOSE_BT') == '1':
+                lower = line.lower()
+                for p in pairs:
+                    pname = str(p).lower()
+                    if pname in completed_pairs:
+                        continue
+                    # heuristic patterns
+                    if ('backtest' in lower and pname in lower) or ('pair' in lower and pname in lower and 'complete' in lower):
+                        completed_pairs.add(pname)
+                        emit_pair_step(p)
     finally:
         proc.wait()
         ticker_stop.set()
