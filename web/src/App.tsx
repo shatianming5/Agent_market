@@ -21,11 +21,14 @@ export default function App() {
   const [btLabel, setBtLabel] = useState('')
   const [btRunning, setBtRunning] = useState(false)
   const [btElapsed, setBtElapsed] = useState<number | undefined>(undefined)
+  const [btSteps, setBtSteps] = useState<any[]>([])
   const [flowJobId, setFlowJobId] = useState<string | null>(null)
   const [flowPct, setFlowPct] = useState(0)
   const [flowLabel, setFlowLabel] = useState('')
   const [flowRunning, setFlowRunning] = useState(false)
   const [flowElapsed, setFlowElapsed] = useState<number | undefined>(undefined)
+  const [flowSteps, setFlowSteps] = useState<any[]>([])
+  const [stepStats, setStepStats] = useState<any[]>([])
 
   function parseStep(logs: string[]) {
     const re = /^\[STEP\]\s+\d{2}:\d{2}:\d{2}\s+(\d+)\/(\d+)\s+(.+)$/
@@ -71,8 +74,8 @@ export default function App() {
     }
   }
 
-  async function runBacktest() {
-    const res = await postJSON<{ status:string; job_id:string }>(''/run/backtest'.replace("''",""), {
+async function runBacktest() {
+    const res = await postJSON<{ status:string; job_id:string }>(`/run/backtest`, {
       config: 'configs/config_freqai_multi.json',
       strategy: 'ExpressionLongStrategy',
       strategy_path: 'freqtrade/user_data/strategies',
@@ -133,6 +136,23 @@ export default function App() {
               </div>
             </div>
           ) : null}
+          {btSteps.length ? (
+            <div style={{ marginTop: 8 }}>
+              <h4>Steps (Backtest)</h4>
+              <table>
+                <thead><tr><th>#</th><th>Label</th><th>Duration(s)</th><th>Avg(s)</th><th>Delta</th></tr></thead>
+                <tbody>
+                  {btSteps.map((s:any, i:number) => {
+                    const stat = stepStats.find((x:any) => x.label === s.label)
+                    const avg = stat ? Math.round(stat.avg_seconds) : null
+                    const dur = typeof s.duration === 'number' ? s.duration : null
+                    const delta = (avg != null && dur != null) ? (dur - avg) : null
+                    return <tr key={i}><td>{s.idx}/{s.total}</td><td>{s.label}</td><td style={{ textAlign:'right' }}>{dur ?? '-'}</td><td style={{ textAlign:'right' }}>{avg ?? '-'}</td><td style={{ textAlign:'right', color: (delta!=null && delta>5)?'crimson':undefined }}>{delta ?? '-'}</td></tr>
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
           {flowJobId ? (
             <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
               <b>Flow Job:</b> {flowJobId}
@@ -143,6 +163,23 @@ export default function App() {
                 <span>{flowLabel || 'running...'}</span>
                 <span>{flowPct}% {flowElapsed ? `(elapsed ${flowElapsed}s)` : ''}</span>
               </div>
+            </div>
+          ) : null}
+          {flowSteps.length ? (
+            <div style={{ marginTop: 8 }}>
+              <h4>Steps (Flow)</h4>
+              <table>
+                <thead><tr><th>#</th><th>Label</th><th>Duration(s)</th><th>Avg(s)</th><th>Delta</th></tr></thead>
+                <tbody>
+                  {flowSteps.map((s:any, i:number) => {
+                    const stat = stepStats.find((x:any) => x.label === s.label)
+                    const avg = stat ? Math.round(stat.avg_seconds) : null
+                    const dur = typeof s.duration === 'number' ? s.duration : null
+                    const delta = (avg != null && dur != null) ? (dur - avg) : null
+                    return <tr key={i}><td>{s.idx}/{s.total}</td><td>{s.label}</td><td style={{ textAlign:'right' }}>{dur ?? '-'}</td><td style={{ textAlign:'right' }}>{avg ?? '-'}</td><td style={{ textAlign:'right', color: (delta!=null && delta>5)?'crimson':undefined }}>{delta ?? '-'}</td></tr>
+                  })}
+                </tbody>
+              </table>
             </div>
           ) : null}
           <div style={{ marginTop: 12 }}>
@@ -169,6 +206,12 @@ export default function App() {
       } else {
         setFlowPct(p.percent || 0); setFlowLabel(p.label || ''); setFlowRunning(!!p.running); setFlowElapsed(p.elapsed)
       }
+    } catch {}
+    try {
+      const steps = await getJSON<any>(`/jobs/${id}/steps`)
+      const stats = await getJSON<any>('/steps/stats')
+      if (target === 'bt') setBtSteps(steps.steps || []); else setFlowSteps(steps.steps || [])
+      setStepStats(stats.stats || [])
     } catch {}
   }
 
