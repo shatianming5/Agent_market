@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getJSON, postJSON } from '../api'
 
 type SummaryRow = { pair: string; count: number; start?: string; end?: string }
@@ -17,6 +17,12 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   const [erase, setErase] = useState(false)
   const [newPairs, setNewPairs] = useState(false)
   const [prepend, setPrepend] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobPct, setJobPct] = useState(0)
+  const [jobLabel, setJobLabel] = useState('')
+  const [jobRunning, setJobRunning] = useState(false)
+  const [jobElapsed, setJobElapsed] = useState<number | undefined>(undefined)
+  const pollRef = useRef<number | null>(null)
 
   async function refresh() {
     setLoading(true)
@@ -53,8 +59,11 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   async function download() {
     const tfs = timeframes.split(',').map(s => s.trim()).filter(Boolean)
     const plist = pairs.split(',').map(s => s.trim()).filter(Boolean)
-    await postJSON('/run/download-data', { config: 'configs/config_freqai_multi.json', timeframes: tfs, pairs: plist, timerange, erase, new_pairs: newPairs, prepend })
-    if (onJob) onJob()
+    const res = await postJSON<{ status:string; job_id:string }>(
+      '/run/download-data',
+      { config: 'configs/config_freqai_multi.json', timeframes: tfs, pairs: plist, timerange, erase, new_pairs: newPairs, prepend }
+    )
+    startTrack(res.job_id)
   }
 
   async function downloadMissing() {
@@ -65,9 +74,34 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
     const tfs = Array.from(tset)
     const plist = Array.from(pset)
     if (tfs.length === 0 || plist.length === 0) return
-    await postJSON('/run/download-data', { config: 'configs/config_freqai_multi.json', timeframes: tfs, pairs: plist, timerange, erase, new_pairs: newPairs, prepend })
-    if (onJob) onJob()
+    const res = await postJSON<{ status:string; job_id:string }>(
+      '/run/download-data',
+      { config: 'configs/config_freqai_multi.json', timeframes: tfs, pairs: plist, timerange, erase, new_pairs: newPairs, prepend }
+    )
+    startTrack(res.job_id)
   }
+
+  function startTrack(id: string) {
+    setJobId(id); setJobRunning(true); setJobPct(0); setJobLabel('')
+    if (pollRef.current) window.clearInterval(pollRef.current)
+    pollRef.current = window.setInterval(async () => {
+      try {
+        const p = await getJSON<any>(`/jobs/${id}/progress`)
+        setJobPct(p.percent || 0)
+        setJobLabel(p.label || '')
+        setJobRunning(!!p.running)
+        setJobElapsed(p.elapsed)
+        if (!p.running) {
+          if (pollRef.current) window.clearInterval(pollRef.current)
+          pollRef.current = null
+          refresh().catch(()=>{})
+          if (onJob) onJob()
+        }
+      } catch {}
+    }, 1200)
+  }
+
+  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current) }, [])
 
   useEffect(() => { refresh().catch(()=>{}) }, [])
 
@@ -87,6 +121,19 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
         <label>Pairs (comma):</label>
         <input value={pairs} onChange={e => setPairs(e.target.value)} style={{ width: 320 }} />
       </div>
+      {jobId ? (
+        <div style={{ marginTop: 12, border: '1px solid #ddd', padding: 8 }}>
+          <b>Active Job:</b> {jobId}
+          <div style={{ height: 8, background: '#eee', borderRadius: 4, overflow: 'hidden', marginTop: 4 }}>
+            <div style={{ width: `${jobPct}%`, height: '100%', background: '#3b82f6' }} />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+            <span>{jobLabel || 'running...'}</span>
+            <span>{jobPct}% {jobElapsed ? `(elapsed ${jobElapsed}s)` : ''}</span>
+          </div>
+          {!jobRunning ? <div style={{ color: '#0a0', marginTop: 4 }}>Finished</div> : null}
+        </div>
+      ) : null}
       <div style={{ marginBottom: 8 }}>
         <button onClick={refresh} disabled={loading}>Refresh Summary</button>
         <button onClick={checkMissing} style={{ marginLeft: 8 }} disabled={loading}>Check Missing</button>
