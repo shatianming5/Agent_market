@@ -8,6 +8,11 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
   const [path, setPath] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
+  const [allowed, setAllowed] = useState<{ functions: string[]; base_columns: string[] }>({ functions: [], base_columns: [] })
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null)
+  const [previewStats, setPreviewStats] = useState<any | null>(null)
+  const [pair, setPair] = useState('ADA/USDT')
+  const [timeframe, setTimeframe] = useState('4h')
 
   async function load() {
     setLoading(true)
@@ -24,13 +29,14 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
   }
 
   useEffect(() => { load() }, [])
+  useEffect(() => { getJSON('/expressions/allowed').then(setAllowed).catch(()=>{}) }, [])
 
   function update(idx: number, key: string, val: any) {
     setExpressions(prev => prev.map((x, i) => i===idx ? { ...x, [key]: val } : x))
   }
 
   function addNew() {
-    setExpressions(prev => [...prev, { name: '', expression: '', entry_threshold: '', exit_threshold: '' }])
+    setExpressions(prev => [...prev, { enabled: true, name: '', expression: '', entry_threshold: '', exit_threshold: '', offline_profit: '', win_ratio: '', offline_trade_count: '', signal_sharpe: '', stability_mean: '', adjusted_score: '' }])
   }
 
   function remove(idx: number) {
@@ -49,6 +55,22 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
     }
   }
 
+  async function validateExpression(idx: number) {
+    const item = expressions[idx]
+    if (!item?.expression) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await postJSON('/expressions/preview', { pair, timeframe, expression: item.expression, config: 'configs/config_freqai_multi.json', apply_features: true })
+      setPreviewIdx(idx); setPreviewStats(res)
+    } catch (e: any) {
+      setError(e?.message || 'Validate failed')
+      setPreviewIdx(idx); setPreviewStats(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div>
       <h2>Expressions</h2>
@@ -62,27 +84,58 @@ export default function ExpressionsManager({ onJob }: { onJob?: () => void }) {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
+            <th>On</th>
             <th style={{ textAlign: 'left' }}>Name</th>
             <th style={{ textAlign: 'left' }}>Expression</th>
             <th>Entry Thr</th>
             <th>Exit Thr</th>
-            <th style={{ width: 80 }}>Actions</th>
+            <th>offline_profit</th>
+            <th>win_ratio</th>
+            <th>trade_cnt</th>
+            <th>sharpe</th>
+            <th>stability</th>
+            <th>adjusted</th>
+            <th style={{ width: 120 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {expressions.map((item, idx) => (
             <tr key={idx}>
-              <td><input value={item.name || ''} onChange={e => update(idx, 'name', e.target.value)} style={{ width: 180 }} /></td>
+              <td><input type="checkbox" checked={!!item.enabled} onChange={e => update(idx, 'enabled', e.target.checked)} /></td>
+              <td><input value={item.name || ''} onChange={e => update(idx, 'name', e.target.value)} style={{ width: 160 }} /></td>
               <td><input value={item.expression || ''} onChange={e => update(idx, 'expression', e.target.value)} style={{ width: '100%' }} /></td>
               <td><input value={item.entry_threshold ?? ''} onChange={e => update(idx, 'entry_threshold', e.target.value)} style={{ width: 80 }} /></td>
               <td><input value={item.exit_threshold ?? ''} onChange={e => update(idx, 'exit_threshold', e.target.value)} style={{ width: 80 }} /></td>
-              <td><button onClick={() => remove(idx)}>Delete</button></td>
+              <td><input value={item.offline_profit ?? ''} onChange={e => update(idx, 'offline_profit', e.target.value)} style={{ width: 80 }} /></td>
+              <td><input value={item.win_ratio ?? ''} onChange={e => update(idx, 'win_ratio', e.target.value)} style={{ width: 70 }} /></td>
+              <td><input value={item.offline_trade_count ?? ''} onChange={e => update(idx, 'offline_trade_count', e.target.value)} style={{ width: 70 }} /></td>
+              <td><input value={item.signal_sharpe ?? ''} onChange={e => update(idx, 'signal_sharpe', e.target.value)} style={{ width: 70 }} /></td>
+              <td><input value={item.stability_mean ?? ''} onChange={e => update(idx, 'stability_mean', e.target.value)} style={{ width: 70 }} /></td>
+              <td><input value={item.adjusted_score ?? ''} onChange={e => update(idx, 'adjusted_score', e.target.value)} style={{ width: 70 }} /></td>
+              <td>
+                <button onClick={() => validateExpression(idx)}>Preview</button>
+                <button onClick={() => remove(idx)} style={{ marginLeft: 4 }}>Delete</button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p style={{ color: '#555', marginTop: 8 }}>Tip: Allowed columns include open/high/low/close/volume and rolling features; strategy will safe-eval using whitelisted functions.</p>
+      <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <b>Preview on:</b>
+        <input value={pair} onChange={e => setPair(e.target.value)} style={{ width: 140 }} />
+        <input value={timeframe} onChange={e => setTimeframe(e.target.value)} style={{ width: 80 }} />
+        <span style={{ color: '#777' }}>
+          Allowed funcs: {allowed.functions.join(', ')}
+        </span>
+      </div>
+      {previewStats ? (
+        <div style={{ marginTop: 8, border: '1px solid #ddd', padding: 8 }}>
+          <b>Preview stats {previewIdx !== null ? `(row ${previewIdx})` : ''}</b>
+          <div>count={previewStats.count} mean={Number.isFinite(previewStats.mean) ? previewStats.mean.toFixed(6) : previewStats.mean} std={Number.isFinite(previewStats.std) ? previewStats.std.toFixed(6) : previewStats.std} min={Number.isFinite(previewStats.min) ? previewStats.min.toFixed(6) : previewStats.min} max={Number.isFinite(previewStats.max) ? previewStats.max.toFixed(6) : previewStats.max}</div>
+          <div>quantiles: {Object.entries(previewStats.quantiles || {}).map(([k,v]) => `${k}:${(Number(v)).toFixed(4)}`).join(' , ')}</div>
+          <div>z-quantiles: {Object.entries(previewStats.z_quantiles || {}).map(([k,v]) => `${k}:${(Number(v)).toFixed(4)}`).join(' , ')}</div>
+        </div>
+      ) : null}
     </div>
   )
 }
-

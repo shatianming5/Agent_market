@@ -3,6 +3,7 @@ import { API_BASE, getJSON, postJSON, postEmpty } from './api'
 import DataManager from './components/DataManager'
 import ExpressionsManager from './components/ExpressionsManager'
 import JobsPanel from './components/JobsPanel'
+import StrategyParams from './components/StrategyParams'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'data' | 'expressions' | 'backtest' | 'jobs'>('data')
@@ -110,6 +111,9 @@ export default function App() {
             <button onClick={async () => { await postJSON('/flow/run', { config: 'configs/agent_flow_multi.json' }); await refreshJobs() }} style={{ marginLeft: 8 }}>Run Full Flow</button>
           </div>
           <p>Backtest runs with current server config. Full Flow will execute: download → feature → expression → ml → backtest.</p>
+          <div style={{ marginTop: 12 }}>
+            <StrategyParams />
+          </div>
         </div>
       ) : null}
       {activeTab === 'jobs' ? (

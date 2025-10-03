@@ -18,6 +18,16 @@ from . import routes_agents, routes_orders
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'src'
+import sys as _sys
+if str(SRC) not in _sys.path:
+    _sys.path.append(str(SRC))
+import pandas as _pd  # noqa: E402
+import json as _json  # noqa: E402
+try:
+    from agent_market.freqai.features import apply_configured_features as _apply_features  # type: ignore
+except Exception:  # pragma: no cover - fallback if features module missing
+    def _apply_features(df, cfg):
+        return df
 
 SETTINGS = load_settings()
 
@@ -129,6 +139,7 @@ class DownloadDataReq(BaseModel):
     erase: bool = Field(False, description="Erase existing data before downloading")
     new_pairs: bool = Field(False, description="Only download pairs not present yet")
     dl_trades: bool = Field(False, description="Download trades data instead of OHLCV")
+    prepend: bool = Field(False, description="Prepend earlier history if available")
 
 
 class TrainMLReq(BaseModel):
@@ -171,6 +182,13 @@ def expressions_get():
     except json.JSONDecodeError:
         return {"status": "error", "code": "MALFORMED", "message": f"Expressions JSON malformed: {path}"}
     return {"path": str(path.relative_to(ROOT)), "expressions": data.get('expressions', [])}
+
+
+@app.get('/expressions/allowed')
+def expressions_allowed():
+    allowed_funcs = ['z','abs','sign','clip','shift','roll_mean','roll_std','pct_change','ema','rolling_max','rolling_min','log1p','tanh']
+    base_cols = ['date','open','high','low','close','volume','atr_pct_14','ema_fast_55','ema_slow_200','trend_score','trend_up','prediction','prediction_z']
+    return {"functions": allowed_funcs, "base_columns": base_cols}
 
 
 @app.put('/expressions')
@@ -234,6 +252,89 @@ def expressions_delete(index: int):
         return {"status": "ok", "removed": removed}
     except Exception as exc:
         return {"status": "error", "code": "WRITE_FAILED", "message": str(exc)}
+
+
+def _load_feature_cfg() -> dict:
+    for cand in [ROOT / 'user_data' / 'freqai_features.json', ROOT / 'freqtrade' / 'user_data' / 'freqai_features.json']:
+        if cand.exists():
+            try:
+                return _json.loads(cand.read_text(encoding='utf-8'))
+            except _json.JSONDecodeError:
+                continue
+    return {'features': []}
+
+
+def _load_pair_df(config: Optional[str], pair: str, timeframe: str):
+    cfg = _load_freqtrade_config(config)
+    datadir = Path(cfg.get('datadir') or 'freqtrade/user_data/data')
+    exch = (cfg.get('exchange', {}) or {}).get('name') or 'binanceus'
+    base = (ROOT / datadir).resolve() / exch
+    path = base / f"{pair.replace('/','_')}-{timeframe}.feather"
+    if not path.exists():
+        raise FileNotFoundError(f"Data file not found: {path}")
+    df = _pd.read_feather(path)
+    df['date'] = _pd.to_datetime(df['date'])
+    df = df.sort_values('date').reset_index(drop=True)
+    return df
+
+
+@app.post('/expressions/preview')
+def expressions_preview(
+    pair: str = Body(...),
+    timeframe: str = Body(...),
+    expression: str = Body(...),
+    config: Optional[str] = Body(None),
+    apply_features: bool = Body(True),
+):
+    try:
+        df = _load_pair_df(config, pair, timeframe)
+    except FileNotFoundError as exc:
+        return {"status": "error", "code": "NO_DATA", "message": str(exc)}
+    feats = _load_feature_cfg() if apply_features else {'features': []}
+    try:
+        df2 = _apply_features(df.copy(), feats)
+    except Exception:
+        df2 = df.copy()
+    # safe eval
+    allowed = {
+        'z': lambda s: (s - s.mean()) / (s.std(ddof=0) + 1e-9),
+        'abs': __import__('numpy').abs,
+        'sign': __import__('numpy').sign,
+        'clip': __import__('numpy').clip,
+        'shift': lambda s, n=1: s.shift(int(n)),
+        'roll_mean': lambda s, w=3: s.rolling(int(w)).mean(),
+        'roll_std': lambda s, w=3: s.rolling(int(w)).std(ddof=0),
+        'pct_change': lambda s, n=1: s.pct_change(int(n)),
+        'ema': lambda s, span=5: s.ewm(span=int(span), adjust=False).mean(),
+        'rolling_max': lambda s, w=5: s.rolling(int(w)).max(),
+        'rolling_min': lambda s, w=5: s.rolling(int(w)).min(),
+        'log1p': lambda s: __import__('numpy').log1p(s),
+        'tanh': lambda s: __import__('numpy').tanh(s),
+    }
+    local_dict = {col: df2[col] for col in df2.columns if col not in ('date',)}
+    local_dict.update(allowed)
+    try:
+        res = eval(expression, {'__builtins__': {}}, local_dict)
+    except Exception as exc:
+        return {"status": "error", "code": "EVAL_FAILED", "message": str(exc)}
+    import numpy as _np
+    s = _pd.Series(res, index=df2.index).astype(float).replace([_np.inf, -_np.inf], _np.nan)
+    s = s.ffill().bfill()
+    z = (s - s.mean()) / (s.std(ddof=0) + 1e-9)
+    q = {p: float(s.quantile(p)) for p in (0.1, 0.25, 0.5, 0.75, 0.9)}
+    zq = {p: float(z.quantile(p)) for p in (0.1, 0.25, 0.5, 0.75, 0.9)}
+    resp = {
+        'count': int(s.count()),
+        'mean': float(s.mean()),
+        'std': float(s.std(ddof=0)),
+        'min': float(s.min()) if s.size else None,
+        'max': float(s.max()) if s.size else None,
+        'quantiles': q,
+        'z_quantiles': zq,
+        'head': [float(x) if _np.isfinite(x) else None for x in s.head(5).values.tolist()],
+        'tail': [float(x) if _np.isfinite(x) else None for x in s.tail(5).values.tolist()],
+    }
+    return resp
 
 
 # --------------------------- Data Summary APIs ---------------------------
@@ -341,6 +442,84 @@ def data_check_missing(
                 if smin > start or smax < end:
                     insufficient.append({'pair': pair, 'timeframe': tf, 'file_start': smin.isoformat(), 'file_end': smax.isoformat(), 'want_start': start.isoformat(), 'want_end': end.isoformat()})
     return {"missing": missing, "insufficient": insufficient}
+
+
+# --------------------------- Strategy Params & Backtest Summary ---------------------------
+
+
+def _strategy_params_path() -> Path:
+    p = ROOT / 'freqtrade' / 'user_data' / 'strategies' / 'ExpressionLongStrategy.json'
+    if p.exists():
+        return p
+    return ROOT / 'freqtrade' / 'user_data' / 'strategies' / 'ExpressionLongStrategy.json'
+
+
+@app.get('/strategy/params')
+def strategy_params_get():
+    path = _strategy_params_path()
+    try:
+        data = _json.loads(path.read_text(encoding='utf-8'))
+        return {'path': str(path.relative_to(ROOT)), 'data': data}
+    except Exception as exc:
+        return {'status': 'error', 'message': str(exc)}
+
+
+@app.put('/strategy/params')
+def strategy_params_put(payload: dict = Body(...)):
+    path = _strategy_params_path()
+    try:
+        path.write_text(_json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {'status': 'ok', 'path': str(path.relative_to(ROOT))}
+    except Exception as exc:
+        return {'status': 'error', 'message': str(exc)}
+
+
+def _find_latest_backtest_zip(results_dir: Path) -> Optional[Path]:
+    results_dir = results_dir.resolve()
+    if not results_dir.exists():
+        return None
+    last_path = results_dir / '.last_result.json'
+    if last_path.exists():
+        try:
+            latest_name = _json.loads(last_path.read_text(encoding='utf-8')).get('latest_backtest')
+            if latest_name:
+                candidate = results_dir / latest_name
+                if candidate.exists():
+                    return candidate
+        except _json.JSONDecodeError:
+            pass
+    zips = list(results_dir.glob('backtest-result-*.zip'))
+    if not zips:
+        return None
+    return max(zips, key=lambda p: p.stat().st_mtime)
+
+
+@app.get('/backtest/summary/latest')
+def backtest_summary_latest():
+    results_dir = ROOT / 'user_data' / 'backtest_results'
+    z = _find_latest_backtest_zip(results_dir)
+    if z is None:
+        return {'status': 'error', 'message': 'No results'}
+    import zipfile
+    try:
+        with zipfile.ZipFile(z) as zf:
+            name = next((n for n in zf.namelist() if n.endswith('.json') and '_config' not in n), None)
+            if not name:
+                return {'status': 'error', 'message': 'No result JSON in archive'}
+            data = _json.loads(zf.read(name))
+        strategy_block = data.get('strategy', {})
+        if not strategy_block:
+            return {'status': 'error', 'message': 'Missing strategy block'}
+        strat_name, metrics = next(iter(strategy_block.items()))
+        comparison = data.get('strategy_comparison', [])
+        return {
+            'source': z.name,
+            'strategy': strat_name,
+            'metrics': metrics,
+            'comparison': comparison,
+        }
+    except Exception as exc:
+        return {'status': 'error', 'message': str(exc)}
 
 
 class FlowReq(BaseModel):
@@ -534,6 +713,8 @@ def run_download_data(req: DownloadDataReq = Body(...)):
         cmd += ['--new-pairs']
     if req.dl_trades:
         cmd += ['--dl-trades']
+    if req.prepend:
+        cmd += ['--prepend']
 
     env = os.environ.copy()
     env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])

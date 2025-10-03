@@ -11,6 +11,9 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   const [summary, setSummary] = useState<Record<string, SummaryRow[]>>({})
   const [loading, setLoading] = useState(false)
   const [missing, setMissing] = useState<any>({ missing: [], insufficient: [] })
+  const [erase, setErase] = useState(false)
+  const [newPairs, setNewPairs] = useState(false)
+  const [prepend, setPrepend] = useState(false)
 
   async function refresh() {
     setLoading(true)
@@ -36,7 +39,20 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
   async function download() {
     const tfs = timeframes.split(',').map(s => s.trim()).filter(Boolean)
     const plist = pairs.split(',').map(s => s.trim()).filter(Boolean)
-    await postJSON('/run/download-data', { config: 'configs/config_freqai_multi.json', timeframes: tfs, pairs: plist, timerange })
+    await postJSON('/run/download-data', { config: 'configs/config_freqai_multi.json', timeframes: tfs, pairs: plist, timerange, erase, new_pairs: newPairs, prepend })
+    if (onJob) onJob()
+  }
+
+  async function downloadMissing() {
+    await checkMissing()
+    const tset = new Set<string>()
+    const pset = new Set<string>()
+    for (const m of missing.missing || []) { tset.add(m.timeframe); pset.add(m.pair) }
+    for (const m of missing.insufficient || []) { tset.add(m.timeframe); pset.add(m.pair) }
+    const tfs = Array.from(tset)
+    const plist = Array.from(pset)
+    if (tfs.length === 0 || plist.length === 0) return
+    await postJSON('/run/download-data', { config: 'configs/config_freqai_multi.json', timeframes: tfs, pairs: plist, timerange, erase, new_pairs: newPairs, prepend })
     if (onJob) onJob()
   }
 
@@ -61,6 +77,10 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
         <button onClick={refresh} disabled={loading}>Refresh Summary</button>
         <button onClick={checkMissing} style={{ marginLeft: 8 }} disabled={loading}>Check Missing</button>
         <button onClick={download} style={{ marginLeft: 8 }} disabled={loading}>Download</button>
+        <button onClick={downloadMissing} style={{ marginLeft: 8 }} disabled={loading}>Download Missing</button>
+        <label style={{ marginLeft: 8 }}><input type="checkbox" checked={erase} onChange={e => setErase(e.target.checked)} /> erase</label>
+        <label style={{ marginLeft: 8 }}><input type="checkbox" checked={newPairs} onChange={e => setNewPairs(e.target.checked)} /> new-pairs</label>
+        <label style={{ marginLeft: 8 }}><input type="checkbox" checked={prepend} onChange={e => setPrepend(e.target.checked)} /> prepend</label>
       </div>
       {tfList.map(tf => (
         <div key={tf} style={{ marginTop: 8 }}>
@@ -95,4 +115,3 @@ export default function DataManager({ defaultTimeframe, defaultTimerange, defaul
     </div>
   )
 }
-
