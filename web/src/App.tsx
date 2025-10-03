@@ -462,7 +462,7 @@ export default function App() {
               <div>Strategy: {btSummary.strategy} Source: {btSummary.source}</div>
               {btSummary.metrics ? (
                 <div>
-                  <div>trades: \{Array.isArray(btSummary?.metrics?.trades) ? btSummary.metrics.trades.length : btSummary?.metrics?.trades\} profit_total_pct: \{(typeof btSummary?.metrics?.profit_total_pct === 'object' ? '' : btSummary?.metrics?.profit_total_pct)\} winrate: {btSummary.metrics.winrate}</div>
+                  <div>trades: {Array.isArray(btSummary?.metrics?.trades) ? btSummary.metrics.trades.length : btSummary?.metrics?.trades} profit_total_pct: {(typeof btSummary?.metrics?.profit_total_pct === 'object' ? '' : btSummary?.metrics?.profit_total_pct)} winrate: {btSummary.metrics.winrate}</div>
                 </div>
               ) : null}
               {Array.isArray(btSummary.pairs) && btSummary.pairs.length ? (
@@ -488,4 +488,6 @@ export default function App() {
     </div>
   )
 }
+
+
 
