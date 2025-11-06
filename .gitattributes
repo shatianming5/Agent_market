@@ -1,0 +1,30 @@
+* text=auto eol=lf
+
+# Keep scripts executable bits when needed
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+# Treat common data and code formats as text with LF endings
+*.py text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+
+# Mark binary assets so git does not attempt diff/merge
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.7z binary
+*.exe binary

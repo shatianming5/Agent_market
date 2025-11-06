@@ -1,0 +1,384 @@
+﻿很好，这份结构说明信息量很全。我基于你现有的代码与耦合点，给出两档可执行的目录优化方案（**轻量快赢版**与**进阶分层版**），并配套关键接口契约、依赖与配置收敛、测试与 CI、迁移剧本与风险控制。你可以直接对照落地。
+
+---
+
+## 0) 优化目标（作为评估尺子）
+
+* **可安装可复用**：去除 `sys.path`/`PYTHONPATH` 依赖，核心库以标准包安装与入口点驱动。
+* **清晰分层**：算法/工作流与服务端、前端、脚本分离；连接器插件化。
+* **可观测**：Job/SSE 事件有统一 schema；日志结构化；回测产物可追溯。
+* **可测试**：单测/集成/E2E 分层，SQLite/外部 API 具备稳定假体。
+* **可迁移**：保持增量改造，允许旧路径在过渡期共存。
+
+---
+
+## 1) 轻量快赢版（不大改目录，2–3 天内可完成）
+
+### 1.1 统一命令入口（去 PYTHONPATH）
+
+新增可执行包装（不改动现有模块名）：
+
+```toml
+# pyproject.toml（根目录）
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-market"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi", "uvicorn[standard]", "pydantic-settings",
+  "sqlalchemy", "alembic", "python-json-logger",
+  "httpx", "tenacity", "structlog",
+  "pandas", "numpy", "lightgbm", "catboost", "torch",
+  # 视实际精简
+]
+
+[project.scripts]
+am-flow = "agent_market.cli.flow:main"
+am-server = "server.main:main"
+am-smoke = "scripts.server_smoke:main"
+```
+
+> 作用：安装后 `am-flow`/`am-server` 直跑，无需设置 `PYTHONPATH=src`；原 `scripts/*.py` 保留，但逐步迁移到入口点。
+
+对应最小目录调整：
+
+```
+src/
+  agent_market/
+    cli/
+      flow.py         # 仅做参数解析 -> 调 agent_flow.py
+```
+
+### 1.2 scripts/ 梳理为子目录（不改脚本名）
+
+```
+scripts/
+  data/          fetch_ccxt_ohlcv.py, fetch_binance_bulk.py, clean_ohlcv.py, dq_report.py
+  pipeline/      agent_flow.py, agent_iterate.py, idea_pipeline.py
+  diagnostics/   server_smoke.py, server_quickcheck.py, test_server_endpoints.py, acceptance.py
+  reports/       report_backtest.py, compute_factor_ic.py, deep_seq_trainer.py
+```
+
+并在 `Makefile` 绑定常用命令：
+
+```makefile
+# Makefile（节选）
+.PHONY: setup lint fmt test dev up api web
+setup: ## 一次性安装
+\tpython -m pip install -U pip
+\tpip install -e .[all] -r requirements.txt
+fmt:
+\truff --fix .
+\tblack .
+lint:
+\truff .
+\tblack --check .
+\tmypy src/ tests/
+test:
+\tpytest -q
+api:
+\tam-server --reload
+flow:
+\tam-flow run --config configs/agent_flow/example.json
+```
+
+### 1.3 依赖与运行时收敛
+
+* 将散落运行期依赖（如 `python-json-logger`）并入根 `pyproject.toml`/`requirements.txt`。
+* `server/requirements.txt` 如存在，改为指向根依赖（避免双写）。
+* 默认 `.env.example` 覆盖服务端、数据目录、密钥占位，并用 `pydantic-settings` 解析：
+
+```python
+# server/settings.py
+from pydantic_settings import BaseSettings
+class Settings(BaseSettings):
+    sqlite_url: str = "sqlite:///resources/user_data/app.db"
+    data_dir: str = "data"
+    user_data_dir: str = "user_data"
+    artifacts_dir: str = "artifacts"
+    class Config: env_file = ".env"
+settings = Settings()
+```
+
+### 1.4 Job/SSE 进度统一成结构化事件
+
+用 `structlog` + JSON，前后端约定：
+
+```json
+{ "event":"progress", "job_id":"...", "step":"ml.train", "status":"running|done|error", "pct":42.5, "msg":"...", "ts":"2025-10-28T12:34:56Z" }
+```
+
+* 服务端：将 `[STEP]` 打点替换为以上 JSON 行；SSE 通道直接转发。
+* 前端：`api.ts` 将 `message` 解析成该对象，UI 进度条基于 `pct`/`status`。
+
+### 1.5 数据与产物目录规范与忽略
+
+* 在根 `.gitignore` 明确：
+
+```
+data/**        # 原始/中间数据（可选保留清单）
+resources/user_data/**
+artifacts/**
+backtests/results/**
+```
+
+* 产物引入 `manifest.json`（回测与模型的一致元数据）。
+
+### 1.6 测试分层最小化
+
+```
+tests/
+  unit/         # 纯函数/无 IO
+  integration/  # 含 SQLite / 假 Connector
+  e2e/          # server_quickcheck.py 驱动
+```
+
+SQLite 用 `:memory:` 或临时文件夹；连接器引入 `FakeBinanceConnector` 等假实现。
+
+---
+
+## 2) 进阶分层版（1–2 周，明确边界与插件化）
+
+### 2.1 顶层布局（apps / packages / plugins）
+
+```
+apps/
+  api/                    # FastAPI 应用
+    src/agent_api/
+      app.py              # create_app()
+      dependencies.py     # DI/Settings/DB session
+      routes/             # agents.py orders.py triggers.py connectors.py secrets.py jobs.py
+      services/           # job_manager.py connector_service.py telemetry.py
+      infra/db/           # session.py models.py migrations/
+      runtime/            # sse_protocol.py exceptions.py
+packages/
+  agent_market/           # 可安装库（工作流、算法、运行时）
+    agent_flow/           # download/feature/expression/ml/rl/backtest 步骤定义
+    runtime/              # workflow 执行器、任务/异常模型、并发调度
+    freqai/               # features.py analysis.py llm.py training/ rl/
+    backtest/             # 回测与报告生成
+    interfaces/           # 契约（Connector、Dataset、ModelRunner 等）
+plugins/
+  connectors/             # 插件化连接器集合（可选 extras）
+    binance/
+    okx/
+    coingecko/
+    telegram/
+    discord/
+    evm/
+web/                       # 保持不动（Vite + React + TS）
+configs/                   # JSON 模板
+conf/                      # YAML 数据源/抓取
+scripts/                   # 仍保留，但仅作 CLI 的薄包装
+docs/                      # 设计/开发/流程
+tests/                     # unit/integration/e2e 按子包分组
+```
+
+### 2.2 插件系统（动态发现）
+
+* 使用 `entry_points` 注册连接器：
+
+```toml
+# packages/agent_market/pyproject.toml
+[project.entry-points."agent_market.connectors"]
+binance = "connectors.binance:BinanceConnector"
+okx     = "connectors.okx:OKXConnector"
+evm     = "connectors.evm:EVMConnector"
+```
+
+* 核心库通过 `importlib.metadata.entry_points(group="agent_market.connectors")` 加载。
+* 优点：**核心无交易所耦合**；安装 `agent-market[binance]` 即可启用。
+
+### 2.3 明确三层边界
+
+* **Domain（packages/agent_market）**：算法、工作流、领域模型（不可依赖 FastAPI/DB）。
+* **Application（apps/api/services）**：用例编排（依赖 Domain 接口），实现进程与作业调度、SSE。
+* **Infrastructure（apps/api/infra）**：DB/外部系统具体实现（依赖 Application/Domain 的接口）。
+
+> Import 规则：`apps` → `packages`，`packages` 禁止反向依赖；`plugins` 仅依赖 `packages` 的 `interfaces`。
+
+### 2.4 工作流/作业契约（Pydantic）
+
+```python
+# packages/agent_market/interfaces/job.py
+class Step(str, Enum):
+    download="download"; feature="feature"; expression="expression"
+    ml="ml"; rl="rl"; backtest="backtest"
+
+class JobSpec(BaseModel):
+    run_id: str
+    pair: str
+    timeframe: str
+    steps: list[Step]
+    config_path: Path
+
+class ProgressEvent(BaseModel):
+    event: Literal["progress"]="progress"
+    job_id: str; step: Step; status: Literal["queued","running","done","error"]
+    pct: float = 0.0; msg: str = ""; ts: datetime
+```
+
+### 2.5 服务端装配
+
+```python
+# apps/api/src/agent_api/app.py
+def create_app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(routes.jobs.router, prefix="/jobs")
+    app.include_router(routes.agents.router, prefix="/agents")
+    # ...
+    return app
+
+def main():
+    uvicorn.run("agent_api.app:create_app", factory=True, reload=True)
+```
+
+`JobManager` 仅关注 **队列→子进程** 与 **事件→SSE**；日志不再依赖字符串 `[STEP]` 解析。
+
+### 2.6 前端类型对齐
+
+* 用 `openapi-typescript` 生成 API 类型；将 `ProgressEvent` 体现在前端 `types.ts`，SSE 按 `event` 分派。
+* 将 Backtest 报告清单（`manifest.json`）映射为表格与可下载链接。
+
+### 2.7 数据与产物布局（可追溯）
+
+```
+resources/user_data/
+  runs/{run_id}/
+    config.snapshot.json
+    logs/flow.log
+    features/*.parquet
+    models/{algo}/{timestamp}/model.bin
+    backtest/report.html
+    manifest.json   # md5/rows/cols/timeframe/pairs/seed/version
+```
+
+* `manifest.json` 统一字段：数据时段、git 提交 SHA、依赖版本、随机种子、连接器版本、IC/Sharpe 等摘要。
+
+---
+
+## 3) 关键接口（示例）
+
+### 3.1 Connector 契约
+
+```python
+# packages/agent_market/interfaces/connectors.py
+class MarketConnector(Protocol):
+    name: str
+    def ping(self) -> bool: ...
+    def fetch_ohlcv(self, symbol: str, timeframe: str, since: int | None, limit: int) -> pd.DataFrame: ...
+    def place_order(self, order: Order) -> OrderResult: ...
+```
+
+### 3.2 Feature/Expression/ML 步骤协议
+
+```python
+class StepRunner(Protocol):
+    def run(self, spec: JobSpec, ctx: dict) -> dict: ...
+```
+
+* `agent_flow.py` 仅负责步骤编排与失败重试（tenacity）、并发（concurrent.futures/anyio）。
+
+### 3.3 SSE 事件
+
+```python
+# apps/api/runtime/sse_protocol.py
+@dataclass
+class SseMsg:
+    event: str       # "progress" | "log" | "artifact"
+    data: str        # JSON 字符串
+```
+
+---
+
+## 4) 配置与密钥策略
+
+* 统一放在 `configs/`（模板）与 `.env`（本地密钥），生产通过环境变量注入。
+* `server/secrets.py` 只负责密钥引用，**不落盘明文**；可选启用系统密钥环或 KMS 时再抽象。
+
+---
+
+## 5) 测试与 CI
+
+* **Unit**：对 `packages/agent_market` 中算法/特征纯函数做快速回归。
+* **Integration**：SQLite 临库、假 Connector（记录入参断言）；对 `JobManager` 做子进程生命周期测试。
+* **E2E**：`server_quickcheck.py` 跑起 API → 触发 `am-flow` → 监听 SSE → 校验最终 `manifest.json`。
+* **CI（GitHub Actions）**：`py311/py312` 矩阵，缓存 pip；前端 `pnpm i && pnpm build`；工件上传回测报告。
+
+---
+
+## 6) 迁移剧本（安全增量）
+
+1. **引入 pyproject & 入口点**：能 `pip install -e .` 后 `am-flow`/`am-server` 运行。
+2. **SSE 事件统一**：后端先兼容旧 `[STEP]` + 新 JSON；前端逐页迁移到新协议。
+3. **scripts/ 分目录**：更新 `Makefile` 与文档链接。
+4. **依赖收敛**：删除 `server/requirements.txt`（若有），以根依赖为准。
+5. **插件化连接器**（可选）：先抽 `interfaces/connectors.py`，再逐个迁移交易所；临时保留旧 `connectors/` 入口。
+6. **apps/packages 拆层**：将 `server/main.py` 与服务相关代码迁到 `apps/api`，保留 `from server import ...` 兼容导出一段时间。
+7. **数据产物落盘规范**：在 `agent_flow` 写 `manifest.json`，改一处享全局收益。
+
+> 回滚策略：入口点失败时仍可 `python scripts/agent_flow.py`；SSE 新协议不稳定时，UI 兜底从日志字符串解析。
+
+---
+
+## 7) 文档与开发者体验
+
+* `docs/architecture/current.md` 增补：**分层图、数据流图、事件时序图**。
+* 在 `README.md` 顶部放三条命令：安装、起 API、跑一次 backtest。
+* 提供 `dev` 一键脚本（等价 `make dev`）：后端热重载 + 前端 Vite + 代理。
+
+---
+
+## 8) 验收清单（完成即打勾）
+
+* [ ] `pip install -e .` 后 `am-flow --help`、`am-server --help` 正常。
+* [ ] 无需 `PYTHONPATH`/`sys.path` 动态注入。
+* [ ] SSE 进度在 UI 稳定显示（结构化事件）。
+* [ ] 新 run 目录包含 `manifest.json`，回测页可下载。
+* [ ] `pytest` 分层通过，CI 绿。
+* [ ] 连接器最少 1 个以插件方式加载成功（`entry_points`）。
+
+---
+
+### 附：最小示例代码片段
+
+**`agent_market/cli/flow.py`**
+
+```python
+import argparse
+from agent_market.agent_flow import main as flow_main
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("run", nargs="?")
+    parser.add_argument("--config", required=True)
+    args = parser.parse_args()
+    flow_main(config_path=args.config)
+```
+
+**结构化日志初始化（任何进程共用）：**
+
+```python
+import logging, structlog
+from pythonjsonlogger import jsonlogger
+
+def setup_logging():
+    handler = logging.StreamHandler()
+    handler.setFormatter(jsonlogger.JsonFormatter())
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers = [handler]
+    structlog.configure(
+        processors=[structlog.processors.TimeStamper(fmt="iso"), structlog.processors.JSONRenderer()],
+        wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    )
+```
+
+---
+
+如果你想直接开始，我建议先执行 **1.1 + 1.4 + 1.6**（入口点、SSE 事件、测试分层）这“三板斧”，能立刻去掉 `PYTHONPATH`、让前端进度更稳、并把测试跑通；随后再按“进阶分层版”抽象 `interfaces` 与 `plugins`。
+需要的话，我可以按你仓库现状生成一份**具体重排后的树形清单**与**首批 PR 切分计划（3–5 个 PR）**，直接开工。

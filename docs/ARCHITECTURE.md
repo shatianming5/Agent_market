@@ -33,7 +33,7 @@ features.json ──> (LLM / 模板 / gplearn) ──> expressions.json ──> 
 
 ### 3.1 `freqai_expression_agent.py`
 
-- 解析 `user_data/freqai_features.json` 重建基础指标。
+- 解析 `resources/user_data/freqai_features.json` 重建基础指标。
 - `agent_market.freqai.llm` 提供默认 LLM 配置、提示词、候选解析。
 - 若 LLM 调用失败，会自动回退到模板组合 & gplearn 的遗传编程搜索。
 
@@ -56,13 +56,13 @@ features.json ──> (LLM / 模板 / gplearn) ──> expressions.json ──> 
 
 ## 4. 回测结果组织
 
-- freqtrade 默认输出到 `user_data/backtest_results/`，本项目新增自动目录 `user_data/backtest_results/auto_agent/<timestamp>/`，并保留原始 zip 以便复现。
+- freqtrade 默认输出到 `resources/user_data/backtest_results/`，本项目新增自动目录 `resources/user_data/backtest_results/auto_agent/<timestamp>/`，并保留原始 zip 以便复现。
 - `_resolve_result_path` 会优先解析 `.last_result.json`，若缺失则回退到目录内最新 zip/JSON 文件。
 
 ## 5. 下一步优化建议
 
 1. **测试覆盖**：为关键脚本（LLM 因子、数据清洗）添加 pytest + 快速烟雾测试，保障重构后的稳定性。
-2. **配置统一**：考虑将 `conf/` 与 `user_data/config_freqai.json` 合并为单一 YAML 管理入口，更易于批量调整参数。
+2. **配置统一**：考虑将 `conf/` 与 `resources/user_data/config_freqai.json` 合并为单一 YAML 管理入口，更易于批量调整参数。
 3. **任务编排**：可引入 `invoke` 或 `poetry scripts`，整合常用命令为标准化 CLI，减少命令行参数重复输入。
 4. **监控与缓存**：为 LLM 调用增加磁盘缓存与速率限流，避免高频重复请求导致的成本浪费。
 

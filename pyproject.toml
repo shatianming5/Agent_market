@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-market"
+version = "0.1.0"
+description = "Agent Market research and automation toolkit"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Agent Market Maintainers" }]
+dynamic = ["dependencies"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+dev = [
+  "black>=24.0",
+  "ruff>=0.6",
+  "pytest>=7.0",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=4.1",
+  "mypy>=1.10",
+  "pre-commit>=3.7",
+]
+
+[project.scripts]
+am-flow = "agent_market.cli.flow:main"
+am-server = "agent_market.cli.server:main"
+am-smoke = "agent_market.cli.smoke:main"
+
+[tool.setuptools.package-dir]
+"" = "app/src"
+
+[tool.setuptools.packages.find]
+where = ["app/src"]
+include = ["agent_market*"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+exclude = [
+  "/.git",
+  "/.mypy_cache",
+  "/.ruff_cache",
+  "/.venv",
+  "/app/freqtrade",
+  "/node_modules",
+  "/venv",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+  "app/freqtrade",
+  "node_modules",
+  "venv",
+  ".venv",
+  "resources/artifacts",
+  "resources/user_data/tmp",
+]
+fix = true
+unsafe-fixes = false
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "N",
+  "S",
+  "A",
+  "C4",
+  "ICN",
+]
+ignore = [
+  "S101",  # allow use of assert in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]
+"scripts/**" = ["S"]

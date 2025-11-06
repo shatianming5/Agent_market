@@ -1,0 +1,509 @@
+{
+  "$defs": {
+    "ConditionNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique identifier of the node within the workflow.",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "condition",
+          "title": "Type",
+          "type": "string"
+        },
+        "next": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Node id to jump to when the current node succeeds. Nodes may override the transition behaviour (e.g. condition nodes).",
+          "title": "Next"
+        },
+        "on_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional node id to transition to when execution raises an exception.",
+          "title": "On Error"
+        },
+        "assign": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional context key used to persist the node result.",
+          "title": "Assign"
+        },
+        "test": {
+          "description": "Boolean expression evaluated against the workflow context.",
+          "title": "Test",
+          "type": "string"
+        },
+        "on_true": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Node id to follow when the expression evaluates to truthy.",
+          "title": "On True"
+        },
+        "on_false": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Node id to follow when the expression evaluates to falsy.",
+          "title": "On False"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "test"
+      ],
+      "title": "ConditionNode",
+      "type": "object"
+    },
+    "LoopNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique identifier of the node within the workflow.",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "loop",
+          "title": "Type",
+          "type": "string"
+        },
+        "next": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Node id to jump to when the current node succeeds. Nodes may override the transition behaviour (e.g. condition nodes).",
+          "title": "Next"
+        },
+        "on_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional node id to transition to when execution raises an exception.",
+          "title": "On Error"
+        },
+        "assign": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional context key used to persist the node result.",
+          "title": "Assign"
+        },
+        "iterate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expression producing an iterable. Each item is bound to 'item' for loop body.",
+          "title": "Iterate"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Boolean expression evaluated before each iteration (while-style loop).",
+          "title": "Condition"
+        },
+        "item": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Name of the loop variable exposed to the loop body.",
+          "title": "Item"
+        },
+        "body": {
+          "$ref": "#/$defs/WorkflowStub",
+          "description": "Workflow executed for each loop iteration."
+        },
+        "max_iterations": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Safety limit preventing infinite loops. Required when using condition-based loops.",
+          "title": "Max Iterations"
+        },
+        "accumulate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Context key used to collect per-iteration results. Defaults to assign target.",
+          "title": "Accumulate"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "body"
+      ],
+      "title": "LoopNode",
+      "type": "object"
+    },
+    "SubflowNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique identifier of the node within the workflow.",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "subflow",
+          "title": "Type",
+          "type": "string"
+        },
+        "next": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Node id to jump to when the current node succeeds. Nodes may override the transition behaviour (e.g. condition nodes).",
+          "title": "Next"
+        },
+        "on_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional node id to transition to when execution raises an exception.",
+          "title": "On Error"
+        },
+        "assign": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional context key used to persist the node result.",
+          "title": "Assign"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WorkflowStub",
+          "description": "Nested workflow executed as a single node."
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "description": "Optional context updates applied before running the subflow.",
+          "title": "Inputs",
+          "type": "object"
+        },
+        "propagate": {
+          "default": true,
+          "description": "When false, subflow context changes are not merged back into the parent context.",
+          "title": "Propagate",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "workflow"
+      ],
+      "title": "SubflowNode",
+      "type": "object"
+    },
+    "TaskNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique identifier of the node within the workflow.",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "task",
+          "title": "Type",
+          "type": "string"
+        },
+        "next": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Node id to jump to when the current node succeeds. Nodes may override the transition behaviour (e.g. condition nodes).",
+          "title": "Next"
+        },
+        "on_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional node id to transition to when execution raises an exception.",
+          "title": "On Error"
+        },
+        "assign": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional context key used to persist the node result.",
+          "title": "Assign"
+        },
+        "action": {
+          "description": "Callable name to execute for this node.",
+          "title": "Action",
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "description": "Mapping of argument name \u2192 value specification. Supports literal values as well as {$ref, $expr} helpers.",
+          "title": "Inputs",
+          "type": "object"
+        },
+        "append_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If provided, the node result is appended to this list stored in context.",
+          "title": "Append To"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "action"
+      ],
+      "title": "TaskNode",
+      "type": "object"
+    },
+    "WorkflowStub": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": "workflow/v1",
+          "default": "workflow/v1",
+          "description": "Schema version of the sub workflow.",
+          "title": "Version",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable name of the sub workflow.",
+          "title": "Name",
+          "type": "string"
+        },
+        "start": {
+          "description": "Entry node id of the sub workflow.",
+          "title": "Start",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "minItems": 1,
+          "title": "Nodes",
+          "type": "array"
+        },
+        "variables": {
+          "additionalProperties": true,
+          "description": "Initial context variables merged before running the sub workflow.",
+          "title": "Variables",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "start",
+        "nodes"
+      ],
+      "title": "WorkflowStub",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "workflow/v1",
+      "default": "workflow/v1",
+      "description": "Schema version identifier.",
+      "title": "Version",
+      "type": "string"
+    },
+    "name": {
+      "description": "Human-readable workflow name.",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Workflow purpose.",
+      "title": "Description"
+    },
+    "start": {
+      "description": "Entry node id.",
+      "title": "Start",
+      "type": "string"
+    },
+    "variables": {
+      "additionalProperties": true,
+      "description": "Initial context variables merged into execution context.",
+      "title": "Variables",
+      "type": "object"
+    },
+    "nodes": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "condition": "#/$defs/ConditionNode",
+            "loop": "#/$defs/LoopNode",
+            "subflow": "#/$defs/SubflowNode",
+            "task": "#/$defs/TaskNode"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/TaskNode"
+          },
+          {
+            "$ref": "#/$defs/ConditionNode"
+          },
+          {
+            "$ref": "#/$defs/LoopNode"
+          },
+          {
+            "$ref": "#/$defs/SubflowNode"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Nodes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "start",
+    "nodes"
+  ],
+  "title": "WorkflowModel",
+  "type": "object"
+}

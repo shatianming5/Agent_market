@@ -1,0 +1,38 @@
+{
+  "name": "agent-market-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "types": "openapi-typescript http://127.0.0.1:8032/openapi.json -o src/types.ts",
+    "test:e2e": "playwright test",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "lint:fix": "npm run lint -- --fix",
+    "format": "prettier --check \"src/**/*.{ts,tsx,css,json,md}\"",
+    "format:fix": "prettier --write \"src/**/*.{ts,tsx,css,json,md}\""
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/react": "^18.3.6",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.9.0",
+    "@typescript-eslint/parser": "^8.9.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-react": "^7.37.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "openapi-typescript": "^6.7.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.9"
+  }
+}

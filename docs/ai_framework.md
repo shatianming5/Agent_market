@@ -144,4 +144,4 @@ Agent Flow 需要具备任务配置（YAML/JSON）、步骤幂等性、异常恢
 
 - **Stage 5**：实现 Agent Flow 脚本，串联特征、表达式、ML、RL 与回测步骤。
 
-- **Stage 5**：新增 Agent Flow (脚本 + 编排)，支持步骤筛选、日志落盘、回测摘要自动生成（位于 `user_data/llm_feedback/latest_backtest_summary.json`）并回灌至表达式生成。
+- **Stage 5**：新增 Agent Flow (脚本 + 编排)，支持步骤筛选、日志落盘、回测摘要自动生成（位于 `resources/user_data/llm_feedback/latest_backtest_summary.json`）并回灌至表达式生成。

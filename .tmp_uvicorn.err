@@ -1,0 +1,7 @@
+{"timestamp": null, "level": null, "logger": null, "message": "No SECRETS_MASTER_KEY configured; secrets will be stored in plaintext"}
+INFO:     Started server process [1052]
+INFO:     Waiting for application startup.
+{"timestamp": null, "level": null, "logger": null, "message": "Trigger manager loop started"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8032 (Press CTRL+C to quit)
+^C

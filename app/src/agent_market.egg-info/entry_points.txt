@@ -1,0 +1,4 @@
+[console_scripts]
+am-flow = agent_market.cli.flow:main
+am-server = agent_market.cli.server:main
+am-smoke = agent_market.cli.smoke:main

@@ -1,0 +1,1 @@
+{"data":{"feature_file":"D:\\Agent_market\\user_data\\freqai_features_multi.json","data_dir":"D:\\Agent_market\\user_data\\data","exchange":"binanceus","pairs":["BTC/USDT"],"timeframe":"4h","label_period":12},"training":{"total_timesteps":1000},"output":{"model_dir":"D:\\Agent_market\\artifacts\\models\\rl_multi"},"algo":{"verbose":0},"policy":"MlpPolicy"}

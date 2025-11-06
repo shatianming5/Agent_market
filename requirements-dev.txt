@@ -1,0 +1,11 @@
+-r requirements.txt
+
+# Test and RL dependencies
+pytest
+gymnasium
+stable-baselines3
+
+# Tooling
+pre-commit
+ruff
+black

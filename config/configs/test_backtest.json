@@ -1,0 +1,31 @@
+{
+  "backtest": {
+    "command": [
+      "python",
+      "-m",
+      "freqtrade",
+      "backtesting",
+      "--config",
+      "config/configs/config_freqai_multi.json",
+      "--strategy",
+      "ExpressionLongStrategy",
+      "--strategy-path",
+      "app/freqtrade/user_data/strategies",
+      "--datadir",
+      "resources/user_data/data/binanceus",
+      "--data-format-ohlcv",
+      "feather",
+      "--timerange",
+      "20210101-20210401",
+      "--freqaimodel",
+      "LightGBMRegressor",
+      "--export",
+      "trades",
+      "--export-directory",
+      "resources/user_data/backtest_results",
+      "--logfile",
+      "resources/user_data/backtest_results/backtest_agent.log",
+      "--no-color"
+    ]
+  }
+}
