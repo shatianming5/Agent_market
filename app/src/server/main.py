@@ -28,6 +28,10 @@ EXPRESSIONS_FILE = USER_DATA_DIR / "freqai_expressions.json"
 FEATURES_FILE = USER_DATA_DIR / "freqai_features_multi.json"
 BACKTEST_RESULTS_DIR = USER_DATA_DIR / "backtest_results"
 TMP_DIR = USER_DATA_DIR / "tmp"
+APP_ROOT = PROJECT_ROOT / "app"
+SCRIPTS_DIR = APP_ROOT / "scripts"
+FREQTRADE_DIR = APP_ROOT / "freqtrade"
+FREQTRADE_PKG_DIR = FREQTRADE_DIR / "freqtrade"
 import sys as _sys
 if str(SRC_ROOT) not in _sys.path:
     _sys.path.append(str(SRC_ROOT))
@@ -39,6 +43,36 @@ try:
 except Exception:  # pragma: no cover - fallback if features module missing
     def _apply_features(df, cfg):
         return df
+
+
+def _resolve_project_path(value: str | Path) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path.resolve()
+    cleaned: list[str] = []
+    for part in path.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if cleaned:
+                cleaned.pop()
+            continue
+        cleaned.append(part)
+    candidate = PROJECT_ROOT.joinpath(*cleaned)
+    return candidate.resolve()
+
+
+def _augment_pythonpath(env: dict, *extra: Path) -> None:
+    entries = [str(SRC_ROOT)]
+    if FREQTRADE_PKG_DIR.exists():
+        entries.append(str(FREQTRADE_PKG_DIR.resolve()))
+    for item in extra:
+        entries.append(str(item))
+    existing = env.get("PYTHONPATH")
+    if existing:
+        entries.append(existing)
+    env["PYTHONPATH"] = os.pathsep.join(entries)
+
 
 SETTINGS = load_settings()
 
@@ -383,7 +417,7 @@ def _load_pair_df(config: Optional[str], pair: str, timeframe: str):
     datadir_val = cfg.get('datadir') or 'resources/user_data/data'
     datadir = Path(datadir_val)
     if not datadir.is_absolute():
-        datadir = (ROOT / datadir).resolve()
+        datadir = _resolve_project_path(datadir)
     exch = (cfg.get('exchange', {}) or {}).get('name') or 'binanceus'
     base = datadir / exch
     path = base / f"{pair.replace('/','_')}-{timeframe}.feather"
@@ -480,9 +514,7 @@ def features_get(config_path: Optional[str] = None):
 
 @app.post('/config/use-features-file')
 def use_features_file(path: str = Body(..., embed=True)):
-    src = Path(path)
-    if not src.is_absolute():
-        src = (ROOT / src).resolve()
+    src = _resolve_project_path(path)
     if not src.exists():
         return {"status": "error", "message": f"File not found: {src}"}
     try:
@@ -500,9 +532,7 @@ def use_features_file(path: str = Body(..., embed=True)):
 
 @app.post('/config/use-expressions-file')
 def use_expressions_file(path: str = Body(..., embed=True)):
-    src = Path(path)
-    if not src.is_absolute():
-        src = (ROOT / src).resolve()
+    src = _resolve_project_path(path)
     if not src.exists():
         return {"status": "error", "message": f"File not found: {src}"}
     try:
@@ -523,9 +553,7 @@ def use_expressions_file(path: str = Body(..., embed=True)):
 def _load_freqtrade_config(cfg: Optional[str]) -> dict:
     if not cfg:
         return {}
-    p = Path(cfg)
-    if not p.is_absolute():
-        p = (ROOT / p).resolve()
+    p = _resolve_project_path(cfg)
     if not p.exists():
         return {}
     try:
@@ -543,7 +571,8 @@ def data_summary(
     cfg = _load_freqtrade_config(config)
     datadir = Path(cfg.get('datadir') or 'resources/user_data/data')
     exch = exchange or (cfg.get('exchange', {}) or {}).get('name') or 'binanceus'
-    datadir = (ROOT / datadir).resolve() if not datadir.is_absolute() else datadir
+    if not datadir.is_absolute():
+        datadir = _resolve_project_path(datadir)
     base = datadir / exch
     if not base.exists():
         return {"exchange": exch, "timeframes": {}, "message": f"Data directory missing: {base}"}
@@ -584,7 +613,8 @@ def data_check_missing(
     cfg = _load_freqtrade_config(config)
     datadir = Path(cfg.get('datadir') or 'resources/user_data/data')
     exch = exchange or (cfg.get('exchange', {}) or {}).get('name') or 'binanceus'
-    datadir = (ROOT / datadir).resolve() if not datadir.is_absolute() else datadir
+    if not datadir.is_absolute():
+        datadir = _resolve_project_path(datadir)
     base = datadir / exch
     want_pairs = [p.strip() for p in (pairs or '').split(',') if p.strip()]
     want_tfs = [t.strip() for t in (timeframes or '').split(',') if t.strip()]
@@ -812,27 +842,23 @@ async def trigger_webhook(trigger_id: str, request: Request) -> Dict[str, str]:
 @app.post("/run/expression")
 def run_expression(req: ExpressionReq = Body(...)):
     # Resolve and validate important paths
-    cfg_path = Path(req.config)
-    if not cfg_path.is_absolute():
-        cfg_path = (ROOT / cfg_path).resolve()
+    cfg_path = _resolve_project_path(req.config)
     if not cfg_path.exists():
         return {"status": "error", "code": "CONFIG_NOT_FOUND", "message": f"Config file not found: {cfg_path}"}
-    ff_path = Path(req.feature_file)
-    if not ff_path.is_absolute():
-        ff_path = (ROOT / ff_path).resolve()
+    ff_path = _resolve_project_path(req.feature_file)
     if not ff_path.exists():
         return {"status": "error", "code": "FEATURE_FILE_NOT_FOUND", "message": f"Feature file not found: {ff_path}"}
     conda_prefix = _conda_prefix_args()
     env_py = _conda_env_python('freqtrade')
     py = env_py or ('python' if conda_prefix else sys.executable)
-    app_root = ROOT.parent
+    app_root = APP_ROOT
     wrapper_candidates = [
-        ROOT / 'scripts' / 'expr_agent_wrapper.py',
+        SCRIPTS_DIR / 'expr_agent_wrapper.py',
         app_root / 'scripts' / 'expr_agent_wrapper.py',
     ]
     wrapper = next((p for p in wrapper_candidates if p.exists()), None)
     script_candidates = [
-        ROOT / 'freqtrade' / 'scripts' / 'freqai_expression_agent.py',
+        FREQTRADE_PKG_DIR / 'scripts' / 'freqai_expression_agent.py',
         app_root / 'freqtrade' / 'freqtrade' / 'scripts' / 'freqai_expression_agent.py',
     ]
     script_path = next((p for p in script_candidates if p.exists()), None)
@@ -846,31 +872,13 @@ def run_expression(req: ExpressionReq = Body(...)):
         # fallback to module invocation
         base = [py, '-m', 'freqtrade.scripts.freqai_expression_agent']
         feature_file_arg = str(ff_path)
-    output_path = Path(req.output)
-    if not output_path.is_absolute():
-        candidate = (PROJECT_ROOT / output_path).resolve()
-        try:
-            candidate.relative_to(PROJECT_ROOT)
-            output_path = candidate
-        except ValueError:
-            output_path = (USER_DATA_DIR / output_path.name).resolve()
-    else:
-        output_path = output_path.resolve()
+    output_path = _resolve_project_path(req.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     logging.getLogger(__name__).info("Expression output resolved to %s", output_path)
 
     feedback_path: Optional[Path] = None
     if req.feedback:
-        feedback_path = Path(req.feedback)
-        if not feedback_path.is_absolute():
-            candidate = (PROJECT_ROOT / feedback_path).resolve()
-            try:
-                candidate.relative_to(PROJECT_ROOT)
-                feedback_path = candidate
-            except ValueError:
-                feedback_path = (USER_DATA_DIR / feedback_path.name).resolve()
-        else:
-            feedback_path = feedback_path.resolve()
+        feedback_path = _resolve_project_path(req.feedback)
 
     cmd = (conda_prefix or []) + base
     cmd += [
@@ -898,19 +906,7 @@ def run_expression(req: ExpressionReq = Body(...)):
         cmd += ['--feedback', str(feedback_path)]
 
     env = os.environ.copy()
-    # ä»…ç¡®ä¿ src/ å¯å¯¼å…¥ï¼ˆé¿å…è¦†ç›– conda å†…å·²å®‰è£…çš„ freqtrade åŒ…ï¼‰
-    pythonpath_entries = [str(SRC_ROOT)]
-    for candidate in [
-        ROOT / 'freqtrade',
-        app_root / 'freqtrade',
-        app_root / 'freqtrade' / 'freqtrade',
-    ]:
-        if candidate.exists():
-            pythonpath_entries.append(str(candidate))
-    existing = env.get('PYTHONPATH', '')
-    if existing:
-        pythonpath_entries.append(existing)
-    env['PYTHONPATH'] = os.pathsep.join(pythonpath_entries)
+    _augment_pythonpath(env)
     # LLM credentials from request or environment
     if req.llm_api_key:
         env['LLM_API_KEY'] = req.llm_api_key
@@ -921,21 +917,19 @@ def run_expression(req: ExpressionReq = Body(...)):
     # If no API key is present anywhere, avoid LLM usage to prevent failures
     if not env.get('LLM_API_KEY') and 'LLM_API_KEY' not in os.environ:
         cmd += ['--no-llm', '--gp-enabled']
-    job_id = jobs.start(cmd, cwd=app_root, env=env)
+    job_id = jobs.start(cmd, cwd=APP_ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
 
 
 @app.post("/run/backtest")
 def run_backtest(req: BacktestReq = Body(...)):
     # Resolve and validate config and strategy path
-    cfg_path = Path(req.config)
-    if not cfg_path.is_absolute():
-        cfg_path = (ROOT / cfg_path).resolve()
+    cfg_path = _resolve_project_path(req.config)
     if not cfg_path.exists():
         return {"status": "error", "code": "CONFIG_NOT_FOUND", "message": f"Config file not found: {cfg_path}"}
     spath = Path(req.strategy_path) if req.strategy_path else None
     if spath and not spath.is_absolute():
-        spath = (ROOT / spath).resolve()
+        spath = _resolve_project_path(spath)
     if spath and not spath.exists():
         return {"status": "error", "code": "STRATEGY_PATH_NOT_FOUND", "message": f"Strategy path not found: {spath}"}
 
@@ -945,7 +939,7 @@ def run_backtest(req: BacktestReq = Body(...)):
     binary = 'freqtrade'
     from shutil import which
     # Prefer direct env python if available to avoid "conda run" stdio issues
-    wrapper_bt = ROOT / 'scripts' / 'backtest_wrapper.py'
+    wrapper_bt = SCRIPTS_DIR / 'backtest_wrapper.py'
     if wrapper_bt.exists():
         base = [py, str(wrapper_bt)]
     elif env_py:
@@ -965,16 +959,7 @@ def run_backtest(req: BacktestReq = Body(...)):
         timerange_value = req.timerange
     export_path: Optional[Path] = None
     if req.export:
-        export_path = Path(req.export_filename)
-        if not export_path.is_absolute():
-            candidate = (PROJECT_ROOT / export_path).resolve()
-            try:
-                candidate.relative_to(PROJECT_ROOT)
-                export_path = candidate
-            except ValueError:
-                export_path = (BACKTEST_RESULTS_DIR / Path(req.export_filename).name).resolve()
-        else:
-            export_path = export_path.resolve()
+        export_path = _resolve_project_path(req.export_filename)
         export_path.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = (conda_prefix or []) + base + [
@@ -988,18 +973,16 @@ def run_backtest(req: BacktestReq = Body(...)):
     if req.export:
         cmd += ['--export', 'trades', '--export-filename', str(export_path)]
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC_ROOT), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
+    _augment_pythonpath(env)
     # Enable verbose per-pair step detection in wrapper
     env['FT_VERBOSE_BT'] = env.get('FT_VERBOSE_BT', '1')
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    job_id = jobs.start(cmd, cwd=PROJECT_ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
 
 
 @app.post("/run/download-data")
 def run_download_data(req: DownloadDataReq = Body(...)):
-    cfg_path = Path(req.config)
-    if not cfg_path.is_absolute():
-        cfg_path = (ROOT / cfg_path).resolve()
+    cfg_path = _resolve_project_path(req.config)
     if not cfg_path.exists():
         return {"status": "error", "code": "CONFIG_NOT_FOUND", "message": f"Config file not found: {cfg_path}"}
 
@@ -1008,7 +991,7 @@ def run_download_data(req: DownloadDataReq = Body(...)):
     py = env_py or ('python' if conda_prefix else sys.executable)
 
     # Prefer wrapper to inject [STEP] progress lines
-    wrapper = ROOT / 'scripts' / 'download_data_wrapper.py'
+    wrapper = SCRIPTS_DIR / 'download_data_wrapper.py'
     if wrapper.exists():
         base = [py, str(wrapper)]
     else:
@@ -1035,9 +1018,7 @@ def run_download_data(req: DownloadDataReq = Body(...)):
 
     # Pairs
     if req.pairs_file:
-        p = Path(req.pairs_file)
-        if not p.is_absolute():
-            p = (ROOT / p).resolve()
+        p = _resolve_project_path(req.pairs_file)
         cmd += ['--pairs-file', str(p)]
     if req.pairs:
         for pair in req.pairs:
@@ -1060,8 +1041,8 @@ def run_download_data(req: DownloadDataReq = Body(...)):
         cmd += ['--prepend']
 
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    _augment_pythonpath(env)
+    job_id = jobs.start(cmd, cwd=PROJECT_ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
 
 
@@ -1070,9 +1051,7 @@ def run_train_ml(req: TrainMLReq = Body(...)):
     # Accept either config_path or inline config
     cfg_path: Optional[Path] = None
     if req.config_path:
-        cfg_path = Path(req.config_path)
-        if not cfg_path.is_absolute():
-            cfg_path = (ROOT / cfg_path).resolve()
+        cfg_path = _resolve_project_path(req.config_path)
         if not cfg_path.exists():
             return {"status": "error", "code": "TRAIN_CONFIG_NOT_FOUND", "message": f"Training config not found: {cfg_path}"}
     elif req.config is not None:
@@ -1089,13 +1068,13 @@ def run_train_ml(req: TrainMLReq = Body(...)):
     conda_prefix = _conda_prefix_args() if not env_py else None
     py = env_py or ('python' if conda_prefix else sys.executable)
 
-    script = ROOT / 'scripts' / 'train_ml.py'
+    script = SCRIPTS_DIR / 'train_ml.py'
     if not script.exists():
         return {"status": "error", "code": "TRAIN_SCRIPT_MISSING", "message": f"Script not found: {script}"}
     cmd = (conda_prefix or []) + [py, str(script), '--config', str(cfg_path)]
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    _augment_pythonpath(env)
+    job_id = jobs.start(cmd, cwd=PROJECT_ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
 
 
@@ -1111,10 +1090,10 @@ def _default_pairs_and_timeframe(cfg_path: Path) -> tuple[list[str], str]:
 
 
 def _start_train_with_model(model_name: str, model_dir: str) -> dict:
-    cfg_path = (ROOT / 'configs' / 'config_freqai_multi.json').resolve()
+    cfg_path = _resolve_project_path('config/configs/config_freqai_multi.json')
     if not cfg_path.exists():
         return {"status": "error", "code": "CONFIG_NOT_FOUND", "message": f"Config file not found: {cfg_path}"}
-        pairs, timeframe = _default_pairs_and_timeframe(cfg_path)
+    pairs, timeframe = _default_pairs_and_timeframe(cfg_path)
     if not pairs:
         pairs = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'ADA/USDT']
     inline = {
@@ -1133,15 +1112,15 @@ def _start_train_with_model(model_name: str, model_dir: str) -> dict:
     env_py = _conda_env_python('freqtrade')
     conda_prefix = _conda_prefix_args() if not env_py else None
     py = env_py or ('python' if conda_prefix else sys.executable)
-    script = ROOT / 'scripts' / 'train_ml.py'
+    script = SCRIPTS_DIR / 'train_ml.py'
     tmp_dir = TMP_DIR
     tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp_cfg = tmp_dir / f"train_{model_name}_auto.json"
     tmp_cfg.write_text(_json.dumps(inline, ensure_ascii=False, indent=2), encoding='utf-8')
     cmd = (conda_prefix or []) + [py, str(script), '--config', str(tmp_cfg)]
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    _augment_pythonpath(env)
+    job_id = jobs.start(cmd, cwd=PROJECT_ROOT, env=env)
     return {"status": "started", "job_id": job_id, "cmd": cmd}
 
 
@@ -1158,10 +1137,8 @@ def run_train_cat():
 @app.post("/flow/run")
 def run_flow(req: FlowReq = Body(...)):
     py = sys.executable
-    script = str(ROOT / 'scripts' / 'agent_flow.py')
-    cfg_path = Path(req.config)
-    if not cfg_path.is_absolute():
-        cfg_path = (ROOT / cfg_path).resolve()
+    script = str(SCRIPTS_DIR / 'agent_flow.py')
+    cfg_path = _resolve_project_path(req.config)
     if not cfg_path.exists():
         return {"status": "error", "code": "CONFIG_NOT_FOUND", "message": f"Config file not found: {cfg_path}"}
     cmd = [py, script, '--config', str(cfg_path)]
@@ -1170,8 +1147,8 @@ def run_flow(req: FlowReq = Body(...)):
         if parts:
             cmd += ['--steps'] + parts
     env = os.environ.copy()
-    env['PYTHONPATH'] = os.pathsep.join([str(SRC), str(ROOT / 'freqtrade'), env.get('PYTHONPATH', '')])
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    _augment_pythonpath(env)
+    job_id = jobs.start(cmd, cwd=PROJECT_ROOT, env=env)
     return {"job_id": job_id, "cmd": cmd}
 
 
@@ -1382,7 +1359,6 @@ def job_dev_sleep(secs: int = 15):
     code = f"import time; [print(f'line{{i}}') or time.sleep(1) for i in range({int(secs)})]"
     cmd = [py, '-c', code]
     env = os.environ.copy()
-    job_id = jobs.start(cmd, cwd=ROOT, env=env)
+    _augment_pythonpath(env)
+    job_id = jobs.start(cmd, cwd=PROJECT_ROOT, env=env)
     return {"status": "started", "job_id": job_id}
-
-
