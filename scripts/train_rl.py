@@ -19,7 +19,7 @@ def main() -> int:
     parser.add_argument('--config', type=str, help='JSON config path for RLTrainer')
     # quick args if no config supplied
     parser.add_argument('--feature-file', type=str, help='freqai_features.json')
-    parser.add_argument('--data-dir', type=str, default='freqtrade/user_data/data')
+    parser.add_argument('--data-dir', type=str, default='user_data/data')
     parser.add_argument('--exchange', type=str, default='binanceus')
     parser.add_argument('--timeframe', type=str, default='1h')
     parser.add_argument('--pairs', type=str, default='BTC/USDT')
@@ -31,7 +31,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.config:
-        cfg = json.loads(Path(args.config).read_text(encoding='utf-8'))
+        cfg = json.loads(Path(args.config).read_text(encoding='utf-8-sig'))
     else:
         try:
             algo_params = json.loads(args.algo_params)
@@ -69,4 +69,3 @@ def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

@@ -50,7 +50,7 @@ function wireFallback() {
   // Backtest
   const bb = document.getElementById('btnBacktest'); if (bb) bb.onclick = async () => {
     try {
-      const body = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
+      const body = { config: document.getElementById('cfg').value, strategy: 'ExpressionLongStrategy', strategy_path: 'user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel: 'LightGBMRegressor', export: true, export_filename: 'user_data/backtest_results/latest_trades_multi' }
       const r = await fetch(`${API}/run/backtest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
       const j = await r.json(); if (j.job_id) { try { setStatus && setStatus('å›žæµ‹', j.job_id, true) } catch {} ; await fallbackPollLogs(j.job_id); try { setStatus && setStatus('å›žæµ‹', j.job_id, false) } catch {} } else { alert(JSON.stringify(j)) }
     } catch(e) { alert('å›žæµ‹å¯åŠ¨å¤±è´¥: '+e) }
@@ -323,7 +323,7 @@ function App() {
       const body = {
         config: document.getElementById('cfg').value,
         strategy: 'ExpressionLongStrategy',
-        strategy_path: 'freqtrade/user_data/strategies',
+        strategy_path: 'user_data/strategies',
         timerange: document.getElementById('timerange').value,
         freqaimodel: 'LightGBMRegressor',
         export: true,
@@ -413,7 +413,7 @@ function App() {
         })
         bindQuick('qML', async () => {
           const ff = document.getElementById('featureFile').value; const tf = document.getElementById('timeframe').value
-          const body = { config_obj: { data: { feature_file: ff, data_dir: 'freqtrade/user_data/data', exchange: 'binanceus', timeframe: tf, pairs: ['BTC/USDT'] }, model: { name: 'lightgbm', params: { objective: 'regression', metric: 'rmse', num_boost_round: 120 } }, training: { validation_ratio: 0.2 }, output: { model_dir: 'artifacts/models/flow_ml' } } }
+          const body = { config_obj: { data: { feature_file: ff, data_dir: 'user_data/data', exchange: 'binanceus', timeframe: tf, pairs: ['BTC/USDT'] }, model: { name: 'lightgbm', params: { objective: 'regression', metric: 'rmse', num_boost_round: 120 } }, training: { validation_ratio: 0.2 }, output: { model_dir: 'artifacts/models/flow_ml' } } }
           const r = await fetch(`${API}/run/train`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
         })
         bindQuick('qRL', async () => {
@@ -421,7 +421,7 @@ function App() {
           const r = await fetch(`${API}/run/rl_train`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
         })
         bindQuick('qBT', async () => {
-          const body = { config: document.getElementById('cfg').value, strategy:'ExpressionLongStrategy', strategy_path:'freqtrade/user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel:'LightGBMRegressor', export:true, export_filename:'user_data/backtest_results/latest_trades_multi' }
+          const body = { config: document.getElementById('cfg').value, strategy:'ExpressionLongStrategy', strategy_path:'user_data/strategies', timerange: document.getElementById('timerange').value, freqaimodel:'LightGBMRegressor', export:true, export_filename:'user_data/backtest_results/latest_trades_multi' }
           const r = await fetch(`${API}/run/backtest`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }); const j = await r.json(); if (j.job_id) await pollLogs(j.job_id)
         })
       }
@@ -600,4 +600,3 @@ document.addEventListener('DOMContentLoaded', () => {
   const onDragStart = (e) => { const typeKey = e.target?.getAttribute?.('data-nodetype'); if (!typeKey) return; e.dataTransfer.setData('application/node-type', typeKey); e.dataTransfer.effectAllowed = 'move' }
   paletteItems.forEach(el => el.addEventListener('dragstart', onDragStart))
 })
-

@@ -1,4 +1,6 @@
 import json
+import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,7 +8,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import freqtrade.scripts.freqai_expression_agent as expr
+_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "freqai_expression_agent.py"
+if not _SCRIPT.exists():  # pragma: no cover
+    pytest.skip("freqai expression agent script missing", allow_module_level=True)
+
+_spec = importlib.util.spec_from_file_location("agent_market_scripts.freqai_expression_agent", _SCRIPT)
+assert _spec and _spec.loader
+expr = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = expr
+_spec.loader.exec_module(expr)
 from agent_market.freqai.context import resolve_feature_context
 from agent_market.freqai.rl.env import TradingEnv
 from agent_market.freqai.rl.trainer import RLTrainer
@@ -93,6 +103,19 @@ def test_generate_llm_expressions_with_mock(monkeypatch):
     assert scores, "LLM expressions should produce at least one score"
     assert scores[0]["origin"] == "llm"
     assert scores[0]["expression"] == "z(feat_test)"
+
+
+def test_expression_engine_rejects_attribute_access():
+    from agent_market.freqai.expression_engine import ExpressionValidationError, safe_eval_expression
+
+    df = _sample_dataframe()
+    with pytest.raises(ExpressionValidationError):
+        safe_eval_expression("close.__class__", df)
+    with pytest.raises(ExpressionValidationError):
+        safe_eval_expression("close.shift(1)", df)
+
+    series = safe_eval_expression("z(pct_change(close, 1))", df)
+    assert isinstance(series, pd.Series)
 
 
 def test_freqai_settings_validate_dataset(tmp_path):
@@ -232,6 +255,7 @@ def test_generate_llm_expressions_no_candidates(monkeypatch):
 
 
 def test_training_pipeline_lightgbm(tmp_path):
+    pytest.importorskip("lightgbm")
     data_root = tmp_path / "data"
     exchange_dir = data_root / "binanceus"
     exchange_dir.mkdir(parents=True)
@@ -280,8 +304,12 @@ def test_training_pipeline_lightgbm(tmp_path):
     result = TrainingPipeline(config).run()
     assert result.model_path.exists()
     assert "rmse_train" in result.metrics
+    summary = json.loads((tmp_path / "models" / "training_summary.json").read_text(encoding="utf-8"))
+    assert summary["feature_snapshot"]
+    assert (tmp_path / "models" / "feature_snapshot.json").exists()
 
 def test_training_pipeline_pytorch(tmp_path):
+    pytest.importorskip("torch")
     data_root = tmp_path / "data"
     exchange_dir = data_root / "binanceus"
     exchange_dir.mkdir(parents=True)
@@ -487,4 +515,3 @@ def test_rl_trainer_writes_summary(tmp_path, monkeypatch):
     assert summary["timesteps"] == 500
     assert summary["model_path"] == str(result.model_path)
     assert summary["features"], "features should not be empty"
-

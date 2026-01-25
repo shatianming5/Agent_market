@@ -2,11 +2,13 @@
 import zipfile
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 import pytest
 
 from agent_market.agent_flow import AgentFlow, AgentFlowConfig, load_agent_flow_config
+from agent_market import flow_steps
+
+np = pytest.importorskip("numpy")
+pd = pytest.importorskip("pandas")
 
 
 def _sample_dataframe(size: int = 60) -> pd.DataFrame:
@@ -27,11 +29,15 @@ def _sample_dataframe(size: int = 60) -> pd.DataFrame:
 def test_agent_flow_runs_sections(monkeypatch):
     calls = []
 
-    monkeypatch.setattr(AgentFlow, 'run_feature_generation', lambda self, cfg: calls.append(('feature', cfg)))
-    monkeypatch.setattr(AgentFlow, 'run_expression_generation', lambda self, cfg: calls.append(('expression', cfg)))
-    monkeypatch.setattr(AgentFlow, 'run_ml_training', lambda self, cfg: calls.append(('ml', cfg)))
-    monkeypatch.setattr(AgentFlow, 'run_rl_training', lambda self, cfg: calls.append(('rl', cfg)))
-    monkeypatch.setattr(AgentFlow, 'run_backtest', lambda self, cfg: calls.append(('backtest', cfg)))
+    monkeypatch.setattr(flow_steps, "run_feature_generation", lambda cfg: calls.append(("feature", cfg)))
+    monkeypatch.setattr(
+        flow_steps,
+        "run_expression_generation",
+        lambda cfg, _fb: calls.append(("expression", cfg)),
+    )
+    monkeypatch.setattr(flow_steps, "run_ml_training", lambda cfg: calls.append(("ml", cfg)))
+    monkeypatch.setattr(flow_steps, "run_rl_training", lambda cfg: calls.append(("rl", cfg)))
+    monkeypatch.setattr(flow_steps, "run_backtest", lambda cfg, _fb: calls.append(("backtest", cfg)))
 
     cfg = AgentFlowConfig(
         feature={'args': ['--foo']},
@@ -78,7 +84,7 @@ def test_agent_flow_backtest_feedback(tmp_path, monkeypatch):
                 zf.writestr('backtest-result-test.json', json.dumps(data))
             (results_dir / '.last_result.json').write_text(json.dumps({'latest_backtest': zip_path.name}), encoding='utf-8')
 
-    monkeypatch.setattr(AgentFlow, '_run_command', staticmethod(fake_run))
+    monkeypatch.setattr(flow_steps, "run_command", fake_run)
 
     cfg = AgentFlowConfig(
         expression={'args': [], 'feedback_path': str(feedback_path)},
@@ -100,6 +106,46 @@ def test_agent_flow_backtest_feedback(tmp_path, monkeypatch):
     expr_cmd = commands[0]
     assert '--feedback' in expr_cmd
     assert str(feedback_path) in expr_cmd
+
+
+def test_build_backtest_summary_coerces_trade_list(tmp_path):
+    from agent_market.backtest_results import build_backtest_summary
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    zip_path = results_dir / "backtest-result-test.zip"
+
+    data = {
+        "strategy": {
+            "ExpressionLongStrategy": {
+                "profit_total": 0.0269,
+                "profit_total_abs": 26.9,
+                "profit_mean": 0.0014,
+                "trades": [{"id": 1}, {"id": 2}, {"id": 3}],
+                "best_pair": {"key": "BTC/USDT"},
+                "worst_pair": {"key": "ETH/USDT"},
+                "backtest_start": "2021-01-01",
+                "backtest_end": "2021-01-31",
+            }
+        },
+        "strategy_comparison": [
+            {
+                "key": "ExpressionLongStrategy",
+                "trades": 3,
+                "profit_total_pct": 2.69,
+                "profit_mean_pct": 0.14,
+                "winrate": 0.5,
+                "max_drawdown_abs": 3.63,
+            }
+        ],
+    }
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("backtest-result-test.json", json.dumps(data))
+
+    summary = build_backtest_summary(zip_path)
+    assert summary["strategy"] == "ExpressionLongStrategy"
+    assert summary["trades"] == 3
+    assert summary["profit_total_pct"] == 2.69
 
 
 def test_agent_flow_ml_only(tmp_path):
@@ -183,7 +229,7 @@ def test_run_ml_training_with_configs(monkeypatch):
         def run(self) -> None:
             calls.append(self.config.get('model', {}).get('name'))
 
-    monkeypatch.setattr('agent_market.agent_flow.TrainingPipeline', DummyPipeline)
+    monkeypatch.setattr(flow_steps, "TrainingPipeline", DummyPipeline)
 
     cfg = AgentFlowConfig(
         ml_training={

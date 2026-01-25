@@ -106,7 +106,7 @@ class AuxModelPredictor:
             logger.debug("AuxModelPredictor: dataframe missing features %s", ', '.join(missing))
             return None
         matrix = dataframe[list(columns)].astype(float).replace([np.inf, -np.inf], np.nan)
-        matrix = matrix.fillna(method='ffill').fillna(method='bfill').fillna(0.0)
+        matrix = matrix.ffill().bfill().fillna(0.0)
         return matrix.to_numpy(dtype=np.float32)
 
     @staticmethod

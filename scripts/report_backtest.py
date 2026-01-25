@@ -11,23 +11,7 @@ SRC = ROOT / 'src'
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from agent_market.agent_flow import AgentFlow, AgentFlowConfig  # type: ignore
-
-
-def find_latest_zip(results_dir: Path) -> Path | None:
-    results_dir = results_dir.resolve()
-    last = results_dir / '.last_result.json'
-    if last.exists():
-        try:
-            latest = json.loads(last.read_text(encoding='utf-8')).get('latest_backtest')
-            if latest:
-                p = results_dir / latest
-                if p.exists():
-                    return p
-        except Exception:
-            pass
-    zips = sorted(results_dir.glob('backtest-result-*.zip'), key=lambda p: p.stat().st_mtime)
-    return zips[-1] if zips else None
+from agent_market.backtest_results import build_backtest_summary, find_latest_backtest_zip  # type: ignore
 
 
 def main() -> None:
@@ -40,16 +24,14 @@ def main() -> None:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    zip_path = find_latest_zip(results_dir)
+    zip_path = find_latest_backtest_zip(results_dir)
     if not zip_path:
         raise FileNotFoundError(f'No backtest archives found in {results_dir}')
 
-    flow = AgentFlow(AgentFlowConfig())
-    summary = flow._build_backtest_summary(zip_path)  # reuse helper
+    summary = build_backtest_summary(zip_path)
     out.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f'Wrote summary to {out}')
 
 
 if __name__ == '__main__':
     main()
-

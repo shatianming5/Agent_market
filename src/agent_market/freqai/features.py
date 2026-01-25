@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from pandas import DataFrame
 
+from agent_market.freqai.expression_engine import safe_eval
+
 # Try TA-Lib first; if not available, fallback to pandas_ta implementations where possible.
 try:  # pragma: no cover - runtime dependency
     import talib.abstract as ta  # type: ignore
@@ -212,7 +214,7 @@ def apply_configured_features(dataframe: DataFrame, feature_cfg: Dict) -> DataFr
         if not name or name in dataframe.columns or not formula:
             continue
         try:
-            result = eval(formula, {'__builtins__': {}}, local_dict)
+            result = safe_eval(formula, local_dict, allowed_calls=set())
             series = _ensure_series(result, dataframe.index).astype(float)
             series = series.replace([np.inf, -np.inf], np.nan)
             dataframe[name] = series
@@ -226,4 +228,3 @@ def _ensure_series(data, index) -> pd.Series:
     if isinstance(data, pd.Series):
         return data
     return pd.Series(data, index=index)
-

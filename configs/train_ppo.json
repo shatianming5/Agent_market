@@ -1,7 +1,7 @@
 {
   "data": {
     "feature_file": "user_data/freqai_features.json",
-    "data_dir": "freqtrade/user_data/data",
+    "data_dir": "user_data/data",
     "exchange": "binanceus",
     "timeframe": "1h",
     "pairs": ["BTC/USDT"]
@@ -19,4 +19,3 @@
     "model_dir": "artifacts/models/rl_ppo_demo"
   }
 }
-

@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from .api.routes.features import router as features_router
+from .api.routes.flow import router as flow_router
+from .api.routes.jobs import router as jobs_router
+from .api.routes.results import router as results_router
+from .api.routes.root import router as root_router
+from .api.routes.run import router as run_router
+from .api.routes.settings import router as settings_router
+from .runtime import ROOT
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="Agent Market Server", version="0.2.4")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Serve static web UI (optional): http://host:8000/web/index.html
+    try:
+        app.mount("/web", StaticFiles(directory=str(ROOT / "web")), name="web")
+    except Exception:
+        pass
+
+    app.include_router(root_router)
+    app.include_router(settings_router)
+    app.include_router(jobs_router)
+    app.include_router(features_router)
+    app.include_router(results_router)
+    app.include_router(run_router)
+    app.include_router(flow_router)
+    return app
+
+
+app = create_app()
+

@@ -12,7 +12,7 @@ import vectorbt as vbt
 import yaml
 
 CLEAN_DIR = Path("data/clean")
-RESULTS_DIR = Path("backtests/results")
+RESULTS_DIR = Path("data/backtests")
 
 
 @dataclass

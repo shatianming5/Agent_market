@@ -2,7 +2,7 @@
 """Lightweight Uniswap v2/v3 indexer for recent swaps.
 
 Designed for workshop/demo use:
-- Reads pool list from conf/dex.yaml (no need to scan entire chain)
+- Reads pool list from configs/dex.yaml (no need to scan entire chain)
 - Handles missing RPC credentials gracefully
 - Stores swaps as parquet under data/raw/dex/
 """
@@ -169,7 +169,7 @@ def fetch_swaps_for_pool(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Index recent DEX swaps')
-    parser.add_argument('--config', type=Path, default=Path('conf/dex.yaml'))
+    parser.add_argument('--config', type=Path, default=Path('configs/dex.yaml'))
     parser.add_argument('--output', type=Path, default=Path('data/raw/dex'))
     args = parser.parse_args()
 

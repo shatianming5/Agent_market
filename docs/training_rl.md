@@ -33,7 +33,7 @@ python scripts/train_rl.py --config configs/train_ppo.json
 ```
 python scripts/train_rl.py \
   --feature-file user_data/freqai_features.json \
-  --data-dir freqtrade/user_data/data \
+  --data-dir user_data/data \
   --exchange binanceus \
   --timeframe 1h \
   --pairs "BTC/USDT" \

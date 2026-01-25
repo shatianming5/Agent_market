@@ -2,7 +2,7 @@
 """Consume X filtered stream with rule management.
 
 Usage:
-    python scripts/x_stream.py --rules conf/x_rules.yaml --max-messages 10
+    python scripts/x_stream.py --rules configs/x_rules.yaml --max-messages 10
 
 Requires X_STREAM_TOKEN or X_BEARER_TOKEN. Without credentials the script
 exits successfully and prints a notice (no mock data generated).
@@ -88,7 +88,7 @@ def run_stream(token: str, max_messages: int, rules: List[Dict[str, str]], outpu
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Consume X filtered stream")
-    parser.add_argument("--rules", type=Path, default=Path("conf/x_rules.yaml"))
+    parser.add_argument("--rules", type=Path, default=Path("configs/x_rules.yaml"))
     parser.add_argument("--max-messages", type=int, default=20)
     parser.add_argument("--output", type=Path, default=Path("data/raw/x"))
     args = parser.parse_args()

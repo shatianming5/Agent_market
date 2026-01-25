@@ -2,7 +2,7 @@
 """Fetch OHLCV candles via CCXT and store them under data/raw.
 
 Usage:
-    python scripts/fetch_ccxt_ohlcv.py --conf conf/symbols.yaml
+    python scripts/fetch_ccxt_ohlcv.py --conf configs/symbols.yaml
 
 The script supports incremental updates: if the target file already exists,
 fetching will resume from the last completed candle.

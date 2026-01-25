@@ -1,6 +1,6 @@
 ﻿{
   "feature": {
-    "script": "freqtrade/scripts/freqai_feature_agent.py",
+    "script": "scripts/freqai_feature_agent.py",
     "args": [
       "--config", "configs/config_freqai_multi.json",
       "--output", "user_data/freqai_features_multi.json",
@@ -9,13 +9,12 @@
     ]
   },
   "expression": {
-    "script": "freqtrade/scripts/freqai_expression_agent.py",
+    "script": "scripts/freqai_expression_agent.py",
     "args": [
       "--config", "configs/config_freqai_multi.json",
-      "--feature-file", "../user_data/freqai_features_multi.json",
+      "--feature-file", "user_data/freqai_features_multi.json",
       "--output", "user_data/freqai_expressions.json",
       "--timeframe", "4h",
-      "--llm-model", "gpt-3.5-turbo",
       "--llm-count", "24",
       "--llm-loops", "1",
       "--llm-timeout", "60"
@@ -26,7 +25,7 @@
     "config": {
       "data": {
         "feature_file": "user_data/freqai_features_multi.json",
-        "data_dir": "freqtrade/user_data/data",
+        "data_dir": "user_data/data",
         "exchange": "binanceus",
         "pairs": ["BTC/USDT", "ETH/USDT"],
         "timeframe": "4h",
@@ -54,13 +53,13 @@
       "freqtrade", "backtesting",
       "--config", "configs/config_freqai_multi.json",
       "--strategy", "ExpressionLongStrategy",
-      "--strategy-path", "freqtrade/user_data/strategies",
-      "--datadir", "freqtrade/user_data/data",
+      "--strategy-path", "user_data/strategies",
       "--dataformat-ohlcv", "feather",
       "--timerange", "20210101-20211231",
       "--freqaimodel", "LightGBMRegressor",
       "--export", "trades",
-      "--export-filename", "user_data/backtest_results/latest_trades_multi"
+      "--export-filename", "user_data/backtest_results/latest_trades_multi",
+      "--cache", "none"
     ],
     "results_dir": "user_data/backtest_results/multi_4h",
     "feedback_path": "user_data/llm_feedback/latest_backtest_summary.json"

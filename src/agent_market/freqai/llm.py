@@ -2,18 +2,50 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import textwrap
 import time
 from pathlib import Path
 from dataclasses import dataclass
-try:
-    from dotenv import load_dotenv
-except ImportError:  # pragma: no cover - optional dependency
-    load_dotenv = None  # type: ignore[assignment]
+from urllib.parse import urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-if load_dotenv:
-    load_dotenv(PROJECT_ROOT / '.env')
+
+
+def _load_dotenv_fallback(path: Path) -> None:
+    """
+    Minimal `.env` loader (no external deps).
+    - Ignores comments / blank lines.
+    - Supports `export KEY=VALUE`.
+    - Supports quoted values (single/double).
+    - Uses `os.environ.setdefault` (shell env wins).
+    """
+
+    if not path.exists():
+        return
+    try:
+        raw = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.lower().startswith("export "):
+            s = s[7:].strip()
+        if "=" not in s:
+            continue
+        key, value = s.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and ((value[0] == value[-1] == "'") or (value[0] == value[-1] == '"')):
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+_load_dotenv_fallback(PROJECT_ROOT / ".env")
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -36,14 +68,9 @@ __all__ = [
 ]
 
 
-DEFAULT_BASE_URL = os.environ.get("LLM_BASE_URL", "https://api.zhizengzeng.com/v1")
-DEFAULT_MODEL = os.environ.get("LLM_MODEL", "gpt-3.5-turbo")
-DEFAULT_API_KEY = (
-    os.environ.get("LLM_API_KEY")
-    or os.environ.get("ZHIZENGZENG_API_KEY")
-    or os.environ.get("ZHIZENGZENG_APIKEY")
-    or ""
-)
+DEFAULT_BASE_URL = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+DEFAULT_MODEL = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-3.5-turbo"
+DEFAULT_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
 DEFAULT_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "45"))
 
 ALLOWED_FUNCTIONS = [
@@ -213,7 +240,12 @@ def request_completion(prompt: str, config: LLMConfig) -> Tuple[str, Optional[Di
     if not config.api_key:
         raise ValueError("?? LLM ???????? API Key?")
 
-    url = config.base_url.rstrip("/") + "/chat/completions"
+    base_url = config.base_url.rstrip("/")
+    parsed = urlparse(base_url)
+    path = (parsed.path or "").rstrip("/")
+    if not (path.endswith("/v1") or "/v1/" in (path + "/")):
+        base_url = base_url + "/v1"
+    url = base_url + "/chat/completions"
     headers = {"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"}
     payload = {
         "model": config.model,
@@ -227,13 +259,24 @@ def request_completion(prompt: str, config: LLMConfig) -> Tuple[str, Optional[Di
         "temperature": config.temperature,
         "max_tokens": config.max_tokens,
     }
+    payload_json_mode = {**payload, "response_format": {"type": "json_object"}}
 
     last_exc: Optional[Exception] = None
+    json_mode_supported = True
     for attempt in range(1, max(config.retries, 1) + 1):
         try:
-            response: Response = requests.post(url, headers=headers, json=payload, timeout=config.timeout)
+            req_payload = payload_json_mode if json_mode_supported else payload
+            response: Response = requests.post(url, headers=headers, json=req_payload, timeout=config.timeout)
             if response.status_code >= 400:
-                raise ValueError(f"LLM request failed {response.status_code}: {response.text[:200]}")
+                text = response.text[:400]
+                if (
+                    json_mode_supported
+                    and response.status_code == 400
+                    and ("response_format" in text or "Unknown parameter" in text or "unknown parameter" in text)
+                ):
+                    json_mode_supported = False
+                    raise ValueError("LLM json_mode not supported; retry without response_format")
+                raise ValueError(f"LLM request failed {response.status_code}: {text}")
             data = response.json()
             choices = data.get("choices") or []
             if not choices:
@@ -252,24 +295,42 @@ def request_completion(prompt: str, config: LLMConfig) -> Tuple[str, Optional[Di
 
 
 def _extract_json_object(payload: str) -> Dict[str, Any]:
+    variants: list[str] = []
+    text = payload.strip()
+    if text.startswith("```"):
+        # Strip fenced blocks (```json ... ```)
+        text = re.sub(r"^```[a-zA-Z0-9_-]*\n", "", text)
+        text = re.sub(r"\n```$", "", text)
+        text = text.strip()
+    variants.append(text)
     try:
-        return json.loads(payload)
-    except json.JSONDecodeError:
-        match = None
-        try:
-            start = payload.index("{")
-            end = payload.rindex("}")
-            match = payload[start : end + 1]
-        except ValueError as exc:  # noqa: BLE001
-            raise json.JSONDecodeError("No JSON object found", payload, 0) from exc
-        return json.loads(match)
+        start = text.index("{")
+        end = text.rindex("}")
+        variants.append(text[start : end + 1])
+    except ValueError:
+        pass
+
+    last_exc: Optional[Exception] = None
+    for candidate in variants:
+        for attempt in (candidate, re.sub(r",\s*([}\]])", r"\1", candidate)):
+            try:
+                return json.loads(attempt)
+            except json.JSONDecodeError as exc:
+                last_exc = exc
+                continue
+    if last_exc is not None:
+        raise last_exc
+    raise json.JSONDecodeError("No JSON object found", payload, 0)
 
 
 def extract_candidates(raw_content: str) -> List[Dict[str, Any]]:
-    payload = _extract_json_object(raw_content)
-    expressions_raw = payload.get("expressions")
-    if not isinstance(expressions_raw, list):
-        raise ValueError("LLM response missing expressions list")
+    try:
+        payload = _extract_json_object(raw_content)
+        expressions_raw = payload.get("expressions")
+        if not isinstance(expressions_raw, list):
+            raise ValueError("LLM response missing expressions list")
+    except (json.JSONDecodeError, ValueError):
+        return _extract_candidates_fallback(raw_content)
 
     cleaned: List[Dict[str, Any]] = []
     seen: set[str] = set()
@@ -298,3 +359,61 @@ def extract_candidates(raw_content: str) -> List[Dict[str, Any]]:
         cleaned.append({"expression": expr, "name": name, **meta})
     return cleaned
 
+
+def _extract_candidates_fallback(raw_content: str) -> List[Dict[str, Any]]:
+    """
+    Fallback parser when the model doesn't return strict JSON.
+    Extracts `"expression": "..."` patterns and returns them as candidates.
+    """
+
+    text = raw_content.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9_-]*\n", "", text)
+        text = re.sub(r"\n```$", "", text)
+        text = text.strip()
+
+    expr_pat = re.compile(r'"expression"\s*:\s*"((?:\\.|[^"\\])*)"', flags=re.IGNORECASE)
+    name_pat = re.compile(r'"name"\s*:\s*"((?:\\.|[^"\\])*)"', flags=re.IGNORECASE)
+    cat_pat = re.compile(r'"category"\s*:\s*"((?:\\.|[^"\\])*)"', flags=re.IGNORECASE)
+    desc_pat = re.compile(r'"description"\s*:\s*"((?:\\.|[^"\\])*)"', flags=re.IGNORECASE)
+    reason_pat = re.compile(r'"reason"\s*:\s*"((?:\\.|[^"\\])*)"', flags=re.IGNORECASE)
+
+    def _unescape(raw: str) -> str:
+        try:
+            return json.loads(f'"{raw}"')
+        except Exception:
+            return raw.replace('\\"', '"').replace("\\n", "\n").replace("\\t", "\t")
+
+    candidates: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for idx, match in enumerate(expr_pat.finditer(text)):
+        expr = _unescape(match.group(1)).strip()
+        if not expr or expr in seen:
+            continue
+        seen.add(expr)
+
+        window = text[max(0, match.start() - 500) : match.end() + 500]
+        name_match = None
+        for m in name_pat.finditer(window):
+            name_match = m
+        name = _unescape(name_match.group(1)).strip() if name_match else f"llm_expr_{idx}"
+        desc_match = None
+        for m in desc_pat.finditer(window):
+            desc_match = m
+        reason_match = None
+        for m in reason_pat.finditer(window):
+            reason_match = m
+        cat_match = None
+        for m in cat_pat.finditer(window):
+            cat_match = m
+        meta = {
+            "description": _unescape(desc_match.group(1)).strip() if desc_match else None,
+            "reason": _unescape(reason_match.group(1)).strip() if reason_match else None,
+            "category": _unescape(cat_match.group(1)).strip() if cat_match else None,
+        }
+        candidates.append({"expression": expr, "name": name, **meta})
+        if len(candidates) >= 100:
+            break
+    if not candidates:
+        raise ValueError("LLM response missing expressions list")
+    return candidates

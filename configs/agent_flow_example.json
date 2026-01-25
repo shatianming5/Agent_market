@@ -6,7 +6,6 @@
                                  "--output",
                                  "user_data/freqai_features_real.json"
                              ],
-                    "cwd":  "freqtrade",
                     "script":  "scripts/freqai_feature_agent.py"
                 },
     "expression":  {
@@ -14,33 +13,32 @@
                                     "--config",
                                     "user_data/config_freqai.json",
                                     "--output",
-                                    "user_data/freqai_expressions.json",
+                                    "user_data/freqai_expressions_selected.json",
                                     "--timeframe",
                                     "1h",
-                                    "--llm-enabled",
-                                    "--llm-base-url",
-                                    "https://api.zhizengzeng.com/v1",
-                                    "--llm-model",
-                                    "glm-4-air",
-                                    "--llm-count",
-                                    "20",
-                                    "--llm-retries",
-                                    "3",
+                                    "--mine",
+                                     "--top-n",
+                                     "30",
+                                     "--llm-enabled",
+                                     "--llm-count",
+                                     "20",
+                                     "--llm-retries",
+                                     "3",
                                     "--llm-timeout",
                                     "60",
                                     "--llm-fallback"
                                 ],
                        "feedback_top":  8,
-                       "cwd":  "freqtrade",
                        "script":  "scripts/freqai_expression_agent.py"
                    },
     "ml_training":  {
                         "configs":  [
                                         {
                                             "data":  {
-                                                         "feature_file":  "freqtrade/user_data/freqai_features_real.json",
-                                                         "data_dir":  "freqtrade/user_data/data",
-                                                         "exchange":  "binanceus",
+                                                         "feature_file":  "user_data/freqai_features_real.json",
+                                                         "expressions_file":  "user_data/freqai_expressions_selected.json",
+                                                         "data_dir":  "user_data/data",
+                                                         "exchange":  "bitfinex",
                                                          "pairs":  [
                                                                        "BTC/USDT",
                                                                        "ETH/USDT"
@@ -67,50 +65,15 @@
                                             "output":  {
                                                            "model_dir":  "artifacts/models/lightgbm_real"
                                                        }
-                                        },
-                                        {
-                                            "data":  {
-                                                         "feature_file":  "freqtrade/user_data/freqai_features_real.json",
-                                                         "data_dir":  "freqtrade/user_data/data",
-                                                         "exchange":  "binanceus",
-                                                         "pairs":  [
-                                                                       "BTC/USDT",
-                                                                       "ETH/USDT"
-                                                                   ],
-                                                         "timeframe":  "1h",
-                                                         "label_period":  12
-                                                     },
-                                            "model":  {
-                                                          "name":  "pytorch_mlp",
-                                                          "params":  {
-                                                                         "hidden_dims":  [
-                                                                                             256,
-                                                                                             128,
-                                                                                             64
-                                                                                         ],
-                                                                         "dropout":  0.1,
-                                                                         "epochs":  30,
-                                                                         "batch_size":  128,
-                                                                         "learning_rate":  0.0007,
-                                                                         "model_dir":  "artifacts/models/pytorch_real",
-                                                                         "use_cuda":  false
-                                                                     }
-                                                      },
-                                            "training":  {
-                                                             "validation_ratio":  0.2
-                                                         },
-                                            "output":  {
-                                                           "model_dir":  "artifacts/models/pytorch_real"
-                                                       }
                                         }
                                     ]
                     },
     "rl_training":  {
                         "config":  {
                                        "data":  {
-                                                    "feature_file":  "freqtrade/user_data/freqai_features_real.json",
-                                                    "data_dir":  "freqtrade/user_data/data",
-                                                    "exchange":  "binanceus",
+                                                    "feature_file":  "user_data/freqai_features_real.json",
+                                                    "data_dir":  "user_data/data",
+                                                    "exchange":  "bitfinex",
                                                     "pairs":  [
                                                                   "BTC/USDT"
                                                               ],
@@ -132,19 +95,21 @@
                     },
     "backtest":  {
                      "command":  [
-                                     "freqtrade",
+                                     "./.venv/bin/freqtrade",
                                      "backtesting",
+                                     "--userdir",
+                                     "user_data",
                                      "--config",
-                                     "freqtrade/user_data/config_freqai.json",
+                                     "user_data/config_freqai.json",
                                      "--strategy",
                                      "ExpressionLongStrategy",
                                      "--strategy-path",
-                                     "freqtrade/user_data/strategies",
+                                     "user_data/strategies",
                                      "--timerange",
-                                     "20210101-20211231",
-                                     "--freqaimodel",
-                                     "LightGBMRegressor"
+                                     "20251126-20260125",
+                                     "--cache",
+                                     "none"
                                  ],
-                     "results_dir":  "freqtrade/user_data/backtest_results"
+                     "results_dir":  "user_data/backtest_results"
                  }
 }

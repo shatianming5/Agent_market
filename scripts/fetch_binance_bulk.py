@@ -2,7 +2,7 @@
 """Download historical OHLCV data from Binance data.binance.vision dumps.
 
 Example:
-    python scripts/fetch_binance_bulk.py --conf conf/symbols.yaml --monthly --limit-months 1
+    python scripts/fetch_binance_bulk.py --conf configs/symbols.yaml --monthly --limit-months 1
 
 The script downloads ZIP archives alongside their CHECKSUM files, validates
 integrity, extracts the CSV, and stores normalised OHLCV data into data/raw.

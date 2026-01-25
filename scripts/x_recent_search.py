@@ -93,7 +93,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch tweets via recent search")
     parser.add_argument("--query", type=str, default=None, help="X API search query")
     parser.add_argument("--max-results", type=int, default=50, choices=range(10, 101), metavar="[10-100]")
-    parser.add_argument("--keywords", type=Path, default=Path("conf/keywords.yaml"))
+    parser.add_argument("--keywords", type=Path, default=Path("configs/keywords.yaml"))
     parser.add_argument("--output", type=Path, default=Path("data/raw/x"))
     args = parser.parse_args()
 

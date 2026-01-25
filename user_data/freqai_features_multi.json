@@ -8,7 +8,7 @@
         "SOL/USDT",
         "ADA/USDT"
     ],
-    "datadir": "freqtrade/user_data/data",
+    "datadir": "user_data/data",
     "generated_at": "2025-09-29T07:09:01.866295+00:00",
     "features": [
         {

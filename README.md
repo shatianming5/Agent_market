@@ -10,8 +10,7 @@ Agent Market 是一个将 LLM 表达式生成、特征工程、机器学习/强�
 ## 目录
 
 ```
-conf/                      # 示例/模板配置
-configs/                   # Flow/训练/回测 等 JSON 配置
+configs/                   # 配置（Flow/训练/回测 JSON + 数据抓取 YAML）
 data/                      # 原始/加工数据（可选）
 docs/                      # 文档
 scripts/                   # 各类脚本（Flow、训练、清理等）
@@ -31,19 +30,20 @@ pip install -r requirements.txt
 pip install -r server/requirements.txt
 ```
 
-2) 可选：安装 freqtrade（用于回测/超参等）
+2) 可选：安装 freqtrade（用于下载数据/回测/超参等）
 ```
-git clone https://github.com/freqtrade/freqtrade.git --depth 1
-cd freqtrade && pip install -e . && cd ..
+pip install freqtrade
+# 或者（开发/最新源码）：git clone https://github.com/freqtrade/freqtrade.git --depth 1 && cd freqtrade && pip install -e . && cd ..
 ```
 
 3) 配置 LLM（可选）
-在项目根目录创建 `.env`：
+在项目根目录创建 `.env`（OpenAI 兼容接口）：
 ```
-LLM_BASE_URL=https://your-llm-endpoint/v1
-LLM_API_KEY=替换为你的APIKey
-LLM_MODEL=gpt-3.5-turbo
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=替换为你的APIKey
+OPENAI_MODEL=gpt-4o-mini
 ```
+（兼容：也支持 `LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`）
 
 4) 启动后端
 ```

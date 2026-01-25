@@ -4,7 +4,7 @@
 
 ## 目标概览
 
-1. **统一数据/特征接口**：复用现有 `freqai_feature_agent.py` 产出的配置，提供面向模型的标准化特征矩阵与标签构建器。
+1. **统一数据/特征接口**：复用现有 `scripts/freqai_feature_agent.py` 产出的配置，提供面向模型的标准化特征矩阵与标签构建器。
 2. **模型注册与训练调度**：抽象出统一的 `ModelAdapter` 接口，支持 LightGBM、XGBoost、CatBoost、PyTorch、强化学习策略等多种实现，并允许后续扩展。
 3. **多阶段训练流水线**：
    - 特征装载 → 训练集/验证集切分 → 模型训练 → 回测评估 → 结果落盘。
@@ -100,10 +100,10 @@ class BaseModelAdapter(ABC):
 - **RL**：封装 `TradingEnv`（Gym 环境），以 `FeatureDatasetBuilder` 的输出构建状态，动作对应仓位调整或信号触发；训练完成后可导出策略参数，转化为 Freqtrade 策略或直接运行在仿真环境。
 
 ### 5. Agent 全流程控制
-新增脚本 `scripts/agent_flow.py`（后续阶段实现）：
+`scripts/agent_flow.py`（已实现）：
 1. 下载/更新行情数据。
-2. 调用 `freqai_feature_agent.py` 构建特征。
-3. 调用 `freqai_expression_agent.py` + LLM 生成表达式。
+2. 调用 `scripts/freqai_feature_agent.py` 构建特征。
+3. 调用 `scripts/freqai_expression_agent.py` + LLM 生成表达式。
 4. 执行 `TrainingPipeline`（可指定算法列表）。
 5. 跑回测并生成总结。
 6. 记录日志、更新反馈、可选地触发下一轮优化。

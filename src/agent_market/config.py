@@ -23,7 +23,7 @@ def read_json(path: Path) -> Dict:
     if not path.exists():
         raise FileNotFoundError(f"配置文件不存在: {path}")
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:  # pragma: no cover - defensive
         raise ValueError(f"解析 JSON 失败 {path}: {exc}") from exc
 
@@ -118,5 +118,4 @@ class FreqAISettings:
             formatted = "\n".join(str(item) for item in missing)
             raise FileNotFoundError("以下真实数据缺失，请先补齐:\n" + formatted)
         return self.data_dir
-
 

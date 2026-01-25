@@ -37,7 +37,7 @@ def load_addresses(source: Path) -> List[str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='HTTP polling fallback for swap logs')
-    parser.add_argument('--config', type=Path, default=Path('conf/dex.yaml'))
+    parser.add_argument('--config', type=Path, default=Path('configs/dex.yaml'))
     parser.add_argument('--addresses', type=Path, default=Path('data/raw/dex/uniswap-v3_pools.parquet'))
     parser.add_argument('--max-events', type=int, default=20)
     parser.add_argument('--poll-interval', type=float, default=5.0)

@@ -7,6 +7,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
+sys.path.insert(0, str(ROOT))
+
 from agent_market.agent_flow import AgentFlow, load_agent_flow_config
 
 

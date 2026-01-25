@@ -4,12 +4,20 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import sys
 from typing import Any, Callable
 
 from fastapi.testclient import TestClient
 
 
 def main() -> None:
+    # Ensure repo root and src are importable when running as a script.
+    root = Path(__file__).resolve().parents[1]
+    src = root / "src"
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
     # Import app
     import server.main as srv  # type: ignore
 
@@ -82,16 +90,15 @@ def main() -> None:
         )
     )(client.get("/features/top", params={"file": "user_data/missing.json"}).json()))
 
-    # If fallback freqtrade/user_data/backtest_results exists, this should return ok (items list),
-    # otherwise return standardized error. Accept both.
-    check("GET /results/list (fallback aware)", lambda: (
+    check("GET /results/list (missing dir -> error)", lambda: (
         lambda j: (
-            None if (j.get("status") == "error") else assert_in("items", j)
+            assert_eq(j.get("status"), "error"),
+            assert_eq(j.get("code"), "RESULTS_DIR_NOT_FOUND")
         )
     )(client.get("/results/list", params={"results_dir": "user_data/does_not_exist"}).json()))
 
-    # Accept success (when example backtests exist under freqtrade/) or NO_ARCHIVES error otherwise
-    check("GET /results/latest-summary (fallback aware)", lambda: (
+    # Accept success (when example backtests exist) or NO_ARCHIVES error otherwise
+    check("GET /results/latest-summary", lambda: (
         lambda j: (
             None if (j.get("status") == "error") else assert_in("profit_total_pct", j)
         )

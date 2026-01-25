@@ -2,7 +2,7 @@
 """Harvest news articles via RSS, News Sitemaps, and optional APIs.
 
 Usage:
-    python scripts/news_harvester.py --config conf/feeds.yaml
+    python scripts/news_harvester.py --config configs/feeds.yaml
 
 Outputs a parquet file under data/raw/news/ with extracted metadata and text.
 """

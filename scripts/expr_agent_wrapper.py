@@ -39,7 +39,7 @@ def main() -> int:
     args, extra = parser.parse_known_args()
 
     root = Path(__file__).resolve().parents[1]
-    expr_script = root / 'freqtrade' / 'scripts' / 'freqai_expression_agent.py'
+    expr_script = root / 'scripts' / 'freqai_expression_agent.py'
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
     raw_dir = root / 'user_data' / 'llm_raw'
@@ -103,4 +103,3 @@ def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

@@ -19,7 +19,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description='Run unified ML training pipeline')
     parser.add_argument('--config', type=str, help='JSON config file for training pipeline')
     parser.add_argument('--feature-file', type=str, help='Path to freqai_features.json')
-    parser.add_argument('--data-dir', type=str, default='freqtrade/user_data/data')
+    parser.add_argument('--data-dir', type=str, default='user_data/data')
     parser.add_argument('--exchange', type=str, default='binanceus')
     parser.add_argument('--timeframe', type=str, default='1h')
     parser.add_argument('--pairs', type=str, default='BTC/USDT', help='Space separated pairs')
@@ -30,7 +30,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.config:
-        cfg = json.loads(Path(args.config).read_text(encoding='utf-8'))
+        cfg = json.loads(Path(args.config).read_text(encoding='utf-8-sig'))
     else:
         try:
             model_params = json.loads(args.params)
@@ -70,4 +70,3 @@ def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

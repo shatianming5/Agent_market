@@ -18,9 +18,9 @@ conda install pytorch cpuonly -c pytorch
 
 ## 2. 准备数据与特征
 
-请先确保已通过 `freqai_feature_agent.py` 生成特征文件，并完成历史数据下载：
+请先确保已通过 `scripts/freqai_feature_agent.py` 生成特征文件，并完成历史数据下载：
 - 特征：`user_data/freqai_features.json`
-- 数据目录：`freqtrade/user_data/data/binanceus/*-1h.feather`
+- 数据目录：`user_data/data/binanceus/*-1h.feather`
 
 ## 3. 运行训练（两种方式）
 
@@ -35,7 +35,7 @@ python scripts/train_pipeline.py --config configs/train_pytorch_mlp.json
 ```
 python scripts/train_pipeline.py \
   --feature-file user_data/freqai_features.json \
-  --data-dir freqtrade/user_data/data \
+  --data-dir user_data/data \
   --exchange binanceus \
   --timeframe 1h \
   --pairs "BTC/USDT" \
@@ -63,4 +63,3 @@ python scripts/train_pipeline.py \
 ## 6. 与回测衔接（可选）
 
 当前训练摘要主要用于离线评估；如需将预测注入策略，请在策略中加载模型并使用同样的特征构造进行推断，或扩展 Pipeline 在训练后自动触发 freqtrade backtesting 并合并回测指标（参考 `src/agent_market/freqai/training/pipeline.py`）。
-

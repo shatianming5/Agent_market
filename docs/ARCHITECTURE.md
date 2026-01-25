@@ -5,7 +5,7 @@
 | 模块 | 说明 | 关键入口 |
 | ---- | ---- | -------- |
 | `scripts/` | 行情、资讯、链上等外部数据任务。各脚本遵循“读取配置 → 拉取 → 清洗/导出”的轻量模式。 | `fetch_ccxt_ohlcv.py`, `clean_ohlcv.py`, `dex_indexer.py`, `news_harvester.py` |
-| `freqtrade/` | 上游 freqtrade 项目的副本，在 `scripts/` 中新增 LLM/自动化特征挖掘脚本。 | `scripts/freqai_expression_agent.py`, `scripts/freqai_auto_agent.py` |
+| `freqtrade/` | 可选：上游 freqtrade 源码副本（体积大，默认不进 git）。本项目依赖的是已安装的 freqtrade CLI（用于下载数据/回测）。 | `freqtrade`（CLI） |
 | `src/agent_market/` | 本项目扩展的 Python 包，集中封装 LLM 调用、提示词生成等共享逻辑。 | `freqai/llm.py` |
 | `docs/` | 使用说明、架构解析、LLM 流水线操作指南。 | `llm_pipeline.md`, `ARCHITECTURE.md` |
 
@@ -18,7 +18,7 @@
 - `clean_ohlcv.py`：将原始数据标准化为统一的 `data/clean/` 输出格式，支持缺失值填补与指标附加。
 - `dq_report.py`：输出缺失区间、异常波动等质量指标。
 
-整体设计以 YAML 配置(`conf/*.yaml`) 控制资产范围与参数，使脚本可组合、可替换。
+整体设计以 YAML 配置(`configs/*.yaml`) 控制资产范围与参数，使脚本可组合、可替换。
 
 ### 2.2 资讯/链上 (`news_harvester.py`, `x_stream.py`, `dex_indexer.py`)
 
@@ -31,21 +31,16 @@
 features.json ──> (LLM / 模板 / gplearn) ──> expressions.json ──> freqtrade backtesting ──> 结果压缩包 + 摘要
 ```
 
-### 3.1 `freqai_expression_agent.py`
+### 3.1 `scripts/freqai_expression_agent.py`
 
 - 解析 `user_data/freqai_features.json` 重建基础指标。
 - `agent_market.freqai.llm` 提供默认 LLM 配置、提示词、候选解析。
-- 若 LLM 调用失败，会自动回退到模板组合 & gplearn 的遗传编程搜索。
+- 若 LLM 调用失败，可回退到模板组合；并支持内置的进化搜索（`--evolve/--no-evolve`）。
 
-### 3.2 `freqai_auto_agent.py`
+### 3.2 `agent_flow.py`
 
-- 执行流程：
-  1. `aggregate_features`：对多交易对按指标聚合、打分。
-  2. `build_expression_payload`：调用 LLM 生成表达式，按稳定性、夏普、复杂度评分。
-  3. `compute_auto_timerange`：根据数据文件决定训练/回测时间窗。
-  4. `run_backtest`：重用 freqtrade CLI，并将 `.last_result.json` 对应的 zip 复制到 `auto_agent/<timestamp>/`。
-  5. `summarize_result`：解压或读取 JSON，输出交易笔数、收益、胜率。
-- 所有 LLM 相关参数可直接通过命令行覆盖。
+- `scripts/agent_flow.py` 是端到端编排入口：按 JSON 配置串联 feature → expression → ml → rl → backtest，并支持 `--steps` 逐步调试。
+- 回测结束会生成摘要写入 `user_data/llm_feedback/latest_backtest_summary.json`，下次 expression 阶段可自动回灌（见 `src/agent_market/flow_steps.py`）。
 
 ### 3.3 LLM 模块 (`src/agent_market/freqai/llm.py`)
 
@@ -62,7 +57,6 @@ features.json ──> (LLM / 模板 / gplearn) ──> expressions.json ──> 
 ## 5. 下一步优化建议
 
 1. **测试覆盖**：为关键脚本（LLM 因子、数据清洗）添加 pytest + 快速烟雾测试，保障重构后的稳定性。
-2. **配置统一**：考虑将 `conf/` 与 `user_data/config_freqai.json` 合并为单一 YAML 管理入口，更易于批量调整参数。
+2. **配置统一**：考虑将 `configs/*.yaml` 与 `user_data/config_freqai.json` 合并为单一 YAML 管理入口，更易于批量调整参数。
 3. **任务编排**：可引入 `invoke` 或 `poetry scripts`，整合常用命令为标准化 CLI，减少命令行参数重复输入。
 4. **监控与缓存**：为 LLM 调用增加磁盘缓存与速率限流，避免高频重复请求导致的成本浪费。
-

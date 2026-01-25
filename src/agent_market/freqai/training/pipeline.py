@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,7 @@ import agent_market.freqai.model  # noqa: F401
 import numpy as np
 import pandas as pd
 
+from agent_market.freqai.expression_engine import apply_expressions, load_expression_file
 from agent_market.freqai.features import apply_configured_features
 from agent_market.freqai.model.base import ModelRegistry, TrainResult
 
@@ -18,6 +20,21 @@ try:  # optional deps
     _HAS_SKLEARN = True
 except Exception:
     _HAS_SKLEARN = False
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _snapshot_file(src: Path, dst: Path) -> Dict[str, Any]:
+    payload = src.read_bytes()
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_bytes(payload)
+    return {
+        "path": str(dst),
+        "sha256": _sha256_bytes(payload),
+        "size_bytes": int(len(payload)),
+    }
 
 
 @dataclass
@@ -31,19 +48,27 @@ class FeatureDatasetBuilder:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.feature_file = Path(config['feature_file'])
-        self.data_dir = Path(config.get('data_dir', 'freqtrade/user_data/data'))
+        self.expressions_file = Path(config['expressions_file']) if config.get('expressions_file') else None
+        self.data_dir = Path(config.get('data_dir', 'user_data/data'))
         self.exchange = config.get('exchange') or 'binanceus'
         self.timeframe = config.get('timeframe') or '1h'
         self.pairs = config.get('pairs') or ['BTC/USDT']
         self.label_period = int(config.get('label_period') or 12)
+        self._expression_specs = (
+            load_expression_file(self.expressions_file)
+            if self.expressions_file is not None
+            else []
+        )
 
     def build(self) -> Dataset:
-        feature_cfg = json.loads(self.feature_file.read_text())
+        feature_cfg = json.loads(self.feature_file.read_text(encoding="utf-8-sig"))
         datasets: List[Tuple[np.ndarray, np.ndarray]] = []
         feature_cols: List[str] = []
         for pair in self.pairs:
             df = self._load_pair_dataframe(pair)
             df = apply_configured_features(df, feature_cfg)
+            if self._expression_specs:
+                df, _added = apply_expressions(df, self._expression_specs, on_error='raise')
             columns = self._select_feature_columns(df)
             if not columns:
                 continue
@@ -154,17 +179,36 @@ class TrainingPipeline:
         # Summary
         summary_path = model_dir / 'training_summary.json'
         summary_path.parent.mkdir(parents=True, exist_ok=True)
+        feature_snapshot_info = _snapshot_file(builder.feature_file, model_dir / 'feature_snapshot.json')
         summary = {
             'model': self.model_cfg.get('name', 'lightgbm'),
             'features': dataset.columns,
+            'data': {
+                'data_dir': str(builder.data_dir),
+                'exchange': str(builder.exchange),
+                'pairs': list(builder.pairs),
+                'timeframe': str(builder.timeframe),
+                'label_period': int(builder.label_period),
+            },
             'train_size': int(X_train.shape[0]),
             'valid_size': int(X_valid.shape[0]),
             'metrics': result.metrics,
             'model_path': str(result.model_path),
+            'feature_file': str(builder.feature_file),
+            'feature_snapshot': feature_snapshot_info.get('path'),
+            'feature_sha256': feature_snapshot_info.get('sha256'),
         }
+        if builder.expressions_file is not None:
+            expressions_snapshot_info = _snapshot_file(builder.expressions_file, model_dir / 'expressions_snapshot.json')
+            summary['expressions_file'] = str(builder.expressions_file)
+            summary['expressions_snapshot'] = expressions_snapshot_info.get('path')
+            summary['expressions_sha256'] = expressions_snapshot_info.get('sha256')
         if rolling_metrics:
             summary['rolling'] = rolling_metrics
-        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+        summary_path.write_text(
+            json.dumps(summary, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         return result
 
     @staticmethod
