@@ -96,9 +96,6 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 
 ## 自动化与清理
 
-- 前端 DOM 烟测（Node + JSDOM）：
-  - `npm i`
-  - `npm run test:front`
 - 工作区清理（删除临时/缓存/产物，可带 dry-run）：
   - `python scripts/clean_workspace.py`
   - `python scripts/clean_workspace.py --dry-run`
@@ -110,6 +107,4 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 
 ## 版本与发布
 
-- 当前后端版本：`0.2.2`（见 `server/main.py`）
-- 变更记录：见 `CHANGELOG.md`
-- 详细说明：`RELEASE_NOTES_v0.2.2.md`
+- 本仓库不维护对外发布版本号（以可运行与可复现为主）。

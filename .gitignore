@@ -1,9 +1,11 @@
 __pycache__/
 *.pyc
+.pytest_cache/
 .venv/
 venv/
 .env
 node_modules/
+data/
 user_data/server_settings.json
 user_data/job_logs/
 user_data/llm_raw/

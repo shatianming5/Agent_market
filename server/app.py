@@ -15,7 +15,7 @@ from .runtime import ROOT
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Agent Market Server", version="0.2.4")
+    app = FastAPI(title="Agent Market Server")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -41,4 +41,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
