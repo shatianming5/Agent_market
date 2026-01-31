@@ -11,6 +11,10 @@
   - Result: PASS
   - Notes: 本地预检通过；GitHub Actions 实际执行需推送到远端仓库后在 Actions 页面确认。
   - Artifacts: `.github/workflows/ci.yml`
+- 2026-02-01: `GitHub Actions: CI / smoke (push) run 21549750134`
+  - Result: PASS
+  - Notes: 远端 Actions 已触发并通过（push 到 main）。
+  - Artifacts: https://github.com/shatianming5/Agent_market/actions/runs/21549750134
 
 ## Missing-003
 - 2026-01-31: `pytest -q tests/test_e2e_flow_smoke.py`

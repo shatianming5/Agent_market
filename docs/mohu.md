@@ -26,9 +26,7 @@
     - `.github/workflows/ci.yml`：新增可选 `e2e-flow-smoke` job（`workflow_dispatch` + `run_e2e=true` 时触发），运行：
       - `pytest -q tests/test_e2e_flow_smoke.py`
   - Verified: 2026-02-01 (`python scripts/smoke_test.py && pytest -q tests/test_api_smoke.py`)
-  - Next:
-    - 推送到 GitHub 后在 Actions 页面确认 `CI / smoke`（push/pull_request）通过
-    - 手动触发 `CI` workflow（Run workflow），将 `run_e2e` 设为 `true`，确认 `CI / e2e-flow-smoke` 通过
+  - Verified (GitHub Actions): 2026-02-01 (`CI` push run 21549750134)
 
 - [x] Missing-003: 增加 run_id 与运行元信息落盘，建立可追溯的复现证据链
   - Location: `src/agent_market/agent_flow.py`, `src/agent_market/flow_steps.py`（或新增模块）
