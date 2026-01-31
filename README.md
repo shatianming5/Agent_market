@@ -26,14 +26,17 @@ web/                       # 前端静态资源（/web/index.html）
 ```
 python -m venv venv
 ./venv/Scripts/Activate.ps1   # Windows PowerShell
-pip install -r requirements.txt
-pip install -r server/requirements.txt
-pip install -r requirements-dev.txt
+# 推荐（黄金路径：feature + expression + ml + backtest）
+pip install -r requirements-full.txt
+
+# 或最小依赖（仅后端 + 测试；不含 backtest/ml 相关依赖）
+# pip install -r server/requirements.txt
+# pip install -r requirements-dev.txt
 ```
 
-2) 可选：安装 freqtrade（用于下载数据/回测/超参等）
+2) 可选：安装/升级 freqtrade + lightgbm（用于回测/训练；若未使用 `requirements-full.txt` 则需要）
 ```
-pip install freqtrade
+pip install freqtrade lightgbm
 # 或者（开发/最新源码）：git clone https://github.com/freqtrade/freqtrade.git --depth 1 && cd freqtrade && pip install -e . && cd ..
 ```
 

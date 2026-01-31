@@ -1,0 +1,8 @@
+-r requirements.txt
+-r server/requirements.txt
+-r requirements-dev.txt
+
+# Golden path extras (ml + backtest)
+freqtrade
+lightgbm
+
