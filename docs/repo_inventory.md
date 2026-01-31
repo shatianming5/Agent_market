@@ -7,7 +7,7 @@ Agent_market/
   artifacts/                 # 模型与训练产物（training_summary.json 等）
   configs/                   # Flow/训练/回测 JSON 配置
   docs/                      # 文档（流程说明、落地计划、库存）
-  freqtrade/                 # Freqtrade 源码（回测/数据工具的上游项目）
+  freqtrade/                 # Freqtrade 源码（可选本地目录，默认 .gitignore，不纳入仓库）
   scripts/                   # 可执行脚本（Flow/特征/表达式/训练/回测/清理/smoke）
   server/                    # FastAPI 后端（API + Jobs + 结果聚合）
   src/agent_market/          # 核心业务模块（Flow 编排、FreqAI 子系统）
@@ -27,6 +27,8 @@ Agent_market/
   - API 冒烟测试（不跑重任务）。
 - `scripts/e2e_smoke_flow.py`
   - 端到端冒烟（跑 Flow 并检查关键产物是否落盘）。
+- `scripts/freqtrade_cli.py`
+  - freqtrade CLI wrapper（注入离线 markets，避免 optimize 模式下访问交易所 API）。
 - `scripts/freqai_feature_agent.py`
   - 生成稳定的特征配置 JSON（供表达式/训练使用）。
 - `scripts/freqai_expression_agent.py`
@@ -112,6 +114,6 @@ python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json -
 ## Risks / Unknowns
 
 - `freqtrade/` 目录会遮蔽 `python -m freqtrade` 的模块导入；回测建议优先使用 `freqtrade` 可执行文件（通常在虚拟环境的 `bin/` 内）。
-- 为保证“离线可复现回测”，本仓库对 `freqtrade` 做了最小补丁：优化模式下会用本地数据推断 pairs，并在缺失 markets 时合成最小 markets 元数据（见 `freqtrade/freqtrade/plugins/pairlistmanager.py` 与 `freqtrade/freqtrade/exchange/exchange.py`）。
+- 为保证“离线可复现回测”，本仓库通过 `scripts/freqtrade_cli.py` 注入离线 markets monkeypatch：在 optimize 模式下从 config pairs 合成最小 markets 元数据，避免访问交易所 API。
 - 回测与训练对数据依赖强：`user_data/data/<exchange>` 缺失会导致表达式挖掘与训练失败。
 - LLM 能力完全可选；默认黄金路径不依赖外部 API。
