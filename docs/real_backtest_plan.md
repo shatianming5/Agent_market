@@ -4,7 +4,7 @@
 
 ## 0. 前置
 
-- Python 虚拟环境已安装依赖：`pip install -r requirements.txt -r server/requirements.txt`
+- Python 虚拟环境已安装依赖（推荐黄金路径）：`pip install -r requirements-full.txt`
 - 已准备好 Freqtrade 配置（示例）：
   - Bitfinex：`user_data/config_freqai.json`
   - KuCoin：`user_data/config_freqai_kucoin.json`

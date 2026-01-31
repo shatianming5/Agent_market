@@ -22,6 +22,12 @@
 
 配置文件：`configs/agent_flow_kucoin_cpu_nollm.json`
 
+依赖安装（推荐）：
+
+```bash
+pip install -r requirements-full.txt
+```
+
 运行：
 
 ```bash
