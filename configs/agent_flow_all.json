@@ -1,4 +1,4 @@
-﻿{
+{
   "feature": {
     "script": "scripts/freqai_feature_agent.py",
     "args": [

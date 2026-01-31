@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from dataclasses import dataclass
@@ -118,4 +118,3 @@ class FreqAISettings:
             formatted = "\n".join(str(item) for item in missing)
             raise FileNotFoundError("以下真实数据缺失，请先补齐:\n" + formatted)
         return self.data_dir
-

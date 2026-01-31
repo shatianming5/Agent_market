@@ -1,4 +1,4 @@
-﻿chain_id: 1
+chain_id: 1
 rpc_url_env: RPC_URL_ETHEREUM
 confirmations: 6
 dexes:

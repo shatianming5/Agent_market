@@ -36,7 +36,7 @@ jobs:
         run: python scripts/smoke_test.py
 
       - name: Run pytest (API smoke)
-        run: pytest -q tests/test_api_smoke.py
+        run: pytest -q tests/test_api_smoke.py tests/test_no_bom.py
 
   e2e-flow:
     name: e2e-flow-smoke
