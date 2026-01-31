@@ -66,6 +66,15 @@ python scripts/smoke_test.py
 pytest -q
 ```
 
+7) （可选）Makefile 快捷命令
+```
+make install-full
+make run
+make smoke
+make test
+make e2e
+```
+
 ## 核心接口
 
 - 健康检查：`GET /health`、根：`GET /`、文档：`GET /docs`
