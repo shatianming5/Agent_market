@@ -28,6 +28,7 @@ python -m venv venv
 ./venv/Scripts/Activate.ps1   # Windows PowerShell
 pip install -r requirements.txt
 pip install -r server/requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 2) 可选：安装 freqtrade（用于下载数据/回测/超参等）
@@ -51,6 +52,17 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 ```
 打开前端：`http://127.0.0.1:8000/web/index.html`
 
+5) 黄金路径（推荐）
+```
+python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps feature expression ml backtest
+```
+
+6) 验收（本地）
+```
+python scripts/smoke_test.py
+pytest -q
+```
+
 ## 核心接口
 
 - 健康检查：`GET /health`、根：`GET /`、文档：`GET /docs`
@@ -68,6 +80,10 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
   - `GET /results/gallery`、`GET /results/aggregate?names=a.zip,b.zip`
   - `GET /features/top?file=...&limit=...`
   - `POST /results/prepare-feedback` 生成 LLM 反馈输入
+- Flow 运行元信息 / 历史：
+  - `GET /flow/run-meta/latest`
+  - `GET /flow/run-meta/{run_id}`
+  - `GET /flow/runs/list?limit=...`
 - Flow 进度：`GET /flow/progress/{job_id}?steps=feature,expression,ml,rl,backtest`
 - 服务设置：`GET|POST /settings`（llm_base_url/llm_model/default_timeframe）
 - 流式进度：
@@ -92,7 +108,7 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 - 结果：列表/对比；图集与聚合：多结果的快速浏览与对比
 - 状态与日志：运行态、成功/失败标识，日志实时追加（SSE 优先）
 
-备注：若 ReactFlow CDN 不可达，前端会自动降级为直接 DOM 绑定与轮询日志，功能可用但 Flow 画布交互受限。
+备注：若浏览器无法加载 React/ReactFlow（例如本地 vendor 资源缺失/被拦截），前端会自动降级为直接 DOM 绑定与轮询日志，核心流程可用但 Flow 画布交互受限。
 
 ## 自动化与清理
 
@@ -102,8 +118,8 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 
 ## 已知问题
 
-- ReactFlow 仍使用 CDN（后续将本地化）；当网络受限时，仅 Flow 画布互动降级，其它核心流程可用。
-- 大量结果卡片渲染建议启用虚拟化优化（后续考虑）。
+- Remixicon 字体未内置（为保证离线可用，默认不依赖外部 CDN）；因此图标可能不显示，但不影响核心功能。
+- 大量结果卡片渲染建议启用虚拟化优化（已有基础优化，后续可继续增强）。
 
 ## 版本与发布
 

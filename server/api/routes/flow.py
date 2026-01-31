@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json as _jsonmod
 import os
+import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +18,189 @@ from ..models import FlowReq
 from ...runtime import ROOT, jobs
 
 router = APIRouter()
+
+
+def _resolve_under_root(path: str | Path) -> Optional[Path]:
+    try:
+        p = Path(path)
+        if not p.is_absolute():
+            p = (ROOT / p).resolve()
+        else:
+            p = p.resolve()
+        root = ROOT.resolve()
+        if p == root or root in p.parents:
+            return p
+    except Exception:
+        return None
+    return None
+
+
+def _check_path(path: Optional[str]) -> dict:
+    if not path:
+        return {"path": path, "exists": False}
+    resolved = _resolve_under_root(path)
+    if resolved is None:
+        return {"path": path, "exists": False, "error": "path_outside_root"}
+    return {"path": str(resolved.relative_to(ROOT.resolve())), "exists": resolved.exists()}
+
+
+def _iso_to_epoch(value: Optional[str]) -> float:
+    if not value:
+        return 0.0
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _pick_latest_existing_path(paths: list[str]) -> Optional[str]:
+    candidates: list[tuple[float, str]] = []
+    for path in paths:
+        if not path:
+            continue
+        resolved = _resolve_under_root(path)
+        if resolved is None or not resolved.exists():
+            continue
+        try:
+            candidates.append((resolved.stat().st_mtime, path))
+        except Exception:
+            candidates.append((0.0, path))
+    if candidates:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+    return None
+
+
+@router.get("/flow/run-meta/latest")
+def flow_run_meta_latest():
+    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    if not meta_path.exists():
+        return error("NOT_FOUND", f"run_meta not found: {meta_path}")
+    try:
+        payload = _jsonmod.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
+
+    artifacts = payload.get("artifacts") or {}
+    payload["checks"] = {
+        "config": _check_path((payload.get("config") or {}).get("path")),
+        "feature_output": _check_path(artifacts.get("feature_output")),
+        "expression_output": _check_path(artifacts.get("expression_output")),
+        "feedback_summary": _check_path(artifacts.get("feedback_summary")),
+        "training_summaries": [
+            _check_path(p) for p in (artifacts.get("training_summaries") or []) if p
+        ],
+        "backtest_zips": [_check_path(p) for p in (artifacts.get("backtest_zips") or []) if p],
+    }
+    payload["run_meta_path"] = str(meta_path.relative_to(ROOT.resolve()))
+    return payload
+
+
+@router.get("/flow/run-meta/{run_id}")
+def flow_run_meta(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+    meta_path = (ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+    if not meta_path.exists():
+        return error("NOT_FOUND", f"run_meta not found: {meta_path}")
+    try:
+        payload = _jsonmod.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
+
+    artifacts = payload.get("artifacts") or {}
+    payload["checks"] = {
+        "config": _check_path((payload.get("config") or {}).get("path")),
+        "feature_output": _check_path(artifacts.get("feature_output")),
+        "expression_output": _check_path(artifacts.get("expression_output")),
+        "feedback_summary": _check_path(artifacts.get("feedback_summary")),
+        "training_summaries": [
+            _check_path(p) for p in (artifacts.get("training_summaries") or []) if p
+        ],
+        "backtest_zips": [_check_path(p) for p in (artifacts.get("backtest_zips") or []) if p],
+    }
+    payload["run_meta_path"] = str(meta_path.relative_to(ROOT.resolve()))
+    return payload
+
+
+@router.get("/flow/runs/list")
+def flow_runs_list(limit: int = 20):
+    """List recent flow runs from artifacts/runs/**/run_meta.json."""
+    try:
+        lim = int(limit)
+    except Exception:
+        lim = 20
+    lim = max(1, min(lim, 200))
+
+    runs_dir = (ROOT / "artifacts" / "runs").resolve()
+    if not runs_dir.exists():
+        return {"items": [], "count": 0, "limit": lim}
+
+    root_resolved = ROOT.resolve()
+    meta_paths: list[Path] = []
+    for child in runs_dir.iterdir():
+        if not child.is_dir():
+            continue
+        meta_path = (child / "run_meta.json").resolve()
+        if meta_path.exists():
+            meta_paths.append(meta_path)
+
+    rows: list[tuple[float, dict]] = []
+    for meta_path in meta_paths:
+        try:
+            payload = _jsonmod.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        run_id = str(payload.get("run_id") or meta_path.parent.name).strip().lower()
+        status = payload.get("status")
+        started_at = payload.get("started_at")
+        ended_at = payload.get("ended_at")
+        cfg = payload.get("config") or {}
+        artifacts = payload.get("artifacts") or {}
+
+        bt_raw = artifacts.get("backtest_zips") or []
+        bt_paths = [str(p) for p in bt_raw if p] if isinstance(bt_raw, list) else []
+        bt_latest = _pick_latest_existing_path(bt_paths) or (bt_paths[-1] if bt_paths else None)
+        bt_latest_name = None
+        if bt_latest:
+            try:
+                bt_latest_name = str(bt_latest).split("/")[-1]
+            except Exception:
+                bt_latest_name = str(bt_latest)
+
+        ts = _iso_to_epoch(ended_at) or _iso_to_epoch(started_at)
+        try:
+            ts = ts or meta_path.stat().st_mtime
+        except Exception:
+            pass
+
+        try:
+            rel_meta_path = str(meta_path.relative_to(root_resolved))
+        except Exception:
+            rel_meta_path = str(meta_path)
+
+        rows.append(
+            (
+                float(ts or 0.0),
+                {
+                    "run_id": run_id,
+                    "status": status,
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "config_sha256": cfg.get("sha256"),
+                    "config_path": cfg.get("path"),
+                    "latest_backtest_zip": _check_path(bt_latest),
+                    "latest_backtest_zip_name": bt_latest_name,
+                    "run_meta_path": rel_meta_path,
+                },
+            )
+        )
+
+    rows.sort(key=lambda x: x[0], reverse=True)
+    items = [row for _, row in rows[:lim]]
+    return {"items": items, "count": len(items), "limit": lim}
 
 
 @router.post("/flow/run")

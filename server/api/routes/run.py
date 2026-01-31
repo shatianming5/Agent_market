@@ -23,6 +23,26 @@ from ...runtime import ROOT, SRC, jobs
 
 router = APIRouter()
 
+def _resolve_executable(name: str) -> Optional[str]:
+    found = shutil.which(name)
+    if found:
+        return found
+    try:
+        sibling = Path(sys.executable).with_name(name)
+        if sibling.exists():
+            return str(sibling)
+    except Exception:
+        pass
+    for cand in [
+        ROOT / ".venv" / "bin" / name,
+        ROOT / ".venv" / "Scripts" / (name + ".exe"),
+        ROOT / "venv" / "bin" / name,
+        ROOT / "venv" / "Scripts" / (name + ".exe"),
+    ]:
+        if cand.exists():
+            return str(cand)
+    return None
+
 
 @router.post("/run/expression")
 def run_expression(req: ExpressionReq = Body(...)):
@@ -127,39 +147,38 @@ def run_backtest(req: BacktestReq = Body(...)):
             return error("STRATEGY_PATH_NOT_FOUND", f"Strategy path not found: {spath}")
 
     py = sys.executable
-    binary = "freqtrade"
-    if shutil.which(binary):
-        cmd = [
-            binary,
-            "backtesting",
-            "--config",
-            str(cfg_path),
-            "--strategy",
-            req.strategy,
-            "--strategy-path",
-            str(spath) if spath else req.strategy_path,
-            "--timerange",
-            req.timerange,
-            "--freqaimodel",
-            req.freqaimodel,
-        ]
+    base_cmd: list[str]
+    job_cwd = ROOT
+    wrapper = ROOT / "scripts" / "freqtrade_cli.py"
+    if wrapper.exists():
+        base_cmd = [py, str(wrapper)]
     else:
-        cmd = [
-            py,
-            "-m",
-            "freqtrade",
-            "backtesting",
-            "--config",
-            str(cfg_path),
-            "--strategy",
-            req.strategy,
-            "--strategy-path",
-            str(spath) if spath else req.strategy_path,
-            "--timerange",
-            req.timerange,
-            "--freqaimodel",
-            req.freqaimodel,
-        ]
+        binary = _resolve_executable("freqtrade")
+        if binary:
+            base_cmd = [binary]
+        else:
+            # Avoid `python -m freqtrade` shadowing by running from a cwd that doesn't contain
+            # the local `freqtrade/` directory.
+            base_cmd = [py, "-m", "freqtrade"]
+            user_data_dir = (ROOT / "user_data").resolve()
+            if user_data_dir.exists():
+                job_cwd = user_data_dir
+
+    cmd = base_cmd + [
+        "backtesting",
+        "--userdir",
+        str((ROOT / "user_data").resolve()),
+        "--config",
+        str(cfg_path),
+        "--strategy",
+        req.strategy,
+        "--strategy-path",
+        str(spath) if spath else req.strategy_path,
+        "--timerange",
+        req.timerange,
+        "--freqaimodel",
+        req.freqaimodel,
+    ]
     if req.export:
         cmd += ["--export", "trades", "--export-filename", req.export_filename]
     try:
@@ -171,7 +190,7 @@ def run_backtest(req: BacktestReq = Body(...)):
     env = os.environ.copy()
     job_id = jobs.start(
         cmd,
-        cwd=ROOT,
+        cwd=job_cwd,
         env=env,
         timeout_sec=7200,
         kind="backtest",

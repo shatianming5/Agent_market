@@ -128,11 +128,19 @@ def _z(series: pd.Series) -> pd.Series:
     return (series - mean) / (std + 1e-9)
 
 
+def _ts_z(series: pd.Series, window: int) -> pd.Series:
+    w = int(window)
+    mean = series.rolling(w).mean()
+    std = series.rolling(w).std(ddof=0)
+    return (series - mean) / (std + 1e-9)
+
+
 def _build_eval_env(df: DataFrame) -> Dict[str, Any]:
     env: Dict[str, Any] = {col: df[col] for col in df.columns}
     env.update(
         {
             "z": _z,
+            "ts_z": _ts_z,
             "shift": lambda s, n: s.shift(int(n)),
             "roll_mean": lambda s, w: s.rolling(int(w)).mean(),
             "roll_std": lambda s, w: s.rolling(int(w)).std(ddof=0),

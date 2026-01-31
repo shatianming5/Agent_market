@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
+import ast
 import argparse
 import json
 import random
@@ -126,6 +127,7 @@ class _GPNode:
 
 _WINDOW_CHOICES = (3, 6, 12, 24, 48, 72)
 _SHIFT_CHOICES = (1, 2, 3)
+_CONST_CHOICES = (-2.0, -1.0, -0.5, -0.25, 0.25, 0.5, 1.0, 2.0)
 
 
 def _gp_depth(node: _GPNode) -> int:
@@ -139,8 +141,8 @@ def _gp_size(node: _GPNode) -> int:
 
 
 def _gp_random_terminal(rng: random.Random, feature_cols: Sequence[str]) -> _GPNode:
-    if not feature_cols or rng.random() < 0.15:
-        return _GPNode("const", float(rng.uniform(-1.0, 1.0)))
+    if not feature_cols or rng.random() < 0.10:
+        return _GPNode("const", float(rng.choice(_CONST_CHOICES)))
     return _GPNode("col", str(rng.choice(list(feature_cols))))
 
 
@@ -148,15 +150,20 @@ def _gp_random_expr(rng: random.Random, feature_cols: Sequence[str], max_depth: 
     if max_depth <= 1 or rng.random() < 0.35:
         return _gp_random_terminal(rng, feature_cols)
 
-    unary_ops = ("z", "tanh", "abs", "sign", "log1p")
+    unary_ops = ("z", "tanh", "abs", "sign", "log1p", "neg")
     binary_ops = ("add", "sub", "mul", "div")
-    roll_ops = ("ema", "roll_mean", "roll_std", "rolling_max", "rolling_min")
+    roll_ops = ("ema", "roll_mean", "roll_std", "rolling_max", "rolling_min", "ts_z")
     special_ops = ("shift", "clip")
 
     choice = rng.random()
     if choice < 0.35:
         op = rng.choice(unary_ops)
-        return _GPNode(op, None, (_gp_random_expr(rng, feature_cols, max_depth - 1),))
+        child = _gp_random_expr(rng, feature_cols, max_depth - 1)
+        if op in {"z", "tanh", "abs", "sign"} and child.op == op:
+            return child
+        if op == "neg":
+            return child.children[0] if child.op == "neg" else _GPNode("neg", None, (child,))
+        return _GPNode(op, None, (child,))
     if choice < 0.75:
         op = rng.choice(binary_ops)
         return _GPNode(
@@ -186,9 +193,11 @@ def _gp_to_string(node: _GPNode) -> str:
         return f"{float(node.value):.6g}"
     if node.op in {"z", "tanh", "abs", "sign", "log1p"}:
         return f"{node.op}({_gp_to_string(node.children[0])})"
+    if node.op == "neg":
+        return f"(-{_gp_to_string(node.children[0])})"
     if node.op == "shift":
         return f"shift({_gp_to_string(node.children[0])}, {int(node.value)})"
-    if node.op in {"ema", "roll_mean", "roll_std", "rolling_max", "rolling_min"}:
+    if node.op in {"ema", "roll_mean", "roll_std", "rolling_max", "rolling_min", "ts_z"}:
         return f"{node.op}({_gp_to_string(node.children[0])}, {int(node.value)})"
     if node.op == "clip":
         lo, hi = node.value
@@ -344,12 +353,49 @@ def _evolve_candidates(  # noqa: PLR0913
     final = [fitness(node) + (node,) for node in pop]
     final.sort(key=lambda t: float(t[0]), reverse=True)
 
+    def extract_terms(expr: str) -> List[str]:
+        try:
+            tree = ast.parse(expr, mode="eval")
+        except SyntaxError:
+            return []
+        called = {
+            n.func.id
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        }
+        names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+        return sorted(n for n in names if n not in called)
+
+    def infer_category(expr: str, terms: Sequence[str]) -> str:
+        blob = " ".join([expr.lower(), *[t.lower() for t in terms]])
+        if any(k in blob for k in ("volume", "obv", "mfi")):
+            return "volume"
+        if any(k in blob for k in ("atr", "realized_vol", "bb_width", "donchian_width", "roll_std", "ts_z")):
+            return "volatility"
+        if any(k in blob for k in ("macd", "ema", "sma", "wma", "kama", "psar")):
+            return "trend"
+        if any(k in blob for k in ("momentum", "roc")):
+            return "momentum"
+        if any(k in blob for k in ("rsi", "stoch", "cci")):
+            return "mean_reversion"
+        return "other"
+
+    def summarize_terms(terms: Sequence[str], *, depth: int, complexity: int) -> str:
+        if not terms:
+            return f"evolved composite factor (depth={depth}, complexity={complexity})"
+        head = ", ".join(list(terms)[:3])
+        suffix = ", …" if len(terms) > 3 else ""
+        return f"evolved composite of {head}{suffix} (depth={depth}, complexity={complexity})"
+
     out: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    for rank, (score, per_pair, size, expr_str, _node) in enumerate(final, start=1):
+    for rank, (score, per_pair, size, expr_str, node) in enumerate(final, start=1):
         if not expr_str or expr_str in seen:
             continue
         seen.add(expr_str)
+        depth = _gp_depth(node)
+        terms = extract_terms(expr_str)
+        category = infer_category(expr_str, terms)
         out.append(
             {
                 "name": f"g{rank:03d}",
@@ -359,8 +405,10 @@ def _evolve_candidates(  # noqa: PLR0913
                 "metric_abs_ic": float(score + float(complexity_penalty) * float(size)),
                 "per_pair": per_pair,
                 "complexity": int(size),
-                "description": "evolved factor candidate",
-                "category": "other",
+                "depth": int(depth),
+                "terms": terms,
+                "description": summarize_terms(terms, depth=depth, complexity=int(size)),
+                "category": category,
             }
         )
         if len(out) >= max(20, population):
@@ -460,9 +508,17 @@ def _classic_candidates(feature_cols: Sequence[str], count: int) -> List[Dict[st
         ("tanh(z({x}))", "squashed normalized signal", "other"),
         ("clip(z({x}), -3, 3)", "clipped z-score", "other"),
         ("-z({x})", "mean-reversion transform", "mean_reversion"),
+        ("ts_z({x}, 48)", "time-series z-score (48)", "other"),
+        ("tanh(ts_z({x}, 48))", "squashed time-series z-score (48)", "other"),
         ("z({x}) - z({y})", "spread between signals", "momentum"),
         ("z({x}) / (1 + abs(z({y})))", "risk-adjusted spread", "other"),
         ("ema(z({x}), 12)", "smoothed signal", "trend"),
+        ("ema(z({x}), 12) - ema(z({x}), 48)", "multi-horizon EMA difference", "trend"),
+        ("z({x}) / (1 + abs(roll_std(z({x}), 24)))", "volatility-adjusted signal", "volatility"),
+        ("tanh(z({x}) / (1 + abs(roll_std(z({x}), 24))))", "squashed vol-adjusted signal", "volatility"),
+        ("ema(z({x}) - z({y}), 12)", "smoothed spread", "trend"),
+        ("(z({y}) > 0) * z({x})", "regime filter applied to x", "other"),
+        ("(z({y}) < 0) * -z({x})", "mean-reversion in negative regime", "mean_reversion"),
         ("roll_mean(z({x}), 12)", "rolling mean", "trend"),
         ("roll_std(z({x}), 12)", "rolling std", "volatility"),
     ]
@@ -812,4 +868,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

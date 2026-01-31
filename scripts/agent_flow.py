@@ -35,8 +35,9 @@ def main() -> None:
     )
     logging.getLogger().info("Agent Flow log file: %s", log_file)
 
-    cfg = load_agent_flow_config(Path(args.config))
-    flow = AgentFlow(cfg)
+    cfg_path = Path(args.config)
+    cfg = load_agent_flow_config(cfg_path)
+    flow = AgentFlow(cfg, config_path=cfg_path)
     flow.run(args.steps)
 
 

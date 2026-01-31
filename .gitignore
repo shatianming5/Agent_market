@@ -33,3 +33,8 @@ user_data/hyperopt_results/
 artifacts/
 tmp_*
 *.tmp
+
+# local artifacts (not part of repo)
+Archive.zip
+market_dashboard.pdf
+run.py

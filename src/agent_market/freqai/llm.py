@@ -75,6 +75,7 @@ DEFAULT_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "45"))
 
 ALLOWED_FUNCTIONS = [
     ("z(column)", "z-score ???"),
+    ("ts_z(series, window)", "time-series z-score over a rolling window"),
     ("abs(series)", "????"),
     ("shift(series, n)", "???? n ?"),
     ("roll_mean(series, window)", "????"),
@@ -205,6 +206,7 @@ def build_prompt(
         Output policy:
         - Use only the listed column names. Do not invent new variables or rely on external data.
         - Only use the allowed helper functions plus basic arithmetic operations.
+        - You may use comparisons (>, <, >=, <=) as regime filters and multiply booleans with signals (True=1, False=0).
         - Respond with a single JSON object shaped as {{"expressions": [ ... ]}}.
         - Each item must contain:
             * name: short snake_case identifier (< 15 chars).

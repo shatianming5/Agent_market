@@ -9,6 +9,7 @@
   "fiat_display_currency": "USD",
   "timeframe": "1h",
   "dry_run_wallet": 1000,
+  "fee": 0.001,
   "cancel_open_orders_on_exit": true,
   "unfilledtimeout": { "entry": 15, "exit": 15 },
   "exchange": {
@@ -29,7 +30,7 @@
       }
     }
   },
-  "pairlists": [{ "method": "StaticPairList" }],
+  "pairlists": [{ "method": "StaticPairList", "allow_inactive": true }],
   "freqai": {
     "enabled": false,
     "purge_old_models": 2,
