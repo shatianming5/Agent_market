@@ -15,6 +15,10 @@
   - Result: PASS
   - Notes: 远端 Actions 已触发并通过（push 到 main）。
   - Artifacts: https://github.com/shatianming5/Agent_market/actions/runs/21549750134
+- 2026-02-01: `GitHub Actions: CI / smoke (push) run 21550032300`
+  - Result: PASS
+  - Notes: 远端 Actions 已触发并通过（包含 BOM 回归测试：`tests/test_no_bom.py`）。
+  - Artifacts: https://github.com/shatianming5/Agent_market/actions/runs/21550032300
 
 ## Missing-003
 - 2026-01-31: `pytest -q tests/test_e2e_flow_smoke.py`
