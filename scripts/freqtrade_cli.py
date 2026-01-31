@@ -83,7 +83,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not disable:
         _patch_offline_markets()
 
-    from freqtrade.main import main as freqtrade_main  # type: ignore
+    try:
+        from freqtrade.main import main as freqtrade_main  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        print(
+            "[agent_market] freqtrade is required for backtest/hyperopt.",
+            file=sys.stderr,
+        )
+        print(
+            "[agent_market] Install with: pip install -r requirements-full.txt",
+            file=sys.stderr,
+        )
+        logger.error("freqtrade import failed: %s", exc)
+        return 2
 
     freqtrade_main(args)
     return 0  # pragma: no cover
@@ -91,4 +103,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -142,9 +142,27 @@ class TrainingPipeline:
         model_dir = Path(self.output_cfg.get('model_dir', 'artifacts/models'))
         params = dict(self.model_cfg.get('params', {}))
         params.setdefault('model_dir', str(model_dir))
-        adapter = ModelRegistry.create(self.model_cfg.get('name', 'lightgbm'), params)
+        model_name = self.model_cfg.get('name', 'lightgbm')
+        adapter = ModelRegistry.create(model_name, params)
 
-        result = adapter.fit(X_train, y_train, X_valid=X_valid, y_valid=y_valid)
+        def _fit_with_hint(ad, Xt, yt, Xv, yv):  # noqa: ANN001
+            try:
+                return ad.fit(Xt, yt, X_valid=Xv, y_valid=yv)
+            except ImportError as exc:
+                pkg = {
+                    'lightgbm': 'lightgbm',
+                    'xgboost': 'xgboost',
+                    'catboost': 'catboost',
+                    'torch': 'torch',
+                }.get(str(model_name))
+                if pkg:
+                    raise RuntimeError(
+                        f"Missing optional dependency for model={model_name!r}: {exc}. "
+                        f"Install with: pip install {pkg} (or pip install -r requirements-full.txt)"
+                    ) from exc
+                raise
+
+        result = _fit_with_hint(adapter, X_train, y_train, X_valid, y_valid)
 
         # Rolling validation (optional)
         rolling_splits = int(self.training_cfg.get('rolling_splits', 0) or 0)
@@ -155,8 +173,8 @@ class TrainingPipeline:
             for tr_idx, va_idx in tscv.split(X):
                 Xt, Xv = X[tr_idx], X[va_idx]
                 yt, yv = dataset.labels[tr_idx], dataset.labels[va_idx]
-                ad = ModelRegistry.create(self.model_cfg.get('name', 'lightgbm'), params)
-                r = ad.fit(Xt, yt, X_valid=Xv, y_valid=yv)
+                ad = ModelRegistry.create(model_name, params)
+                r = _fit_with_hint(ad, Xt, yt, Xv, yv)
                 rmse_v = float(r.metrics.get('rmse_valid') or r.metrics.get('rmse_train') or 0.0)
                 rmses.append(rmse_v)
             if rmses:
