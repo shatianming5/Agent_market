@@ -72,6 +72,7 @@ make install-full
 make run
 make smoke
 make test
+make check
 make e2e
 ```
 

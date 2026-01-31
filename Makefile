@@ -1,4 +1,4 @@
-.PHONY: install install-full run smoke test e2e flow flow-smoke clean clean-dry
+.PHONY: install install-full run smoke test check e2e flow flow-smoke clean clean-dry
 
 install:
 	pip install -r server/requirements.txt -r requirements-dev.txt
@@ -15,6 +15,8 @@ smoke:
 test:
 	pytest -q
 
+check: smoke test
+
 e2e:
 	python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
 
@@ -29,4 +31,3 @@ clean:
 
 clean-dry:
 	python scripts/clean_workspace.py --dry-run
-
