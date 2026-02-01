@@ -85,6 +85,8 @@ def flow_run_meta_latest():
     payload["checks"] = {
         "config": _check_path((payload.get("config") or {}).get("path")),
         "feature_output": _check_path(artifacts.get("feature_output")),
+        "portfolio_weights": _check_path(artifacts.get("portfolio_weights")),
+        "portfolio_report": _check_path(artifacts.get("portfolio_report")),
         "expression_output": _check_path(artifacts.get("expression_output")),
         "feedback_summary": _check_path(artifacts.get("feedback_summary")),
         "training_summaries": [
@@ -113,6 +115,8 @@ def flow_run_meta(run_id: str):
     payload["checks"] = {
         "config": _check_path((payload.get("config") or {}).get("path")),
         "feature_output": _check_path(artifacts.get("feature_output")),
+        "portfolio_weights": _check_path(artifacts.get("portfolio_weights")),
+        "portfolio_report": _check_path(artifacts.get("portfolio_report")),
         "expression_output": _check_path(artifacts.get("expression_output")),
         "feedback_summary": _check_path(artifacts.get("feedback_summary")),
         "training_summaries": [
@@ -122,6 +126,45 @@ def flow_run_meta(run_id: str):
     }
     payload["run_meta_path"] = str(meta_path.relative_to(ROOT.resolve()))
     return payload
+
+
+def _load_portfolio_report_from_run_meta(meta_path: Path) -> dict:
+    if not meta_path.exists():
+        return error("NOT_FOUND", f"run_meta not found: {meta_path}")
+    try:
+        meta = _jsonmod.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
+    artifacts = meta.get("artifacts") or {}
+    report_path = artifacts.get("portfolio_report")
+    resolved = _resolve_under_root(str(report_path)) if report_path else None
+    if resolved is None or not resolved.exists():
+        return error("NOT_FOUND", f"portfolio_report not found for run_meta: {meta_path}")
+    try:
+        payload = _jsonmod.loads(resolved.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return error("PARSE_ERROR", f"Failed to parse {resolved}: {exc}")
+    payload["_run_id"] = meta.get("run_id")
+    try:
+        payload["_report_path"] = str(resolved.relative_to(ROOT.resolve()))
+    except Exception:
+        payload["_report_path"] = str(resolved)
+    return payload
+
+
+@router.get("/flow/portfolio/latest")
+def flow_portfolio_latest():
+    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    return _load_portfolio_report_from_run_meta(meta_path)
+
+
+@router.get("/flow/portfolio/{run_id}")
+def flow_portfolio(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+    meta_path = (ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+    return _load_portfolio_report_from_run_meta(meta_path)
 
 
 @router.get("/flow/runs/list")

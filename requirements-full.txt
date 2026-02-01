@@ -6,3 +6,5 @@
 freqtrade
 lightgbm
 
+# Portfolio optimization
+PyPortfolioOpt

@@ -59,4 +59,4 @@ jobs:
           python -m pip install -r requirements-full.txt
 
       - name: Run pytest (e2e flow smoke)
-        run: pytest -q tests/test_e2e_flow_smoke.py
+        run: pytest -q tests/test_e2e_flow_smoke.py tests/test_flow_portfolio_step.py tests/test_portfolio_hrp.py

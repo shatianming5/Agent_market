@@ -33,7 +33,7 @@ class FlowReq(BaseModel):
     config: str = Field(..., description="Path to agent_flow JSON config")
     steps: Optional[object] = Field(
         None,
-        description="Either space separated string or list: feature expression ml rl backtest",
+        description="Either space separated string or list: feature portfolio expression ml rl backtest",
     )
 
 

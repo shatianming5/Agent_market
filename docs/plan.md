@@ -34,6 +34,12 @@ pip install -r requirements-full.txt
 python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps feature expression ml backtest
 ```
 
+可选：加入 Portfolio（HRP 风险平价）步骤：
+
+```bash
+python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm_portfolio.json --steps feature portfolio expression ml backtest
+```
+
 ## 产物规范（验收用）
 
 必须生成：

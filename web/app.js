@@ -203,6 +203,14 @@ async function renderFlowArtifactsCheck(runIdOverride) {
     href: null,
     detail: (checks.config && checks.config.path) ? checks.config.path : '',
   }))
+  if (artifacts.portfolio_report || artifacts.portfolio_weights) {
+    rows.push(_renderArtifactItem({
+      label: 'portfolio (HRP)',
+      ok: !!(checks.portfolio_report && checks.portfolio_report.exists),
+      href: `${API}/flow/portfolio/${encodeURIComponent(runId)}`,
+      detail: (checks.portfolio_report && checks.portfolio_report.path) ? checks.portfolio_report.path : (artifacts.portfolio_report || ''),
+    }))
+  }
   rows.push(_renderArtifactItem({
     label: 'features (TopN)',
     ok: !!(checks.feature_output && checks.feature_output.exists),

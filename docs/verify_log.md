@@ -62,3 +62,9 @@
   - Result: PASS
   - Notes: 验证移除被误追踪的 `user_data/llm_feedback/latest_backtest_summary.json` 后，e2e 仍可生成反馈摘要文件且测试通过。
   - Artifacts: `user_data/llm_feedback/latest_backtest_summary.json`, `artifacts/run_meta.json`
+
+## Missing-008
+- 2026-02-01: `pytest -q`
+  - Result: PASS
+  - Notes: 验证 Portfolio（HRP）模块/Flow step/API 读取均可工作（含 `tests/test_portfolio_hrp.py` 与 `tests/test_flow_portfolio_step.py`）。
+  - Artifacts: `configs/agent_flow_kucoin_cpu_nollm_portfolio.json`, `artifacts/runs/<run_id>/portfolio/report.json`, `artifacts/run_meta.json`

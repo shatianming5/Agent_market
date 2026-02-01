@@ -100,6 +100,26 @@
       - 或 `git update-index --force-remove -- user_data/llm_feedback/latest_backtest_summary.json`（等价）
   - Verified: 2026-02-01 (`pytest -q tests/test_e2e_flow_smoke.py`)
 
+- [x] Missing-008: 增加 Portfolio（HRP 风险平价）步骤，并纳入 Flow 产物/证据链（含 API 读取）
+  - Location: `src/agent_market/portfolio_opt.py`, `src/agent_market/agent_flow.py`, `server/api/routes/flow.py`, `web/app.js`, `configs/agent_flow_kucoin_cpu_nollm_portfolio.json`
+  - Acceptance:
+    - `python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm_portfolio.json --steps portfolio` 成功
+    - 生成：
+      - `artifacts/runs/<run_id>/portfolio/weights.json`
+      - `artifacts/runs/<run_id>/portfolio/report.json`
+      - （可选）`artifacts/runs/<run_id>/portfolio/returns.parquet`
+    - API：
+      - `GET /flow/portfolio/latest` 返回 `method=hrp` 与 `weights/stats/inputs`
+  - Implementation:
+    - `requirements-full.txt`：加入 `PyPortfolioOpt`
+    - 新增 `src/agent_market/portfolio_opt.py`：feather → returns → HRP（PyPortfolioOpt）
+    - `src/agent_market/agent_flow.py`：加入 `portfolio` step，并将 `portfolio_*` 写入 `run_meta.json`
+    - `server/api/routes/flow.py`：run_meta checks + 新增 `/flow/portfolio/latest` 与 `/flow/portfolio/{run_id}`
+    - `web/app.js`：产物检查面板在存在 portfolio 产物时显示链接
+    - 新增测试：`tests/test_portfolio_hrp.py`, `tests/test_flow_portfolio_step.py`
+    - 新增示例配置：`configs/agent_flow_kucoin_cpu_nollm_portfolio.json`
+  - Verified: 2026-02-01 (`pytest -q`)
+
 ## Ambiguous
 - [x] Amb-001: “完美落地”在前端体验上的范围与验收标准
   - Location: `web/`

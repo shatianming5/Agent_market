@@ -62,6 +62,7 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
     try:
         snapshot = {
             "feature": cfg.feature,
+            "portfolio": cfg.portfolio,
             "expression": cfg.expression,
             "ml_training": cfg.ml_training,
             "rl_training": cfg.rl_training,
@@ -81,6 +82,7 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
 @dataclass
 class AgentFlowConfig:
     feature: Optional[Dict[str, Any]] = None
+    portfolio: Optional[Dict[str, Any]] = None
     expression: Optional[Dict[str, Any]] = None
     ml_training: Optional[Dict[str, Any]] = None
     rl_training: Optional[Dict[str, Any]] = None
@@ -88,7 +90,7 @@ class AgentFlowConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentFlowConfig":
-        known_keys = {"feature", "expression", "ml_training", "rl_training", "backtest"}
+        known_keys = {"feature", "portfolio", "expression", "ml_training", "rl_training", "backtest"}
         extra = set(data.keys()) - known_keys
         if extra:
             logger.warning(
@@ -96,6 +98,7 @@ class AgentFlowConfig:
             )
         return cls(
             feature=data.get("feature"),
+            portfolio=data.get("portfolio"),
             expression=data.get("expression"),
             ml_training=data.get("ml_training"),
             rl_training=data.get("rl_training"),
@@ -114,7 +117,7 @@ def load_agent_flow_config(path: Path) -> AgentFlowConfig:
 
 
 class AgentFlow:
-    STEP_ORDER = ["feature", "expression", "ml", "rl", "backtest"]
+    STEP_ORDER = ["feature", "portfolio", "expression", "ml", "rl", "backtest"]
 
     def __init__(
         self,
@@ -131,6 +134,7 @@ class AgentFlow:
         started_at = datetime.now(timezone.utc).isoformat()
         meta_latest_path = (REPO_ROOT / "artifacts" / "run_meta.json").resolve()
         meta_run_path = (REPO_ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+        run_dir = meta_run_path.parent
 
         requested: Optional[list[str]] = None
         if steps:
@@ -142,6 +146,7 @@ class AgentFlow:
 
         sequence: list[tuple[str, Optional[Dict[str, Any]]]] = [
             ("feature", self.config.feature),
+            ("portfolio", self.config.portfolio),
             ("expression", self.config.expression),
             ("ml", self.config.ml_training),
             ("rl", self.config.rl_training),
@@ -153,6 +158,9 @@ class AgentFlow:
         status = "success"
         error_info: Optional[dict[str, Any]] = None
         steps_meta: list[dict[str, Any]] = []
+        portfolio_weights: Optional[str] = None
+        portfolio_report: Optional[str] = None
+        portfolio_returns: Optional[str] = None
         meta_write_error: Optional[BaseException] = None
         flow_exception: Optional[BaseException] = None
 
@@ -174,6 +182,77 @@ class AgentFlow:
                     logger.info("[FLOW] PHASE %s execute", name)
                     if name == "feature":
                         flow_steps.run_feature_generation(cfg)
+                    elif name == "portfolio":
+                        from agent_market.portfolio_opt import (  # noqa: WPS433
+                            compute_returns,
+                            load_prices_from_feather,
+                            optimize_hrp,
+                        )
+
+                        ex = str(cfg.get("exchange") or "").strip()
+                        pairs = cfg.get("pairs") or []
+                        if isinstance(pairs, str):
+                            pairs = [p for p in pairs.split(",") if p.strip()]
+                        if not isinstance(pairs, list) or not pairs:
+                            raise ValueError("portfolio.pairs must be a non-empty list")
+
+                        timeframe = str(cfg.get("timeframe") or "1h").strip()
+                        timerange = cfg.get("timerange") or (self.config.backtest or {}).get("timerange")
+                        data_dir = cfg.get("data_dir") or "user_data/data"
+                        returns_kind = str(cfg.get("returns") or "log").strip().lower()
+
+                        prices = load_prices_from_feather(
+                            REPO_ROOT,
+                            exchange=ex,
+                            pairs=[str(p) for p in pairs],
+                            timeframe=timeframe,
+                            timerange=str(timerange) if timerange else None,
+                            data_dir=str(data_dir),
+                        )
+                        returns = compute_returns(prices, returns_kind)
+                        result = optimize_hrp(returns)
+
+                        out_dir = (run_dir / "portfolio").resolve()
+                        out_dir.mkdir(parents=True, exist_ok=True)
+                        weights_path = out_dir / "weights.json"
+                        report_path = out_dir / "report.json"
+                        returns_path = out_dir / "returns.parquet"
+
+                        weights_payload = {
+                            "method": "hrp",
+                            "weights": result.get("weights") or {},
+                        }
+                        weights_path.write_text(
+                            json.dumps(weights_payload, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+                        try:
+                            returns.to_parquet(returns_path, index=True)
+                        except Exception:
+                            returns_path = None  # type: ignore[assignment]
+
+                        report = {
+                            "method": "hrp",
+                            "weights": result.get("weights") or {},
+                            "stats": result.get("stats") or {},
+                            "inputs": {
+                                "exchange": ex,
+                                "pairs": [str(p) for p in pairs],
+                                "timeframe": timeframe,
+                                "timerange": str(timerange) if timerange else None,
+                                "returns_kind": returns_kind,
+                                "data_dir": str(data_dir),
+                            },
+                        }
+                        report_path.write_text(
+                            json.dumps(report, ensure_ascii=False, indent=2),
+                            encoding="utf-8",
+                        )
+
+                        portfolio_weights = _relpath(weights_path)
+                        portfolio_report = _relpath(report_path)
+                        if returns_path is not None:
+                            portfolio_returns = _relpath(returns_path)
                     elif name == "expression":
                         flow_steps.run_expression_generation(cfg, self.feedback_path)
                     elif name == "ml":
@@ -289,6 +368,9 @@ class AgentFlow:
                     "freqtrade": flow_steps.get_freqtrade_version(),
                     "artifacts": {
                         "feature_output": feature_out,
+                        "portfolio_weights": portfolio_weights,
+                        "portfolio_report": portfolio_report,
+                        "portfolio_returns": portfolio_returns,
                         "expression_output": expr_out,
                         "feedback_summary": _relpath(self.feedback_path),
                         "model_dirs": model_dirs,

@@ -60,6 +60,11 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps feature expression ml backtest
 ```
 
+可选：加入组合优化（HRP 风险平价）步骤
+```
+python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm_portfolio.json --steps feature portfolio expression ml backtest
+```
+
 6) 验收（本地）
 ```
 python scripts/smoke_test.py
@@ -97,6 +102,8 @@ make e2e
   - `GET /flow/run-meta/latest`
   - `GET /flow/run-meta/{run_id}`
   - `GET /flow/runs/list?limit=...`
+  - `GET /flow/portfolio/latest`
+  - `GET /flow/portfolio/{run_id}`
 - Flow 进度：`GET /flow/progress/{job_id}?steps=feature,expression,ml,rl,backtest`
 - 服务设置：`GET|POST /settings`（llm_base_url/llm_model/default_timeframe）
 - 流式进度：
