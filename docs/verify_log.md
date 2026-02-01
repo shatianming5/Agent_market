@@ -23,6 +23,10 @@
   - Result: PASS
   - Notes: 远端 Actions 已触发并通过（包含 requirements-full/Makefile/缺依赖友好报错等更新）。
   - Artifacts: https://github.com/shatianming5/Agent_market/actions/runs/21550338467
+- 2026-02-01: `GitHub Actions: CI / smoke (push) run 21562881185`
+  - Result: PASS
+  - Notes: 远端 Actions 已触发并通过（Portfolio HRP 集成后 smoke 仍通过）。
+  - Artifacts: https://github.com/shatianming5/Agent_market/actions/runs/21562881185
 
 ## Missing-003
 - 2026-01-31: `pytest -q tests/test_e2e_flow_smoke.py`
