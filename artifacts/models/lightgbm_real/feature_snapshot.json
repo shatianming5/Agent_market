@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "generated_at": "2026-02-05T14:33:00",
+  "exchange": "kucoin",
+  "pairs": [
+    "BTC/USDT",
+    "ETH/USDT"
+  ],
+  "timeframe": "1h",
+  "label_period": 12,
+  "selection_methods": [
+    "preset"
+  ],
+  "features": [
+    {
+      "name": "rsi_14",
+      "type": "rsi",
+      "period": 14,
+      "description": "RSI(14)"
+    },
+    {
+      "name": "mfi_14",
+      "type": "mfi",
+      "period": 14,
+      "description": "MFI(14)"
+    },
+    {
+      "name": "adx_14",
+      "type": "adx",
+      "period": 14,
+      "description": "ADX(14)"
+    },
+    {
+      "name": "cci_20",
+      "type": "cci",
+      "period": 20,
+      "description": "CCI(20)"
+    },
+    {
+      "name": "ema_pct_12",
+      "type": "ema_pct",
+      "period": 12,
+      "description": "EMA(12) / close - 1"
+    },
+    {
+      "name": "ema_pct_48",
+      "type": "ema_pct",
+      "period": 48,
+      "description": "EMA(48) / close - 1"
+    },
+    {
+      "name": "kama_pct_20",
+      "type": "kama_pct",
+      "period": 20,
+      "description": "KAMA(20) / close - 1"
+    },
+    {
+      "name": "macd_diff",
+      "type": "macd_diff",
+      "description": "MACD - signal"
+    },
+    {
+      "name": "stoch_k_14",
+      "type": "stoch_k",
+      "period": 14,
+      "description": "Stochastic %K"
+    },
+    {
+      "name": "stoch_d_14",
+      "type": "stoch_d",
+      "period": 14,
+      "description": "Stochastic %D"
+    },
+    {
+      "name": "psar_ratio",
+      "type": "psar_ratio",
+      "description": "SAR / close - 1"
+    },
+    {
+      "name": "donchian_width_20",
+      "type": "donchian_width",
+      "period": 20,
+      "description": "Donchian width / close"
+    }
+  ],
+  "feature_combos": [
+    {
+      "name": "ema_spread",
+      "type": "spread",
+      "sources": [
+        "ema_pct_12",
+        "ema_pct_48"
+      ],
+      "formula": "ema_pct_12 - ema_pct_48"
+    },
+    {
+      "name": "stoch_diff",
+      "type": "spread",
+      "sources": [
+        "stoch_k_14",
+        "stoch_d_14"
+      ],
+      "formula": "stoch_k_14 - stoch_d_14"
+    }
+  ]
+}

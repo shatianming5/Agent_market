@@ -1,0 +1,23 @@
+{
+  "data": {
+    "feature_file": "user_data/freqai_features_real.json",
+    "data_dir": "user_data/data",
+    "exchange": "kucoin",
+    "pairs": [
+      "BTC/USDT"
+    ],
+    "timeframe": "1h",
+    "label_period": 12
+  },
+  "policy": "MlpPolicy",
+  "algo": {
+    "learning_rate": 0.0003,
+    "gamma": 0.99
+  },
+  "training": {
+    "total_timesteps": 10000
+  },
+  "output": {
+    "model_dir": "artifacts/models/rl_real"
+  }
+}

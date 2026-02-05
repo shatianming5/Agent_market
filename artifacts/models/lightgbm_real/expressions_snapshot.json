@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "generated_at": "2026-02-05T14:33:01",
+  "exchange": "kucoin",
+  "pairs": [
+    "BTC/USDT",
+    "ETH/USDT"
+  ],
+  "timeframe": "1h",
+  "label_period": 12,
+  "feature_file": "/Users/shatianming/Downloads/Agent_market/user_data/freqai_features_real.json",
+  "llm_used": false,
+  "mine_enabled": true,
+  "score_method": "correlation",
+  "top_n": 10,
+  "expressions": [
+    {
+      "name": "f001",
+      "expression": "ema(z(ema_spread) - z(mfi_14), 12)",
+      "description": "smoothed spread: ema_spread vs mfi_14",
+      "category": "trend",
+      "origin": "classic",
+      "metric_abs_ic": 0.1352427197791367,
+      "score": 0.1292427197791367,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.1826651646082485,
+        "ETH/USDT": -0.08782027495002492
+      }
+    },
+    {
+      "name": "f002",
+      "expression": "z(ema_spread) - z(psar_ratio)",
+      "description": "spread between signals: ema_spread vs psar_ratio",
+      "category": "momentum",
+      "origin": "classic",
+      "metric_abs_ic": 0.1266901579310532,
+      "score": 0.1226901579310532,
+      "complexity": 2,
+      "per_pair": {
+        "BTC/USDT": -0.14819539528668857,
+        "ETH/USDT": -0.10518492057541783
+      }
+    },
+    {
+      "name": "f003",
+      "expression": "ema(z(ema_spread) - z(donchian_width_20), 12)",
+      "description": "smoothed spread: ema_spread vs donchian_width_20",
+      "category": "trend",
+      "origin": "classic",
+      "metric_abs_ic": 0.12204948183811806,
+      "score": 0.11404948183811806,
+      "complexity": 4,
+      "per_pair": {
+        "BTC/USDT": -0.1714433640120546,
+        "ETH/USDT": -0.07265559966418154
+      }
+    },
+    {
+      "name": "f004",
+      "expression": "z(ema_spread) / (1 + abs(z(mfi_14)))",
+      "description": "risk-adjusted spread: ema_spread vs mfi_14",
+      "category": "other",
+      "origin": "classic",
+      "metric_abs_ic": 0.11107382446220115,
+      "score": 0.10507382446220115,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.13703368193584783,
+        "ETH/USDT": -0.08511396698855446
+      }
+    },
+    {
+      "name": "f005",
+      "expression": "ema(z(ema_spread) - z(rsi_14), 12)",
+      "description": "smoothed spread: ema_spread vs rsi_14",
+      "category": "trend",
+      "origin": "classic",
+      "metric_abs_ic": 0.11055807581097161,
+      "score": 0.10455807581097161,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.12690773488567222,
+        "ETH/USDT": -0.094208416736271
+      }
+    },
+    {
+      "name": "f006",
+      "expression": "ema(z(ema_spread) - z(psar_ratio), 12)",
+      "description": "smoothed spread: ema_spread vs psar_ratio",
+      "category": "trend",
+      "origin": "classic",
+      "metric_abs_ic": 0.10853016742858977,
+      "score": 0.10253016742858977,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.13055301962686713,
+        "ETH/USDT": -0.08650731523031241
+      }
+    },
+    {
+      "name": "f007",
+      "expression": "z(ema_spread) / (1 + abs(z(adx_14)))",
+      "description": "risk-adjusted spread: ema_spread vs adx_14",
+      "category": "other",
+      "origin": "classic",
+      "metric_abs_ic": 0.09975465395731348,
+      "score": 0.09375465395731347,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.12927298490351805,
+        "ETH/USDT": -0.0702363230111089
+      }
+    },
+    {
+      "name": "f008",
+      "expression": "z(ema_spread) / (1 + abs(z(rsi_14)))",
+      "description": "risk-adjusted spread: ema_spread vs rsi_14",
+      "category": "other",
+      "origin": "classic",
+      "metric_abs_ic": 0.09820790166582298,
+      "score": 0.09220790166582297,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.1313269455152264,
+        "ETH/USDT": -0.06508885781641957
+      }
+    },
+    {
+      "name": "f009",
+      "expression": "z(ema_spread) - z(donchian_width_20)",
+      "description": "spread between signals: ema_spread vs donchian_width_20",
+      "category": "momentum",
+      "origin": "classic",
+      "metric_abs_ic": 0.0967594960585951,
+      "score": 0.0907594960585951,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.1479346551476996,
+        "ETH/USDT": -0.045584336969490595
+      }
+    },
+    {
+      "name": "f010",
+      "expression": "z(ema_spread) - z(kama_pct_20)",
+      "description": "spread between signals: ema_spread vs kama_pct_20",
+      "category": "momentum",
+      "origin": "classic",
+      "metric_abs_ic": 0.09636345307975888,
+      "score": 0.09036345307975888,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.12204530815926538,
+        "ETH/USDT": -0.0706815980002524
+      }
+    }
+  ]
+}
