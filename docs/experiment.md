@@ -41,7 +41,7 @@ python scripts/agent_flow.py --config configs/agent_flow_pro_kucoin_full.json --
 - Status:
   - Smoke: PASS (2026-02-05)
   - Full: PASS (2026-02-05)
-  - Prereq: `pytest -q` PASS (2026-02-05, `60 passed`)
+  - Prereq: `pytest -q` PASS (2026-02-05, `61 passed`)
   - Prereq: `python scripts/smoke_test.py` PASS (2026-02-05, `passed 17/17 checks`)
 
 - Results (fill after run):
@@ -106,7 +106,7 @@ python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.js
 - Status:
   - Smoke: PASS (2026-02-05)
   - Full: PASS (2026-02-05)
-  - Prereq: `pytest -q` PASS (2026-02-05, `60 passed`)
+  - Prereq: `pytest -q` PASS (2026-02-05, `61 passed`)
 
 - Results (fill after run):
   - Smoke (2026-02-05):

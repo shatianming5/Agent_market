@@ -5,6 +5,10 @@
   - Result: PASS
   - Notes: Runs API smoke + e2e flow (feature/expression/ml/backtest) using local KuCoin feather demo data.
   - Artifacts: `user_data/backtest_results/backtest-result-*.zip`, `artifacts/models/lightgbm_real/training_summary.json`, `user_data/llm_feedback/latest_backtest_summary.json`
+- 2026-02-05: `pytest -q`
+  - Result: PASS (`61 passed, 2 warnings`)
+  - Notes: Repo-level re-verify after docs/model/evidence updates.
+  - Artifacts: N/A
 
 ## Missing-002
 - 2026-02-01: `python scripts/smoke_test.py && pytest -q tests/test_api_smoke.py`
@@ -27,6 +31,10 @@
   - Result: PASS
   - Notes: 远端 Actions 已触发并通过（Portfolio HRP 集成后 smoke 仍通过）。
   - Artifacts: https://github.com/shatianming5/Agent_market/actions/runs/21562881185
+- 2026-02-05: `python scripts/smoke_test.py`
+  - Result: PASS (`passed 17/17 checks`)
+  - Notes: Repo-level re-verify after docs/model/evidence updates.
+  - Artifacts: N/A
 
 ## Missing-003
 - 2026-01-31: `pytest -q tests/test_e2e_flow_smoke.py`
