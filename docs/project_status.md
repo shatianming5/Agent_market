@@ -18,11 +18,11 @@ Updated: 2026-02-05
 
 - Branch: `main`
 - Remote: `origin git@github.com:shatianming5/Agent_market.git`
-- HEAD: `10c5b12`（Add experiment evidence artifacts）
-- 关键证据提交：
+- 关键提交（证据链/文档入口）：
   - `2974e5b`：实现层面关闭 `plan.md` 主要工程缺口（Factor Compiler + microstructure + TCA + TCA 成本分解等）
   - `020a6a6`：强制纳入 reference model artifacts（原本被 `.gitignore` 忽略）
   - `10c5b12`：强制纳入实验“证据链”关键产物（原本被 `.gitignore` 忽略）
+  - `11601a1`：补齐 docs 状态入口页与 “仅 PARTIAL/MISSING” 的 gap 抽取视图
 
 ## 计划口径澄清（非常重要）
 
@@ -75,4 +75,3 @@ pytest -q
 python scripts/smoke_test.py
 python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
 ```
-
