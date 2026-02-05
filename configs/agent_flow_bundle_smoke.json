@@ -1,0 +1,45 @@
+{
+  "factor_compile": {
+    "spec": {
+      "name": "demo_bundle_factor",
+      "version": "1.0",
+      "hypothesis": "演示：bundle.zip 打包 factor artifacts",
+      "expr": {
+        "op": "zscore",
+        "args": [
+          {
+            "op": "rolling_mean",
+            "args": [
+              {
+                "op": "var",
+                "args": [
+                  "close"
+                ]
+              },
+              4
+            ]
+          },
+          4
+        ]
+      },
+      "meta": {
+        "timeframe": "1h",
+        "universe": [
+          "BTC/USDT"
+        ],
+        "data_sources": [
+          "ohlcv"
+        ]
+      }
+    }
+  },
+  "factor_eval": {
+    "enabled": true,
+    "rows": 64,
+    "seed": 7
+  },
+  "report": {
+    "enabled": true
+  }
+}
+

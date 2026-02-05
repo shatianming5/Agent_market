@@ -4,17 +4,19 @@
 
 ```
 Agent_market/
-  artifacts/                 # 模型与训练产物（training_summary.json 等）
+  artifacts/                 # 模型与运行产物（run_meta.json / models / runs/<run_id>）
   configs/                   # Flow/训练/回测 JSON 配置
-  docs/                      # 文档（流程说明、落地计划、库存）
-  freqtrade/                 # Freqtrade 源码（可选本地目录，默认 .gitignore，不纳入仓库）
-  scripts/                   # 可执行脚本（Flow/特征/表达式/训练/回测/清理/smoke）
+  docs/                      # 文档（plan/experiment/mohu/verify/inventory）
+  freqtrade/                 # Freqtrade 源码（可选本地目录）
+  scripts/                   # CLI（Flow/特征/表达式/训练/回测/TCA/捕获）
   server/                    # FastAPI 后端（API + Jobs + 结果聚合）
-  src/agent_market/          # 核心业务模块（Flow 编排、FreqAI 子系统）
+  src/agent_market/          # 核心业务模块（Flow/FreqAI/FactorCompiler/Microstructure/TCA）
+  tests/                     # pytest（fixture 离线可验收）
   user_data/                 # 工作区（配置/数据/策略/回测结果/日志/反馈）
-  web/                       # 静态前端（Flow 画布 + 日志 + 结果浏览）
+  web/                       # 静态前端（Flow 画布 + 产物检查 + Run History）
+  plan.md                    # Proposal（更大范围的产品/研究计划）
   README.md
-  requirements.txt
+  requirements*.txt
 ```
 
 ## Entry Points
@@ -23,6 +25,12 @@ Agent_market/
   - FastAPI 服务入口（会挂载 `web/` 到 `/web`）。
 - `scripts/agent_flow.py`
   - 端到端编排器（feature → expression → ml → rl → backtest）。
+- `scripts/micro_features.py`
+  - micro_feature 生成（OHLCV mode / microstructure mode）。
+- `scripts/micro_capture.py`
+  - KuCoin 微观结构采集器（fixture 离线回放 / live capture）。
+- `scripts/lob_rebuild.py`
+  - `level2` 增量 + snapshot → 重建 `lob_state.parquet`。
 - `scripts/smoke_test.py`
   - API 冒烟测试（不跑重任务）。
 - `scripts/e2e_smoke_flow.py`
@@ -35,6 +43,14 @@ Agent_market/
   - 表达式生成与因子挖掘（支持 `--mine --top-n`；LLM 可选）。
 - `scripts/train_pipeline.py`
   - 机器学习训练（LightGBM/XGBoost/CatBoost 等；读取特征/表达式 + feather 数据）。
+- `scripts/factor_compile.py`
+  - FactorSpec → ExpressionEngine 表达式（最小离线编译）。
+- `scripts/factor_eval.py`
+  - 编译表达式的最小离线评测（落盘 `factor_scores.json` + `pareto.csv`）。
+- `scripts/eval_protocol.py`
+  - 最小评测协议（成本入账 + evidence 落盘）。
+- `scripts/tca_report.py`
+  - 从 freqtrade backtest zip 生成 TCA v1 报告（json/html）。
 
 ## Core Modules
 
@@ -44,8 +60,14 @@ Agent_market/
   - Flow 的每一步实际执行逻辑（执行脚本/训练/回测；并写回测摘要到 feedback）。
 - `src/agent_market/backtest_results.py`
   - 解析 `backtest-result-*.zip` 并生成摘要、trades 等结构化结果。
+- `src/agent_market/factor_compiler/`
+  - FactorSpec/DSL（Formula ↔ ExprNode）+ checks + scoring + 编译到 ExpressionEngine。
 - `src/agent_market/freqai/`
   - 特征、表达式执行引擎、安全 eval、训练管线、RL 环境/训练器。
+- `src/agent_market/microstructure/`
+  - capture / lob_rebuild / features registry（离线 fixture 可验收）。
+- `src/agent_market/tca/`
+  - TCA v1 schema + backtest adapter + report 生成。
 - `server/`
   - 任务调度与 API 统一入口：
     - `/run/*`：启动 feature/expression/train/backtest 等任务
@@ -57,6 +79,10 @@ Agent_market/
 ## Config & Data
 
 - Flow 配置：`configs/agent_flow_kucoin_cpu_nollm.json`（推荐黄金路径）
+- Flow（Factor/Bundle/Capture+LOB）示例：
+  - `configs/agent_flow_factor_smoke.json`
+  - `configs/agent_flow_bundle_smoke.json`
+  - `configs/agent_flow_capture_lob_smoke.json`
 - Freqtrade 配置示例：
   - `user_data/config_freqai_kucoin.json`
 - 数据目录（feather）：
@@ -68,6 +94,7 @@ Agent_market/
   - 模型摘要：`artifacts/models/**/training_summary.json`
   - 回测结果：`user_data/backtest_results/backtest-result-*.zip`
   - 回测摘要（用于下一轮反馈）：`user_data/llm_feedback/latest_backtest_summary.json`
+  - Flow 元信息：`artifacts/run_meta.json`（latest）与 `artifacts/runs/<run_id>/run_meta.json`
 - LLM 环境变量（可选）：
   - `OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL`
   - `LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`（优先级更高）
@@ -90,6 +117,13 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 
 打开前端：`http://127.0.0.1:8000/web/index.html`
 
+### Tests
+
+```bash
+pytest -q
+python scripts/smoke_test.py
+```
+
 ### API 冒烟
 
 ```bash
@@ -102,6 +136,10 @@ python scripts/smoke_test.py
 python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
 ```
 
+## Risks / Unknowns
+
+- Full-scale datasets（真实历史 LOB/trades）不在仓库内；部分微观结构/TCA 指标只能以 proxy 或 fixture 方式验收。
+
 或手工分步：
 
 ```bash
@@ -109,6 +147,18 @@ python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json -
 python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps expression
 python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps ml
 python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps backtest
+```
+
+### Factor / Bundle（最小离线）
+
+```bash
+python scripts/agent_flow.py --config configs/agent_flow_bundle_smoke.json --steps factor_compile factor_eval report
+```
+
+### Capture + LOB（fixture）
+
+```bash
+python scripts/agent_flow.py --config configs/agent_flow_capture_lob_smoke.json --steps capture lob_rebuild
 ```
 
 ## Risks / Unknowns

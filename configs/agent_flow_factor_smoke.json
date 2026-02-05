@@ -1,0 +1,42 @@
+{
+  "factor_compile": {
+    "spec": {
+      "name": "demo_factor_zscore_roll_mean_close_4",
+      "version": "1.0",
+      "hypothesis": "演示：用 rolling_mean(close) 的 rolling zscore 作为最小可跑因子",
+      "expr": {
+        "op": "zscore",
+        "args": [
+          {
+            "op": "rolling_mean",
+            "args": [
+              {
+                "op": "var",
+                "args": [
+                  "close"
+                ]
+              },
+              4
+            ]
+          },
+          4
+        ]
+      },
+      "meta": {
+        "timeframe": "1h",
+        "universe": [
+          "BTC/USDT"
+        ],
+        "data_sources": [
+          "ohlcv"
+        ]
+      }
+    }
+  },
+  "factor_eval": {
+    "enabled": true,
+    "rows": 128,
+    "seed": 7
+  }
+}
+

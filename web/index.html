@@ -121,7 +121,7 @@
         <h4>Agent Flow</h4>
         <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
           <input id="flowCfg" value="configs/agent_flow_kucoin_cpu_nollm.json" />
-          <input id="flowSteps" value="feature expression ml backtest" placeholder="可选步骤: feature expression ml rl backtest（留空则全流程）" />
+          <input id="flowSteps" value="feature expression ml backtest" placeholder="可选步骤: capture lob_rebuild feature micro_feature portfolio expression factor_compile factor_eval ml rl backtest tca report（留空则全流程）" />
           <button id="btnRunAgentFlow" class="btn btn-primary"><i class="ri-play-circle-line"></i> 运行 Flow</button>
           <div id="flowStatus" class="panel"></div>
           <div id="flowArtifacts" class="panel"></div>
@@ -177,4 +177,3 @@
     <script src='app.extra.js'></script>
   </body>
   </html>
-

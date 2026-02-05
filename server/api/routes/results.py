@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter
+from fastapi.responses import FileResponse
 
 from ..errors import error
 from ...runtime import ROOT, SRC
@@ -146,6 +147,52 @@ def results_gallery(results_dir: str = "user_data/backtest_results", limit: int 
         except Exception:
             continue
     return {"dir": str(rd), "items": items}
+
+
+@router.get("/results/bundles/list")
+def results_bundles_list(limit: int = 20):
+    """List recent bundle.zip under artifacts/runs/*/bundle/bundle.zip."""
+    try:
+        lim = int(limit)
+    except Exception:
+        lim = 20
+    lim = max(1, min(lim, 200))
+
+    runs_dir = (ROOT / "artifacts" / "runs").resolve()
+    if not runs_dir.exists():
+        return {"items": [], "count": 0, "limit": lim}
+
+    items: list[dict] = []
+    for child in runs_dir.iterdir():
+        if not child.is_dir():
+            continue
+        run_id = child.name
+        bundle = (child / "bundle" / "bundle.zip").resolve()
+        if not bundle.exists():
+            continue
+        try:
+            stat = bundle.stat()
+            items.append(
+                {
+                    "run_id": run_id,
+                    "path": str(bundle.relative_to(ROOT.resolve())),
+                    "mtime": stat.st_mtime,
+                    "size": stat.st_size,
+                }
+            )
+        except Exception:
+            continue
+    items.sort(key=lambda x: x.get("mtime") or 0, reverse=True)
+    return {"items": items[:lim], "count": len(items), "limit": lim}
+
+
+@router.get("/results/bundles/download/{run_id}")
+def results_bundles_download(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    bundle = (ROOT / "artifacts" / "runs" / run_id / "bundle" / "bundle.zip").resolve()
+    if not bundle.exists():
+        return error("NOT_FOUND", f"bundle not found: {bundle}")
+    return FileResponse(path=str(bundle), filename=f"bundle-{run_id}.zip")
 
 
 @router.get("/results/aggregate")

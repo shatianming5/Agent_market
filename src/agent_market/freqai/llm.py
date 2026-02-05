@@ -65,6 +65,10 @@ __all__ = [
     "build_prompt",
     "request_completion",
     "extract_candidates",
+    "extract_factor_spec_payload",
+    "load_factor_spec_prompt_assets",
+    "parse_factor_spec",
+    "request_factor_spec_completion",
 ]
 
 
@@ -238,7 +242,12 @@ def build_prompt(
     return prompt.strip()
 
 
-def request_completion(prompt: str, config: LLMConfig) -> Tuple[str, Optional[Dict[str, Any]]]:
+def request_completion(
+    prompt: str,
+    config: LLMConfig,
+    *,
+    system_prompt: str = "You are an expert quantitative factor engineer. Always reply with valid JSON.",
+) -> Tuple[str, Optional[Dict[str, Any]]]:
     if not config.api_key:
         raise ValueError("?? LLM ???????? API Key?")
 
@@ -254,7 +263,7 @@ def request_completion(prompt: str, config: LLMConfig) -> Tuple[str, Optional[Di
         "messages": [
             {
                 "role": "system",
-                "content": "You are an expert quantitative factor engineer. Always reply with valid JSON.",
+                "content": str(system_prompt),
             },
             {"role": "user", "content": prompt},
         ],
@@ -419,3 +428,57 @@ def _extract_candidates_fallback(raw_content: str) -> List[Dict[str, Any]]:
     if not candidates:
         raise ValueError("LLM response missing expressions list")
     return candidates
+
+
+_FACTOR_SPEC_SYSTEM_PATH = (
+    PROJECT_ROOT / "src" / "agent_market" / "factor_compiler" / "prompts" / "factor_spec.system.md"
+)
+_FACTOR_SPEC_FEWSHOT_PATH = (
+    PROJECT_ROOT / "src" / "agent_market" / "factor_compiler" / "prompts" / "factor_spec.fewshot.json"
+)
+
+
+def load_factor_spec_prompt_assets() -> Dict[str, Any]:
+    """
+    Load FactorSpec prompt assets from `src/agent_market/factor_compiler/prompts/`.
+
+    This function is offline-friendly and does not require any API key.
+    """
+
+    system_prompt = _FACTOR_SPEC_SYSTEM_PATH.read_text(encoding="utf-8")
+    fewshot = json.loads(_FACTOR_SPEC_FEWSHOT_PATH.read_text(encoding="utf-8"))
+    return {
+        "system_prompt": system_prompt,
+        "fewshot": fewshot,
+        "paths": {
+            "system_prompt": str(_FACTOR_SPEC_SYSTEM_PATH),
+            "fewshot": str(_FACTOR_SPEC_FEWSHOT_PATH),
+        },
+    }
+
+
+def extract_factor_spec_payload(raw_content: str) -> Dict[str, Any]:
+    """
+    Extract a JSON object payload that should validate as `FactorSpec`.
+    """
+
+    payload = _extract_json_object(raw_content)
+    if not isinstance(payload, dict) or not payload:
+        raise ValueError("LLM response missing FactorSpec JSON object")
+    return payload
+
+
+def parse_factor_spec(raw_content: str) -> Any:
+    """
+    Parse and validate a FactorSpec from raw model output (or any JSON string).
+    """
+
+    from agent_market.factor_compiler import FactorSpec  # noqa: WPS433
+
+    payload = extract_factor_spec_payload(raw_content)
+    return FactorSpec.model_validate(payload)
+
+
+def request_factor_spec_completion(prompt: str, config: LLMConfig) -> Tuple[str, Optional[Dict[str, Any]]]:
+    assets = load_factor_spec_prompt_assets()
+    return request_completion(prompt, config, system_prompt=str(assets.get("system_prompt") or ""))

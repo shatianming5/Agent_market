@@ -1,0 +1,56 @@
+{
+  "examples": [
+    {
+      "name": "ret_z_50",
+      "version": "1.0",
+      "hypothesis": "短期收益率的极端偏离会均值回归",
+      "expr": {
+        "op": "ts_z",
+        "args": [
+          {
+            "op": "pct_change",
+            "args": [
+              {
+                "op": "var",
+                "args": [
+                  "close"
+                ]
+              },
+              1
+            ]
+          },
+          50
+        ]
+      },
+      "constraints": {
+        "max_lookback": 2000,
+        "min_delay_ms": 0,
+        "max_turnover": 8.0,
+        "complexity_budget": {
+          "max_nodes": 40,
+          "max_depth": 8
+        }
+      },
+      "tests": [
+        {
+          "type": "no_lookahead",
+          "horizon": 1
+        },
+        {
+          "type": "nan_rate",
+          "max_nan_ratio": 0.02
+        }
+      ],
+      "meta": {
+        "timeframe": "1h",
+        "universe": [
+          "BTC/USDT"
+        ],
+        "data_sources": [
+          "ohlcv"
+        ]
+      }
+    }
+  ]
+}
+

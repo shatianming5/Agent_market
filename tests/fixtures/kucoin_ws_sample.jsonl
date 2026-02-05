@@ -1,0 +1,2 @@
+{"type":"message","topic":"/market/match:BTC-USDT","subject":"trade.l3match","data":{"symbol":"BTC-USDT","side":"buy","size":"0.01000000","price":"40000.1","time":1700000000000}}
+{"type":"message","topic":"/market/level2:BTC-USDT","subject":"trade.l2update","data":{"sequenceStart":100,"sequenceEnd":101,"symbol":"BTC-USDT","time":1700000001000,"changes":{"asks":[["40010.0","0.5"]],"bids":[["39990.0","0.3"]]}}}

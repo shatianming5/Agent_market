@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from agent_market import flow_steps
+from agent_market.flow_ext import steps as flow_steps
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -61,12 +61,19 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
 
     try:
         snapshot = {
+            "capture": cfg.capture,
+            "lob_rebuild": cfg.lob_rebuild,
             "feature": cfg.feature,
+            "micro_feature": cfg.micro_feature,
             "portfolio": cfg.portfolio,
             "expression": cfg.expression,
+            "factor_compile": cfg.factor_compile,
+            "factor_eval": cfg.factor_eval,
             "ml_training": cfg.ml_training,
             "rl_training": cfg.rl_training,
             "backtest": cfg.backtest,
+            "tca": cfg.tca,
+            "report": cfg.report,
         }
         payload = json.dumps(
             snapshot,
@@ -81,28 +88,56 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
 
 @dataclass
 class AgentFlowConfig:
+    capture: Optional[Dict[str, Any]] = None
+    lob_rebuild: Optional[Dict[str, Any]] = None
     feature: Optional[Dict[str, Any]] = None
+    micro_feature: Optional[Dict[str, Any]] = None
     portfolio: Optional[Dict[str, Any]] = None
     expression: Optional[Dict[str, Any]] = None
+    factor_compile: Optional[Dict[str, Any]] = None
+    factor_eval: Optional[Dict[str, Any]] = None
     ml_training: Optional[Dict[str, Any]] = None
     rl_training: Optional[Dict[str, Any]] = None
     backtest: Optional[Dict[str, Any]] = None
+    tca: Optional[Dict[str, Any]] = None
+    report: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentFlowConfig":
-        known_keys = {"feature", "portfolio", "expression", "ml_training", "rl_training", "backtest"}
+        known_keys = {
+            "capture",
+            "lob_rebuild",
+            "feature",
+            "micro_feature",
+            "portfolio",
+            "expression",
+            "factor_compile",
+            "factor_eval",
+            "ml_training",
+            "rl_training",
+            "backtest",
+            "tca",
+            "report",
+        }
         extra = set(data.keys()) - known_keys
         if extra:
             logger.warning(
                 "AgentFlowConfig received unknown keys: %s", ", ".join(sorted(extra))
             )
         return cls(
+            capture=data.get("capture"),
+            lob_rebuild=data.get("lob_rebuild"),
             feature=data.get("feature"),
+            micro_feature=data.get("micro_feature"),
             portfolio=data.get("portfolio"),
             expression=data.get("expression"),
+            factor_compile=data.get("factor_compile"),
+            factor_eval=data.get("factor_eval"),
             ml_training=data.get("ml_training"),
             rl_training=data.get("rl_training"),
             backtest=data.get("backtest"),
+            tca=data.get("tca"),
+            report=data.get("report"),
         )
 
 
@@ -117,7 +152,21 @@ def load_agent_flow_config(path: Path) -> AgentFlowConfig:
 
 
 class AgentFlow:
-    STEP_ORDER = ["feature", "portfolio", "expression", "ml", "rl", "backtest"]
+    STEP_ORDER = [
+        "capture",
+        "lob_rebuild",
+        "feature",
+        "micro_feature",
+        "portfolio",
+        "expression",
+        "factor_compile",
+        "factor_eval",
+        "ml",
+        "rl",
+        "backtest",
+        "tca",
+        "report",
+    ]
 
     def __init__(
         self,
@@ -145,12 +194,19 @@ class AgentFlow:
             requested = [step for step in requested if step in self.STEP_ORDER]
 
         sequence: list[tuple[str, Optional[Dict[str, Any]]]] = [
+            ("capture", self.config.capture),
+            ("lob_rebuild", self.config.lob_rebuild),
             ("feature", self.config.feature),
+            ("micro_feature", self.config.micro_feature),
             ("portfolio", self.config.portfolio),
             ("expression", self.config.expression),
+            ("factor_compile", self.config.factor_compile),
+            ("factor_eval", self.config.factor_eval),
             ("ml", self.config.ml_training),
             ("rl", self.config.rl_training),
             ("backtest", self.config.backtest),
+            ("tca", self.config.tca),
+            ("report", self.config.report),
         ]
 
         logger.info("[FLOW] RUN_ID %s", run_id)
@@ -161,6 +217,26 @@ class AgentFlow:
         portfolio_weights: Optional[str] = None
         portfolio_report: Optional[str] = None
         portfolio_returns: Optional[str] = None
+        micro_features_parquet: Optional[str] = None
+        micro_features_manifest: Optional[str] = None
+        capture_manifest: Optional[str] = None
+        capture_match_path: Optional[str] = None
+        capture_level2_path: Optional[str] = None
+        lob_state_parquet: Optional[str] = None
+        rebuild_report: Optional[str] = None
+        factor_spec_json: Optional[str] = None
+        factor_ast_json: Optional[str] = None
+        factor_expression_txt: Optional[str] = None
+        factor_expression_json: Optional[str] = None
+        factor_eval_meta: Optional[str] = None
+        factor_scores_json: Optional[str] = None
+        factor_pareto_csv: Optional[str] = None
+        tca_report: Optional[str] = None
+        tca_html: Optional[str] = None
+        compiled_expression_path: Optional[Path] = None
+        capture_dir_path: Optional[Path] = None
+        bundle_zip: Optional[str] = None
+        bundle_manifest: Optional[str] = None
         meta_write_error: Optional[BaseException] = None
         flow_exception: Optional[BaseException] = None
 
@@ -182,6 +258,42 @@ class AgentFlow:
                     logger.info("[FLOW] PHASE %s execute", name)
                     if name == "feature":
                         flow_steps.run_feature_generation(cfg)
+                    elif name == "capture":
+                        out = flow_steps.run_capture(
+                            cfg,
+                            out_dir=(run_dir / "capture").resolve(),
+                        )
+                        capture_dir_path = Path(out["capture_dir"]).resolve()
+                        capture_manifest = _relpath(Path(out["manifest_json"]))
+                        capture_match_path = _relpath(Path(out["match_path"]))
+                        capture_level2_path = _relpath(Path(out["level2_path"]))
+                    elif name == "lob_rebuild":
+                        cap_dir_cfg = cfg.get("capture_dir") if isinstance(cfg, dict) else None
+                        cap_dir = (
+                            (REPO_ROOT / str(cap_dir_cfg)).resolve()
+                            if cap_dir_cfg and not Path(str(cap_dir_cfg)).is_absolute()
+                            else (Path(str(cap_dir_cfg)).resolve() if cap_dir_cfg else capture_dir_path)
+                        )
+                        if cap_dir is None:
+                            raise ValueError("lob_rebuild requires capture_dir (or run capture step first)")
+                        out = flow_steps.run_lob_rebuild(
+                            cfg,
+                            capture_dir=cap_dir,
+                            out_dir=(run_dir / "lob_rebuild").resolve(),
+                        )
+                        lob_state_parquet = _relpath(Path(out["lob_state_parquet"]))
+                        rebuild_report = _relpath(Path(out["rebuild_report_json"]))
+                    elif name == "micro_feature":
+                        mf_cfg = dict(cfg)
+                        if not mf_cfg.get("config") and self.config.backtest:
+                            mf_cfg["config"] = self.config.backtest.get("config")
+                        out = flow_steps.run_micro_feature(
+                            mf_cfg,
+                            run_id=run_id,
+                            out_dir=(run_dir / "micro_feature").resolve(),
+                        )
+                        micro_features_parquet = _relpath(Path(out["features_parquet"]))
+                        micro_features_manifest = _relpath(Path(out["manifest_json"]))
                     elif name == "portfolio":
                         from agent_market.portfolio_opt import (  # noqa: WPS433
                             compute_returns,
@@ -255,12 +367,69 @@ class AgentFlow:
                             portfolio_returns = _relpath(returns_path)
                     elif name == "expression":
                         flow_steps.run_expression_generation(cfg, self.feedback_path)
+                    elif name == "factor_compile":
+                        out = flow_steps.run_factor_compile(
+                            cfg,
+                            run_id=run_id,
+                            out_dir=(run_dir / "factor_compile").resolve(),
+                        )
+                        factor_spec_json = _relpath(Path(out["factor_spec_json"]))
+                        factor_ast_json = _relpath(Path(out["factor_ast_json"]))
+                        factor_expression_txt = _relpath(Path(out["compiled_expression_txt"]))
+                        factor_expression_json = _relpath(Path(out["compiled_expression_json"]))
+                        compiled_expression_path = Path(out["compiled_expression_txt"]).resolve()
+                    elif name == "factor_eval":
+                        out = flow_steps.run_factor_eval(
+                            cfg,
+                            run_id=run_id,
+                            out_dir=(run_dir / "factor_eval").resolve(),
+                            compiled_expression_path=compiled_expression_path,
+                        )
+                        factor_eval_meta = _relpath(Path(out["factor_eval_meta"]))
+                        factor_scores_json = _relpath(Path(out["factor_scores_json"]))
+                        factor_pareto_csv = _relpath(Path(out["pareto_csv"]))
                     elif name == "ml":
                         flow_steps.run_ml_training(cfg)
                     elif name == "rl":
                         flow_steps.run_rl_training(cfg)
                     elif name == "backtest":
                         flow_steps.run_backtest(cfg, self.feedback_path)
+                    elif name == "tca":
+                        out = flow_steps.run_tca(
+                            cfg,
+                            run_id=run_id,
+                            out_dir=(run_dir / "tca").resolve(),
+                        )
+                        tca_report = _relpath(Path(out["tca_report"]))
+                        if out.get("tca_html"):
+                            tca_html = _relpath(Path(out["tca_html"]))
+                    elif name == "report":
+                        artifacts = {
+                            "capture_manifest": capture_manifest,
+                            "capture_match_path": capture_match_path,
+                            "capture_level2_path": capture_level2_path,
+                            "lob_state_parquet": lob_state_parquet,
+                            "rebuild_report": rebuild_report,
+                            "micro_feature_parquet": micro_features_parquet,
+                            "micro_feature_manifest": micro_features_manifest,
+                            "factor_spec_json": factor_spec_json,
+                            "factor_ast_json": factor_ast_json,
+                            "factor_expression_txt": factor_expression_txt,
+                            "factor_scores_json": factor_scores_json,
+                            "factor_pareto_csv": factor_pareto_csv,
+                            "tca_report": tca_report,
+                            "tca_html": tca_html,
+                            "feedback_summary": _relpath(self.feedback_path),
+                            "config_path": _relpath(self.config_path) if self.config_path else None,
+                        }
+                        out = flow_steps.run_report_bundle(
+                            cfg,
+                            run_id=run_id,
+                            out_dir=(run_dir / "bundle").resolve(),
+                            artifacts=artifacts,
+                        )
+                        bundle_zip = _relpath(Path(out["bundle_zip"]))
+                        bundle_manifest = _relpath(Path(out["bundle_manifest"]))
                     else:  # pragma: no cover
                         raise ValueError(f"Unknown step: {name}")
                 except Exception as exc:
@@ -368,15 +537,33 @@ class AgentFlow:
                     "freqtrade": flow_steps.get_freqtrade_version(),
                     "artifacts": {
                         "feature_output": feature_out,
+                        "micro_feature_parquet": micro_features_parquet,
+                        "micro_feature_manifest": micro_features_manifest,
+                        "capture_manifest": capture_manifest,
+                        "capture_match_path": capture_match_path,
+                        "capture_level2_path": capture_level2_path,
+                        "lob_state_parquet": lob_state_parquet,
+                        "rebuild_report": rebuild_report,
                         "portfolio_weights": portfolio_weights,
                         "portfolio_report": portfolio_report,
                         "portfolio_returns": portfolio_returns,
                         "expression_output": expr_out,
+                        "factor_spec_json": factor_spec_json,
+                        "factor_ast_json": factor_ast_json,
+                        "factor_expression_txt": factor_expression_txt,
+                        "factor_expression_json": factor_expression_json,
+                        "factor_eval_meta": factor_eval_meta,
+                        "factor_scores_json": factor_scores_json,
+                        "factor_pareto_csv": factor_pareto_csv,
                         "feedback_summary": _relpath(self.feedback_path),
                         "model_dirs": model_dirs,
                         "training_summaries": [_relpath(p) for p in training_summaries],
                         "backtest_results_dir": results_dir,
                         "backtest_zips": [_relpath(p) for p in bt_zips],
+                        "tca_report": tca_report,
+                        "tca_html": tca_html,
+                        "bundle_zip": bundle_zip,
+                        "bundle_manifest": bundle_manifest,
                     },
                     "steps": steps_meta,
                     "error": error_info,

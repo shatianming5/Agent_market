@@ -290,6 +290,320 @@ def run_backtest(cfg: Dict[str, Any], feedback_path: Path) -> None:
         logger.info("Backtest summary written to %s", out_path)
 
 
+def run_micro_feature(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) -> dict[str, str]:
+    """Generate OHLCV-based micro features (Phase 1).
+
+    Required cfg keys:
+      - config: freqtrade JSON config path (relative to repo root or absolute)
+    Optional:
+      - timeframe, timerange, pairs, data_dir
+    """
+    config_path = cfg.get("config") or cfg.get("freqtrade_config")
+    if not config_path:
+        raise ValueError("micro_feature.config is required")
+
+    timeframe = cfg.get("timeframe")
+    timerange = cfg.get("timerange")
+    pairs = cfg.get("pairs")
+    if isinstance(pairs, str):
+        pairs = [p for p in pairs.replace(",", " ").split() if p.strip()]
+    if pairs is not None and not isinstance(pairs, list):
+        raise ValueError("micro_feature.pairs must be a list or string")
+
+    from agent_market.microstructure.micro_feature import (  # noqa: WPS433
+        generate_micro_features_from_freqtrade_config,
+    )
+
+    outputs = generate_micro_features_from_freqtrade_config(
+        root=REPO_ROOT,
+        freqtrade_config=_resolve_path(str(config_path), cwd=cfg.get("cwd")),
+        run_id=str(run_id),
+        out_dir=Path(out_dir),
+        timeframe=str(timeframe) if timeframe else None,
+        timerange=str(timerange) if timerange else None,
+        pairs=[str(p) for p in pairs] if pairs else None,
+        data_dir=cfg.get("data_dir"),
+    )
+    return {
+        "features_parquet": str(outputs.features_parquet),
+        "manifest_json": str(outputs.manifest_json),
+    }
+
+
+def run_tca(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) -> dict[str, str]:
+    """Generate TCA report from latest backtest zip (Phase 1)."""
+    from agent_market.backtest_results import find_latest_backtest_zip  # noqa: WPS433
+    from agent_market.tca.report import generate_tca_report  # noqa: WPS433
+
+    results_dir = cfg.get("results_dir") or "user_data/backtest_results"
+    zp_override = cfg.get("backtest_zip") or cfg.get("zip")
+    if zp_override:
+        zip_path = _resolve_path(str(zp_override), cwd=cfg.get("cwd"))
+    else:
+        zip_path = find_latest_backtest_zip(_resolve_path(str(results_dir), cwd=cfg.get("cwd")))
+        if zip_path is None:
+            raise FileNotFoundError(f"No backtest-result-*.zip found in {results_dir}")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = (out_dir / "tca_report.json").resolve()
+
+    html = bool(cfg.get("html"))
+    html_path = (out_dir / "tca_report.html").resolve() if html else None
+    generate_tca_report(zip_path, run_id=str(run_id), out_path=out_path, root=REPO_ROOT, html_path=html_path)
+    return {
+        "tca_report": str(out_path),
+        "tca_html": str(html_path) if html_path is not None else "",
+        "backtest_zip": str(zip_path),
+    }
+
+
+def run_factor_compile(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) -> dict[str, str]:
+    """Compile a FactorSpec into an ExpressionEngine expression (Phase 1)."""
+    spec_obj = cfg.get("spec")
+    spec_path_cfg = cfg.get("spec_path") or cfg.get("spec_file")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    if isinstance(spec_obj, dict):
+        spec_path = (out_dir / "input_factor_spec.json").resolve()
+        spec_path.write_text(json.dumps(spec_obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    elif spec_path_cfg:
+        spec_path = _resolve_path(str(spec_path_cfg), cwd=cfg.get("cwd"))
+        if not spec_path.exists():
+            raise FileNotFoundError(f"FactorSpec not found: {spec_path}")
+    else:
+        raise ValueError("factor_compile.spec (object) or factor_compile.spec_path must be provided")
+
+    script = (REPO_ROOT / "scripts" / "factor_compile.py").resolve()
+    if not script.exists():
+        raise FileNotFoundError(f"factor_compile script not found: {script}")
+
+    cmd = [
+        sys.executable,
+        str(script),
+        "--spec",
+        str(spec_path),
+        "--out-dir",
+        str(out_dir.resolve()),
+    ]
+    run_command(cmd, cwd=str(REPO_ROOT))
+    return {
+        "factor_spec_json": str((out_dir / "factor_spec.json").resolve()),
+        "factor_ast_json": str((out_dir / "factor_ast.json").resolve()),
+        "compiled_expression_txt": str((out_dir / "compiled_expression.txt").resolve()),
+        "compiled_expression_json": str((out_dir / "compiled_expression.json").resolve()),
+    }
+
+
+def run_factor_eval(
+    cfg: Dict[str, Any],
+    *,
+    run_id: str,
+    out_dir: Path,
+    compiled_expression_path: Optional[Path] = None,
+) -> dict[str, str]:
+    """Evaluate a compiled factor expression and write score artifacts (minimal offline mode)."""
+    expr_text = cfg.get("expression")
+    expr_path_cfg = cfg.get("expression_path") or cfg.get("expression_file")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    expr_path: Optional[Path] = None
+    if isinstance(expr_text, str) and expr_text.strip():
+        expr_path = (out_dir / "input_expression.txt").resolve()
+        expr_path.write_text(expr_text.strip(), encoding="utf-8")
+    elif expr_path_cfg:
+        expr_path = _resolve_path(str(expr_path_cfg), cwd=cfg.get("cwd"))
+        if not expr_path.exists():
+            raise FileNotFoundError(f"Expression file not found: {expr_path}")
+    elif compiled_expression_path is not None and Path(compiled_expression_path).exists():
+        expr_path = Path(compiled_expression_path).resolve()
+    else:
+        raise ValueError(
+            "factor_eval.expression (string) or factor_eval.expression_path must be provided "
+            "(or run after factor_compile)"
+        )
+
+    script = (REPO_ROOT / "scripts" / "factor_eval.py").resolve()
+    if not script.exists():
+        raise FileNotFoundError(f"factor_eval script not found: {script}")
+
+    rows = int(cfg.get("rows") or 256)
+    seed = int(cfg.get("seed") or 7)
+    cmd = [
+        sys.executable,
+        str(script),
+        "--expression-path",
+        str(expr_path),
+        "--out-dir",
+        str(out_dir.resolve()),
+        "--rows",
+        str(rows),
+        "--seed",
+        str(seed),
+    ]
+    run_command(cmd, cwd=str(REPO_ROOT))
+
+    return {
+        "factor_eval_meta": str((out_dir / "factor_eval_meta.json").resolve()),
+        "factor_scores_json": str((out_dir / "factor_scores.json").resolve()),
+        "pareto_csv": str((out_dir / "pareto.csv").resolve()),
+    }
+
+
+def run_capture(cfg: Dict[str, Any], *, out_dir: Path) -> dict[str, str]:
+    """Capture microstructure data (fixture or live)."""
+    exchange = str(cfg.get("exchange") or "kucoin").strip().lower()
+    channels = str(cfg.get("channels") or "match,level2").strip()
+    symbols = str(cfg.get("symbols") or "BTC-USDT").strip()
+    duration_sec = int(cfg.get("duration_sec") or 60)
+    fixture = cfg.get("fixture")
+
+    script = (REPO_ROOT / "scripts" / "micro_capture.py").resolve()
+    if not script.exists():
+        raise FileNotFoundError(f"micro_capture script not found: {script}")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        sys.executable,
+        str(script),
+        "--exchange",
+        exchange,
+        "--channels",
+        channels,
+        "--out-dir",
+        str(out_dir.resolve()),
+    ]
+    if fixture:
+        cmd += ["--fixture", str(_resolve_path(str(fixture), cwd=cfg.get("cwd")))]
+    else:
+        cmd += ["--symbols", symbols, "--duration-sec", str(duration_sec)]
+
+    run_command(cmd, cwd=str(REPO_ROOT))
+    return {
+        "capture_dir": str(out_dir.resolve()),
+        "manifest_json": str((out_dir / "manifest.json").resolve()),
+        "match_path": str((out_dir / "match.ndjson.gz").resolve()),
+        "level2_path": str((out_dir / "level2.ndjson.gz").resolve()),
+    }
+
+
+def run_lob_rebuild(cfg: Dict[str, Any], *, capture_dir: Path, out_dir: Path) -> dict[str, str]:
+    """Rebuild LOB state from capture dir + snapshot fixture."""
+    exchange = str(cfg.get("exchange") or "kucoin").strip().lower()
+    symbol = str(cfg.get("symbol") or "BTC-USDT").strip()
+    depth = int(cfg.get("depth") or 20)
+    snapshot = cfg.get("snapshot")
+    if not snapshot:
+        raise ValueError("lob_rebuild.snapshot must be provided")
+
+    script = (REPO_ROOT / "scripts" / "lob_rebuild.py").resolve()
+    if not script.exists():
+        raise FileNotFoundError(f"lob_rebuild script not found: {script}")
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    snapshot_path = _resolve_path(str(snapshot), cwd=cfg.get("cwd"))
+    if not snapshot_path.exists():
+        raise FileNotFoundError(f"LOB snapshot not found: {snapshot_path}")
+
+    cmd = [
+        sys.executable,
+        str(script),
+        "--capture-dir",
+        str(Path(capture_dir).resolve()),
+        "--snapshot",
+        str(snapshot_path),
+        "--symbol",
+        symbol,
+        "--depth",
+        str(depth),
+        "--out-dir",
+        str(out_dir.resolve()),
+    ]
+    run_command(cmd, cwd=str(REPO_ROOT))
+    return {
+        "exchange": exchange,
+        "symbol": symbol,
+        "lob_state_parquet": str((out_dir / "lob_state.parquet").resolve()),
+        "rebuild_report_json": str((out_dir / "rebuild_report.json").resolve()),
+    }
+
+
+def run_report_bundle(
+    cfg: Dict[str, Any],
+    *,
+    run_id: str,
+    out_dir: Path,
+    artifacts: Dict[str, Optional[str]],
+) -> dict[str, str]:
+    """Bundle key artifacts into a single zip for sharing/downloading."""
+    import zipfile
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    bundle_zip = (out_dir / "bundle.zip").resolve()
+    manifest_path = (out_dir / "bundle_manifest.json").resolve()
+
+    included: list[dict[str, str]] = []
+    missing: list[dict[str, str]] = []
+    for key, raw in (artifacts or {}).items():
+        if not raw:
+            continue
+        try:
+            p = _resolve_path(str(raw), cwd=cfg.get("cwd"))
+        except Exception:
+            p = Path(str(raw))
+        if not p.exists():
+            missing.append({"key": str(key), "path": str(raw)})
+            continue
+        try:
+            arc = str(p.resolve().relative_to(REPO_ROOT.resolve()))
+        except Exception:
+            arc = p.name
+        included.append({"key": str(key), "path": str(p), "arcname": arc})
+
+    with zipfile.ZipFile(bundle_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for item in included:
+            zf.write(item["path"], arcname=item["arcname"])
+        zf.writestr(
+            "bundle_manifest.json",
+            json.dumps(
+                {
+                    "version": 1,
+                    "run_id": str(run_id),
+                    "included": included,
+                    "missing": missing,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "run_id": str(run_id),
+                "bundle_zip": str(bundle_zip),
+                "included": included,
+                "missing": missing,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    return {"bundle_zip": str(bundle_zip), "bundle_manifest": str(manifest_path)}
+
+
 __all__ = [
     "run_backtest",
     "run_command",
@@ -298,4 +612,11 @@ __all__ = [
     "get_freqtrade_version",
     "run_ml_training",
     "run_rl_training",
+    "run_micro_feature",
+    "run_tca",
+    "run_factor_compile",
+    "run_factor_eval",
+    "run_capture",
+    "run_lob_rebuild",
+    "run_report_bundle",
 ]

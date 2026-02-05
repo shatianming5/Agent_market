@@ -120,6 +120,581 @@
     - 新增示例配置：`configs/agent_flow_kucoin_cpu_nollm_portfolio.json`
   - Verified: 2026-02-01 (`pytest -q`)
 
+- [x] Missing-009: 增加 micro_feature（OHLCV micro features）步骤、脚本与 API
+  - Location: `src/agent_market/microstructure/`, `scripts/micro_features.py`, `server/api/routes/run.py`, `server/api/routes/flow.py`, `configs/agent_flow_pro_kucoin_smoke.json`
+  - Acceptance:
+    - `python scripts/micro_features.py --config user_data/config_freqai_kucoin.json --run-id test --timerange 20260101-20260110` 生成 `features.parquet` 与 `manifest.json`
+    - Flow 可选步骤 `micro_feature` 可运行并把产物写入 `artifacts/run_meta.json`
+    - API：`POST /run/micro_feature` 返回 `status=started` 与 `job_id`
+  - Implementation:
+    - 新增 `src/agent_market/microstructure/ohlcv_features.py`（ret/rv/vol_z/amihud 等稳定特征）
+    - 新增 `src/agent_market/microstructure/micro_feature.py`（从 freqtrade config 推导 exchange/pairs/datadir 并落盘 parquet+manifest）
+    - 新增脚本 `scripts/micro_features.py`
+    - Flow：`src/agent_market/agent_flow.py` 增加 `micro_feature` step + run_meta 记录
+    - Server：新增 `POST /run/micro_feature` 与 `GET /flow/micro-feature/{run_id|latest}`
+  - Verified: 2026-02-04 (`pytest -q && python scripts/smoke_test.py`)
+
+- [x] Missing-010: 增加 TCA 报告生成（基于 backtest trades）步骤、脚本与 API
+  - Location: `src/agent_market/tca/`, `scripts/tca_report.py`, `server/api/routes/run.py`, `server/api/routes/flow.py`
+  - Acceptance:
+    - `python scripts/tca_report.py --run-id test --backtest-zip user_data/backtest_results/backtest-result-*.zip` 生成 `tca_report.json`
+    - Flow 可选步骤 `tca` 可运行并把产物写入 `artifacts/run_meta.json`
+    - API：`POST /run/tca` 返回 `status=started` 与 `job_id`
+  - Implementation:
+    - 新增 `src/agent_market/tca/`（freqtrade zip 解析 + summary/quantiles + report 输出）
+    - 新增脚本 `scripts/tca_report.py`
+    - Flow：`src/agent_market/agent_flow.py` 增加 `tca` step + run_meta 记录
+    - Server：新增 `POST /run/tca` 与 `GET /flow/tca/{run_id|latest}`
+  - Verified: 2026-02-04 (`pytest -q && python scripts/smoke_test.py`)
+
+- [x] Missing-011: 增加 WS capture（KuCoin trades + L2 book）采集器（支持 fixture 离线回放）+ API
+  - Location: `src/agent_market/microstructure/capture/`, `scripts/micro_capture.py`, `server/api/routes/run.py`
+  - Acceptance:
+    - 离线回放：`python scripts/micro_capture.py --exchange kucoin --fixture tests/fixtures/kucoin_ws_sample.jsonl --out-dir artifacts/_tmp_capture` 生成：
+      - `artifacts/_tmp_capture/match.ndjson.gz`
+      - `artifacts/_tmp_capture/level2.ndjson.gz`
+      - `artifacts/_tmp_capture/manifest.json`（每个 channel 的 count > 0）
+    - API：`POST /run/capture` 返回 `status=started` 与 `job_id`
+  - Evidence: `plan.md` 明确要求 `capture` 步骤（trades + L2），当前仓库不存在采集器与对应 API。
+  - Notes:
+    - CI 不跑联网；用 fixture 回放做可重复验收
+    - Live 采集为 best-effort（网络/交易所限制不作为 CI gate）
+  - Implementation:
+    - 新增 `src/agent_market/microstructure/capture/kucoin.py`：KuCoin `bullet-public` 握手 + WS 订阅（match/level2）+ ping + best-effort 重连
+    - 新增 `src/agent_market/microstructure/capture/writer.py`：按 channel 写 `*.ndjson.gz` + `manifest.json`
+    - 新增脚本 `scripts/micro_capture.py`：支持 `--fixture` 离线回放与 live capture
+    - Server：新增 `POST /run/capture`（job kind=`capture`）
+    - 新增 fixture + 测试：`tests/fixtures/kucoin_ws_sample.jsonl`, `tests/test_micro_capture.py`
+  - Next:
+    - `pytest -q tests/test_micro_capture.py`
+    - （可选 live）`python scripts/micro_capture.py --exchange kucoin --symbols BTC-USDT --channels match,level2 --duration-sec 10`
+  - Verified: 2026-02-05 (`pytest -q tests/test_micro_capture.py`; TestClient `POST /run/capture` fixture mode)
+
+- [x] Missing-012: 增加 `lob_rebuild`（snapshot+delta → lob_state.parquet + rebuild_report）+ API + fixture 测试
+  - Location: `src/agent_market/microstructure/lob/`, `scripts/lob_rebuild.py`, `server/api/routes/run.py`
+  - Acceptance:
+    - `python scripts/lob_rebuild.py --capture-dir artifacts/_tmp_capture --snapshot tests/fixtures/kucoin_lob_snapshot.json --symbol BTC-USDT --out-dir artifacts/_tmp_lob` 生成：
+      - `artifacts/_tmp_lob/lob_state.parquet`
+      - `artifacts/_tmp_lob/rebuild_report.json`
+    - `pytest -q tests/test_lob_rebuild.py` 通过（fixture 离线，不联网）
+    - API：`POST /run/lob_rebuild` 返回 `status=started` 与 `job_id`
+  - Evidence: `plan.md` 6.1/6.2 要求 `lob_rebuild`；当前仓库缺失 `microstructure/lob/` 与对应接口。
+  - Notes:
+    - v1 只需支持 KuCoin `level2` channel 的增量更新格式与 sequence gap 统计
+    - 输出 schema 先包含 bid/ask topN + mid/spread/imbalance 等核心字段
+  - Implementation:
+    - `src/agent_market/microstructure/lob/rebuild.py`：实现 KuCoin L2 snapshot+delta 重建（top-N），输出 `lob_state.parquet` 与 `rebuild_report.json`（含 sequence gap 统计）
+    - `scripts/lob_rebuild.py`：新增 CLI，参数对齐 Acceptance（capture-dir/snapshot/symbol/out-dir/depth）
+    - `tests/fixtures/kucoin_lob_snapshot.json`：新增 snapshot fixture
+    - `tests/test_lob_rebuild.py`：新增 fixture 离线端到端测试（capture fixture → lob_rebuild → parquet/report 校验）
+    - `server/api/models.py`：新增 `LobRebuildReq`
+    - `server/api/routes/run.py`：新增 `POST /run/lob_rebuild`（job kind=`lob_rebuild`）
+  - Next:
+    - `python scripts/micro_capture.py --exchange kucoin --fixture tests/fixtures/kucoin_ws_sample.jsonl --out-dir artifacts/_tmp_capture`
+    - `python scripts/lob_rebuild.py --capture-dir artifacts/_tmp_capture --snapshot tests/fixtures/kucoin_lob_snapshot.json --symbol BTC-USDT --out-dir artifacts/_tmp_lob`
+    - `pytest -q tests/test_lob_rebuild.py`
+    - API（TestClient 验收）：`python -c "from fastapi.testclient import TestClient; import server.main as srv; c=TestClient(srv.app); r=c.post('/run/lob_rebuild', json={'exchange':'kucoin','capture_dir':'artifacts/_tmp_capture','snapshot':'tests/fixtures/kucoin_lob_snapshot.json','symbol':'BTC-USDT','out_dir':'artifacts/_tmp_lob'}); print(r.status_code, r.json())"`
+  - Verified: 2026-02-05 (`pytest -q tests/test_lob_rebuild.py`; CLI + TestClient `POST /run/lob_rebuild`)
+
+- [x] Missing-013: 增加 microstructure `FeatureRegistry` + LOB/Trades 特征库（覆盖 plan.md 第4章表格）
+  - Location: `src/agent_market/microstructure/features/`
+  - Acceptance:
+    - 实现并注册（至少）：`mid/spread/rel_spread/microprice/depth_bid_L/depth_ask_L/imbalance_L/trade_sign/vwap_w/ofi_w/arrival_intensity_w`
+    - `python scripts/micro_features.py ...` 支持从 `lob_state.parquet` 与 `match` 生成上述列，并在 manifest 标注依赖数据源
+    - pytest 增加覆盖（fixture 驱动）
+  - Evidence: `plan.md` 4.x 明确要求 feature registry；当前仅有 OHLCV micro features（`src/agent_market/microstructure/ohlcv_features.py`）。
+  - Implementation:
+    - 新增 `src/agent_market/microstructure/features/feature_registry.py`：最小 `FeatureRegistry` + 参数化特征注册（depth_levels/windows_sec）+ manifest 输出
+    - 新增 `src/agent_market/microstructure/features/core_features.py`：LOB 派生特征（microprice/depth_bid/depth_ask/imbalance）
+    - 新增 `src/agent_market/microstructure/features/ofi_features.py`：从 `match.ndjson.gz` 计算 `trade_sign/vwap_w/ofi_w/arrival_intensity_w` 并对齐到 LOB 时间戳
+    - `src/agent_market/microstructure/micro_feature.py`：新增 `generate_microstructure_features_from_lob_and_match()`（输出 `features.parquet` + `manifest.json`）
+    - `scripts/micro_features.py`：新增 microstructure 模式（`--lob-state/--match/--windows-sec/--depth-levels`），保留原 OHLCV 模式不变
+    - `tests/test_microstructure_features.py`：fixture 端到端测试（capture fixture → lob_rebuild → micro_features microstructure mode）
+  - Next:
+    - `pytest -q tests/test_microstructure_features.py`
+    - 手动验收（离线）：`python scripts/micro_capture.py --exchange kucoin --fixture tests/fixtures/kucoin_ws_sample.jsonl --out-dir artifacts/_tmp_capture && python scripts/lob_rebuild.py --capture-dir artifacts/_tmp_capture --snapshot tests/fixtures/kucoin_lob_snapshot.json --symbol BTC-USDT --out-dir artifacts/_tmp_lob && python scripts/micro_features.py --run-id tmp --out-dir artifacts/_tmp_micro --lob-state artifacts/_tmp_lob/lob_state.parquet --match artifacts/_tmp_capture/match.ndjson.gz --symbol BTC-USDT --depth-levels 20 --windows-sec 10`
+  - Verified: 2026-02-05 (`pytest -q tests/test_microstructure_features.py`; offline CLI micro_features)
+
+- [x] Missing-014: 升级 TCA 到 plan.md v1 schema（meta/orders/fills/benchmarks/costs/diagnostics/plots）并补齐“v1 必含”指标
+  - Location: `src/agent_market/tca/`, `scripts/tca_report.py`, `server/api/routes/flow.py`
+  - Acceptance:
+    - `python scripts/tca_report.py --run-id test --backtest-zip user_data/backtest_results/backtest-result-*.zip --html` 输出：
+      - `artifacts/runs/test/tca/tca_report.json` 满足 plan.md 5.1 顶层结构（允许部分字段为 null，但必须有 schema 位置）
+      - `artifacts/runs/test/tca/tca_report.html`
+    - pytest 覆盖关键字段存在性与数值合理性（至少 fees / slippage_distribution 占位 / fill 字段占位）
+  - Evidence: 当前 TCA 是简化版（`summary/distributions/per_pair`），与 plan.md 5.1 不一致。
+  - Implementation:
+    - `src/agent_market/tca/schema.py`：升级为 plan.md 5.1 v1 schema（`schema_version/meta/orders/fills/benchmarks/costs/diagnostics`），并保留 Phase1 的兼容字段（`summary/distributions/per_pair/source`）
+    - `src/agent_market/tca/report.py`：生成 v1 schema 结构；缺失数据以 `null/[]` 占位；将 `fees_total` 映射到 `costs.implementation_shortfall.by_component.fees.quote_ccy`
+    - `tests/test_tca_report.py`：更新断言覆盖 v1 顶层结构 + slippage/fill 占位字段
+  - Next:
+    - `pytest -q tests/test_tca_report.py`
+    - `python scripts/tca_report.py --run-id test --backtest-zip user_data/backtest_results/backtest-result-*.zip --html`
+  - Verified: 2026-02-05 (`pytest -q tests/test_tca_report.py`; `python scripts/tca_report.py --run-id verify014 --html`)
+
+- [x] Missing-015: Factor Compiler v1（FactorSpec Pydantic + JSON Schema + Canonical AST JSON）
+  - Location: `src/agent_market/factor_compiler/`
+  - Acceptance:
+    - 提供 `FactorSpec`（pydantic）与 JSON schema 导出（文件落盘到 `artifacts/...` 或 `src/.../schema.json`）
+    - 支持 Canonical AST JSON（可序列化/去重）
+    - pytest 覆盖 schema 校验与 roundtrip
+  - Evidence: `plan.md` 3.2/3.5/11 要求 FactorSpec；当前无 factor_compiler 目录。
+  - Implementation:
+    - 新增 `src/agent_market/factor_compiler/api_models.py`：定义 `FactorSpec/ExprNode/constraints/tests/meta`（pydantic v2），并提供 canonical JSON + sha256 与 JSON schema 导出
+    - 新增 `src/agent_market/factor_compiler/__init__.py`：导出公共符号
+    - 新增 `tests/test_factor_spec.py`：覆盖 schema 导出、FactorSpec roundtrip、canonical hash 稳定性
+  - Next:
+    - `pytest -q tests/test_factor_spec.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_spec.py`)
+
+- [x] Missing-016: DSL parser（Formula → AST）+ serializer（AST → Formula/JSON）
+  - Location: `src/agent_market/factor_compiler/dsl/`
+  - Acceptance:
+    - 支持最小算子子集（对齐现有 ExpressionEngine）并 roundtrip（Formula → AST → JSON → AST → Formula）
+    - pytest 覆盖 parser/serializer 与非法语法拒绝
+  - Evidence: `plan.md` 3.2/3.4 要求 DSL；当前仅支持表达式字符串（ExpressionEngine）。
+  - Implementation:
+    - 新增 `src/agent_market/factor_compiler/dsl/parser.py`：基于 Python `ast` 解析 Formula，输出 canonical `ExprNode`（支持 call/binop/unary/compare + var/const）
+    - 新增 `src/agent_market/factor_compiler/dsl/serializer.py`：将 `ExprNode` 序列化回 Formula（稳定括号化，便于 roundtrip）
+    - 新增 `src/agent_market/factor_compiler/dsl/grammar.py`：最小语法/操作符映射与安全标识符规则
+    - 新增 `tests/test_factor_dsl.py`：覆盖 Formula ↔ AST ↔ JSON ↔ AST ↔ Formula roundtrip + 非法语法拒绝
+  - Next:
+    - `pytest -q tests/test_factor_dsl.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_dsl.py`)
+
+- [x] Missing-017: Factor Compiler 算子库落地（Operators → ExpressionEngine mapping）+ 执行层 time-safety（禁止 shift<0）+ 补齐必要基础算子
+  - Location: `src/agent_market/factor_compiler/dsl/operators.py`, `src/agent_market/freqai/expression_engine.py`
+  - Acceptance:
+    - ExpressionEngine 增加缺失基础算子（至少：`ifelse/log/exp/sqrt/rolling_sum`），并对 `shift(x, n)` 强制 `n>=0`
+    - 通过 DSL 编译输出的表达式可被 `safe_eval_expression()` 执行
+    - pytest 覆盖负 shift 的拒绝（LOOKAHEAD）
+  - Evidence: `plan.md` 3.4/3.5.3；当前 shift 允许负数，且缺 ifelse/log/exp/sqrt/rolling_sum 等。
+  - Implementation:
+    - `src/agent_market/freqai/expression_engine.py`：新增 `ifelse/log/exp/sqrt/rolling_sum`；并在 AST 校验与运行时双重约束 `shift(x,n)` 的 `n>=0`
+    - `src/agent_market/factor_compiler/dsl/operators.py`：实现最小编译器 `compile_to_expression_engine()`（rolling_mean→roll_mean，zscore→ts_z 等 alias）
+    - `tests/test_expression_engine_ops.py`：覆盖新算子可执行 + 负 shift 拒绝 + DSL 编译产物可执行
+  - Next:
+    - `pytest -q tests/test_expression_engine_ops.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_expression_engine_ops.py`)
+
+- [x] Missing-018: Factor checks（complexity_budget/leakage tests）最小实现
+  - Location: `src/agent_market/factor_compiler/checks/`
+  - Acceptance:
+    - 实现 `complexity_budget`（max_nodes/max_depth）与基础泄漏探测（shift test / permutation test 的最小版本）
+    - pytest 覆盖触发与错误码
+  - Evidence: `plan.md` 3.5.4/3.5.5；当前未实现。
+  - Implementation:
+    - 新增 `src/agent_market/factor_compiler/checks/complexity.py`：计算 nodes/depth 并对齐 `ComplexityBudget(max_nodes/max_depth)`
+    - 新增 `src/agent_market/factor_compiler/checks/leakage.py`：最小 shift 结构检查（负 shift）+ permutation leakage sanity check（高 corr + p-value）
+    - 新增 `tests/test_factor_checks.py`：覆盖 complexity/shift/permutation 的 FAIL code 触发
+  - Next:
+    - `pytest -q tests/test_factor_checks.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_checks.py`)
+
+- [x] Missing-019: Factor Eval（ScoreReport + Hard gates + Pareto 输出）
+  - Location: `src/agent_market/factor_compiler/scoring/`
+  - Acceptance:
+    - 产出 `factor_scores.json` + `pareto.csv`（或 parquet）
+    - 至少实现 Predictive（IC/RankIC）+ Nan/turnover gate + 简单 Pareto
+    - pytest 覆盖产物与字段
+  - Evidence: `plan.md` 3.6/6.2/10.2；当前未实现。
+  - Implementation:
+    - 新增 `src/agent_market/factor_compiler/scoring/objectives.py`：IC/RankIC（Pearson/Spearman）指标
+    - 新增 `src/agent_market/factor_compiler/scoring/aggregate.py`：Hard gates（nan_ratio/turnover）+ Pareto front 输出并落盘 `factor_scores.json`/`pareto.csv`
+    - 新增 `tests/test_factor_scoring.py`：覆盖落盘产物与 gate/pareto 字段
+  - Next:
+    - `pytest -q tests/test_factor_scoring.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_scoring.py`)
+
+- [x] Missing-020: 接入 Flow 与 API：`/run/factor_compile`、`/run/factor_eval`、Flow steps、run_meta 产物索引
+  - Location: `server/api/routes/run.py`, `src/agent_market/agent_flow.py`, `src/agent_market/flow_steps.py`, `server/api/routes/flow.py`
+  - Acceptance:
+    - API 启动 job 并落盘产物；Flow `--steps factor_compile factor_eval` 可运行
+    - `GET /flow/run-meta/{run_id}` 的 checks 包含 factor artifacts
+  - Evidence: `plan.md` 6.1/7.1；当前缺 factor 相关 API/steps。
+  - Implementation:
+    - 新增 `scripts/factor_compile.py` / `scripts/factor_eval.py`：最小离线编译与评测（落盘 factor_compile/factor_eval artifacts）
+    - `src/agent_market/flow_steps.py`：新增 `run_factor_compile()` / `run_factor_eval()` 并接入 `AgentFlow`
+    - `src/agent_market/agent_flow.py`：新增 `factor_compile`/`factor_eval` steps + run_meta artifacts（spec/ast/expression/scores/pareto）
+    - `server/api/routes/run.py`：新增 `POST /run/factor_compile` 与 `POST /run/factor_eval`
+    - `server/api/routes/flow.py`：run_meta checks 增加 factor artifacts exist 校验
+    - 新增配置与测试：`configs/agent_flow_factor_smoke.json` + `tests/test_factor_flow_integration.py`
+  - Next:
+    - `pytest -q tests/test_factor_flow_integration.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_flow_integration.py`)
+
+- [x] Missing-021: Flow 接入 `capture`/`lob_rebuild`（可选步骤）并在 run_meta 记录 capture session 与 lob_state 路径
+  - Location: `src/agent_market/agent_flow.py`, `src/agent_market/flow_steps.py`
+  - Acceptance:
+    - `python scripts/agent_flow.py --config ... --steps capture lob_rebuild` 可运行（fixture 模式）
+    - run_meta artifacts 增加 `capture_manifest` / `lob_state_parquet` / `rebuild_report`
+  - Evidence: `plan.md` 6.1；当前 capture 独立存在但未接入 Flow。
+  - Implementation:
+    - `src/agent_market/flow_steps.py`：新增 `run_capture()` / `run_lob_rebuild()`（调用 `scripts/micro_capture.py` 与 `scripts/lob_rebuild.py`）
+    - `src/agent_market/agent_flow.py`：新增 Flow steps `capture`/`lob_rebuild`，并在 run_meta 记录 `capture_manifest`/`lob_state_parquet`/`rebuild_report`
+    - `server/api/routes/flow.py`：run_meta checks 增加 capture/lob 产物 exists 校验（便于前端/验收）
+    - 新增配置与测试：`configs/agent_flow_capture_lob_smoke.json` + `tests/test_flow_capture_lob_steps.py`
+  - Next:
+    - `pytest -q tests/test_flow_capture_lob_steps.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_flow_capture_lob_steps.py`)
+
+- [x] Missing-022: `report` 步骤：bundle.zip 汇总（factor scores + backtest zip + tca report + 关键链接）
+  - Location: `src/agent_market/agent_flow.py`, `src/agent_market/flow_steps.py`, `server/api/routes/results.py`
+  - Acceptance:
+    - 生成 `artifacts/runs/<run_id>/bundle/bundle.zip`
+    - `/results/gallery` 或新增 endpoint 可列出/下载 bundle
+  - Evidence: `plan.md` 6.1/6.2/10.3/11；当前缺 report 步骤与 bundle 产物。
+  - Implementation:
+    - `src/agent_market/flow_steps.py`：新增 `run_report_bundle()`，将关键 artifacts 打包为 `bundle.zip` 并写 `bundle_manifest.json`
+    - `src/agent_market/agent_flow.py`：新增 Flow step `report`，写入 run_meta 的 `bundle_zip`/`bundle_manifest`
+    - `server/api/routes/results.py`：新增 `/results/bundles/list` 与 `/results/bundles/download/{run_id}`
+    - 新增配置与测试：`configs/agent_flow_bundle_smoke.json` + `tests/test_report_bundle.py`
+  - Next:
+    - `pytest -q tests/test_report_bundle.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_report_bundle.py`)
+
+- [x] Missing-023: 前端增强：可视化 factor scores 与 TCA 分解（Flow 节点/面板）
+  - Location: `web/`, `server/api/routes/flow.py`
+  - Acceptance:
+    - Flow UI 增加 factor_score / tca_report 的面板展示（至少 JSON 预览 + 下载链接）
+    - 支持从 run history 点击查看对应 report/factor scores
+  - Evidence: `plan.md` 10.3；当前 UI 仅展示产物检查链接，不含评分/TCA 分解可视化。
+  - Implementation:
+    - `server/api/routes/flow.py`：新增 `/flow/factor-scores/{run_id|latest}`，用于 JSON 预览 factor_scores
+    - `web/app.js`：在“产物检查”面板增加 factor scores JSON 链接与 bundle.zip 下载链接（若存在）
+    - `web/index.html`：Flow steps placeholder 补齐 capture/lob/factor/report 等可选步骤提示
+    - `tests/test_web_factor_ui_links.py`：静态断言前端包含 factor-scores 与 bundle 下载链接
+  - Next:
+    - `pytest -q tests/test_web_factor_ui_links.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_web_factor_ui_links.py`)
+
+- [x] Missing-024: 评测规范落地（walk-forward + purge/embargo、成本入账、容量报告、污染控制）
+  - Location: `src/agent_market/freqai/training/`, `src/agent_market/backtest_results.py`, `src/agent_market/tca/`
+  - Acceptance:
+    - 提供可运行的评测入口（脚本/Flow step）并输出可复现 evidence（配置快照 + 指标）
+    - pytest 覆盖至少“时间安全”与“成本入账”基础断言
+  - Evidence: `plan.md` 9；当前未实现系统级评测规范。
+  - Implementation:
+    - 新增 `src/agent_market/freqai/training/eval_protocol.py`：最小 walk-forward splitter（purge/embargo）+ 成本入账（profit_abs - fees_total）+ eval_report 生成
+    - 新增脚本 `scripts/eval_protocol.py`：读取 `run_meta` + backtest summary + tca_report，写 `artifacts/runs/<run_id>/eval_protocol/eval_report.json`
+    - 新增 `tests/test_eval_protocol.py`：覆盖 purge/embargo 约束、成本入账 net_profit_abs、time-safety（负 shift 拒绝）与 report 落盘
+  - Next:
+    - `pytest -q tests/test_eval_protocol.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_eval_protocol.py`)
+
+- [x] Missing-025: 对齐 plan.md 的 `flow_ext/` 模块结构（steps/artifacts/validators），并保持兼容现有 Flow
+  - Location: `src/agent_market/flow_ext/`, `src/agent_market/agent_flow.py`, `src/agent_market/flow_steps.py`
+  - Acceptance:
+    - 存在 `src/agent_market/flow_ext/steps.py`、`artifacts.py`、`validators.py`
+    - `pytest -q tests/test_flow_ext_modules.py` 通过（验证模块可导入 + 关键函数可用）
+    - 现有 `python scripts/agent_flow.py --config configs/agent_flow_bundle_smoke.json --steps factor_compile factor_eval report` 可运行（不回归）
+  - Evidence: `plan.md` 2.1 目录建议包含 `flow_ext/`；当前扩展逻辑散落在 `agent_flow.py/flow_steps.py`。
+  - Notes: 允许先以“薄封装 + re-export”为主，后续再迁移实现细节。
+  - Implementation:
+    - 新增 `src/agent_market/flow_ext/{steps,artifacts,validators}.py`：提供 step order、路径 helper、run_meta 检查基础函数（与 plan.md 对齐）
+    - `src/agent_market/agent_flow.py`：切换为从 `agent_market.flow_ext.steps` 引用 step runners（保持行为不变）
+    - 新增测试 `tests/test_flow_ext_modules.py`：验证模块可导入与 helper 行为
+  - Next:
+    - `pytest -q tests/test_flow_ext_modules.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_flow_ext_modules.py`)
+
+- [x] Missing-026: Factor Compiler 补齐 plan.md 文件级清单（ast/types/time_safety/data_schema/unit_test_gen/novelty/stability/prompts）
+  - Location: `src/agent_market/factor_compiler/`
+  - Acceptance:
+    - 新增并可导入：
+      - `factor_compiler/dsl/ast.py`, `factor_compiler/dsl/types.py`
+      - `factor_compiler/checks/time_safety.py`, `factor_compiler/checks/data_schema.py`, `factor_compiler/checks/unit_test_gen.py`
+      - `factor_compiler/scoring/novelty.py`, `factor_compiler/scoring/stability.py`
+      - `factor_compiler/prompts/factor_spec.system.md`, `factor_compiler/prompts/factor_spec.fewshot.json`
+    - `pytest -q tests/test_factor_compiler_planmd_paths.py` 通过（存在性 + 最小行为断言）
+  - Evidence: `docs/plan_gap_planmd.md` 2.1.1（文件级清单）中上述条目仍为 MISSING。
+  - Notes: 允许以“稳定 API + 最小可用实现”先对齐路径；复杂逻辑后续通过新 Missing 细化。
+  - Implementation:
+    - 新增 Factor Compiler 缺失模块（plan.md 路径对齐）：
+      - `src/agent_market/factor_compiler/dsl/ast.py`, `src/agent_market/factor_compiler/dsl/types.py`
+      - `src/agent_market/factor_compiler/checks/time_safety.py`, `src/agent_market/factor_compiler/checks/data_schema.py`, `src/agent_market/factor_compiler/checks/unit_test_gen.py`
+      - `src/agent_market/factor_compiler/scoring/novelty.py`, `src/agent_market/factor_compiler/scoring/stability.py`
+      - `src/agent_market/factor_compiler/prompts/factor_spec.system.md`, `src/agent_market/factor_compiler/prompts/factor_spec.fewshot.json`
+    - 新增测试 `tests/test_factor_compiler_planmd_paths.py`：导入与最小行为断言（schema/type/time-safety/novelty/stability/prompt）
+  - Next:
+    - `pytest -q tests/test_factor_compiler_planmd_paths.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_compiler_planmd_paths.py`)
+
+- [x] Missing-027: 补齐 plan.md 3.4 时间序列算子与鲁棒算子（diff/decay_linear/winsorize/robust_z…）并接入 DSL 编译
+  - Location: `src/agent_market/freqai/expression_engine.py`, `src/agent_market/factor_compiler/dsl/operators.py`
+  - Acceptance:
+    - ExpressionEngine 支持并通过校验：`diff/pct_change/rolling_mean/rolling_std/rolling_sum/rolling_min/rolling_max/decay_linear/winsorize/robust_z`
+    - DSL `compile_to_expression_engine()` 支持相应 alias（`rolling_mean` 等）并保持向后兼容
+    - `pytest -q tests/test_expression_engine_planmd_ops.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.4.2 标注 diff/decay_linear/winsorize/robust_z 为 MISSING/不一致。
+  - Implementation:
+    - `src/agent_market/freqai/expression_engine.py`：新增算子 `diff/decay_linear/winsorize/robust_z`，并补齐 `rolling_mean/rolling_std/zscore` alias
+    - 新增测试 `tests/test_expression_engine_planmd_ops.py`：覆盖新算子可执行与基本性质
+  - Next:
+    - `pytest -q tests/test_expression_engine_planmd_ops.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_expression_engine_planmd_ops.py`)
+
+- [x] Missing-028: Microstructure 补齐 plan.md 文件级清单（ws_capture + exchange_adapters + checksum + volatility_features + parquet schemas）
+  - Location: `src/agent_market/microstructure/`
+  - Acceptance:
+    - 新增并可导入：
+      - `microstructure/capture/ws_capture.py`
+      - `microstructure/capture/exchange_adapters/{binance,okx,bybit,kraken}.py`（可先为统一接口的占位实现）
+      - `microstructure/lob/checksum.py`
+      - `microstructure/features/volatility_features.py`
+      - `microstructure/schemas/lob_parquet.py`, `microstructure/schemas/trades_parquet.py`
+    - `pytest -q tests/test_microstructure_planmd_modules.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 2.1.1（Microstructure 文件级清单）多项为 MISSING。
+  - Implementation:
+    - 新增 `src/agent_market/microstructure/capture/ws_capture.py`：提供可复用的 capture 入口（fixture 回放 / live kucoin）
+    - 新增 `src/agent_market/microstructure/capture/exchange_adapters/*`：多交易所 adapter 占位（统一接口，未实现）
+    - 新增 `src/agent_market/microstructure/lob/checksum.py`：capture/lob_state 文件级 sha256 校验
+    - 新增 `src/agent_market/microstructure/features/volatility_features.py`：最小 realized volatility helper
+    - 新增 `src/agent_market/microstructure/schemas/{lob_parquet,trades_parquet}.py`：parquet schema/validate helper
+    - 新增测试 `tests/test_microstructure_planmd_modules.py`：fixture capture + schema/adapter 断言
+  - Next:
+    - `pytest -q tests/test_microstructure_planmd_modules.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_microstructure_planmd_modules.py`)
+
+- [x] Missing-029: TCA v1 深化：从 freqtrade backtest trades 提取 orders/fills 并计算 IS/Slippage 等最小指标；补齐 simulated_exec adapter
+  - Location: `src/agent_market/tca/`, `scripts/tca_report.py`
+  - Acceptance:
+    - `python scripts/tca_report.py --run-id test --backtest-zip user_data/backtest_results/backtest-result-*.zip` 输出的 `tca_report.json`：
+      - `orders[]/fills[]` 非空（当 backtest trades 含 orders 时）
+      - `costs.implementation_shortfall.total.quote_ccy` 与 `by_component.fees.quote_ccy` 有数值（best-effort）
+    - `pytest -q tests/test_tca_orders_fills.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 5.1/5.2 指出 orders/fills/IS 等为缺失或占位。
+  - Implementation:
+    - `src/agent_market/tca/report.py`：从 backtest trades 的 `orders[]` 提取 plan.md v1 位置的 `orders/fills`；并用 fees_total 计算最小 `implementation_shortfall.total`（quote_ccy + bps）
+    - `src/agent_market/tca/adapters/simulated_exec.py`：新增最小 simulated exec adapter（离线 deterministic market-order model）
+    - 新增测试 `tests/test_tca_orders_fills.py`：当 backtest zip 含 orders 时，断言 `orders/fills` 非空且 `implementation_shortfall.total.quote_ccy` 有数值
+  - Next:
+    - `pytest -q tests/test_tca_orders_fills.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_tca_orders_fills.py`)
+
+- [x] Missing-030: LLM 集成（plan.md 第8章）：新增 FactorSpec 生成入口（prompt assets + 解析/校验）并接入反馈闭环（factor_eval→下一轮生成）
+  - Location: `src/agent_market/freqai/llm.py`, `src/agent_market/factor_compiler/`, `server/api/routes/*`（可选）
+  - Acceptance:
+    - 提供离线可运行的最小入口（即使无 API Key 也能走 validate/parse 路径）
+    - `pytest -q tests/test_llm_factor_spec.py` 通过（prompt 载入 + FactorSpec validate）
+  - Evidence: `docs/plan_gap_planmd.md` 8.1 标注为 MISSING；现有 LLM 仅输出 expressions 列表。
+  - Implementation:
+    - `src/agent_market/freqai/llm.py`：新增 FactorSpec prompt assets 载入（`factor_spec.system.md`/`factor_spec.fewshot.json`）+ JSON 提取 + `FactorSpec.model_validate()` 解析入口；并允许 `request_completion(..., system_prompt=...)` 覆盖 system prompt
+    - 新增测试 `tests/test_llm_factor_spec.py`：离线读取 fewshot example 并走 parse/validate
+  - Next:
+    - `pytest -q tests/test_llm_factor_spec.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_llm_factor_spec.py`)
+
+- [x] Missing-031: 对齐 plan.md 7.2 的错误码体系（Factor Compiler / LOB / TCA），并在 API 层返回稳定 code + details
+  - Location: `server/api/errors.py`, `server/api/routes/run.py`, `server/api/routes/flow.py`
+  - Acceptance:
+    - Factor compile/eval、lob_rebuild 等关键路径在常见错误下返回 plan.md 对应 code（或兼容映射）
+    - `pytest -q tests/test_api_error_codes_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 7.2 标注错误码体系缺失/不统一。
+  - Implementation:
+    - `server/api/routes/run.py`：为 `/run/factor_compile`、`/run/factor_eval` 增加 preflight（FactorSpec/ExpressionEngine 校验 + complexity/time-safety/typecheck），并映射到 plan.md error codes：`UNKNOWN_OPERATOR/TYPECHECK_FAILED/LOOKAHEAD_DETECTED/COMPLEXITY_BUDGET_EXCEEDED`
+    - `server/api/routes/run.py`：为 `/run/lob_rebuild` 统一 missing-data 返回 `DATA_NOT_FOUND`（带 `legacy_code/details`），并增加 level2 序列 gap 预检返回 `LOB_SEQUENCE_GAP`
+    - 新增测试 `tests/test_api_error_codes_planmd.py`：覆盖上述关键错误码场景
+  - Next:
+    - `pytest -q tests/test_api_error_codes_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_api_error_codes_planmd.py`)
+
+- [x] Missing-032: 补齐 plan.md 3.4.4 微观结构算子（mid/spread/microprice/depth*/imbalance/trade_sign/ofi/vwap/arrival_intensity）
+  - Location: `src/agent_market/freqai/expression_engine.py`, `src/agent_market/factor_compiler/dsl/operators.py`, `src/agent_market/microstructure/features/`
+  - Acceptance:
+    - ExpressionEngine/DSL 编译支持：
+      - `mid(bid1, ask1)`, `spread(bid1, ask1)`
+      - `depth_bid(L)`, `depth_ask(L)`, `imbalance(depth_bid, depth_ask)`
+      - `trade_sign()`, `vwap(w)`, `ofi(w)`, `arrival_intensity(w)`
+    - 允许以“编译到已存在的特征列名”为主（例如 `depth_bid(20)` → `depth_bid_20`，`vwap(10)` → `vwap_10`），保证离线可验收
+    - `pytest -q tests/test_factor_microstructure_ops.py` 通过（fixture lob_state + match rollups 上可执行）
+  - Evidence: `docs/plan_gap_planmd.md` 3.4.4 中这些算子仍为 MISSING。
+  - Implementation:
+    - `src/agent_market/factor_compiler/dsl/operators.py`：新增 microstructure call 编译规则（优先映射到已存在列名：`mid/spread/microprice/trade_sign/depth_*_{L}/imbalance_{L}/vwap_{w}/ofi_{w}/arrival_intensity_{w}`），避免扩展 ExpressionEngine callables
+    - 新增测试 `tests/test_factor_microstructure_ops.py`：fixture pipeline 生成 microstructure features.parquet 后，对上述算子逐一 compile + safe_eval 验收
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_microstructure_ops.py`)
+
+- [x] Missing-033: 扩展 Factor Eval 的 ScoreReport 字段覆盖（IC_IR/rolling IC std/Sharpe/Sortino/MDD/novelty/complexity…）+ 聚合评分（weighted + corr gate）
+  - Location: `src/agent_market/factor_compiler/scoring/`, `scripts/factor_eval.py`
+  - Acceptance:
+    - `factor_scores.json` 每项至少包含（best-effort）：
+      - `ic`, `rank_ic`, `ic_ir`, `ic_rolling_std`
+      - `sharpe_net`, `sortino_net`, `mdd`
+      - `corr_to_library_max`, `ast_similarity_max`
+      - `node_count`, `depth`
+      - `weighted_score`, `gate_pass`（含 corr gate）
+    - `pytest -q tests/test_factor_scoring_planmd_fields.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.6.1/3.6.2 多数字段仍为 MISSING。
+  - Implementation:
+    - `src/agent_market/factor_compiler/scoring/aggregate.py`：ScoreReport 扩展字段（rolling IC stats、trading proxies、novelty、expr complexity、weighted score + corr gate），保持 best-effort（数据不足时填 `null`）
+    - `scripts/factor_eval.py`：将当前表达式透传到 scoring（用于 node_count/depth/ast_similarity 的 best-effort 统计）
+    - 新增测试 `tests/test_factor_scoring_planmd_fields.py`：断言字段覆盖 + corr gate 生效
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_scoring_planmd_fields.py`)
+
+- [x] Missing-034: Microstructure feature library 扩展（buy_vol/sell_vol、slope/convexity、执行/毒性 proxy 最小版）
+  - Location: `src/agent_market/microstructure/features/`
+  - Acceptance:
+    - `FeatureRegistry` 额外注册并可生成：`buy_vol_w`, `sell_vol_w`（w 来自 windows_sec）；并补齐至少一个 LOB shape 扩展特征（slope 或 convexity）
+    - `pytest -q tests/test_microstructure_feature_library_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 第4章表格仍有 slope/convexity/buy_vol/sell_vol 为 MISSING。
+  - Implementation:
+    - `src/agent_market/microstructure/features/ofi_features.py`：trade rollups 增加 `buy_vol_{w}`/`sell_vol_{w}`（按窗口 rolling sum）
+    - `src/agent_market/microstructure/features/core_features.py`：新增 `compute_slope_bid_levels()`（size~distance 的 best-effort slope）
+    - `src/agent_market/microstructure/features/feature_registry.py`：注册 `buy_vol_{w}`/`sell_vol_{w}` 与 `slope_bid_{L}`（如 `slope_bid_20`）
+    - 新增测试 `tests/test_microstructure_feature_library_planmd.py`：fixture pipeline 生成 features.parquet 后断言新列存在
+  - Verified: 2026-02-05 (`pytest -q tests/test_microstructure_feature_library_planmd.py`)
+
+- [x] Missing-035: 补齐 plan.md 3.4.3 截面算子（rank_xs/zscore_xs/neutralize/corr_xs）
+  - Location: `src/agent_market/freqai/expression_engine.py`
+  - Acceptance:
+    - ExpressionEngine 支持：
+      - `rank_xs(x)` / `zscore_xs(x)`
+      - `corr_xs(x, y)`
+      - `neutralize(x, against1, against2, ...)`（线性残差）
+    - 默认以 `df['date']`（或 `df['ts']`）作为截面分组键；也允许第二个参数传入 group-key series
+    - `pytest -q tests/test_expression_engine_xs_ops.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.4.3 标注为 MISSING。
+  - Implementation:
+    - `src/agent_market/freqai/expression_engine.py`：新增 `rank_xs/zscore_xs/corr_xs/neutralize`（基于 df 的 `date/ts` 分组；可选传入 group series）
+    - 新增测试 `tests/test_expression_engine_xs_ops.py`
+  - Next:
+    - `pytest -q tests/test_expression_engine_xs_ops.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_expression_engine_xs_ops.py`)
+
+- [x] Missing-036: 补齐 plan.md 3.4.4 执行/成本 proxy 算子（fill_prob/impact_proxy/queue_pos_proxy）
+  - Location: `src/agent_market/freqai/expression_engine.py`
+  - Acceptance:
+    - ExpressionEngine 支持：
+      - `fill_prob(limit_px_offset, horizon)`
+      - `impact_proxy(w)`
+      - `queue_pos_proxy()`
+    - 允许 best-effort proxy（优先使用 microstructure features 列；缺失时降级为可解释的 fallback）
+    - `pytest -q tests/test_expression_engine_exec_ops.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.4.4 相关算子标注为 MISSING。
+  - Implementation:
+    - `src/agent_market/freqai/expression_engine.py`：新增 `fill_prob/impact_proxy/queue_pos_proxy`（best-effort proxy；优先用 microstructure 列）
+    - 新增测试 `tests/test_expression_engine_exec_ops.py`
+  - Next:
+    - `pytest -q tests/test_expression_engine_exec_ops.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_expression_engine_exec_ops.py`)
+
+- [x] Missing-037: 补齐 plan.md 4.1 的 `convexity_L`
+  - Location: `src/agent_market/microstructure/features/core_features.py`, `src/agent_market/microstructure/features/feature_registry.py`
+  - Acceptance:
+    - `micro_features` microstructure mode 输出包含 `convexity_{L}`（例如 `convexity_20`）
+    - `pytest -q tests/test_microstructure_convexity_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 4.1 表格 `convexity_L` 仍为 MISSING。
+  - Implementation:
+    - `src/agent_market/microstructure/features/core_features.py`：新增 `compute_convexity_levels()`（基于 sizes across levels 的二阶形态 proxy）
+    - `src/agent_market/microstructure/features/feature_registry.py`：注册 `convexity_{L}`
+    - 新增测试 `tests/test_microstructure_convexity_planmd.py`
+  - Next:
+    - `pytest -q tests/test_microstructure_convexity_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_microstructure_convexity_planmd.py`)
+
+- [x] Missing-038: 补齐 plan.md 4.3 执行与毒性 proxy（expected_slippage_proxy/fill_prob_proxy/toxicity_proxy）
+  - Location: `src/agent_market/microstructure/features/feature_registry.py`
+  - Acceptance:
+    - `micro_features` microstructure mode 输出包含（best-effort）：`expected_slippage_proxy`, `fill_prob_proxy`, `toxicity_proxy`
+    - `pytest -q tests/test_microstructure_execution_proxies_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 4.3 标注为 MISSING。
+  - Implementation:
+    - `src/agent_market/microstructure/features/feature_registry.py`：新增并注册 3 个 proxy 特征（best-effort；复用 spread/depth/imbalance/arrival_intensity/ofi 等列）
+    - 新增测试 `tests/test_microstructure_execution_proxies_planmd.py`
+  - Next:
+    - `pytest -q tests/test_microstructure_execution_proxies_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_microstructure_execution_proxies_planmd.py`)
+
+- [x] Missing-039: 补齐 plan.md 3.5.4 Leakage tests（Shift test + Label leakage signature）
+  - Location: `src/agent_market/factor_compiler/checks/leakage.py`
+  - Acceptance:
+    - 新增 checks：
+      - Shift test：整体 shift +1 后相关不降 → 可疑
+      - Label leakage signature：0-lag 相关异常尖峰 → 可疑
+    - `pytest -q tests/test_factor_leakage_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.5.4 两项标注为 MISSING。
+  - Implementation:
+    - `src/agent_market/factor_compiler/checks/leakage.py`：新增 `check_shift_test()` 与 `check_label_leakage_signature()`
+    - `src/agent_market/factor_compiler/checks/__init__.py`：导出新增 checks
+    - 新增测试 `tests/test_factor_leakage_planmd.py`
+  - Next:
+    - `pytest -q tests/test_factor_leakage_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_leakage_planmd.py`)
+
+- [x] Missing-040: 补齐 plan.md 3.5.5 budgets + 复杂度细化（compute_budget/turnover_budget/max_expensive_ops）
+  - Location: `src/agent_market/factor_compiler/api_models.py`, `src/agent_market/factor_compiler/checks/complexity.py`
+  - Acceptance:
+    - `ComplexityBudget` 支持 `max_expensive_ops`
+    - 提供 best-effort `compute_budget` 与 `turnover_budget` 估计（结构静态 proxy）
+    - `pytest -q tests/test_factor_budget_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.5.5 标注 compute/turnover budgets 为 MISSING；complexity_budget 缺 max_expensive_ops。
+  - Implementation:
+    - `src/agent_market/factor_compiler/api_models.py`：`ComplexityBudget` 新增 `max_expensive_ops`
+    - `src/agent_market/factor_compiler/checks/complexity.py`：复杂度统计增加 `expensive_ops` 并执行 budget gate；新增 `estimate_compute_budget()` 与 `estimate_turnover_budget()`（static proxy）
+    - `src/agent_market/factor_compiler/checks/__init__.py`：导出 budget estimators
+    - 新增测试 `tests/test_factor_budget_planmd.py`
+  - Next:
+    - `pytest -q tests/test_factor_budget_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_budget_planmd.py`)
+
+- [x] Missing-041: 补齐 plan.md 3.6.1/3.6.2 剩余 ScoreReport 字段（regime_consistency/train_test_gap/capacity_proxy/expensive_ops/微结构占位）
+  - Location: `src/agent_market/factor_compiler/scoring/aggregate.py`
+  - Acceptance:
+    - `factor_scores.json` items 包含（best-effort）：`regime_consistency`, `train_test_gap`, `capacity_proxy`, `expensive_ops`, `slippage_reduction_bps`, `fill_rate`, `adverse_selection_proxy`
+    - `pytest -q tests/test_factor_scoring_planmd_more_fields.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.6.1/3.6.2 多项仍为 MISSING。
+  - Implementation:
+    - `src/agent_market/factor_compiler/scoring/aggregate.py`：ScoreReport 补齐稳定性/容量/微结构占位字段，并增加 `expensive_ops`（基于表达式 AST）
+    - 新增测试 `tests/test_factor_scoring_planmd_more_fields.py`
+  - Next:
+    - `pytest -q tests/test_factor_scoring_planmd_more_fields.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_scoring_planmd_more_fields.py`)
+
+- [x] Missing-042: 对齐 plan.md 3.5.3 label 显式化（future_return(h)）
+  - Location: `src/agent_market/freqai/training/pipeline.py`
+  - Acceptance:
+    - 训练 label 通过单独的 `future_return(close, h)` 生成（而非散落的 `shift(-h)`）
+    - `pytest -q tests/test_future_return_label_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.5.3 标注 label 显式化为 MISSING。
+  - Implementation:
+    - 新增 `src/agent_market/freqai/training/labels.py`：`future_return(close, horizon)` 标签生成函数
+    - `src/agent_market/freqai/training/pipeline.py`：训练数据集 builder 改为调用 `future_return(...)`
+    - 新增测试 `tests/test_future_return_label_planmd.py`
+  - Next:
+    - `pytest -q tests/test_future_return_label_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_future_return_label_planmd.py`)
+
+- [x] Missing-043: TCA 补齐 plan.md 5.2 的关键成本分解（IS/spread/delay/impact/participation）最小 proxy
+  - Location: `src/agent_market/tca/report.py`
+  - Acceptance:
+    - `tca_report.json` 的 `costs.implementation_shortfall` 在 fees 之外，至少补齐（best-effort proxy）：`spread/delay/market_impact` 的 bps（允许为 0.0，但不得缺 key）
+    - `diagnostics` 输出 `participation`（基于 OHLCV volume 的 proxy）
+    - `pytest -q tests/test_tca_cost_breakdown_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 5.2 成本分解相关条目标注为 MISSING。
+  - Implementation:
+    - `src/agent_market/tca/schema.py`：`TCADiagnostics` 新增 `participation` 字段（保持默认兼容）
+    - `src/agent_market/tca/report.py`：补齐 IS 分解（spread/delay/market_impact）bps 最小 proxy（默认 0.0）；新增 OHLCV volume participation proxy 写入 `diagnostics.participation`
+    - 新增测试 `tests/test_tca_cost_breakdown_planmd.py`
+  - Next:
+    - `pytest -q tests/test_tca_cost_breakdown_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_tca_cost_breakdown_planmd.py`)
+
+- [x] Missing-044: Factor Compiler 补齐 plan.md 3.5.3 的 `availability_delay_ms` 可交易性约束（best-effort gate）
+  - Location: `src/agent_market/factor_compiler/checks/time_safety.py`, `server/api/routes/run.py`
+  - Acceptance:
+    - `check_time_safety(expr, min_delay_ms=...)` 会校验 `inferred.availability_delay_ms <= min_delay_ms`
+    - `POST /run/factor_compile` 预检调用 time_safety 时传入 `spec.constraints.min_delay_ms`
+    - `pytest -q tests/test_factor_availability_delay_planmd.py` 通过
+  - Evidence: `docs/plan_gap_planmd.md` 3.5.3 条目 `availability_delay_ms` 仍标注为 MISSING。
+  - Notes: 当前仓库缺少真实执行/撮合延迟建模；本项实现“可扩展 gate + 可测试覆盖”，默认不会影响现有 ohlcv-only spec。
+  - Implementation:
+    - `src/agent_market/factor_compiler/checks/time_safety.py`：新增 `check_availability_delay()` 并将其纳入 `check_time_safety(min_delay_ms=...)`
+    - `server/api/routes/run.py`：`/run/factor_compile` 预检调用 `check_time_safety(..., min_delay_ms=spec.constraints.min_delay_ms)`
+    - 新增测试 `tests/test_factor_availability_delay_planmd.py`
+  - Next:
+    - `pytest -q tests/test_factor_availability_delay_planmd.py`
+  - Verified: 2026-02-05 (`pytest -q tests/test_factor_availability_delay_planmd.py`)
+
 ## Ambiguous
 - [x] Amb-001: “完美落地”在前端体验上的范围与验收标准
   - Location: `web/`
@@ -137,3 +712,7 @@
 ## Log
 - 2026-01-31: 新增黄金路径配置与端到端冒烟脚本；修复回测在无交易所网络时失败（离线 markets/pairlist 推断）；补齐 repo_inventory/plan/mohu 文档，开始进入“按 Missing 清零”的迭代循环。
 - 2026-02-01: 补齐 Run History（后端 runs/list + 前端列表 + e2e 断言）；修复前端中文乱码并移除外部 CDN 依赖；补齐 CI（smoke 自动跑 + e2e 手动触发）；清理误追踪的 llm_feedback 产物；全套 pytest 通过。
+- 2026-02-05: 清零 Missing-011..024：Flow 接入 capture/lob_rebuild/factor/report；补齐 Factor DSL/编译/检查/评分；补齐 `/run/factor_*` 与 `/flow/factor-scores/*`；新增 bundle.zip 下载与最小 eval_protocol；`pytest -q` 全通过。
+- 2026-02-05: 清零 Missing-032..034：补齐 microstructure 算子编译映射、ScoreReport 字段覆盖（weighted + corr gate）、microstructure feature library（buy/sell vol + slope）；`pytest -q` 全通过。
+- 2026-02-05: 清零 Missing-035..043：补齐截面/执行 proxy 算子、microstructure 形态与执行/毒性 proxy、leakage checks、budgets 细化、ScoreReport 字段补齐、label 显式化、TCA 成本分解 + participation proxy；`pytest -q` 全通过。
+- 2026-02-05: 清零 Missing-044：Factor Compiler time-safety 补齐 availability_delay_ms gate（best-effort）；`pytest -q` 全通过。

@@ -13,6 +13,7 @@ import pandas as pd
 from agent_market.freqai.expression_engine import apply_expressions, load_expression_file
 from agent_market.freqai.features import apply_configured_features
 from agent_market.freqai.model.base import ModelRegistry, TrainResult
+from agent_market.freqai.training.labels import future_return
 
 try:  # optional deps
     from sklearn.model_selection import TimeSeriesSplit
@@ -72,7 +73,7 @@ class FeatureDatasetBuilder:
             columns = self._select_feature_columns(df)
             if not columns:
                 continue
-            labels = (df['close'].shift(-self.label_period) / df['close']) - 1
+            labels = future_return(df["close"], self.label_period)
             features = df[columns]
             features, labels = self._align(features, labels)
             if features.empty:

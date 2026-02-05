@@ -1,0 +1,15 @@
+{
+  "capture": {
+    "exchange": "kucoin",
+    "channels": "match,level2",
+    "symbols": "BTC-USDT",
+    "fixture": "tests/fixtures/kucoin_ws_sample.jsonl"
+  },
+  "lob_rebuild": {
+    "exchange": "kucoin",
+    "symbol": "BTC-USDT",
+    "depth": 20,
+    "snapshot": "tests/fixtures/kucoin_lob_snapshot.json"
+  }
+}
+

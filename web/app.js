@@ -241,6 +241,38 @@ async function renderFlowArtifactsCheck(runIdOverride) {
     href: latestZipName ? `${API}/results/summary?name=${encodeURIComponent(latestZipName)}` : `${API}/results/latest-summary`,
     detail: btZips.length ? btZips.map(x => x.path).filter(Boolean).slice(0, 3).join('\n') : '',
   }))
+  if (artifacts.micro_feature_manifest || artifacts.micro_feature_parquet) {
+    rows.push(_renderArtifactItem({
+      label: 'micro features (manifest)',
+      ok: !!(checks.micro_feature_manifest && checks.micro_feature_manifest.exists),
+      href: `${API}/flow/micro-feature/${encodeURIComponent(runId)}`,
+      detail: (checks.micro_feature_manifest && checks.micro_feature_manifest.path) ? checks.micro_feature_manifest.path : (artifacts.micro_feature_manifest || ''),
+    }))
+  }
+  if (artifacts.tca_report || artifacts.tca_html) {
+    rows.push(_renderArtifactItem({
+      label: 'TCA report',
+      ok: !!(checks.tca_report && checks.tca_report.exists),
+      href: `${API}/flow/tca/${encodeURIComponent(runId)}`,
+      detail: (checks.tca_report && checks.tca_report.path) ? checks.tca_report.path : (artifacts.tca_report || ''),
+    }))
+  }
+  if (artifacts.factor_scores_json || artifacts.factor_pareto_csv) {
+    rows.push(_renderArtifactItem({
+      label: 'factor scores (json)',
+      ok: !!(checks.factor_scores_json && checks.factor_scores_json.exists),
+      href: `${API}/flow/factor-scores/${encodeURIComponent(runId)}`,
+      detail: (checks.factor_scores_json && checks.factor_scores_json.path) ? checks.factor_scores_json.path : (artifacts.factor_scores_json || ''),
+    }))
+    if (artifacts.bundle_zip) {
+      rows.push(_renderArtifactItem({
+        label: 'bundle.zip (download)',
+        ok: !!(checks.bundle_zip && checks.bundle_zip.exists),
+        href: `${API}/results/bundles/download/${encodeURIComponent(runId)}`,
+        detail: (checks.bundle_zip && checks.bundle_zip.path) ? checks.bundle_zip.path : (artifacts.bundle_zip || ''),
+      }))
+    }
+  }
   rows.push(_renderArtifactItem({
     label: 'results list',
     ok: true,

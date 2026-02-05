@@ -64,6 +64,32 @@ python scripts/smoke_test.py
 python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
 ```
 
+## Pro 扩展（Phase 1：micro_feature + TCA）
+
+> 这部分在不引入真实 L2/订单簿数据的前提下，先把“可度量执行成本/结果归因”的交付链路跑通。
+
+推荐配置（含 micro_feature + tca 步骤）：
+
+```bash
+python scripts/agent_flow.py --config configs/agent_flow_pro_kucoin_smoke.json --steps feature expression ml backtest micro_feature tca
+```
+
+独立脚本（也可脱离 Flow 单跑）：
+
+```bash
+# 生成 OHLCV micro features（产出 parquet + manifest）
+python scripts/micro_features.py --config user_data/config_freqai_kucoin.json --run-id <run_id> --timerange 20260101-20260110
+
+# 从最新 backtest zip 生成 TCA 报告
+python scripts/tca_report.py --run-id <run_id>
+```
+
+Pro 产物（run_id 归档）：
+
+- micro features：`artifacts/runs/<run_id>/micro_feature/features.parquet`
+- micro manifest：`artifacts/runs/<run_id>/micro_feature/manifest.json`
+- TCA report：`artifacts/runs/<run_id>/tca/tca_report.json`
+
 ## 后续增强（不影响 MVP 验收）
 
 - 测试与 CI：引入 `pytest` + GitHub Actions，把 `scripts/e2e_smoke_flow.py` 纳入自动验收。
