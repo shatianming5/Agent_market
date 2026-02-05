@@ -9,17 +9,20 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from agent_market import paths  # noqa: E402
+
 
 def _ensure_imports() -> None:
-    if str(SRC) not in sys.path:
-        sys.path.insert(0, str(SRC))
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
+    return
 
 
 def _resolve(path: str | Path) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (ROOT / p).resolve()
+    return paths.resolve_repo_path(path)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -48,4 +51,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

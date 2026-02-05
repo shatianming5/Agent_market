@@ -11,6 +11,8 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
+from agent_market import paths  # noqa: E402
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Minimal evaluation protocol (evidence + cost accounting)")
@@ -23,9 +25,7 @@ def main() -> None:
 
     from agent_market.freqai.training.eval_protocol import build_eval_report, write_eval_report
 
-    meta_path = Path(args.run_meta)
-    if not meta_path.is_absolute():
-        meta_path = (ROOT / meta_path).resolve()
+    meta_path = paths.resolve_repo_path(args.run_meta)
     run_meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
     run_id = (str(args.run_id).strip().lower() if args.run_id else "") or str(run_meta.get("run_id") or "")
@@ -34,23 +34,21 @@ def main() -> None:
 
     artifacts = run_meta.get("artifacts") or {}
     bt_path_raw = args.backtest_summary or artifacts.get("feedback_summary") or "user_data/llm_feedback/latest_backtest_summary.json"
-    bt_path = Path(bt_path_raw)
-    if not bt_path.is_absolute():
-        bt_path = (ROOT / bt_path).resolve()
+    bt_path = paths.resolve_repo_path(bt_path_raw)
     backtest_summary = json.loads(bt_path.read_text(encoding="utf-8"))
 
     tca_report = None
     tca_path_raw = args.tca_report or artifacts.get("tca_report")
     if tca_path_raw:
-        tca_path = Path(str(tca_path_raw))
-        if not tca_path.is_absolute():
-            tca_path = (ROOT / tca_path).resolve()
+        tca_path = paths.resolve_repo_path(str(tca_path_raw))
         if tca_path.exists():
             tca_report = json.loads(tca_path.read_text(encoding="utf-8"))
 
-    out_dir = Path(args.out_dir) if args.out_dir else (ROOT / "artifacts" / "runs" / run_id / "eval_protocol")
-    if not out_dir.is_absolute():
-        out_dir = (ROOT / out_dir).resolve()
+    out_dir = (
+        paths.resolve_repo_path(args.out_dir)
+        if args.out_dir
+        else (paths.run_dir(run_id) / "eval_protocol").resolve()
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     payload = build_eval_report(run_meta=run_meta, backtest_summary=backtest_summary, tca_report=tca_report)
@@ -60,4 +58,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

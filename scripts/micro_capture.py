@@ -11,20 +11,22 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+import sys
+
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from agent_market import paths  # noqa: E402
 
 
 def _ensure_imports() -> None:
-    import sys
-
-    if str(SRC) not in sys.path:
-        sys.path.insert(0, str(SRC))
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
+    return
 
 
 def _resolve(path: str | Path) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (ROOT / p).resolve()
+    return paths.resolve_repo_path(path)
 
 
 def _utc_now_compact() -> str:
@@ -122,7 +124,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.out_dir:
         out_dir = _resolve(str(args.out_dir))
     else:
-        out_dir = (ROOT / "user_data" / "micro_capture" / exchange / datetime.now(timezone.utc).strftime("%Y%m%d") / session_id).resolve()
+        out_dir = (
+            paths.user_data_root()
+            / "micro_capture"
+            / exchange
+            / datetime.now(timezone.utc).strftime("%Y%m%d")
+            / session_id
+        ).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fixture = _resolve(str(args.fixture)) if args.fixture else None

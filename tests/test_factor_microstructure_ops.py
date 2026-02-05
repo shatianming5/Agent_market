@@ -99,6 +99,7 @@ def test_factor_compiler_microstructure_ops_compile_and_eval(tmp_path: Path) -> 
         "trade_sign()": "trade_sign",
         "vwap(10)": "vwap_10",
         "ofi(10)": "ofi_10",
+        "rv(10)": "rv_10",
         "arrival_intensity(10)": "arrival_intensity_10",
     }
 
@@ -108,4 +109,3 @@ def test_factor_compiler_microstructure_ops_compile_and_eval(tmp_path: Path) -> 
         assert compiled == expected
         series = safe_eval_expression(compiled, df)
         assert series.shape[0] == df.shape[0]
-

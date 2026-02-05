@@ -16,6 +16,7 @@ from starlette.responses import StreamingResponse
 from ..errors import error
 from ..models import FlowReq
 from ...runtime import ROOT, jobs
+from agent_market import paths  # type: ignore
 
 router = APIRouter()
 
@@ -73,7 +74,7 @@ def _pick_latest_existing_path(paths: list[str]) -> Optional[str]:
 
 @router.get("/flow/run-meta/latest")
 def flow_run_meta_latest():
-    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    meta_path = paths.run_meta_latest_path()
     if not meta_path.exists():
         return error("NOT_FOUND", f"run_meta not found: {meta_path}")
     try:
@@ -121,7 +122,7 @@ def flow_run_meta(run_id: str):
     run_id = str(run_id or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
         return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
-    meta_path = (ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+    meta_path = paths.run_meta_path(run_id)
     if not meta_path.exists():
         return error("NOT_FOUND", f"run_meta not found: {meta_path}")
     try:
@@ -214,7 +215,7 @@ def _load_json_artifact_from_run_meta(meta_path: Path, key: str) -> dict:
 
 @router.get("/flow/portfolio/latest")
 def flow_portfolio_latest():
-    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    meta_path = paths.run_meta_latest_path()
     return _load_portfolio_report_from_run_meta(meta_path)
 
 
@@ -223,13 +224,13 @@ def flow_portfolio(run_id: str):
     run_id = str(run_id or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
         return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
-    meta_path = (ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+    meta_path = paths.run_meta_path(run_id)
     return _load_portfolio_report_from_run_meta(meta_path)
 
 
 @router.get("/flow/tca/latest")
 def flow_tca_latest():
-    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    meta_path = paths.run_meta_latest_path()
     return _load_json_artifact_from_run_meta(meta_path, "tca_report")
 
 
@@ -238,13 +239,13 @@ def flow_tca(run_id: str):
     run_id = str(run_id or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
         return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
-    meta_path = (ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+    meta_path = paths.run_meta_path(run_id)
     return _load_json_artifact_from_run_meta(meta_path, "tca_report")
 
 
 @router.get("/flow/micro-feature/latest")
 def flow_micro_feature_latest():
-    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    meta_path = paths.run_meta_latest_path()
     return _load_json_artifact_from_run_meta(meta_path, "micro_feature_manifest")
 
 
@@ -253,13 +254,13 @@ def flow_micro_feature(run_id: str):
     run_id = str(run_id or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
         return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
-    meta_path = (ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+    meta_path = paths.run_meta_path(run_id)
     return _load_json_artifact_from_run_meta(meta_path, "micro_feature_manifest")
 
 
 @router.get("/flow/factor-scores/latest")
 def flow_factor_scores_latest():
-    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    meta_path = paths.run_meta_latest_path()
     return _load_json_artifact_from_run_meta(meta_path, "factor_scores_json")
 
 
@@ -268,7 +269,7 @@ def flow_factor_scores(run_id: str):
     run_id = str(run_id or "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
         return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
-    meta_path = (ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+    meta_path = paths.run_meta_path(run_id)
     return _load_json_artifact_from_run_meta(meta_path, "factor_scores_json")
 
 
@@ -281,7 +282,7 @@ def flow_runs_list(limit: int = 20):
         lim = 20
     lim = max(1, min(lim, 200))
 
-    runs_dir = (ROOT / "artifacts" / "runs").resolve()
+    runs_dir = paths.runs_root()
     if not runs_dir.exists():
         return {"items": [], "count": 0, "limit": lim}
 

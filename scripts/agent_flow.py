@@ -13,6 +13,7 @@ sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
 from agent_market.agent_flow import AgentFlow, load_agent_flow_config
+from agent_market import paths
 
 
 def main() -> None:
@@ -22,7 +23,7 @@ def main() -> None:
     parser.add_argument('--log-dir', default='user_data/agent_logs', help='Directory to store agent flow log files')
     args = parser.parse_args()
 
-    log_dir = Path(args.log_dir)
+    log_dir = paths.resolve_repo_path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / f"agent_flow_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 
@@ -35,7 +36,7 @@ def main() -> None:
     )
     logging.getLogger().info("Agent Flow log file: %s", log_file)
 
-    cfg_path = Path(args.config)
+    cfg_path = paths.resolve_repo_path(args.config)
     cfg = load_agent_flow_config(cfg_path)
     flow = AgentFlow(cfg, config_path=cfg_path)
     flow.run(args.steps)

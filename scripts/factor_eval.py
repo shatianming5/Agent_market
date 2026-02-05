@@ -26,6 +26,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a compiled factor expression (minimal offline mode)")
     parser.add_argument("--expression", default=None, help="ExpressionEngine expression string")
     parser.add_argument("--expression-path", default=None, help="Path to expression text file")
+    parser.add_argument(
+        "--features-parquet",
+        default=None,
+        help="Optional feature parquet to evaluate on (default: synthetic close series)",
+    )
     parser.add_argument("--out-dir", required=True, help="Output directory")
     parser.add_argument("--rows", type=int, default=256)
     parser.add_argument("--seed", type=int, default=7)
@@ -47,9 +52,37 @@ def main() -> None:
     out_dir = Path(args.out_dir).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    df = _make_synth_df(rows=int(args.rows), seed=int(args.seed))
-    df["y"] = df["close"].pct_change().shift(-1)
+    if args.features_parquet:
+        feat_path = Path(args.features_parquet).expanduser().resolve()
+        if not feat_path.exists():
+            raise SystemExit(f"features parquet not found: {feat_path}")
+        df = pd.read_parquet(feat_path)
+        if df.shape[0] > int(args.rows):
+            df = df.head(int(args.rows))
+        price_col = None
+        for cand in ("close", "mid"):
+            if cand in df.columns:
+                price_col = cand
+                break
+        if not price_col:
+            raise SystemExit("features parquet must contain 'close' or 'mid' column for target proxy")
+        df["y"] = pd.Series(df[price_col]).astype("float64").pct_change().shift(-1)
+    else:
+        df = _make_synth_df(rows=int(args.rows), seed=int(args.seed))
+        df["y"] = df["close"].pct_change().shift(-1)
     df["factor"] = safe_eval_expression(expr, df)
+
+    from agent_market.factor_compiler.checks import (
+        check_label_leakage_signature,
+        check_permutation_leakage,
+        check_shift_test,
+    )
+
+    leakage_checks = [
+        check_permutation_leakage(df["factor"], df["y"]).to_dict(),
+        check_shift_test(df["factor"], df["y"]).to_dict(),
+        check_label_leakage_signature(df["factor"], df["y"]).to_dict(),
+    ]
 
     values_path = out_dir / "factor_values.parquet"
     try:
@@ -75,6 +108,7 @@ def main() -> None:
                 "expression": expr,
                 "rows": int(args.rows),
                 "seed": int(args.seed),
+                "leakage_checks": leakage_checks,
                 "artifacts": {
                     **(report.get("artifacts") or {}),
                     "factor_values_parquet": str(values_path) if values_path is not None else None,

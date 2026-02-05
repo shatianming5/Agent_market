@@ -716,3 +716,73 @@
 - 2026-02-05: 清零 Missing-032..034：补齐 microstructure 算子编译映射、ScoreReport 字段覆盖（weighted + corr gate）、microstructure feature library（buy/sell vol + slope）；`pytest -q` 全通过。
 - 2026-02-05: 清零 Missing-035..043：补齐截面/执行 proxy 算子、microstructure 形态与执行/毒性 proxy、leakage checks、budgets 细化、ScoreReport 字段补齐、label 显式化、TCA 成本分解 + participation proxy；`pytest -q` 全通过。
 - 2026-02-05: 清零 Missing-044：Factor Compiler time-safety 补齐 availability_delay_ms gate（best-effort）；`pytest -q` 全通过。
+
+## Proposal Gap Backlog（plan.md）
+
+> Auto-generated from `docs/plan_gap_planmd_partial_missing.md`（仅 PARTIAL/MISSING 抽取视图）。
+> 请勿在 marker 内手工编辑；请更新 `docs/plan_gap_planmd.md` 后再重新生成。
+
+<!-- planmd-gaps:start -->
+- [ ] PlanMD-001: (L8) Agent Market Pro 工程 Proposal（Factor Compiler DSL + 微观结构特征 + TCA + Flow 扩展）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L8)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-002: (L180) 3.3.1 核心类型
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L180)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-003: (L190) 3.3.2 类型属性（必须携带）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L190)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-004: (L268) 3.5.2 类型检查（Typecheck）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L268)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-005: (L274) 3.5.3 时间安全（Time-safety）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L274)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-006: (L352) 4.2 订单流（Order Flow）与成交流（Trades）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L352)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-007: (L364) 4.3 执行与 adverse selection proxy
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L364)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-008: (L382) 5.1 TCA 报告顶层 JSON Schema（v1）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L382)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-009: (L469) 5.2 TCA 指标定义建议（v1 必含）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L469)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-010: (L551) 8.1 LLM 输出：必须是 `FactorSpec` JSON
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L551)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-011: (L556) 8.2 反馈闭环
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L556)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-012: (L565) 9. 评测规范（让你过审、不被喷、也更容易赚钱）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L565)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-013: (L576) 10.1 30 天（最小可卖：Execution Intelligence Lite）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L576)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-014: (L582) 10.2 60 天（Factor Compiler v1）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L582)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+- [ ] PlanMD-015: (L595) 11. 交付清单（你最终应该在 repo 里看到什么）
+  - Status: **PARTIAL**
+  - PlanRef: `docs/plan_gap_planmd.md` (L595)
+  - Acceptance: 对应章节在 `docs/plan_gap_planmd.md` 中变为 **DONE** 且 `pytest -q` 通过。
+<!-- planmd-gaps:end -->
+
+

@@ -13,10 +13,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from agent_market import paths  # noqa: E402
+
 
 def _resolve(path: str) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (ROOT / p).resolve()
+    return paths.resolve_repo_path(path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         if not p.exists():
             missing.append(rel)
 
-    models_dir = _resolve("artifacts/models")
+    models_dir = paths.models_root()
     training_summaries = list(models_dir.rglob("training_summary.json")) if models_dir.exists() else []
     if not training_summaries:
         missing.append("artifacts/models/**/training_summary.json")
@@ -87,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
             print(" -", item, file=sys.stderr)
         return 1
 
-    meta_path = _resolve("artifacts/run_meta.json")
+    meta_path = paths.run_meta_latest_path()
     try:
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
     except Exception as exc:  # pragma: no cover

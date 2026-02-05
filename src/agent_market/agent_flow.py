@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agent_market.flow_ext import steps as flow_steps
+from agent_market import paths
 
 logger = logging.getLogger(__name__)
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = paths.REPO_ROOT
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -23,12 +24,7 @@ def _sha256_bytes(payload: bytes) -> str:
 
 
 def _relpath(path: Path) -> str:
-    if not path.is_absolute():
-        path = REPO_ROOT / path
-    try:
-        return str(path.resolve().relative_to(REPO_ROOT))
-    except Exception:
-        return str(path.resolve())
+    return paths.relpath_under_repo(path if path.is_absolute() else (REPO_ROOT / path))
 
 
 def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
@@ -172,17 +168,19 @@ class AgentFlow:
         self,
         config: AgentFlowConfig,
         config_path: Path | str | None = None,
-        feedback_path: Path | str = "user_data/llm_feedback/latest_backtest_summary.json",
+        feedback_path: Path | str | None = None,
     ):
         self.config = config
         self.config_path = Path(config_path) if config_path is not None else None
-        self.feedback_path = Path(feedback_path)
+        self.feedback_path = paths.resolve_repo_path(
+            feedback_path if feedback_path is not None else paths.default_feedback_path()
+        )
 
     def run(self, steps: Optional[List[str]] = None) -> None:
         run_id = uuid.uuid4().hex[:12]
         started_at = datetime.now(timezone.utc).isoformat()
-        meta_latest_path = (REPO_ROOT / "artifacts" / "run_meta.json").resolve()
-        meta_run_path = (REPO_ROOT / "artifacts" / "runs" / run_id / "run_meta.json").resolve()
+        meta_latest_path = paths.run_meta_latest_path()
+        meta_run_path = paths.run_meta_path(run_id)
         run_dir = meta_run_path.parent
 
         requested: Optional[list[str]] = None
@@ -270,9 +268,9 @@ class AgentFlow:
                     elif name == "lob_rebuild":
                         cap_dir_cfg = cfg.get("capture_dir") if isinstance(cfg, dict) else None
                         cap_dir = (
-                            (REPO_ROOT / str(cap_dir_cfg)).resolve()
-                            if cap_dir_cfg and not Path(str(cap_dir_cfg)).is_absolute()
-                            else (Path(str(cap_dir_cfg)).resolve() if cap_dir_cfg else capture_dir_path)
+                            paths.resolve_repo_path(str(cap_dir_cfg))
+                            if cap_dir_cfg
+                            else capture_dir_path
                         )
                         if cap_dir is None:
                             raise ValueError("lob_rebuild requires capture_dir (or run capture step first)")
@@ -285,7 +283,20 @@ class AgentFlow:
                         rebuild_report = _relpath(Path(out["rebuild_report_json"]))
                     elif name == "micro_feature":
                         mf_cfg = dict(cfg)
-                        if not mf_cfg.get("config") and self.config.backtest:
+                        if str(mf_cfg.get("mode") or "").strip().lower() == "microstructure":
+                            if not mf_cfg.get("lob_state") and lob_state_parquet:
+                                mf_cfg["lob_state"] = lob_state_parquet
+                            if not mf_cfg.get("match") and capture_match_path:
+                                mf_cfg["match"] = capture_match_path
+                            if not mf_cfg.get("symbol") and self.config.lob_rebuild:
+                                sym = (self.config.lob_rebuild or {}).get("symbol")
+                                if sym:
+                                    mf_cfg["symbol"] = sym
+                            if not mf_cfg.get("depth_levels") and self.config.lob_rebuild:
+                                depth = (self.config.lob_rebuild or {}).get("depth")
+                                if depth:
+                                    mf_cfg["depth_levels"] = depth
+                        elif not mf_cfg.get("config") and self.config.backtest:
                             mf_cfg["config"] = self.config.backtest.get("config")
                         out = flow_steps.run_micro_feature(
                             mf_cfg,
@@ -319,7 +330,7 @@ class AgentFlow:
                             pairs=[str(p) for p in pairs],
                             timeframe=timeframe,
                             timerange=str(timerange) if timerange else None,
-                            data_dir=str(data_dir),
+                            data_dir=str(paths.resolve_repo_path(str(data_dir))),
                         )
                         returns = compute_returns(prices, returns_kind)
                         result = optimize_hrp(returns)
@@ -379,8 +390,11 @@ class AgentFlow:
                         factor_expression_json = _relpath(Path(out["compiled_expression_json"]))
                         compiled_expression_path = Path(out["compiled_expression_txt"]).resolve()
                     elif name == "factor_eval":
+                        fe_cfg = dict(cfg)
+                        if not fe_cfg.get("features_parquet") and micro_features_parquet:
+                            fe_cfg["features_parquet"] = micro_features_parquet
                         out = flow_steps.run_factor_eval(
-                            cfg,
+                            fe_cfg,
                             run_id=run_id,
                             out_dir=(run_dir / "factor_eval").resolve(),
                             compiled_expression_path=compiled_expression_path,
@@ -510,13 +524,13 @@ class AgentFlow:
                         or "user_data/backtest_results"
                     )
 
-                models_root = (REPO_ROOT / "artifacts" / "models").resolve()
+                models_root = paths.models_root()
                 training_summaries = (
                     sorted(models_root.rglob("training_summary.json"))
                     if models_root.exists()
                     else []
                 )
-                bt_dir = (REPO_ROOT / (results_dir or "user_data/backtest_results")).resolve()
+                bt_dir = paths.resolve_repo_path(results_dir or "user_data/backtest_results")
                 bt_zips = (
                     sorted(bt_dir.glob("backtest-result-*.zip")) if bt_dir.exists() else []
                 )

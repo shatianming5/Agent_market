@@ -13,6 +13,7 @@ from ..errors import error
 from ...runtime import ROOT, SRC
 
 router = APIRouter()
+from agent_market import paths  # type: ignore  # noqa: E402
 
 
 def _ensure_src_on_path() -> None:
@@ -33,9 +34,7 @@ def _get_backtest_utils():
 
 @router.get("/results/list")
 def results_list(results_dir: str = "user_data/backtest_results", limit: int = 20):
-    rd = Path(results_dir)
-    if not rd.is_absolute():
-        rd = (ROOT / rd).resolve()
+    rd = paths.resolve_repo_path(results_dir)
     if not rd.exists():
         return error("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
     items = []
@@ -49,9 +48,7 @@ def results_list(results_dir: str = "user_data/backtest_results", limit: int = 2
 def results_summary(name: str, results_dir: str = "user_data/backtest_results"):
     build_backtest_summary, read_backtest_trades, _ = _get_backtest_utils()
 
-    rd = Path(results_dir)
-    if not rd.is_absolute():
-        rd = (ROOT / rd).resolve()
+    rd = paths.resolve_repo_path(results_dir)
     zp = rd / name
     if not zp.exists():
         return error("NOT_FOUND", f"Not found: {zp}")
@@ -64,9 +61,7 @@ def results_summary(name: str, results_dir: str = "user_data/backtest_results"):
 
 @router.get("/results/latest-training")
 def results_latest_training(models_dir: str = "artifacts/models"):
-    base = Path(models_dir)
-    if not base.is_absolute():
-        base = (ROOT / base).resolve()
+    base = paths.resolve_repo_path(models_dir)
     if not base.exists():
         return error("MODELS_DIR_NOT_FOUND", f"Models dir not found: {base}")
     candidates = list(base.rglob("training_summary.json"))
@@ -87,9 +82,7 @@ def latest_summary(results_dir: str = "user_data/backtest_results"):
         _get_backtest_utils()
     )
 
-    rd = Path(results_dir)
-    if not rd.is_absolute():
-        rd = (ROOT / rd).resolve()
+    rd = paths.resolve_repo_path(results_dir)
     try:
         zip_path = find_latest_backtest_zip(rd)
     except FileNotFoundError:
@@ -110,9 +103,7 @@ def prepare_feedback(
 ):
     build_backtest_summary, _, find_latest_backtest_zip = _get_backtest_utils()
 
-    rd = Path(results_dir)
-    if not rd.is_absolute():
-        rd = (ROOT / rd).resolve()
+    rd = paths.resolve_repo_path(results_dir)
     try:
         zip_path = find_latest_backtest_zip(rd)
     except FileNotFoundError:
@@ -120,7 +111,7 @@ def prepare_feedback(
     if not zip_path:
         return error("NO_ARCHIVES", f"No backtest archives found in {rd}")
     summary = build_backtest_summary(zip_path)
-    out_path = Path(out)
+    out_path = paths.resolve_repo_path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"feedback_path": str(out_path)}
@@ -128,9 +119,7 @@ def prepare_feedback(
 
 @router.get("/results/gallery")
 def results_gallery(results_dir: str = "user_data/backtest_results", limit: int = 20):
-    rd = Path(results_dir)
-    if not rd.is_absolute():
-        rd = (ROOT / rd).resolve()
+    rd = paths.resolve_repo_path(results_dir)
     if not rd.exists():
         return error("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
     zips = sorted(
@@ -158,7 +147,7 @@ def results_bundles_list(limit: int = 20):
         lim = 20
     lim = max(1, min(lim, 200))
 
-    runs_dir = (ROOT / "artifacts" / "runs").resolve()
+    runs_dir = paths.runs_root()
     if not runs_dir.exists():
         return {"items": [], "count": 0, "limit": lim}
 
@@ -189,7 +178,7 @@ def results_bundles_list(limit: int = 20):
 @router.get("/results/bundles/download/{run_id}")
 def results_bundles_download(run_id: str):
     run_id = str(run_id or "").strip().lower()
-    bundle = (ROOT / "artifacts" / "runs" / run_id / "bundle" / "bundle.zip").resolve()
+    bundle = (paths.run_dir(run_id) / "bundle" / "bundle.zip").resolve()
     if not bundle.exists():
         return error("NOT_FOUND", f"bundle not found: {bundle}")
     return FileResponse(path=str(bundle), filename=f"bundle-{run_id}.zip")
@@ -197,9 +186,7 @@ def results_bundles_download(run_id: str):
 
 @router.get("/results/aggregate")
 def results_aggregate(names: str, results_dir: str = "user_data/backtest_results"):
-    rd = Path(results_dir)
-    if not rd.is_absolute():
-        rd = (ROOT / rd).resolve()
+    rd = paths.resolve_repo_path(results_dir)
     if not rd.exists():
         return error("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
     build_backtest_summary, _, _ = _get_backtest_utils()

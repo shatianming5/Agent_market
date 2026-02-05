@@ -13,14 +13,15 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
+from agent_market import paths  # noqa: E402
+
 
 def _load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def _resolve_path(path: str) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (ROOT / p).resolve()
+    return paths.resolve_repo_path(path)
 
 
 def _resolve_timeframe(cfg: Dict[str, Any], cli_timeframe: Optional[str]) -> str:
@@ -133,4 +134,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

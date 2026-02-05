@@ -25,7 +25,7 @@ CALL_ALIASES: dict[str, str] = {
 }
 
 _MICROSTRUCTURE_COLUMN_OPS = {"mid", "spread", "microprice", "trade_sign"}
-_MICROSTRUCTURE_WINDOW_OPS = {"vwap", "ofi", "arrival_intensity"}
+_MICROSTRUCTURE_WINDOW_OPS = {"vwap", "ofi", "arrival_intensity", "rv"}
 _MICROSTRUCTURE_LEVEL_OPS = {"depth_bid", "depth_ask"}
 
 

@@ -10,9 +10,10 @@ Updated: 2026-02-05
 2) 实验矩阵与结果（run_id / 指标 / 产物路径）：`docs/experiment.md`
 3) Claim → Evidence 映射（是否可证明）：`docs/claim_evidence.md`
 4) Missing/Ambiguous backlog（已清零但保留历史）：`docs/mohu.md`
-5) Proposal（更大范围的计划）：`plan.md`
-6) Proposal 的逐章差距审计（不省略）：`docs/plan_gap_planmd.md`
-7) Proposal 的差距抽取视图（仅 PARTIAL/MISSING）：`docs/plan_gap_planmd_partial_missing.md`
+5) 90 天闭环产品（一键闭环脚本 + 验收/导出/前端查看）：`docs/product_90d.md`
+6) Proposal（更大范围的计划）：`plan.md`
+7) Proposal 的逐章差距审计（不省略）：`docs/plan_gap_planmd.md`
+8) Proposal 的差距抽取视图（仅 PARTIAL/MISSING）：`docs/plan_gap_planmd_partial_missing.md`
 
 ## 仓库快照（source of truth）
 
@@ -29,7 +30,7 @@ Updated: 2026-02-05
 本仓库存在两份“计划”，口径不同：
 
 - `docs/plan.md`：**MVP 落地计划**（本地单机/CPU/离线数据，验收=smoke + e2e + 产物落盘）。该口径下已闭环（见下文）。
-- `plan.md`：**Proposal**（Factor Compiler DSL + 微观结构特征表 + TCA schema + Flow 扩展 + 90 天路线）。该口径下仍存在大量 `PARTIAL`（以及 1 个硬 `MISSING`：10.3 90 天闭环产品），详见 `docs/plan_gap_planmd.md`。
+- `plan.md`：**Proposal**（Factor Compiler DSL + 微观结构特征表 + TCA schema + Flow 扩展 + 90 天路线）。该口径下仍存在大量 `PARTIAL`（例如：类型系统深化、TCA 深度指标、LLM FactorSpec 输出与反馈闭环等），详见 `docs/plan_gap_planmd.md`。
 
 ## ABC 闭环现状（基于仓库文档与落盘证据）
 
@@ -37,6 +38,7 @@ Updated: 2026-02-05
 
 - `docs/mohu.md`：`## Missing` 与 `## Ambiguous` **均无未勾选项**
 - `docs/verify_log.md`：包含逐项验收日志与命令
+- 运行根目录可配置：通过环境变量将 `artifacts/` 与 `user_data/` 指向隔离目录，避免测试/开发运行覆盖已纳入 git 的证据链文件（见 `src/agent_market/paths.py` 与 `tests/conftest.py`）。
 
 ### B）Experiments（以 `docs/experiment.md` 为矩阵口径）
 
@@ -53,7 +55,7 @@ Updated: 2026-02-05
 
 - 全量逐章审计（不省略）：`docs/plan_gap_planmd.md`
 - 仅 gap 抽取视图：`docs/plan_gap_planmd_partial_missing.md`
-- 当前唯一明确的 `MISSING`（非 Legend 文字）：`plan.md` 的 **10.3 90 天（闭环产品）**（见 `docs/plan_gap_planmd.md:526`）
+- 当前无明确 `MISSING`（仅剩 `PARTIAL`）：以 `docs/plan_gap_planmd_partial_missing.md` 为准
 
 ## 证据链产物（已纳入 git 的部分）
 

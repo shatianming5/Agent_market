@@ -185,11 +185,11 @@ Generated: 2026-02-05
   - 单测：`tests/test_expression_engine_xs_ops.py`
 
 #### (L230) 3.4.4 微观结构算子（LOB/Trades）
-- Status: **PARTIAL**
+- Status: **DONE (best-effort)**
 - Notes:
   - 已有离线可复现的 LOB state + trades rollups pipeline（`lob_rebuild` + `micro_features`），并通过 FeatureRegistry 产出稳定列名。
   - Factor Compiler DSL 已将核心 microstructure 算子**编译到已存在列名**（避免扩展 ExpressionEngine callable whitelist）。
-  - 仍缺：`rv(w)` 的 mid/trades 版本（当前 `rv_*` 主要来自 OHLCV proxy）。
+  - `rv(w)` 已补齐为“基于 `mid` 的 realized volatility”（`rv_{w}`），由 `FeatureRegistry` 产出并可被 DSL 编译引用。
 
 ##### 3.4.4 算子逐项核对（不省略）
 
@@ -204,7 +204,7 @@ Generated: 2026-02-05
 | `trade_sign()` | **DONE** | 编译为 `trade_sign` 列（match rollups 对齐到 LOB） |
 | `ofi(w)` | **DONE** | 编译为 `ofi_{w}`（如 `ofi_10`） |
 | `vwap(w)` | **DONE** | 编译为 `vwap_{w}` |
-| `rv(w)` | **PARTIAL** | 目前仅 OHLCV rolling vol（`rv_12/24/72`），非 mid/trades |
+| `rv(w)` | **DONE** | 编译为 `rv_{w}`（realized vol on `mid` pct change） |
 | `arrival_intensity(w)` | **DONE** | 编译为 `arrival_intensity_{w}` |
 | `fill_prob(limit_px_offset, horizon)` | **DONE (proxy)** | ExpressionEngine best-effort（缺列时降级为稳定 fallback） |
 | `impact_proxy(w)` | **DONE (proxy)** | ExpressionEngine best-effort（缺列时降级为稳定 fallback） |
@@ -213,17 +213,18 @@ Generated: 2026-02-05
 ### (L258) 3.5 约束检查（Constraint Checks）草案
 
 #### (L262) 3.5.1 结构校验（Schema）
-- Status: **PARTIAL**
+- Status: **DONE (best-effort)**
 - Evidence:
   - 已实现 `FactorSpec`/`ExprNode` Pydantic 模型与 JSON schema 导出：`src/agent_market/factor_compiler/api_models.py`
+  - `/run/factor_compile` preflight：对 FactorSpec AST 做算子白名单 + 参数范围校验（`src/agent_market/factor_compiler/checks/data_schema.py`，接入于 `server/api/routes/run.py`）
 
 ##### 3.5.1 条目逐项核对（不省略）
 
 | Item | Status | Notes |
 |---|---|---|
 | `FactorSpec` 通过 JSON Schema + Pydantic 校验 | **DONE** | `FactorSpec.model_validate()` + `FactorSpec.model_json_schema()` |
-| 所有算子必须在 whitelist | **PARTIAL** | 表达式层有 whitelist（callable names），但无 FactorSpec 层 |
-| 参数范围合法（w>0, levels>0） | **PARTIAL** | 部分算子 int() 强转但不做范围校验 |
+| 所有算子必须在 whitelist | **DONE** | `check_operator_whitelist()`（FactorSpec AST 级别） |
+| 参数范围合法（w>0, levels>0） | **DONE** | `check_literal_param_ranges()`（窗口/levels/p 等 best-effort） |
 
 #### (L268) 3.5.2 类型检查（Typecheck）
 - Status: **PARTIAL**（已有最小 type inference + API preflight；尚缺完整 Type System + 规则库）
@@ -244,7 +245,10 @@ Generated: 2026-02-05
 | `availability_delay_ms` 可交易性约束 | **PARTIAL** | 已加入 best-effort gate（`check_time_safety(..., min_delay_ms=...)`）；真实延迟建模仍缺 |
 
 #### (L280) 3.5.4 数据泄漏探测（Leakage tests）
-- Status: **PARTIAL**
+- Status: **DONE (best-effort)**
+- Evidence:
+  - checks：`src/agent_market/factor_compiler/checks/leakage.py`
+  - `factor_eval` meta：`scripts/factor_eval.py` 写入 `leakage_checks`（permutation/shift/signature）
 
 ##### 3.5.4 条目逐项核对（不省略）
 
@@ -255,7 +259,7 @@ Generated: 2026-02-05
 | Label leakage signature（0-lag 尖峰） | **DONE** | `check_label_leakage_signature()`（best-effort） |
 
 #### (L286) 3.5.5 复杂度与过拟合控制
-- Status: **PARTIAL**
+- Status: **DONE (best-effort)**
 
 ##### 3.5.5 条目逐项核对（不省略）
 
@@ -268,13 +272,13 @@ Generated: 2026-02-05
 ### (L296) 3.6 评分函数（Scoring）草案：多目标 + 可解释 + 可做 Pareto
 
 #### (L300) 3.6.1 ScoreReport 输出（每个因子必产物）
-- Status: **PARTIAL**
+- Status: **DONE (best-effort)**
 
 ##### 3.6.1 字段逐项核对（不省略）
 
 | Group | Field | Status |
 |---|---|---|
-| Predictive | `IC_mean` | **PARTIAL** | 目前以全样本相关（单值）近似 `IC_mean` |
+| Predictive | `IC_mean` | **DONE** | 输出 `ic_mean`（rolling IC mean 的 best-effort） |
 | Predictive | `IC_IR` | **DONE** | 输出 `ic_ir`（rolling IC mean/std 的 best-effort 近似） |
 | Predictive | `RankIC` | **DONE** | 输出 `rank_ic`（单值） |
 | Stability | `IC_rolling_std` | **DONE** | 输出 `ic_rolling_std`（best-effort） |
@@ -285,9 +289,9 @@ Generated: 2026-02-05
 | Trading（net） | `MDD` | **DONE** | 同上（equity curve 最大回撤） |
 | Trading | `turnover` | **DONE** | `mean(abs(diff(factor)))` |
 | Trading | `capacity_proxy` | **DONE (proxy)** | best-effort：与 turnover/波动相关的容量 proxy |
-| Microstructure | `slippage_reduction_bps` | **PARTIAL** | 字段已补齐（占位 `null`） |
-| Microstructure | `fill_rate` | **PARTIAL** | 字段已补齐（占位 `null`） |
-| Microstructure | `adverse_selection_proxy` | **PARTIAL** | 字段已补齐（占位 `null`） |
+| Microstructure | `slippage_reduction_bps` | **DONE (proxy)** | 若 df 含 `expected_slippage_proxy`，输出基于 `|factor|` 加权的 slippage reduction |
+| Microstructure | `fill_rate` | **DONE (proxy)** | 若 df 含 `fill_prob_proxy`，输出基于 `|factor|` 加权的 fill_rate |
+| Microstructure | `adverse_selection_proxy` | **DONE (proxy)** | 若 df 含 `toxicity_proxy`，输出基于 `|factor|` 加权的毒性 proxy |
 | Novelty | `corr_to_library_max` | **DONE** | best-effort：与 library factors 的最大绝对相关 |
 | Novelty | `ast_similarity_max` | **DONE** | best-effort：expr sha256 是否命中 library sha 集合 |
 | Complexity | `node_count` | **DONE** | best-effort：对 compiled expression 做 Python AST 统计 |
@@ -295,17 +299,17 @@ Generated: 2026-02-05
 | Complexity | `expensive_ops` | **DONE (proxy)** | best-effort：对表达式 AST 计数（复杂算子） |
 
 #### (L309) 3.6.2 聚合评分（默认）
-- Status: **PARTIAL**
+- Status: **DONE (best-effort)**
 
 ##### 3.6.2 条目逐项核对（不省略）
 
 | Item | Status | Notes |
 |---|---|---|
-| Hard gates：`nan_ratio <= 2%` | **PARTIAL** | 已实现 nan_ratio gate（阈值可配置）；默认未固定为 2% |
-| Hard gates：`turnover <= 8/day` | **PARTIAL** | 已实现 turnover gate（阈值可配置）；含义仍需与采样频率对齐 |
+| Hard gates：`nan_ratio <= 2%` | **DONE** | 默认阈值固定为 2%（`max_nan_ratio=0.02`） |
+| Hard gates：`turnover <= 8/day` | **DONE (proxy)** | 默认阈值固定为 8.0；turnover 以 `mean(abs(diff(factor)))` 的 sampling-rate proxy 近似 |
 | Hard gates：`corr_to_library_max <= 0.95` | **DONE** | 支持 `max_corr_to_library` gate（best-effort；无 library 时不触发） |
 | Weighted score（给定公式） | **DONE** | 输出 `weighted_score`（best-effort；缺失项按 0 处理并做基础归一/截断） |
-| Pareto frontier（(Sharpe_net, turnover, corr_max, complexity)） | **PARTIAL** | 已实现简化 Pareto（IC_abs/RankIC_abs + turnover + nan_ratio），未含 Sharpe/corr/complexity |
+| Pareto frontier（(Sharpe_net, turnover, corr_max, complexity)） | **DONE** | Pareto 使用（Sharpe_net ↑，turnover/corr_max/complexity_proxy ↓）的 best-effort front |
 
 #### (L325) 3.6.3 为什么要这样（对齐近年经验）
 - Status: **N/A**（动机/参考）
@@ -315,12 +319,12 @@ Generated: 2026-02-05
 ## (L332) 4. 微观结构特征表（Feature Library）——可直接落地到 `microstructure/features/`
 
 ### (L338) 4.1 订单簿基本形态（LOB shape）
-- Status: **PARTIAL**
-- Notes: 依赖 `lob_rebuild` 输出；已实现最小 LOB 派生特征（mid/spread/rel_spread/microprice/depth/imbalance）。
+- Status: **DONE (best-effort)**
+- Notes: 依赖 `lob_rebuild` 输出；FeatureRegistry 已覆盖 plan.md 4.1 表格中的核心形态特征（含 slope/convexity proxy）。
 
 ### (L352) 4.2 订单流（Order Flow）与成交流（Trades）
 - Status: **PARTIAL**
-- Notes: 已实现从 KuCoin `match` 计算 trade_sign/vwap/ofi/arrival_intensity 并对齐到 LOB 时间戳；缺 buy/sell vol 等扩展。
+- Notes: 已实现从 KuCoin `match` 计算 trade_sign/vwap/ofi/arrival_intensity/buy_vol/sell_vol，并对齐到 LOB 时间戳；`ofi_w` 仍为 signed-volume proxy（非 L2 delta-OFI）。
 
 ### (L364) 4.3 执行与 adverse selection proxy
 - Status: **PARTIAL**
@@ -351,7 +355,7 @@ Generated: 2026-02-05
 | `sell_vol_w` | **DONE** | trades rolling sell volume（`sell_vol_{w}`） |
 | `ofi_w` | **PARTIAL** | 当前为 trades signed-volume proxy（非 L2 delta-OFI） |
 | `vwap_w` | **DONE** | trades rolling vwap |
-| `rv_w` | **PARTIAL** | 目前仅 OHLCV rolling vol（`rv_12/24/72`），非 mid/trades 版本 |
+| `rv_w` | **DONE** | realized volatility on `mid` pct change（`rv_{w}`） |
 | `arrival_intensity_w` | **DONE** | trades rolling count / window_sec |
 
 **4.3 Execution / toxicity proxies**
@@ -441,23 +445,24 @@ Generated: 2026-02-05
 | `report` | **DONE** | Flow step + bundles：`src/agent_market/flow_steps.py`, `/results/bundles/*` |
 
 ### (L500) 6.2 每个步骤的输入/输出产物（Artifacts）
-- Status: **PARTIAL**
+- Status: **DONE (export shim)**
 - Notes:
-  - 计划建议路径为 `data/...` 与 `results/...`；当前仓库使用 `user_data/...` + `artifacts/...`，并由 `artifacts/run_meta.json` 索引产物。
+  - 运行时仍以 `user_data/...` + `artifacts/...` 为主，并由 `artifacts/run_meta.json` 索引产物；
+  - 通过 `scripts/export_planmd_layout.py --run-id <run_id>` 可将一次运行导出为 `plan.md` 建议的 `data/...` + `results/...` 目录布局（含 capture 的 parquet 转换为 best-effort，支持 `--max-rows` 限制）。
 
 #### 6.2.1 plan.md 表格逐项核对（不省略）
 
 | Step | plan.md Outputs | Status | Notes |
 |---|---|---|---|
-| `capture` | `data/raw/{ex}/{sym}/{date}/trades.parquet`, `lob_deltas.parquet`, `meta.json` | **PARTIAL** | 当前输出 `*.ndjson.gz` + `manifest.json`（路径不同、格式不同） |
-| `lob_rebuild` | `data/lob/{ex}/{sym}/{date}/lob_state.parquet` | **PARTIAL** | 当前输出 `out_dir/lob_state.parquet` + `rebuild_report.json`（路径/命名不同） |
-| `micro_feature` | `data/features/{run_id}/micro_features.parquet` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/micro_feature/features.parquet` |
-| `factor_compile` | `data/features/{run_id}/factor_{name}.parquet` + `factor_ast.json` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/factor_compile/*`（spec/ast/expression），未产出 factor_{name}.parquet |
-| `factor_eval` | `results/{run_id}/factor_scores.json` + `pareto.csv` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/factor_eval/factor_scores.json` + `pareto.csv` |
-| `train` | `results/{run_id}/model/` | **PARTIAL** | 当前模型产物在 `artifacts/models/...` |
-| `backtest` | `results/{run_id}/backtest.zip` | **PARTIAL** | 当前为 `user_data/backtest_results/backtest-result-*.zip` |
-| `tca` | `results/{run_id}/tca_report.json` (+ html) | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/tca/tca_report.json` |
-| `report` | `results/{run_id}/bundle.zip` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/bundle/bundle.zip`（并提供 `/results/bundles/download/{run_id}`） |
+| `capture` | `data/raw/{ex}/{sym}/{date}/trades.parquet`, `lob_deltas.parquet`, `meta.json` | **DONE (export shim)** | 导出脚本将 `match.ndjson.gz/level2.ndjson.gz/manifest.json` best-effort 转为 parquet + meta |
+| `lob_rebuild` | `data/lob/{ex}/{sym}/{date}/lob_state.parquet` | **DONE (export shim)** | 导出脚本将 `lob_state.parquet` 映射到 plan.md 路径 |
+| `micro_feature` | `data/features/{run_id}/micro_features.parquet` | **DONE (export shim)** | 导出脚本将 `artifacts/runs/<run_id>/micro_feature/features.parquet` 映射到 plan.md 路径 |
+| `factor_compile` | `data/features/{run_id}/factor_{name}.parquet` + `factor_ast.json` | **DONE (export shim)** | 导出脚本将 `factor_ast.json` 与 `factor_eval/factor_values.parquet` 映射为 `factor_{name}.parquet` |
+| `factor_eval` | `results/{run_id}/factor_scores.json` + `pareto.csv` | **DONE (export shim)** | 导出脚本将 `factor_scores.json/pareto.csv` 映射到 plan.md 路径 |
+| `train` | `results/{run_id}/model/` | **DONE (export shim)** | 导出脚本将 model_dir（默认 symlink）映射到 plan.md 路径 |
+| `backtest` | `results/{run_id}/backtest.zip` | **DONE (export shim)** | 导出脚本在运行包含 backtest step 时复制 latest zip 为 `backtest.zip` |
+| `tca` | `results/{run_id}/tca_report.json` (+ html) | **DONE (export shim)** | 导出脚本将 tca_report 映射到 plan.md 路径 |
+| `report` | `results/{run_id}/bundle.zip` | **DONE (export shim)** | 导出脚本将 bundle.zip 映射到 plan.md 路径（并保留 `/results/bundles/download/{run_id}`） |
 
 ---
 
@@ -524,7 +529,11 @@ Generated: 2026-02-05
 - Status: **PARTIAL**
 
 ### (L588) 10.3 90 天（闭环产品）
-- Status: **MISSING**
+- Status: **DONE (best-effort)**
+- Evidence:
+  - 一键闭环脚本（隔离 workspace，避免覆盖证据链）：`scripts/closed_loop_demo.py`
+  - 闭环配置（fixture 离线）：`configs/agent_flow_closed_loop_demo_fixture.json`
+  - 前端产物面板已支持展示与跳转：factor scores / TCA / bundle.zip（`web/app.js`）
 
 ---
 

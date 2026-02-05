@@ -29,6 +29,7 @@ from ..validators import validate_pairs_string, validate_timeframe
 from ...runtime import ROOT, SRC, jobs
 
 router = APIRouter()
+from agent_market import paths  # type: ignore  # noqa: E402
 
 
 def _ensure_src_on_path() -> None:
@@ -57,7 +58,7 @@ def _resolve_executable(name: str) -> Optional[str]:
 
 
 def _load_latest_flow_run_id() -> Optional[str]:
-    meta_path = (ROOT / "artifacts" / "run_meta.json").resolve()
+    meta_path = paths.run_meta_latest_path()
     if not meta_path.exists():
         return None
     try:
@@ -214,17 +215,13 @@ def run_expression(req: ExpressionReq = Body(...)):
 
 @router.post("/run/backtest")
 def run_backtest(req: BacktestReq = Body(...)):
-    cfg_path = Path(req.config)
-    if not cfg_path.is_absolute():
-        cfg_path = (ROOT / cfg_path).resolve()
+    cfg_path = paths.resolve_repo_path(req.config)
     if not cfg_path.exists():
         return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
 
     spath: Optional[Path] = None
     if req.strategy_path:
-        spath = Path(req.strategy_path)
-        if not spath.is_absolute():
-            spath = (ROOT / spath).resolve()
+        spath = paths.resolve_repo_path(req.strategy_path)
         if not spath.exists():
             return error("STRATEGY_PATH_NOT_FOUND", f"Strategy path not found: {spath}")
 
@@ -242,14 +239,14 @@ def run_backtest(req: BacktestReq = Body(...)):
             # Avoid `python -m freqtrade` shadowing by running from a cwd that doesn't contain
             # the local `freqtrade/` directory.
             base_cmd = [py, "-m", "freqtrade"]
-            user_data_dir = (ROOT / "user_data").resolve()
+            user_data_dir = paths.user_data_root()
             if user_data_dir.exists():
                 job_cwd = user_data_dir
 
     cmd = base_cmd + [
         "backtesting",
         "--userdir",
-        str((ROOT / "user_data").resolve()),
+        str(paths.user_data_root()),
         "--config",
         str(cfg_path),
         "--strategy",
@@ -304,14 +301,14 @@ def run_capture(req: CaptureReq = Body(...)):
     duration_sec = max(1, min(duration_sec, 24 * 3600))
 
     fixture_path = Path(req.fixture) if req.fixture else None
-    if fixture_path is not None and not fixture_path.is_absolute():
-        fixture_path = (ROOT / fixture_path).resolve()
+    if fixture_path is not None:
+        fixture_path = paths.resolve_repo_path(fixture_path)
     if fixture_path is not None and not fixture_path.exists():
         return error("FIXTURE_NOT_FOUND", f"Fixture not found: {fixture_path}")
 
     out_dir = Path(req.out_dir) if req.out_dir else None
-    if out_dir is not None and not out_dir.is_absolute():
-        out_dir = (ROOT / out_dir).resolve()
+    if out_dir is not None:
+        out_dir = paths.resolve_repo_path(out_dir)
 
     script = ROOT / "scripts" / "micro_capture.py"
     if not script.exists():
@@ -358,9 +355,7 @@ def run_lob_rebuild(req: LobRebuildReq = Body(...)):
     if exchange != "kucoin":
         return error("UNSUPPORTED_EXCHANGE", f"Unsupported exchange: {exchange!r}")
 
-    capture_dir = Path(req.capture_dir)
-    if not capture_dir.is_absolute():
-        capture_dir = (ROOT / capture_dir).resolve()
+    capture_dir = paths.resolve_repo_path(req.capture_dir)
     if not capture_dir.exists():
         return error(
             "DATA_NOT_FOUND",
@@ -369,9 +364,7 @@ def run_lob_rebuild(req: LobRebuildReq = Body(...)):
             details={"resource": "capture_dir", "path": str(capture_dir)},
         )
 
-    snapshot_path = Path(req.snapshot)
-    if not snapshot_path.is_absolute():
-        snapshot_path = (ROOT / snapshot_path).resolve()
+    snapshot_path = paths.resolve_repo_path(req.snapshot)
     if not snapshot_path.exists():
         return error(
             "DATA_NOT_FOUND",
@@ -392,9 +385,11 @@ def run_lob_rebuild(req: LobRebuildReq = Body(...)):
         depth = 20
     depth = max(1, min(depth, 200))
 
-    out_dir = Path(req.out_dir) if req.out_dir else (ROOT / "artifacts" / "lob_rebuild" / uuid.uuid4().hex[:12])
-    if not out_dir.is_absolute():
-        out_dir = (ROOT / out_dir).resolve()
+    out_dir = (
+        paths.resolve_repo_path(req.out_dir)
+        if req.out_dir
+        else (paths.artifacts_root() / "lob_rebuild" / uuid.uuid4().hex[:12]).resolve()
+    )
 
     # Precheck: ensure the capture directory contains level2 data and has no sequence gaps.
     level2_path = (capture_dir / "level2.ndjson.gz").resolve()
@@ -453,9 +448,7 @@ def run_lob_rebuild(req: LobRebuildReq = Body(...)):
 
 @router.post("/run/micro_feature")
 def run_micro_feature(req: MicroFeatureReq = Body(...)):
-    cfg_path = Path(req.config)
-    if not cfg_path.is_absolute():
-        cfg_path = (ROOT / cfg_path).resolve()
+    cfg_path = paths.resolve_repo_path(req.config)
     if not cfg_path.exists():
         return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
 
@@ -463,9 +456,7 @@ def run_micro_feature(req: MicroFeatureReq = Body(...)):
         return error("INVALID_TIMEFRAME", f"Invalid timeframe: {req.timeframe}")
 
     run_id = (str(req.run_id).strip().lower() if req.run_id else "") or uuid.uuid4().hex[:12]
-    out_dir = Path(req.out_dir) if req.out_dir else (ROOT / "artifacts" / "runs" / run_id / "micro_feature")
-    if not out_dir.is_absolute():
-        out_dir = (ROOT / out_dir).resolve()
+    out_dir = paths.resolve_repo_path(req.out_dir) if req.out_dir else (paths.run_dir(run_id) / "micro_feature")
 
     script = ROOT / "scripts" / "micro_features.py"
     if not script.exists():
@@ -511,9 +502,11 @@ def run_tca(req: TCAReq = Body(...)):
     if not script.exists():
         return error("SCRIPT_NOT_FOUND", f"tca_report script not found: {script}")
 
-    out_path = Path(req.out) if req.out else (ROOT / "artifacts" / "runs" / run_id / "tca" / "tca_report.json")
-    if not out_path.is_absolute():
-        out_path = (ROOT / out_path).resolve()
+    out_path = (
+        paths.resolve_repo_path(req.out)
+        if req.out
+        else (paths.run_dir(run_id) / "tca" / "tca_report.json").resolve()
+    )
 
     cmd: list[str] = [
         sys.executable,
@@ -526,9 +519,7 @@ def run_tca(req: TCAReq = Body(...)):
         str(out_path),
     ]
     if req.backtest_zip:
-        zp = Path(req.backtest_zip)
-        if not zp.is_absolute():
-            zp = (ROOT / zp).resolve()
+        zp = paths.resolve_repo_path(req.backtest_zip)
         if not zp.exists():
             return error("BACKTEST_ZIP_NOT_FOUND", f"Backtest zip not found: {zp}")
         cmd += ["--backtest-zip", str(zp)]
@@ -551,16 +542,12 @@ def run_tca(req: TCAReq = Body(...)):
 @router.post("/run/factor_compile")
 def run_factor_compile(req: FactorCompileReq = Body(...)):
     run_id = (str(req.run_id).strip().lower() if req.run_id else "") or uuid.uuid4().hex[:12]
-    out_dir = Path(req.out_dir) if req.out_dir else (ROOT / "artifacts" / "runs" / run_id / "factor_compile")
-    if not out_dir.is_absolute():
-        out_dir = (ROOT / out_dir).resolve()
+    out_dir = paths.resolve_repo_path(req.out_dir) if req.out_dir else (paths.run_dir(run_id) / "factor_compile")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     spec_path: Optional[Path] = None
     if isinstance(req.spec_path, str) and req.spec_path.strip():
-        p = Path(req.spec_path)
-        if not p.is_absolute():
-            p = (ROOT / p).resolve()
+        p = paths.resolve_repo_path(req.spec_path)
         if not p.exists():
             return error(
                 "DATA_NOT_FOUND",
@@ -583,7 +570,11 @@ def run_factor_compile(req: FactorCompileReq = Body(...)):
     try:
         from agent_market.factor_compiler import FactorSpec  # type: ignore
         from agent_market.factor_compiler.checks import check_complexity  # type: ignore
-        from agent_market.factor_compiler.checks.data_schema import collect_var_names  # type: ignore
+        from agent_market.factor_compiler.checks.data_schema import (  # type: ignore
+            check_literal_param_ranges,
+            check_operator_whitelist,
+            collect_var_names,
+        )
         from agent_market.factor_compiler.checks.time_safety import check_time_safety  # type: ignore
         from agent_market.factor_compiler.dsl.operators import compile_to_expression_engine  # type: ignore
         from agent_market.factor_compiler.dsl.types import infer_expr_type  # type: ignore
@@ -600,6 +591,23 @@ def run_factor_compile(req: FactorCompileReq = Body(...)):
         spec = FactorSpec.model_validate(spec_payload)
     except Exception as exc:
         return error("INVALID_FACTOR_SPEC", f"FactorSpec validation failed: {exc}")
+
+    op_res = check_operator_whitelist(spec.expr)
+    if not op_res.ok:
+        return error(
+            "UNKNOWN_OPERATOR",
+            op_res.message,
+            legacy_code=op_res.code,
+            details=op_res.to_dict(),
+        )
+    for r in check_literal_param_ranges(spec.expr):
+        if not r.ok:
+            return error(
+                "INVALID_FACTOR_SPEC",
+                r.message,
+                legacy_code=r.code,
+                details=r.to_dict(),
+            )
 
     inferred = infer_expr_type(spec.expr)
     if getattr(inferred, "kind", None) != "series":
@@ -671,16 +679,12 @@ def run_factor_compile(req: FactorCompileReq = Body(...)):
 @router.post("/run/factor_eval")
 def run_factor_eval(req: FactorEvalReq = Body(...)):
     run_id = (str(req.run_id).strip().lower() if req.run_id else "") or uuid.uuid4().hex[:12]
-    out_dir = Path(req.out_dir) if req.out_dir else (ROOT / "artifacts" / "runs" / run_id / "factor_eval")
-    if not out_dir.is_absolute():
-        out_dir = (ROOT / out_dir).resolve()
+    out_dir = paths.resolve_repo_path(req.out_dir) if req.out_dir else (paths.run_dir(run_id) / "factor_eval")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     expr_path: Optional[Path] = None
     if isinstance(req.expression_path, str) and req.expression_path.strip():
-        p = Path(req.expression_path)
-        if not p.is_absolute():
-            p = (ROOT / p).resolve()
+        p = paths.resolve_repo_path(req.expression_path)
         if not p.exists():
             return error(
                 "DATA_NOT_FOUND",
@@ -693,7 +697,7 @@ def run_factor_eval(req: FactorEvalReq = Body(...)):
         expr_path = (out_dir / "input_expression.txt").resolve()
         expr_path.write_text(req.expression.strip(), encoding="utf-8")
     else:
-        compiled = (ROOT / "artifacts" / "runs" / run_id / "factor_compile" / "compiled_expression.txt").resolve()
+        compiled = (paths.run_dir(run_id) / "factor_compile" / "compiled_expression.txt").resolve()
         if compiled.exists():
             expr_path = compiled
         else:
@@ -814,11 +818,11 @@ def run_train(req: TrainReq = Body(...)):
     script = str(ROOT / "scripts" / "train_pipeline.py")
     cfg_path: Optional[Path] = None
     if req.config:
-        cfg_path = (ROOT / req.config) if not Path(req.config).is_absolute() else Path(req.config)
+        cfg_path = paths.resolve_repo_path(req.config)
         if not cfg_path.exists():
             return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
     elif req.config_obj:
-        tmp_dir = ROOT / "user_data" / "tmp"
+        tmp_dir = (paths.user_data_root() / "tmp").resolve()
         tmp_dir.mkdir(parents=True, exist_ok=True)
         from datetime import datetime  # noqa: PLC0415
 
@@ -848,7 +852,7 @@ def run_train(req: TrainReq = Body(...)):
         try:
             ff = Path(data.get("feature_file"))
             if not ff.is_absolute():
-                ff = (ROOT / ff).resolve()
+                ff = paths.resolve_repo_path(ff)
             if not ff.exists():
                 return error("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {ff}")
         except Exception:
@@ -863,7 +867,7 @@ def run_train(req: TrainReq = Body(...)):
             )
         out_dir = output.get("model_dir") or "artifacts/models/auto"
         try:
-            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            paths.resolve_repo_path(out_dir).mkdir(parents=True, exist_ok=True)
         except Exception:
             return error("MODEL_DIR_INVALID", f"Cannot create output.model_dir: {out_dir}")
         cfg_path = tmp_dir / f"train_inline_{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
@@ -887,7 +891,7 @@ def run_feature(req: FeatureReq = Body(...)):
     py = sys.executable
     cfg_path = Path(req.config)
     if not cfg_path.is_absolute():
-        cfg_path = (ROOT / cfg_path).resolve()
+        cfg_path = paths.resolve_repo_path(cfg_path)
     if not cfg_path.exists():
         return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
     if not validate_timeframe(req.timeframe):

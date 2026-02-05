@@ -40,22 +40,31 @@ def _safe_float(value: Any) -> Optional[float]:
     return v if np.isfinite(v) else None
 
 
-def _rolling_ic_ir(factor: pd.Series, target: pd.Series, *, window: int = 50) -> tuple[Optional[float], Optional[float]]:
+def _rolling_ic_ir(
+    factor: pd.Series,
+    target: pd.Series,
+    *,
+    window: int = 50,
+) -> tuple[Optional[float], Optional[float], Optional[float]]:
     if factor is None or target is None:
-        return None, None
+        return None, None, None
     df = pd.concat([factor.rename("x"), target.rename("y")], axis=1).dropna()
     w = int(window)
     if df.shape[0] < max(3, w):
-        return None, None
+        return None, None, None
     ics = df["x"].rolling(w).corr(df["y"]).dropna()
     if ics.empty:
-        return None, None
+        return None, None, None
     mean = float(ics.mean())
     std = float(ics.std(ddof=0))
     if not np.isfinite(mean) or not np.isfinite(std):
-        return None, None
+        return None, None, None
     ic_ir = mean / (std + 1e-9)
-    return (float(ic_ir) if np.isfinite(ic_ir) else None), (float(std) if np.isfinite(std) else None)
+    return (
+        float(mean) if np.isfinite(mean) else None,
+        float(ic_ir) if np.isfinite(ic_ir) else None,
+        float(std) if np.isfinite(std) else None,
+    )
 
 
 def _trading_proxies(factor: pd.Series, target: pd.Series) -> tuple[Optional[float], Optional[float], Optional[float]]:
@@ -91,6 +100,65 @@ def _trading_proxies(factor: pd.Series, target: pd.Series) -> tuple[Optional[flo
     mdd = float(abs(dd.min())) if not dd.empty else float("nan")
 
     return _safe_float(sharpe), _safe_float(sortino), _safe_float(mdd)
+
+
+def _weighted_mean(values: pd.Series, weights: pd.Series) -> Optional[float]:
+    try:
+        v = pd.Series(values, copy=False).astype("float64")
+        w = pd.Series(weights, copy=False).astype("float64").abs()
+    except Exception:
+        return None
+
+    mask = v.replace([np.inf, -np.inf], np.nan).notna() & w.replace([np.inf, -np.inf], np.nan).notna() & (w > 0.0)
+    if not bool(mask.any()):
+        return None
+    vv = v[mask].to_numpy(dtype=float)
+    ww = w[mask].to_numpy(dtype=float)
+    denom = float(np.sum(ww))
+    if not np.isfinite(denom) or denom <= 0.0:
+        return None
+    out = float(np.sum(vv * ww) / denom)
+    return out if np.isfinite(out) else None
+
+
+def _microstructure_proxy_metrics(df: pd.DataFrame, *, factor: pd.Series) -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """
+    Best-effort microstructure proxy metrics for ScoreReport.
+
+    If the evaluation dataframe contains microstructure proxy columns, compute:
+      - slippage_reduction_bps: baseline expected_slippage_proxy mean - weighted mean (by |factor|)
+      - fill_rate: weighted mean(fill_prob_proxy) by |factor|
+      - adverse_selection_proxy: weighted mean(toxicity_proxy) by |factor|
+    """
+
+    weights = pd.Series(factor, copy=False)
+
+    slippage_reduction_bps: Optional[float] = None
+    fill_rate: Optional[float] = None
+    adverse_selection_proxy: Optional[float] = None
+
+    if "expected_slippage_proxy" in df.columns:
+        try:
+            base = _safe_float(pd.Series(df["expected_slippage_proxy"]).astype("float64").mean())
+            wmean = _weighted_mean(pd.Series(df["expected_slippage_proxy"]), weights)
+            if base is not None and wmean is not None:
+                slippage_reduction_bps = _safe_float(float(base - wmean))
+        except Exception:
+            pass
+
+    if "fill_prob_proxy" in df.columns:
+        try:
+            fill_rate = _weighted_mean(pd.Series(df["fill_prob_proxy"]), weights)
+        except Exception:
+            fill_rate = None
+
+    if "toxicity_proxy" in df.columns:
+        try:
+            adverse_selection_proxy = _weighted_mean(pd.Series(df["toxicity_proxy"]), weights)
+        except Exception:
+            adverse_selection_proxy = None
+
+    return slippage_reduction_bps, fill_rate, adverse_selection_proxy
 
 
 _EXPENSIVE_CALLS: set[str] = {
@@ -226,8 +294,8 @@ def _pareto_front(rows: list[dict[str, Any]]) -> set[str]:
     Return names on a simple Pareto front.
 
     Objectives:
-      - maximize ic_abs, rank_ic_abs
-      - minimize turnover, nan_ratio
+      - maximize sharpe_net
+      - minimize turnover, corr_to_library_max, complexity_proxy
     """
 
     items = [r for r in rows if r.get("gate_pass") is True]
@@ -235,27 +303,48 @@ def _pareto_front(rows: list[dict[str, Any]]) -> set[str]:
     if not items:
         return set()
 
+    def _complexity_proxy(row: dict[str, Any]) -> float:
+        node = row.get("node_count")
+        depth = row.get("depth")
+        expensive = row.get("expensive_ops")
+        try:
+            n = float(node) if node is not None else float("inf")
+        except Exception:
+            n = float("inf")
+        try:
+            d = float(depth) if depth is not None else 0.0
+        except Exception:
+            d = 0.0
+        try:
+            e = float(expensive) if expensive is not None else 0.0
+        except Exception:
+            e = 0.0
+        return float(n + 10.0 * e + d)
+
     def dominates(a: dict[str, Any], b: dict[str, Any]) -> bool:
-        a_ic = float(a.get("ic_abs") or float("-inf"))
-        b_ic = float(b.get("ic_abs") or float("-inf"))
-        a_ric = float(a.get("rank_ic_abs") or float("-inf"))
-        b_ric = float(b.get("rank_ic_abs") or float("-inf"))
-        a_to = float(a.get("turnover") or float("inf"))
-        b_to = float(b.get("turnover") or float("inf"))
-        a_nan = float(a.get("nan_ratio") or float("inf"))
-        b_nan = float(b.get("nan_ratio") or float("inf"))
+        a_sh = float(a.get("sharpe_net") if a.get("sharpe_net") is not None else float("-inf"))
+        b_sh = float(b.get("sharpe_net") if b.get("sharpe_net") is not None else float("-inf"))
+        a_to = float(a.get("turnover") if a.get("turnover") is not None else float("inf"))
+        b_to = float(b.get("turnover") if b.get("turnover") is not None else float("inf"))
+
+        # If no library exists, corr_max can be None. Treat it as 0.0 (best).
+        a_corr = float(a.get("corr_to_library_max") if a.get("corr_to_library_max") is not None else 0.0)
+        b_corr = float(b.get("corr_to_library_max") if b.get("corr_to_library_max") is not None else 0.0)
+
+        a_comp = _complexity_proxy(a)
+        b_comp = _complexity_proxy(b)
 
         better_or_equal = (
-            a_ic >= b_ic
-            and a_ric >= b_ric
+            a_sh >= b_sh
             and a_to <= b_to
-            and a_nan <= b_nan
+            and a_corr <= b_corr
+            and a_comp <= b_comp
         )
         strictly_better = (
-            a_ic > b_ic
-            or a_ric > b_ric
+            a_sh > b_sh
             or a_to < b_to
-            or a_nan < b_nan
+            or a_corr < b_corr
+            or a_comp < b_comp
         )
         return bool(better_or_equal and strictly_better)
 
@@ -279,7 +368,7 @@ def score_factors_to_artifacts(
     factor_cols: Sequence[str],
     target_col: str,
     out_dir: Path,
-    max_nan_ratio: float = 0.2,
+    max_nan_ratio: float = 0.02,
     max_turnover: float = 8.0,
     max_corr_to_library: float = 0.95,
     factor_exprs: Optional[Mapping[str, str]] = None,
@@ -301,7 +390,7 @@ def score_factors_to_artifacts(
         y = df[target_col]
         ic = information_coefficient(s, y)
         rank_ic = rank_information_coefficient(s, y)
-        ic_ir, ic_roll_std = _rolling_ic_ir(s, y, window=int(ic_rolling_window))
+        ic_mean, ic_ir, ic_roll_std = _rolling_ic_ir(s, y, window=int(ic_rolling_window))
         ic_roll_std2 = rolling_ic_std(s, y, window=int(ic_rolling_window))
         if ic_roll_std is None:
             ic_roll_std = ic_roll_std2
@@ -322,6 +411,8 @@ def score_factors_to_artifacts(
         cap_proxy = None
         if np.isfinite(turnover):
             cap_proxy = float(1.0 / (float(turnover) + 1e-9))
+
+        slip_red_bps, fill_rate, adv_sel = _microstructure_proxy_metrics(df, factor=s)
 
         weighted = _weighted_score(
             ic_ir=ic_ir,
@@ -345,6 +436,7 @@ def score_factors_to_artifacts(
             {
                 "name": str(name),
                 "ic": float(ic) if np.isfinite(ic) else None,
+                "ic_mean": _safe_float(ic_mean),
                 "rank_ic": float(rank_ic) if np.isfinite(rank_ic) else None,
                 "ic_ir": _safe_float(ic_ir),
                 "ic_rolling_std": _safe_float(ic_roll_std),
@@ -363,9 +455,9 @@ def score_factors_to_artifacts(
                 "regime_consistency": _safe_float(regime_cons),
                 "train_test_gap": _safe_float(tt_gap),
                 "capacity_proxy": _safe_float(cap_proxy),
-                "slippage_reduction_bps": None,
-                "fill_rate": None,
-                "adverse_selection_proxy": None,
+                "slippage_reduction_bps": _safe_float(slip_red_bps),
+                "fill_rate": _safe_float(fill_rate),
+                "adverse_selection_proxy": _safe_float(adv_sel),
                 "weighted_score": _safe_float(weighted),
                 "gate_pass": gate_pass,
                 "gates": {

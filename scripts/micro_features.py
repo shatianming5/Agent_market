@@ -14,10 +14,11 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agent_market import paths  # noqa: E402
+
 
 def _resolve(path: str | Path) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (ROOT / p).resolve()
+    return paths.resolve_repo_path(path)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -47,7 +48,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not run_id:
         run_id = uuid.uuid4().hex[:12]
 
-    out_dir = _resolve(args.out_dir) if args.out_dir else (ROOT / "artifacts" / "runs" / run_id / "micro_feature")
+    out_dir = _resolve(args.out_dir) if args.out_dir else (paths.run_dir(run_id) / "micro_feature")
 
     if args.lob_state or args.match:
         if not args.lob_state or not args.match:

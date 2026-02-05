@@ -13,10 +13,11 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agent_market import paths  # noqa: E402
+
 
 def _resolve(path: str) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (ROOT / p).resolve()
+    return paths.resolve_repo_path(path)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -42,7 +43,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.out:
         out_path = _resolve(str(args.out))
     else:
-        out_path = (ROOT / "artifacts" / "runs" / str(args.run_id) / "tca" / "tca_report.json").resolve()
+        out_path = (paths.run_dir(str(args.run_id)) / "tca" / "tca_report.json").resolve()
 
     html_path = out_path.with_suffix(".html") if args.html else None
     payload = generate_tca_report(zip_path, run_id=str(args.run_id), out_path=out_path, root=ROOT, html_path=html_path)
@@ -53,4 +54,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

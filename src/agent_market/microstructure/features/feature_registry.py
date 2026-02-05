@@ -76,6 +76,7 @@ def build_default_microstructure_registry(
       - depth_bid_L/depth_ask_L/imbalance_L (as depth_bid_{L}, ...)
       - trade_sign
       - vwap_w/ofi_w/arrival_intensity_w (as vwap_{w}, ...)
+      - rv_w (realized volatility on mid)
     """
     from agent_market.microstructure.features.core_features import (  # noqa: WPS433
         compute_convexity_levels,
@@ -84,6 +85,9 @@ def build_default_microstructure_registry(
         compute_imbalance_from_depth,
         compute_microprice,
         compute_slope_bid_levels,
+    )
+    from agent_market.microstructure.features.volatility_features import (  # noqa: WPS433
+        realized_volatility,
     )
 
     pd = _ensure_pandas()
@@ -304,6 +308,15 @@ def build_default_microstructure_registry(
     )
 
     for w in windows:
+        reg.register(
+            FeatureDef(
+                name=f"rv_{w}",
+                source="lob_state",
+                kind="realized_vol",
+                params={"window": int(w), "basis": "mid_pct_change"},
+                compute=lambda ctx, _w=int(w): realized_volatility(ctx.lob.get("mid"), window=_w),
+            )
+        )
         reg.register(
             FeatureDef(
                 name=f"vwap_{w}",

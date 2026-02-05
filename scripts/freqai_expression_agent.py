@@ -20,10 +20,11 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
+from agent_market import paths  # noqa: E402
+
 
 def _resolve_path(path: str) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (ROOT / p).resolve()
+    return paths.resolve_repo_path(path)
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
@@ -87,7 +88,7 @@ def _stable_slug(idx: int) -> str:
     return f"e{idx:02d}"
 
 
-FEATURE_FILE = Path("user_data/freqai_features.json")
+FEATURE_FILE = paths.resolve_repo_path("user_data/freqai_features.json")
 
 
 from agent_market.freqai import llm as llm_utils  # noqa: E402

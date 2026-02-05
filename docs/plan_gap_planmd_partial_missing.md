@@ -21,132 +21,22 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 
 ---
 
-### (L32) 2.1 新增模块总览（建议的目录落位）
-
-> `plan.md` 这里给出目标目录结构。逐项对照如下：
-
-| Proposed Path (plan.md) | Status | Evidence |
-|---|---|---|
-| `src/agent_market/factor_compiler/` | **PARTIAL** | 已有 DSL/parser/checks/scoring+Flow/API（最小版）；仍缺类型系统/完整算子/高级 scoring |
-| `src/agent_market/microstructure/` | **PARTIAL** | 已有 OHLCV micro_feature + microstructure mode（LOB+match）：`src/agent_market/microstructure/micro_feature.py` |
-| `src/agent_market/microstructure/capture/` | **DONE** | `src/agent_market/microstructure/capture/kucoin.py` + `scripts/micro_capture.py` |
-| `src/agent_market/microstructure/lob/` | **PARTIAL** | 已有 `rebuild.py`；缺 checksum/registry 等 |
-| `src/agent_market/microstructure/features/` | **PARTIAL** | 已实现最小 FeatureRegistry + LOB/Trades 特征子集；仍缺完整表格覆盖 |
-| `src/agent_market/tca/` | **PARTIAL** | 已实现 plan.md 5.1 v1 schema 结构（多字段占位）；orders/fills/impact 等仍缺失 |
-| `src/agent_market/flow_ext/` | **DONE (shim)** | 已新增 `flow_ext/`（steps/artifacts/validators）并在 `agent_flow.py` 引用（薄封装，行为仍复用 legacy `flow_steps.py`） |
-| `/run/factor_compile` | **DONE** | `server/api/routes/run.py` |
-| `/run/factor_eval` | **DONE** | `server/api/routes/run.py` |
-| `/run/micro_feature` | **DONE** | `server/api/routes/run.py` |
-| `/run/tca` | **DONE** | `server/api/routes/run.py` |
-| `/run/capture` | **DONE** | `server/api/routes/run.py` |
-| `/run/lob_rebuild` | **DONE** | `server/api/routes/run.py` |
-
-#### 2.1.1 计划中的“文件级”清单（不省略）
-
-> 下面按 `plan.md` 的示例树列出每个子文件/目录是否存在（实现可不完全同名，但这里按“计划字面路径”逐项核对）。
-
-**Factor Compiler**
-
-- `src/agent_market/factor_compiler/dsl/ast.py`：**DONE**
-- `src/agent_market/factor_compiler/dsl/grammar.py`：**DONE**
-- `src/agent_market/factor_compiler/dsl/parser.py`：**DONE**
-- `src/agent_market/factor_compiler/dsl/operators.py`：**DONE**
-- `src/agent_market/factor_compiler/dsl/types.py`：**DONE**
-- `src/agent_market/factor_compiler/dsl/serializer.py`：**DONE**
-- `src/agent_market/factor_compiler/checks/time_safety.py`：**DONE**
-- `src/agent_market/factor_compiler/checks/leakage.py`：**DONE**
-- `src/agent_market/factor_compiler/checks/data_schema.py`：**DONE**
-- `src/agent_market/factor_compiler/checks/complexity.py`：**DONE**
-- `src/agent_market/factor_compiler/checks/unit_test_gen.py`：**DONE**
-- `src/agent_market/factor_compiler/scoring/objectives.py`：**DONE**
-- `src/agent_market/factor_compiler/scoring/aggregate.py`：**DONE**
-- `src/agent_market/factor_compiler/scoring/novelty.py`：**DONE**
-- `src/agent_market/factor_compiler/scoring/stability.py`：**DONE**
-- `src/agent_market/factor_compiler/prompts/factor_spec.system.md`：**DONE**
-- `src/agent_market/factor_compiler/prompts/factor_spec.fewshot.json`：**DONE**
-- `src/agent_market/factor_compiler/api_models.py`：**DONE**
-
-**Microstructure**
-
-- `src/agent_market/microstructure/capture/ws_capture.py`：**DONE**（提供 fixture 回放 + live kucoin；与 `kucoin.py`/`writer.py` 共存）
-- `src/agent_market/microstructure/capture/exchange_adapters/binance.py`：**PARTIAL**（占位接口，未实现）
-- `src/agent_market/microstructure/capture/exchange_adapters/okx.py`：**PARTIAL**（占位接口，未实现）
-- `src/agent_market/microstructure/capture/exchange_adapters/bybit.py`：**PARTIAL**（占位接口，未实现）
-- `src/agent_market/microstructure/capture/exchange_adapters/kraken.py`：**PARTIAL**（占位接口，未实现）
-- `src/agent_market/microstructure/lob/rebuild.py`：**DONE**
-- `src/agent_market/microstructure/lob/checksum.py`：**DONE**
-- `src/agent_market/microstructure/features/feature_registry.py`：**DONE**
-- `src/agent_market/microstructure/features/core_features.py`：**DONE**
-- `src/agent_market/microstructure/features/ofi_features.py`：**DONE**
-- `src/agent_market/microstructure/features/volatility_features.py`：**DONE**
-- `src/agent_market/microstructure/schemas/lob_parquet.py`：**DONE**
-- `src/agent_market/microstructure/schemas/trades_parquet.py`：**DONE**
-
-**TCA**
-
-- `src/agent_market/tca/schema.py`：**PARTIAL**（简化版）
-- `src/agent_market/tca/metrics.py`：**PARTIAL**（简化版）
-- `src/agent_market/tca/report.py`：**PARTIAL**（简化版）
-- `src/agent_market/tca/adapters/freqtrade.py`：**PARTIAL**（解析 backtest zip）
-- `src/agent_market/tca/adapters/simulated_exec.py`：**PARTIAL**（最小 deterministic market-order model；尚未与真实 LOB 基准联动）
-
-**Flow Ext**
-
-- `src/agent_market/flow_ext/steps.py`：**DONE**
-- `src/agent_market/flow_ext/artifacts.py`：**DONE**
-- `src/agent_market/flow_ext/validators.py`：**DONE**
-
----
-
 #### (L180) 3.3.1 核心类型
 - Status: **PARTIAL**（已新增最小 `FactorType`/`infer_expr_type`；尚缺完整 Type System/规则与更细语义类型）
+
+---
 
 #### (L190) 3.3.2 类型属性（必须携带）
 - Status: **PARTIAL**
 - Notes:
   - 最小 `FactorType` 已携带 `freq/timezone/availability_delay_ms/lookback` 字段，但尚未形成“强制携带 + 强约束校验”的闭环。
 
-#### (L230) 3.4.4 微观结构算子（LOB/Trades）
-- Status: **PARTIAL**
-- Notes:
-  - 已有离线可复现的 LOB state + trades rollups pipeline（`lob_rebuild` + `micro_features`），并通过 FeatureRegistry 产出稳定列名。
-  - Factor Compiler DSL 已将核心 microstructure 算子**编译到已存在列名**（避免扩展 ExpressionEngine callable whitelist）。
-  - 仍缺：`rv(w)` 的 mid/trades 版本（当前 `rv_*` 主要来自 OHLCV proxy）。
-
-##### 3.4.4 算子逐项核对（不省略）
-
-| Operator | Status | Notes |
-|---|---|---|
-| `mid(bid1, ask1)` | **DONE** | 编译为 `mid` 列（micro_features 产出） |
-| `spread(bid1, ask1)` | **DONE** | 编译为 `spread` 列 |
-| `microprice(bid1, ask1, bid_sz1, ask_sz1)` | **DONE** | 编译为 `microprice` 列 |
-| `depth_bid(levels)` | **DONE** | 编译为 `depth_bid_{L}`（如 `depth_bid_20`） |
-| `depth_ask(levels)` | **DONE** | 编译为 `depth_ask_{L}` |
-| `imbalance(depth_bid, depth_ask)` | **DONE** | 支持 `imbalance(depth_bid(L), depth_ask(L))` → `imbalance_{L}` |
-| `trade_sign()` | **DONE** | 编译为 `trade_sign` 列（match rollups 对齐到 LOB） |
-| `ofi(w)` | **DONE** | 编译为 `ofi_{w}`（如 `ofi_10`） |
-| `vwap(w)` | **DONE** | 编译为 `vwap_{w}` |
-| `rv(w)` | **PARTIAL** | 目前仅 OHLCV rolling vol（`rv_12/24/72`），非 mid/trades |
-| `arrival_intensity(w)` | **DONE** | 编译为 `arrival_intensity_{w}` |
-| `fill_prob(limit_px_offset, horizon)` | **DONE (proxy)** | ExpressionEngine best-effort（缺列时降级为稳定 fallback） |
-| `impact_proxy(w)` | **DONE (proxy)** | ExpressionEngine best-effort（缺列时降级为稳定 fallback） |
-| `queue_pos_proxy()` | **DONE (proxy)** | ExpressionEngine best-effort（缺列时降级为稳定 fallback） |
-
-#### (L262) 3.5.1 结构校验（Schema）
-- Status: **PARTIAL**
-- Evidence:
-  - 已实现 `FactorSpec`/`ExprNode` Pydantic 模型与 JSON schema 导出：`src/agent_market/factor_compiler/api_models.py`
-
-##### 3.5.1 条目逐项核对（不省略）
-
-| Item | Status | Notes |
-|---|---|---|
-| `FactorSpec` 通过 JSON Schema + Pydantic 校验 | **DONE** | `FactorSpec.model_validate()` + `FactorSpec.model_json_schema()` |
-| 所有算子必须在 whitelist | **PARTIAL** | 表达式层有 whitelist（callable names），但无 FactorSpec 层 |
-| 参数范围合法（w>0, levels>0） | **PARTIAL** | 部分算子 int() 强转但不做范围校验 |
+---
 
 #### (L268) 3.5.2 类型检查（Typecheck）
 - Status: **PARTIAL**（已有最小 type inference + API preflight；尚缺完整 Type System + 规则库）
+
+---
 
 #### (L274) 3.5.3 时间安全（Time-safety）
 - Status: **PARTIAL**
@@ -163,59 +53,13 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 | 训练/评测阶段自动 purge/embargo | **PARTIAL** | 已有最小 `eval_protocol`（walk-forward + purge/embargo）但未全链路强制 |
 | `availability_delay_ms` 可交易性约束 | **PARTIAL** | 已加入 best-effort gate（`check_time_safety(..., min_delay_ms=...)`）；真实延迟建模仍缺 |
 
-#### (L280) 3.5.4 数据泄漏探测（Leakage tests）
-- Status: **PARTIAL**
-
-#### (L286) 3.5.5 复杂度与过拟合控制
-- Status: **PARTIAL**
-
-#### (L300) 3.6.1 ScoreReport 输出（每个因子必产物）
-- Status: **PARTIAL**
-
-##### 3.6.1 字段逐项核对（不省略）
-
-| Group | Field | Status |
-|---|---|---|
-| Predictive | `IC_mean` | **PARTIAL** | 目前以全样本相关（单值）近似 `IC_mean` |
-| Predictive | `IC_IR` | **DONE** | 输出 `ic_ir`（rolling IC mean/std 的 best-effort 近似） |
-| Predictive | `RankIC` | **DONE** | 输出 `rank_ic`（单值） |
-| Stability | `IC_rolling_std` | **DONE** | 输出 `ic_rolling_std`（best-effort） |
-| Stability | `regime_consistency` | **DONE (proxy)** | best-effort：rolling IC 的稳定性 proxy |
-| Stability | `train_test_gap` | **DONE (proxy)** | best-effort：train/valid 指标差异 proxy |
-| Trading（net） | `Sharpe_net` | **DONE** | best-effort trading proxy（`sign(factor)*y`） |
-| Trading（net） | `Sortino_net` | **DONE** | 同上（下行波动分母） |
-| Trading（net） | `MDD` | **DONE** | 同上（equity curve 最大回撤） |
-| Trading | `turnover` | **DONE** | `mean(abs(diff(factor)))` |
-| Trading | `capacity_proxy` | **DONE (proxy)** | best-effort：与 turnover/波动相关的容量 proxy |
-| Microstructure | `slippage_reduction_bps` | **PARTIAL** | 字段已补齐（占位 `null`） |
-| Microstructure | `fill_rate` | **PARTIAL** | 字段已补齐（占位 `null`） |
-| Microstructure | `adverse_selection_proxy` | **PARTIAL** | 字段已补齐（占位 `null`） |
-| Novelty | `corr_to_library_max` | **DONE** | best-effort：与 library factors 的最大绝对相关 |
-| Novelty | `ast_similarity_max` | **DONE** | best-effort：expr sha256 是否命中 library sha 集合 |
-| Complexity | `node_count` | **DONE** | best-effort：对 compiled expression 做 Python AST 统计 |
-| Complexity | `depth` | **DONE** | best-effort：对 compiled expression 做 Python AST 深度统计 |
-| Complexity | `expensive_ops` | **DONE (proxy)** | best-effort：对表达式 AST 计数（复杂算子） |
-
-#### (L309) 3.6.2 聚合评分（默认）
-- Status: **PARTIAL**
-
-##### 3.6.2 条目逐项核对（不省略）
-
-| Item | Status | Notes |
-|---|---|---|
-| Hard gates：`nan_ratio <= 2%` | **PARTIAL** | 已实现 nan_ratio gate（阈值可配置）；默认未固定为 2% |
-| Hard gates：`turnover <= 8/day` | **PARTIAL** | 已实现 turnover gate（阈值可配置）；含义仍需与采样频率对齐 |
-| Hard gates：`corr_to_library_max <= 0.95` | **DONE** | 支持 `max_corr_to_library` gate（best-effort；无 library 时不触发） |
-| Weighted score（给定公式） | **DONE** | 输出 `weighted_score`（best-effort；缺失项按 0 处理并做基础归一/截断） |
-| Pareto frontier（(Sharpe_net, turnover, corr_max, complexity)） | **PARTIAL** | 已实现简化 Pareto（IC_abs/RankIC_abs + turnover + nan_ratio），未含 Sharpe/corr/complexity |
-
-### (L338) 4.1 订单簿基本形态（LOB shape）
-- Status: **PARTIAL**
-- Notes: 依赖 `lob_rebuild` 输出；已实现最小 LOB 派生特征（mid/spread/rel_spread/microprice/depth/imbalance）。
+---
 
 ### (L352) 4.2 订单流（Order Flow）与成交流（Trades）
 - Status: **PARTIAL**
-- Notes: 已实现从 KuCoin `match` 计算 trade_sign/vwap/ofi/arrival_intensity 并对齐到 LOB 时间戳；缺 buy/sell vol 等扩展。
+- Notes: 已实现从 KuCoin `match` 计算 trade_sign/vwap/ofi/arrival_intensity/buy_vol/sell_vol，并对齐到 LOB 时间戳；`ofi_w` 仍为 signed-volume proxy（非 L2 delta-OFI）。
+
+---
 
 ### (L364) 4.3 执行与 adverse selection proxy
 - Status: **PARTIAL**
@@ -246,7 +90,7 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 | `sell_vol_w` | **DONE** | trades rolling sell volume（`sell_vol_{w}`） |
 | `ofi_w` | **PARTIAL** | 当前为 trades signed-volume proxy（非 L2 delta-OFI） |
 | `vwap_w` | **DONE** | trades rolling vwap |
-| `rv_w` | **PARTIAL** | 目前仅 OHLCV rolling vol（`rv_12/24/72`），非 mid/trades 版本 |
+| `rv_w` | **DONE** | realized volatility on `mid` pct change（`rv_{w}`） |
 | `arrival_intensity_w` | **DONE** | trades rolling count / window_sec |
 
 **4.3 Execution / toxicity proxies**
@@ -298,6 +142,8 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 | `diagnostics.plots[]` | **PARTIAL** | 输出 `[]` |
 | `diagnostics.participation` | **PARTIAL** | best-effort：OHLCV volume participation proxy（缺数据时为 `null`） |
 
+---
+
 ### (L469) 5.2 TCA 指标定义建议（v1 必含）
 - Status: **PARTIAL**
 - Evidence:
@@ -317,46 +163,13 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 
 ---
 
-### (L488) 6.1 新步骤列表（Step IDs）
-
-| Step | Status | Evidence |
-|---|---|---|
-| `capture` | **DONE** | Flow step + API：`scripts/micro_capture.py`, `POST /run/capture`, `src/agent_market/agent_flow.py` |
-| `lob_rebuild` | **DONE** | Flow step + API：`scripts/lob_rebuild.py`, `POST /run/lob_rebuild`, `src/agent_market/agent_flow.py` |
-| `micro_feature` | **DONE** | Flow step + API 已有 |
-| `factor_compile` | **DONE** | Flow step + API：`scripts/factor_compile.py`, `POST /run/factor_compile`, `src/agent_market/agent_flow.py` |
-| `factor_eval` | **DONE** | Flow step + API：`scripts/factor_eval.py`, `POST /run/factor_eval`, `src/agent_market/agent_flow.py` |
-| `train` | **PARTIAL** | 现为 `ml` step（`TrainingPipeline`） |
-| `backtest` | **DONE** | 已有 |
-| `tca` | **DONE (简化)** | Flow step + API 已有 |
-| `report` | **DONE** | Flow step + bundles：`src/agent_market/flow_steps.py`, `/results/bundles/*` |
-
-### (L500) 6.2 每个步骤的输入/输出产物（Artifacts）
-- Status: **PARTIAL**
-- Notes:
-  - 计划建议路径为 `data/...` 与 `results/...`；当前仓库使用 `user_data/...` + `artifacts/...`，并由 `artifacts/run_meta.json` 索引产物。
-
-#### 6.2.1 plan.md 表格逐项核对（不省略）
-
-| Step | plan.md Outputs | Status | Notes |
-|---|---|---|---|
-| `capture` | `data/raw/{ex}/{sym}/{date}/trades.parquet`, `lob_deltas.parquet`, `meta.json` | **PARTIAL** | 当前输出 `*.ndjson.gz` + `manifest.json`（路径不同、格式不同） |
-| `lob_rebuild` | `data/lob/{ex}/{sym}/{date}/lob_state.parquet` | **PARTIAL** | 当前输出 `out_dir/lob_state.parquet` + `rebuild_report.json`（路径/命名不同） |
-| `micro_feature` | `data/features/{run_id}/micro_features.parquet` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/micro_feature/features.parquet` |
-| `factor_compile` | `data/features/{run_id}/factor_{name}.parquet` + `factor_ast.json` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/factor_compile/*`（spec/ast/expression），未产出 factor_{name}.parquet |
-| `factor_eval` | `results/{run_id}/factor_scores.json` + `pareto.csv` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/factor_eval/factor_scores.json` + `pareto.csv` |
-| `train` | `results/{run_id}/model/` | **PARTIAL** | 当前模型产物在 `artifacts/models/...` |
-| `backtest` | `results/{run_id}/backtest.zip` | **PARTIAL** | 当前为 `user_data/backtest_results/backtest-result-*.zip` |
-| `tca` | `results/{run_id}/tca_report.json` (+ html) | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/tca/tca_report.json` |
-| `report` | `results/{run_id}/bundle.zip` | **PARTIAL** | 当前为 `artifacts/runs/<run_id>/bundle/bundle.zip`（并提供 `/results/bundles/download/{run_id}`） |
-
----
-
 ### (L551) 8.1 LLM 输出：必须是 `FactorSpec` JSON
 - Status: **PARTIAL**
 - Evidence:
   - 已新增 prompt assets（`factor_spec.system.md`/fewshot）与离线 parse/validate 入口（`src/agent_market/freqai/llm.py`）
   - 现有 expression agent 仍以 `expressions[]` 为主输出（未强制切换为 FactorSpec）
+
+---
 
 ### (L556) 8.2 反馈闭环
 - Status: **PARTIAL**
@@ -377,13 +190,14 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 - Status: **PARTIAL**
 - Notes: `micro_feature`/`tca` 已有；`capture`/`lob_rebuild` 已接入 Flow；TCA v1 已补齐 orders/fills 与最小 IS（fees 入账），但 arrival_mid/impact/delay 等仍缺。
 
+---
+
 ### (L582) 10.2 60 天（Factor Compiler v1）
 - Status: **PARTIAL**
 
-### (L588) 10.3 90 天（闭环产品）
-- Status: **MISSING**
-
 ---
+
+## (L595) 11. 交付清单（你最终应该在 repo 里看到什么）
 
 ### 1) Factor Compiler
 - Status: **PARTIAL**
@@ -396,5 +210,3 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 
 ### 4) Flow
 - Status: **PARTIAL**（Flow 已接入 capture/lob/factor/report；仍缺与 plan.md 建议的 data/results 路径完全对齐）
-
----

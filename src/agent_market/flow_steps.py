@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agent_market.backtest_results import write_latest_backtest_summary
+from agent_market import paths
 
 logger = logging.getLogger(__name__)
 
 TrainingPipeline = None
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = paths.REPO_ROOT
 
 
 def run_command(cmd: list[str], cwd: Optional[str] = None) -> None:
@@ -62,10 +63,10 @@ def get_freqtrade_version() -> dict[str, Any]:
 def _resolve_path(path: str | Path, cwd: Optional[str] = None) -> Path:
     p = Path(path)
     if p.is_absolute():
-        return p
+        return p.resolve()
     if cwd:
         return (REPO_ROOT / cwd / p).resolve()
-    return (REPO_ROOT / p).resolve()
+    return paths.resolve_repo_path(p)
 
 
 def _resolve_cwd(cwd: Optional[str]) -> str:
@@ -150,7 +151,7 @@ def _ensure_freqtrade_command(cmd: list[str], *, cwd: str) -> tuple[list[str], s
         return cmd, cwd
 
     # Fallback to python -m freqtrade, but avoid CWD shadowing.
-    safe_cwd = str((REPO_ROOT / "user_data").resolve())
+    safe_cwd = str(paths.user_data_root())
     cmd = [sys.executable, "-m", "freqtrade"] + cmd[1:]
     return cmd, (safe_cwd if Path(safe_cwd).exists() else cwd)
 
@@ -166,7 +167,7 @@ def run_feature_generation(cfg: Dict[str, Any]) -> None:
 def run_expression_generation(cfg: Dict[str, Any], feedback_path: Path) -> None:
     script = Path(cfg.get("script", "scripts/freqai_expression_agent.py"))
     args = list(map(str, cfg.get("args", [])))
-    fb_path = Path(cfg.get("feedback_path", feedback_path))
+    fb_path = paths.resolve_repo_path(cfg.get("feedback_path", feedback_path))
     append_feedback = fb_path.exists() and "--feedback" not in args
     if append_feedback:
         args += ["--feedback", str(fb_path)]
@@ -211,8 +212,7 @@ def run_rl_training(cfg: Dict[str, Any]) -> None:
         raise ValueError("rl_training.config must be provided as a JSON object")
     logger.info("Starting RL training")
 
-    model_dir = Path((config.get("output") or {}).get("model_dir") or "artifacts/models/rl_real")
-    model_dir = _resolve_path(model_dir)
+    model_dir = paths.resolve_repo_path((config.get("output") or {}).get("model_dir") or "artifacts/models/rl_real")
     model_dir.mkdir(parents=True, exist_ok=True)
     config_path = model_dir / "rl_training_config.json"
     config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -228,7 +228,7 @@ def _maybe_generate_rl_signals_for_backtest(cfg: Dict[str, Any]) -> None:
         return
 
     rl_summary = cfg.get("rl_summary", "artifacts/models/rl_real/training_summary.json")
-    rl_summary_path = _resolve_path(str(rl_summary))
+    rl_summary_path = paths.resolve_repo_path(str(rl_summary))
     if not rl_summary_path.exists():
         logger.info("RL summary not found (%s); skipping RL signal generation", rl_summary_path)
         return
@@ -263,7 +263,7 @@ def run_backtest(cfg: Dict[str, Any], feedback_path: Path) -> None:
     else:
         binary = cfg.get("binary", "freqtrade")
         cmd = [str(binary), "backtesting"]
-        userdir = str(cfg.get("userdir") or "user_data")
+        userdir = str(paths.resolve_repo_path(str(cfg.get("userdir") or "user_data")))
         cmd = _inject_userdir(cmd, userdir)
         if cfg.get("config"):
             cmd += ["--config", str(_resolve_path(str(cfg["config"]), cwd=cfg.get("cwd")))]
@@ -276,15 +276,15 @@ def run_backtest(cfg: Dict[str, Any], feedback_path: Path) -> None:
         cmd += list(map(str, cfg.get("extra_args", [])))
 
     cwd = _resolve_cwd(cfg.get("cwd"))
-    cmd = _inject_userdir(cmd, str(cfg.get("userdir") or "user_data"))
+    cmd = _inject_userdir(cmd, str(paths.resolve_repo_path(str(cfg.get("userdir") or "user_data"))))
     wrapper = REPO_ROOT / "scripts" / "freqtrade_cli.py"
     if wrapper.exists() and cmd and Path(str(cmd[0])).name.lower().startswith("freqtrade"):
         cmd = [sys.executable, str(wrapper)] + cmd[1:]
     else:
         cmd, cwd = _ensure_freqtrade_command(cmd, cwd=cwd)
     run_command(cmd, cwd=cwd)
-    results_dir = Path(cfg.get("results_dir", "user_data/backtest_results"))
-    out_path = Path(cfg.get("feedback_path", feedback_path))
+    results_dir = paths.resolve_repo_path(cfg.get("results_dir", "user_data/backtest_results"))
+    out_path = paths.resolve_repo_path(cfg.get("feedback_path", feedback_path))
     summary = write_latest_backtest_summary(results_dir, out_path)
     if summary is not None:
         logger.info("Backtest summary written to %s", out_path)
@@ -298,9 +298,49 @@ def run_micro_feature(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) -> dic
     Optional:
       - timeframe, timerange, pairs, data_dir
     """
+    mode = str(cfg.get("mode") or "").strip().lower()
+    lob_state = cfg.get("lob_state") or cfg.get("lob_state_parquet")
+    match_path = cfg.get("match") or cfg.get("match_path")
+    if mode == "microstructure" or lob_state or match_path:
+        if not lob_state or not match_path:
+            raise ValueError("micro_feature microstructure mode requires lob_state and match")
+
+        symbol = cfg.get("symbol")
+        depth_levels = int(cfg.get("depth_levels") or cfg.get("depth") or 20)
+        windows_raw = cfg.get("windows_sec") or cfg.get("windows") or [10]
+        if isinstance(windows_raw, str):
+            windows = [int(x) for x in windows_raw.replace(",", " ").split() if x.strip()]
+        elif isinstance(windows_raw, (int, float)):
+            windows = [int(windows_raw)]
+        elif isinstance(windows_raw, list):
+            windows = [int(x) for x in windows_raw if int(x) > 0]
+        else:
+            windows = [10]
+        if not windows:
+            windows = [10]
+
+        from agent_market.microstructure.micro_feature import (  # noqa: WPS433
+            generate_microstructure_features_from_lob_and_match,
+        )
+
+        outputs = generate_microstructure_features_from_lob_and_match(
+            root=REPO_ROOT,
+            run_id=str(run_id),
+            out_dir=Path(out_dir),
+            lob_state=_resolve_path(str(lob_state), cwd=cfg.get("cwd")),
+            match_path=_resolve_path(str(match_path), cwd=cfg.get("cwd")),
+            symbol=str(symbol) if symbol else None,
+            depth_levels=int(depth_levels),
+            windows_sec=windows,
+        )
+        return {
+            "features_parquet": str(outputs.features_parquet),
+            "manifest_json": str(outputs.manifest_json),
+        }
+
     config_path = cfg.get("config") or cfg.get("freqtrade_config")
     if not config_path:
-        raise ValueError("micro_feature.config is required")
+        raise ValueError("micro_feature.config is required (or set mode=microstructure)")
 
     timeframe = cfg.get("timeframe")
     timerange = cfg.get("timerange")
@@ -445,6 +485,9 @@ def run_factor_eval(
         "--seed",
         str(seed),
     ]
+    features_parquet = cfg.get("features_parquet") or cfg.get("features_path") or cfg.get("micro_features_parquet")
+    if features_parquet:
+        cmd += ["--features-parquet", str(_resolve_path(str(features_parquet), cwd=cfg.get("cwd")))]
     run_command(cmd, cwd=str(REPO_ROOT))
 
     return {

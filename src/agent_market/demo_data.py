@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, List, Optional, Sequence
 
+from agent_market import paths
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
@@ -13,7 +15,7 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _resolve(root: Path, path: str | Path) -> Path:
     p = Path(path)
-    return p if p.is_absolute() else (root / p).resolve()
+    return p.resolve() if p.is_absolute() else paths.resolve_repo_path(p)
 
 
 def _timeframe_to_pandas_freq(timeframe: str) -> str:

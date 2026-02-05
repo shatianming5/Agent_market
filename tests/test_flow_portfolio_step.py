@@ -16,6 +16,7 @@ def test_flow_portfolio_step_produces_report_and_api_can_read_latest() -> None:
     root = Path(__file__).resolve().parents[1]
     cfg = root / "configs" / "agent_flow_kucoin_cpu_nollm_portfolio.json"
     script = root / "scripts" / "agent_flow.py"
+    from agent_market import paths
 
     from agent_market.demo_data import ensure_demo_ohlcv_from_flow_config
 
@@ -24,7 +25,7 @@ def test_flow_portfolio_step_produces_report_and_api_can_read_latest() -> None:
     cmd = [sys.executable, str(script), "--config", str(cfg), "--steps", "portfolio"]
     subprocess.run(cmd, cwd=str(root), check=True)  # noqa: S603,S607
 
-    meta_path = root / "artifacts" / "run_meta.json"
+    meta_path = paths.run_meta_latest_path()
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     artifacts = meta.get("artifacts") or {}
 
@@ -45,4 +46,3 @@ def test_flow_portfolio_step_produces_report_and_api_can_read_latest() -> None:
     assert isinstance(body.get("weights"), dict)
     assert isinstance(body.get("stats"), dict)
     assert isinstance(body.get("inputs"), dict)
-

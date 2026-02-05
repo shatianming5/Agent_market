@@ -1,0 +1,130 @@
+{
+  "capture": {
+    "exchange": "kucoin",
+    "channels": "match,level2",
+    "symbols": "BTC-USDT",
+    "fixture": "tests/fixtures/kucoin_ws_sample.jsonl"
+  },
+  "lob_rebuild": {
+    "exchange": "kucoin",
+    "symbol": "BTC-USDT",
+    "depth": 20,
+    "snapshot": "tests/fixtures/kucoin_lob_snapshot.json"
+  },
+  "feature": {
+    "args": [
+      "--config",
+      "user_data/config_freqai_kucoin.json",
+      "--output",
+      "user_data/freqai_features_real.json"
+    ],
+    "script": "scripts/freqai_feature_agent.py"
+  },
+  "micro_feature": {
+    "mode": "microstructure",
+    "symbol": "BTC-USDT",
+    "depth_levels": 20,
+    "windows_sec": [10]
+  },
+  "expression": {
+    "args": [
+      "--config",
+      "user_data/config_freqai_kucoin.json",
+      "--output",
+      "user_data/freqai_expressions_selected.json",
+      "--timeframe",
+      "1h",
+      "--mine",
+      "--top-n",
+      "10",
+      "--no-llm",
+      "--no-evolve",
+      "--min-samples",
+      "80"
+    ],
+    "feedback_top": 8,
+    "script": "scripts/freqai_expression_agent.py"
+  },
+  "factor_compile": {
+    "spec": {
+      "name": "demo_micro_ofi_imbalance_z10",
+      "version": "1.0",
+      "hypothesis": "演示：用 ofi 与 订单簿 imbalance 的组合做 rolling zscore（microstructure 列）",
+      "expr": {
+        "op": "zscore",
+        "args": [
+          {
+            "op": "add",
+            "args": [
+              { "op": "ofi", "args": [10] },
+              {
+                "op": "imbalance",
+                "args": [
+                  { "op": "depth_bid", "args": [20] },
+                  { "op": "depth_ask", "args": [20] }
+                ]
+              }
+            ]
+          },
+          10
+        ]
+      },
+      "meta": {
+        "timeframe": "1s",
+        "universe": ["BTC-USDT"],
+        "data_sources": ["lob_l2", "trades"]
+      }
+    }
+  },
+  "factor_eval": {
+    "enabled": true,
+    "rows": 512,
+    "seed": 7
+  },
+  "ml_training": {
+    "configs": [
+      {
+        "data": {
+          "feature_file": "user_data/freqai_features_real.json",
+          "expressions_file": "user_data/freqai_expressions_selected.json",
+          "data_dir": "user_data/data",
+          "exchange": "kucoin",
+          "pairs": ["BTC/USDT", "ETH/USDT"],
+          "timeframe": "1h",
+          "label_period": 12
+        },
+        "model": {
+          "name": "lightgbm",
+          "params": {
+            "objective": "regression",
+            "metric": "rmse",
+            "learning_rate": 0.06,
+            "num_leaves": 63,
+            "subsample": 0.85,
+            "feature_fraction": 0.85,
+            "num_boost_round": 30,
+            "model_dir": "artifacts/models/lightgbm_real"
+          }
+        },
+        "training": { "validation_ratio": 0.2 },
+        "output": { "model_dir": "artifacts/models/lightgbm_real" }
+      }
+    ]
+  },
+  "backtest": {
+    "binary": "freqtrade",
+    "generate_rl_signals": false,
+    "config": "user_data/config_freqai_kucoin.json",
+    "strategy": "ExpressionLongStrategy",
+    "strategy_path": "user_data/strategies",
+    "timerange": "20260101-20260110",
+    "extra_args": ["--cache", "none"],
+    "results_dir": "user_data/backtest_results"
+  },
+  "tca": {
+    "results_dir": "user_data/backtest_results",
+    "html": false
+  },
+  "report": { "enabled": true }
+}
+

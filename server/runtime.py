@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from .job_manager import JobManager
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-
-SETTINGS_PATH = ROOT / "user_data" / "server_settings.json"
 
 
 def load_dotenv_into_environ(env_path: Path) -> None:
@@ -38,6 +37,16 @@ def load_dotenv_into_environ(env_path: Path) -> None:
 # Load .env from project root into process env
 load_dotenv_into_environ(ROOT / ".env")
 
+# Make sure `agent_market` is importable for API routes.
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+try:
+    from agent_market import paths as _am_paths  # type: ignore
+
+    SETTINGS_PATH = (_am_paths.user_data_root() / "server_settings.json").resolve()
+except Exception:  # pragma: no cover
+    SETTINGS_PATH = (ROOT / "user_data" / "server_settings.json").resolve()
+
 
 jobs = JobManager()
-

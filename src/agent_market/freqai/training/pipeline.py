@@ -14,6 +14,7 @@ from agent_market.freqai.expression_engine import apply_expressions, load_expres
 from agent_market.freqai.features import apply_configured_features
 from agent_market.freqai.model.base import ModelRegistry, TrainResult
 from agent_market.freqai.training.labels import future_return
+from agent_market import paths
 
 try:  # optional deps
     from sklearn.model_selection import TimeSeriesSplit
@@ -48,9 +49,13 @@ class Dataset:
 class FeatureDatasetBuilder:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.feature_file = Path(config['feature_file'])
-        self.expressions_file = Path(config['expressions_file']) if config.get('expressions_file') else None
-        self.data_dir = Path(config.get('data_dir', 'user_data/data'))
+        self.feature_file = paths.resolve_repo_path(config['feature_file'])
+        self.expressions_file = (
+            paths.resolve_repo_path(config['expressions_file'])
+            if config.get('expressions_file')
+            else None
+        )
+        self.data_dir = paths.resolve_repo_path(config.get('data_dir', 'user_data/data'))
         self.exchange = config.get('exchange') or 'binanceus'
         self.timeframe = config.get('timeframe') or '1h'
         self.pairs = config.get('pairs') or ['BTC/USDT']
@@ -140,9 +145,17 @@ class TrainingPipeline:
             float(self.training_cfg.get('validation_ratio', 0.2)),
         )
 
-        model_dir = Path(self.output_cfg.get('model_dir', 'artifacts/models'))
+        raw_model_dir = (
+            self.output_cfg.get("model_dir")
+            or (self.model_cfg.get("params") or {}).get("model_dir")
+            or "artifacts/models"
+        )
+        model_dir = paths.resolve_repo_path(raw_model_dir)
         params = dict(self.model_cfg.get('params', {}))
-        params.setdefault('model_dir', str(model_dir))
+        # Normalize model_dir even when explicitly provided in params/output config,
+        # so test/e2e runs can safely redirect output roots without overwriting
+        # tracked evidence artifacts.
+        params["model_dir"] = str(model_dir)
         model_name = self.model_cfg.get('name', 'lightgbm')
         adapter = ModelRegistry.create(model_name, params)
 
