@@ -1,0 +1,166 @@
+{
+  "run_id": "65d3a3031d01",
+  "status": "success",
+  "started_at": "2026-02-05T06:10:05.519023+00:00",
+  "ended_at": "2026-02-05T06:10:11.982884+00:00",
+  "requested_steps": [
+    "feature",
+    "expression",
+    "ml",
+    "backtest"
+  ],
+  "config": {
+    "path": "configs/agent_flow_kucoin_cpu_nollm.json",
+    "sha256": "6cd5107e2178c2bab6cfdca59abc6c416b6fc57d7ae34e09c97307567cc284e0",
+    "source": "file"
+  },
+  "python": {
+    "version": "3.14.2 (main, Dec  5 2025, 16:49:16) [Clang 17.0.0 (clang-1700.4.4.1)]",
+    "executable": "/Users/shatianming/Downloads/Agent_market/.venv/bin/python",
+    "platform": "macOS-26.2-arm64-arm-64bit-Mach-O"
+  },
+  "freqtrade": {
+    "ok": true,
+    "cmd": [
+      "/Users/shatianming/Downloads/Agent_market/.venv/bin/python",
+      "/Users/shatianming/Downloads/Agent_market/scripts/freqtrade_cli.py",
+      "--version"
+    ],
+    "cwd": "/Users/shatianming/Downloads/Agent_market",
+    "returncode": 0,
+    "stdout": "Operating System:\tmacOS-26.2-arm64-arm-64bit-Mach-O\nPython Version:\t\tPython 3.14.2\nCCXT Version:\t\t4.5.34\n\nFreqtrade Version:\tfreqtrade 2026.1-dev-9a48fee",
+    "stderr": "",
+    "version": "Operating System:\tmacOS-26.2-arm64-arm-64bit-Mach-O"
+  },
+  "artifacts": {
+    "feature_output": "user_data/freqai_features_real.json",
+    "micro_feature_parquet": null,
+    "micro_feature_manifest": null,
+    "capture_manifest": null,
+    "capture_match_path": null,
+    "capture_level2_path": null,
+    "lob_state_parquet": null,
+    "rebuild_report": null,
+    "portfolio_weights": null,
+    "portfolio_report": null,
+    "portfolio_returns": null,
+    "expression_output": "user_data/freqai_expressions_selected.json",
+    "factor_spec_json": null,
+    "factor_ast_json": null,
+    "factor_expression_txt": null,
+    "factor_expression_json": null,
+    "factor_eval_meta": null,
+    "factor_scores_json": null,
+    "factor_pareto_csv": null,
+    "feedback_summary": "user_data/llm_feedback/latest_backtest_summary.json",
+    "model_dirs": [
+      "artifacts/models/lightgbm_real"
+    ],
+    "training_summaries": [
+      "artifacts/models/lightgbm_real/training_summary.json",
+      "artifacts/models/rl_real/training_summary.json"
+    ],
+    "backtest_results_dir": "user_data/backtest_results",
+    "backtest_zips": [
+      "user_data/backtest_results/backtest-result-2026-01-25_02-42-15.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_02-51-57.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_02-55-52.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_03-01-24.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_12-40-16.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_13-40-01.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_16-53-53.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_19-06-37.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_19-23-01.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_19-24-50.zip",
+      "user_data/backtest_results/backtest-result-2026-01-25_23-44-47.zip",
+      "user_data/backtest_results/backtest-result-2026-01-26_00-20-06.zip",
+      "user_data/backtest_results/backtest-result-2026-01-31_23-19-35.zip",
+      "user_data/backtest_results/backtest-result-2026-01-31_23-21-05.zip",
+      "user_data/backtest_results/backtest-result-2026-01-31_23-24-19.zip",
+      "user_data/backtest_results/backtest-result-2026-01-31_23-42-42.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_01-32-08.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_01-52-08.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_02-04-28.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_02-25-39.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_02-26-17.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_02-28-06.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_02-44-32.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-03-15.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-04-17.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-07-56.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-09-41.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-19-33.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-23-18.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-24-58.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-43-19.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-48-41.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_03-52-03.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_04-00-53.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_04-04-47.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_04-07-55.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_04-25-37.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_20-14-49.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_20-17-32.zip",
+      "user_data/backtest_results/backtest-result-2026-02-01_20-25-17.zip",
+      "user_data/backtest_results/backtest-result-2026-02-04_23-20-14.zip",
+      "user_data/backtest_results/backtest-result-2026-02-04_23-21-09.zip",
+      "user_data/backtest_results/backtest-result-2026-02-04_23-50-49.zip",
+      "user_data/backtest_results/backtest-result-2026-02-04_23-54-14.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_00-49-55.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_01-06-18.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_01-20-08.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_01-26-01.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_01-26-49.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_01-35-09.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_02-27-52.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_02-44-02.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_03-27-21.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_03-28-14.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_03-28-33.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_03-29-23.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_03-42-41.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_04-09-26.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_04-13-58.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_05-10-49.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_14-08-59.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_14-09-15.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_14-09-55.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_14-10-11.zip"
+    ],
+    "tca_report": null,
+    "tca_html": null,
+    "bundle_zip": null,
+    "bundle_manifest": null
+  },
+  "steps": [
+    {
+      "name": "feature",
+      "status": "ok",
+      "started_at": "2026-02-05T06:10:05.519366+00:00",
+      "ended_at": "2026-02-05T06:10:05.568613+00:00"
+    },
+    {
+      "name": "expression",
+      "status": "ok",
+      "started_at": "2026-02-05T06:10:05.568630+00:00",
+      "ended_at": "2026-02-05T06:10:06.649287+00:00"
+    },
+    {
+      "name": "ml",
+      "status": "ok",
+      "started_at": "2026-02-05T06:10:06.649322+00:00",
+      "ended_at": "2026-02-05T06:10:09.040076+00:00"
+    },
+    {
+      "name": "backtest",
+      "status": "ok",
+      "started_at": "2026-02-05T06:10:09.040089+00:00",
+      "ended_at": "2026-02-05T06:10:11.981581+00:00"
+    }
+  ],
+  "error": null,
+  "paths": {
+    "run_meta_latest": "artifacts/run_meta.json",
+    "run_meta": "artifacts/runs/65d3a3031d01/run_meta.json"
+  }
+}

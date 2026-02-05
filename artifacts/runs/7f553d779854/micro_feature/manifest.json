@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "kind": "micro_feature",
+  "run_id": "7f553d779854",
+  "generated_at": "2026-02-05T06:08:55.217780+00:00",
+  "inputs": {
+    "freqtrade_config": "/Users/shatianming/Downloads/Agent_market/user_data/config_freqai_kucoin.json",
+    "exchange": "kucoin",
+    "pairs": [
+      "BTC/USDT",
+      "ETH/USDT"
+    ],
+    "timeframe": "1h",
+    "timerange": "20260101-20260110",
+    "data_dir": "/Users/shatianming/Downloads/Agent_market/user_data/data"
+  },
+  "data_sources": [
+    "ohlcv_feather"
+  ],
+  "rows": 480,
+  "columns": [
+    "date",
+    "pair",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "ret_1",
+    "logret_1",
+    "range_pct",
+    "body_pct",
+    "wick_up_pct",
+    "wick_down_pct",
+    "rv_12",
+    "vol_z_12",
+    "amihud_12",
+    "rv_24",
+    "vol_z_24",
+    "amihud_24",
+    "rv_72",
+    "vol_z_72",
+    "amihud_72"
+  ],
+  "features": [
+    {
+      "name": "ret_1",
+      "source": "ohlcv",
+      "kind": "return",
+      "params": {
+        "periods": 1
+      }
+    },
+    {
+      "name": "logret_1",
+      "source": "ohlcv",
+      "kind": "logreturn",
+      "params": {
+        "periods": 1
+      }
+    },
+    {
+      "name": "range_pct",
+      "source": "ohlcv",
+      "kind": "range",
+      "params": {}
+    },
+    {
+      "name": "body_pct",
+      "source": "ohlcv",
+      "kind": "candle_body",
+      "params": {}
+    },
+    {
+      "name": "wick_up_pct",
+      "source": "ohlcv",
+      "kind": "candle_wick_up",
+      "params": {}
+    },
+    {
+      "name": "wick_down_pct",
+      "source": "ohlcv",
+      "kind": "candle_wick_down",
+      "params": {}
+    },
+    {
+      "name": "rv_12",
+      "source": "ohlcv",
+      "kind": "realized_vol",
+      "params": {
+        "window": 12
+      }
+    },
+    {
+      "name": "vol_z_12",
+      "source": "ohlcv",
+      "kind": "volume_z",
+      "params": {
+        "window": 12
+      }
+    },
+    {
+      "name": "amihud_12",
+      "source": "ohlcv",
+      "kind": "amihud",
+      "params": {
+        "window": 12
+      }
+    },
+    {
+      "name": "rv_24",
+      "source": "ohlcv",
+      "kind": "realized_vol",
+      "params": {
+        "window": 24
+      }
+    },
+    {
+      "name": "vol_z_24",
+      "source": "ohlcv",
+      "kind": "volume_z",
+      "params": {
+        "window": 24
+      }
+    },
+    {
+      "name": "amihud_24",
+      "source": "ohlcv",
+      "kind": "amihud",
+      "params": {
+        "window": 24
+      }
+    },
+    {
+      "name": "rv_72",
+      "source": "ohlcv",
+      "kind": "realized_vol",
+      "params": {
+        "window": 72
+      }
+    },
+    {
+      "name": "vol_z_72",
+      "source": "ohlcv",
+      "kind": "volume_z",
+      "params": {
+        "window": 72
+      }
+    },
+    {
+      "name": "amihud_72",
+      "source": "ohlcv",
+      "kind": "amihud",
+      "params": {
+        "window": 72
+      }
+    }
+  ],
+  "artifacts": {
+    "features_parquet": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/7f553d779854/micro_feature/features.parquet"
+  }
+}
