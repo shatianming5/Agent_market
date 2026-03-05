@@ -325,3 +325,32 @@ class Bad(IStrategy):
         assert state.phase == Phase.EVALUATION
         assert candidate.validation_passed is True
         assert candidate.backtest_summary is not None
+
+
+
+def test_phase_evaluation_applies_risk_constraints():
+    """Candidates violating min_trades/winrate/drawdown are marked ineligible."""
+    from agent_market.strategy_miner.phases import phase_evaluation
+
+    state = MinerState()
+    state.phase = Phase.EVALUATION
+    candidate = StrategyCandidate(
+        name="C",
+        code=_VALID_STRATEGY,
+        strategy_path=Path("/tmp/c.py"),
+    )
+    candidate.backtest_summary = {
+        "profit_total_pct": 1.0,
+        "trades": 3,
+        "winrate": 0.6,
+        "max_drawdown_abs": -1.0,
+        "avg_profit_pct": 0.1,
+    }
+    state.candidates.append(candidate)
+
+    config = MinerConfig(min_trades=10)
+    phase_evaluation(state, config)
+
+    assert candidate.constraints_ok is False
+    assert any("min_trades" in v for v in candidate.constraint_violations)
+    assert state.best_candidate is None

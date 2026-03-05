@@ -83,3 +83,27 @@ def test_write_leaderboard_sorts_by_reward_desc():
         data = json.loads(out.read_text(encoding="utf-8"))
         assert data["items"][0]["name"] == "B"
         assert data["items"][1]["name"] == "A"
+
+
+
+def test_write_leaderboard_filters_rejected_by_constraints():
+    cfg = MinerConfig(min_trades=10, max_abs_drawdown=50.0, min_winrate=0.0)
+    with tempfile.TemporaryDirectory() as td:
+        miner_dir = Path(td)
+        state = MinerState(run_id="r2")
+
+        bad = StrategyCandidate("Bad", "code", Path(td) / "bad.py", iteration=0)
+        bad.reward = 0.9
+        bad.constraints_ok = False
+        bad.constraint_violations = ["min_trades:1<10"]
+
+        good = StrategyCandidate("Good", "code", Path(td) / "good.py", iteration=1)
+        good.reward = 0.1
+        good.constraints_ok = True
+
+        state.candidates = [bad, good]
+
+        out = write_leaderboard(miner_dir, state, config=cfg)
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert [i["name"] for i in data["items"]] == ["Good"]
+        assert [i["name"] for i in data["rejected"]] == ["Bad"]

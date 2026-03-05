@@ -32,7 +32,7 @@
   - `candidates/iter_0000/<name>.py|.json`：每轮候选策略代码快照 + 元信息
   - `backtests/iter_0000/<name>/summary.json`：候选回测摘要（成功时）
   - `backtests/jobs/*.json`：后端 job 触发的回测任务摘要（无论成功/失败都会写）
-  - `leaderboard.json`：reward 排序后的榜单（当前按 reward 降序）
+  - `leaderboard.json`：风险约束过滤后按 reward 降序的榜单
 
 ### L2：Provider-agnostic Agent Executor（执行器层）
 

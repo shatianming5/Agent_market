@@ -410,6 +410,40 @@ def phase_evaluation(
 
     candidate.reward = reward
 
+    # Risk constraint gating (used by leaderboard/best selection)
+    violations: list[str] = []
+    summary = candidate.backtest_summary or {}
+    try:
+        trades = int(summary.get("trades") or 0)
+    except Exception:
+        trades = 0
+    min_trades = int(getattr(config, "min_trades", 0) or 0)
+    if min_trades and trades < min_trades:
+        violations.append(f"min_trades:{trades}<{min_trades}")
+
+    try:
+        winrate = float(summary.get("winrate") or 0.0)
+        if winrate > 1.0:
+            winrate = winrate / 100.0
+    except Exception:
+        winrate = 0.0
+    min_winrate = float(getattr(config, "min_winrate", 0.0) or 0.0)
+    if min_winrate and winrate < min_winrate:
+        violations.append(f"min_winrate:{winrate:.4f}<{min_winrate}")
+
+    try:
+        max_dd = abs(float(summary.get("max_drawdown_abs") or 0.0))
+    except Exception:
+        max_dd = 0.0
+    max_abs_dd = float(getattr(config, "max_abs_drawdown", 0.0) or 0.0)
+    if max_abs_dd and max_dd > max_abs_dd:
+        violations.append(f"max_abs_drawdown:{max_dd:.4f}>{max_abs_dd}")
+
+    candidate.constraint_violations = violations
+    candidate.constraints_ok = not violations
+    if violations:
+        logger.info("Risk constraints violated for %s: %s", candidate.name, violations)
+
     logger.info(
         "Phase EVALUATION: reward=%.4f (best=%.4f) components=%s",
         reward,
@@ -417,7 +451,7 @@ def phase_evaluation(
         components,
     )
 
-    if reward > state.best_reward:
+    if candidate.constraints_ok and reward > state.best_reward:
         state.best_reward = reward
         state.best_candidate = candidate
         logger.info("New best candidate: %s with reward=%.4f", candidate.name, reward)
@@ -428,6 +462,8 @@ def phase_evaluation(
             "iteration": state.iteration,
             "name": candidate.name,
             "reward": reward,
+            "constraints_ok": bool(candidate.constraints_ok),
+            "constraint_violations": list(candidate.constraint_violations or []),
             "components": components,
             "profit_pct": candidate.backtest_summary.get("profit_total_pct"),
             "trades": candidate.backtest_summary.get("trades"),

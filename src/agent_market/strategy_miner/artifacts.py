@@ -138,18 +138,20 @@ def write_leaderboard(
     *,
     config: MinerConfig,
 ) -> Path:
-    """Write leaderboard.json sorted by reward desc (best-effort)."""
-    items: list[dict[str, Any]] = []
+    """Write leaderboard.json sorted by reward desc and filtered by constraints."""
+    all_items: list[dict[str, Any]] = []
     for c in state.candidates:
         if c.reward is None:
             continue
         summary = c.backtest_summary or {}
-        items.append(
+        all_items.append(
             {
                 "name": c.name,
                 "iteration": c.iteration,
                 "reward": c.reward,
                 "validation_passed": c.validation_passed,
+                "constraints_ok": bool(getattr(c, "constraints_ok", True)),
+                "constraint_violations": list(getattr(c, "constraint_violations", []) or []),
                 "trades": summary.get("trades"),
                 "winrate": summary.get("winrate"),
                 "profit_total_pct": summary.get("profit_total_pct"),
@@ -158,7 +160,11 @@ def write_leaderboard(
             }
         )
 
-    items.sort(key=lambda x: float(x.get("reward") or -1e9), reverse=True)
+    eligible = [i for i in all_items if i.get("constraints_ok", True)]
+    rejected = [i for i in all_items if not i.get("constraints_ok", True)]
+
+    eligible.sort(key=lambda x: float(x.get("reward") or -1e9), reverse=True)
+    rejected.sort(key=lambda x: float(x.get("reward") or -1e9), reverse=True)
 
     payload = {
         "run_id": state.run_id,
@@ -168,8 +174,10 @@ def write_leaderboard(
             "max_abs_drawdown": config.max_abs_drawdown,
             "min_winrate": config.min_winrate,
         },
-        "best": items[0] if items else None,
-        "items": items,
+        "best": eligible[0] if eligible else None,
+        "items": eligible,
+        "rejected": rejected,
+        "all_count": len(all_items),
     }
 
     out = leaderboard_path(miner_dir)

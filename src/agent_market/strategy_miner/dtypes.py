@@ -163,6 +163,10 @@ class StrategyCandidate:
     reward: Optional[float] = None
     diagnosis: str = ""
 
+    # Risk constraint gating (computed during evaluation)
+    constraints_ok: bool = True
+    constraint_violations: List[str] = field(default_factory=list)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
@@ -173,6 +177,8 @@ class StrategyCandidate:
             "backtest_summary": self.backtest_summary,
             "reward": self.reward,
             "diagnosis": self.diagnosis,
+            "constraints_ok": self.constraints_ok,
+            "constraint_violations": list(self.constraint_violations or []),
         }
 
     @classmethod
