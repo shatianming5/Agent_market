@@ -542,3 +542,96 @@ def test_within_root():
     root = Path("/project")
     assert _within_root(root, Path("/project/src/main.py")) is True
     assert _within_root(root, Path("/other/file.py")) is False
+
+
+# ---------------------------------------------------------------------------
+# tool_executor: ToolPolicy enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_tool_policy_blocks_disallowed_kind(tmp_path: Path):
+    from runner_fsm.opencode.tool_executor import ToolPolicy, execute_tool_calls
+    from runner_fsm.opencode.tool_parser import ToolCall
+
+    policy = ToolPolicy(
+        repo=tmp_path,
+        unattended="strict",
+        allowed_tool_kinds=frozenset({"file"}),
+        bash_allow=True,
+        bash_allowlist=(),
+        bash_timeout_seconds=60,
+    )
+    calls = [ToolCall(kind="bash", start=0, payload={"command": "echo hi"})]
+    results = execute_tool_calls(calls, policy=policy)
+    assert len(results) == 1
+    assert results[0].ok is False
+    assert results[0].detail.get("error") == "tool_not_allowed"
+
+
+def test_tool_policy_bash_allowlist_prefix(tmp_path: Path):
+    from runner_fsm.opencode.tool_executor import ToolPolicy, execute_tool_calls
+    from runner_fsm.opencode.tool_parser import ToolCall
+
+    policy = ToolPolicy(
+        repo=tmp_path,
+        unattended="strict",
+        allowed_tool_kinds=None,
+        bash_allow=True,
+        bash_allowlist=("echo ",),
+        bash_timeout_seconds=60,
+    )
+    calls = [ToolCall(kind="bash", start=0, payload={"command": "ls"})]
+    results = execute_tool_calls(calls, policy=policy)
+    assert len(results) == 1
+    assert results[0].ok is False
+    assert results[0].detail.get("error") == "bash_not_in_allowlist"
+
+
+def test_tool_policy_bash_timeout_enforced(tmp_path: Path):
+    from runner_fsm.opencode.tool_executor import ToolPolicy, execute_tool_calls
+    from runner_fsm.opencode.tool_parser import ToolCall
+
+    policy = ToolPolicy(
+        repo=tmp_path,
+        unattended="strict",
+        allowed_tool_kinds=None,
+        bash_allow=True,
+        bash_allowlist=("python3 ",),
+        bash_timeout_seconds=1,
+    )
+    calls = [
+        ToolCall(
+            kind="bash",
+            start=0,
+            payload={"command": 'python3 -c "import time; time.sleep(2)"'},
+        )
+    ]
+    results = execute_tool_calls(calls, policy=policy)
+    assert len(results) == 1
+    assert results[0].ok is False
+    assert results[0].detail.get("rc") == 124
+    assert results[0].detail.get("timed_out") is True
+
+
+def test_tool_policy_blocks_file_outside_repo(tmp_path: Path):
+    from runner_fsm.opencode.tool_executor import ToolPolicy, execute_tool_calls
+    from runner_fsm.opencode.tool_parser import ToolCall
+
+    policy = ToolPolicy(repo=tmp_path, unattended="strict")
+    calls = [ToolCall(kind="file", start=0, payload={"filePath": "/etc/hosts"})]
+    results = execute_tool_calls(calls, policy=policy)
+    assert len(results) == 1
+    assert results[0].ok is False
+    assert results[0].detail.get("error") == "path_outside_repo"
+
+
+def test_tool_policy_blocks_env_file_write(tmp_path: Path):
+    from runner_fsm.opencode.tool_executor import ToolPolicy, execute_tool_calls
+    from runner_fsm.opencode.tool_parser import ToolCall
+
+    policy = ToolPolicy(repo=tmp_path, unattended="strict")
+    calls = [ToolCall(kind="file", start=0, payload={"filePath": ".env", "content": "X=1"})]
+    results = execute_tool_calls(calls, policy=policy)
+    assert len(results) == 1
+    assert results[0].ok is False
+    assert "env_files" in str(results[0].detail.get("error") or "")

@@ -61,6 +61,15 @@ class ToolPolicy:
     repo: Path
     unattended: str
 
+    # Optional tool whitelist. When set, only these tool kinds are executed.
+    # Supported kinds: "file", "bash".
+    allowed_tool_kinds: frozenset[str] | None = None
+
+    # Bash policy
+    bash_allow: bool = True
+    bash_allowlist: tuple[str, ...] = ()
+    bash_timeout_seconds: int = 60
+
     def _allow_file(self, path: Path, op: str) -> tuple[bool, str | None]:
         if _is_env_like(path):
             return False, f"{op}_env_files_is_blocked"
@@ -78,9 +87,18 @@ class ToolPolicy:
         cmd = cmd.strip()
         if not cmd:
             return False, "empty_command"
+        if not self.bash_allow:
+            return False, "bash_disabled"
+
         allowed, reason = cmd_allowed(cmd)
         if not allowed:
             return False, reason or "blocked"
+
+        if self.bash_allowlist:
+            s = cmd.lstrip()
+            if not any(s.startswith(pfx) for pfx in self.bash_allowlist):
+                return False, "bash_not_in_allowlist"
+
         if self.unattended == "strict" and looks_interactive(cmd):
             return False, "likely_interactive_command_disallowed_in_strict_mode"
         return True, None
@@ -94,6 +112,10 @@ def execute_tool_calls(
     results: list[ToolResult] = []
 
     for call in calls:
+        if policy.allowed_tool_kinds is not None and call.kind not in policy.allowed_tool_kinds:
+            results.append(ToolResult(kind=str(call.kind), ok=False, detail={"error": "tool_not_allowed"}))
+            continue
+
         if call.kind == "file":
             data = call.payload
             file_path_raw = str(data.get("filePath") or "").strip()
@@ -279,7 +301,7 @@ def execute_tool_calls(
                 continue
 
             env = _sanitized_env(unattended=str(policy.unattended or "strict"))
-            res = run_cmd_capture(cmd, policy.repo, timeout_seconds=60, env=env)
+            res = run_cmd_capture(cmd, policy.repo, timeout_seconds=int(policy.bash_timeout_seconds or 60), env=env)
             results.append(
                 ToolResult(
                     kind="bash",

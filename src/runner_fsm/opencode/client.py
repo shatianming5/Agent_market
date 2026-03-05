@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -60,6 +61,7 @@ class OpenCodeClient(AgentClient):
         stale_timeout: float = 180.0,
         auto_compact: bool | None = None,
         permission_overrides: dict[str, Any] | None = None,
+        tool_policy: ToolPolicy | None = None,
     ) -> None:
         self._repo = repo
         self._timeout_seconds = int(timeout_seconds or 300)
@@ -82,6 +84,7 @@ class OpenCodeClient(AgentClient):
         self._session_title = str(session_title or f"runner:{repo.name}")
         self._server_log_path = server_log_path.resolve() if server_log_path is not None else None
         self._permission_overrides = permission_overrides or {}
+        self._tool_policy = tool_policy
 
         model_str = str(model or "").strip()
         if not model_str:
@@ -262,10 +265,13 @@ class OpenCodeClient(AgentClient):
             self._temp_config_home = None
 
     def run(self, text: str, *, on_turn=None) -> AgentResult:
-        policy = ToolPolicy(
-            repo=self._repo.resolve(),
-            unattended=self._unattended,
-        )
+        if self._tool_policy is not None:
+            policy = replace(self._tool_policy, repo=self._repo.resolve(), unattended=self._unattended)
+        else:
+            policy = ToolPolicy(
+                repo=self._repo.resolve(),
+                unattended=self._unattended,
+            )
 
         prompt = text
         trace: list[dict[str, Any]] = []
