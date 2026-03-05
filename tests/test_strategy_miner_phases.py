@@ -268,6 +268,29 @@ def test_phase_evolve_with_valid_code():
 
 
 
+def test_phase_evolve_renames_class_to_match_candidate_name(monkeypatch):
+    """Evolved candidate class name must match candidate.name for freqtrade loading."""
+    from agent_market.strategy_miner.phases import phase_evolve
+    from agent_market.strategy_miner.sandbox import infer_strategy_class_name
+
+    def fake_evolve(code: str, **_kwargs):
+        return code + "\n# changed\n", ["param_mutation"]
+
+    monkeypatch.setattr("agent_market.strategy_miner.phases.evolve_strategy", fake_evolve)
+
+    with tempfile.TemporaryDirectory() as td:
+        state = MinerState()
+        state.best_candidate = StrategyCandidate(
+            "BestStrat", _VALID_STRATEGY, Path("/tmp/x.py")
+        )
+
+        result = phase_evolve(state, MinerConfig(), Path(td))
+        assert result is not None
+        assert result.name.startswith("BestStrat_evolved_")
+        assert infer_strategy_class_name(result.code) == result.name
+
+
+
 def test_phase_backtest_repairs_validation_failure(monkeypatch):
     """When validation fails, agent repair should be attempted and backtest rerun."""
     from types import SimpleNamespace

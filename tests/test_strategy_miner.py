@@ -249,6 +249,40 @@ class Bad(IStrategy):
     assert "eval" in msg
 
 
+def test_validate_strategy_code_blocks_negative_shift():
+    from agent_market.strategy_miner.sandbox import validate_strategy_code
+
+    code = """
+from freqtrade.strategy import IStrategy
+class Leaky(IStrategy):
+    def populate_indicators(self, df, m):
+        df['future'] = df['close'].shift(-1)
+        return df
+    def populate_entry_trend(self, df, m): return df
+    def populate_exit_trend(self, df, m): return df
+"""
+    ok, msg = validate_strategy_code(code)
+    assert not ok
+    assert "look-ahead" in msg
+
+
+def test_validate_strategy_code_blocks_centered_rolling():
+    from agent_market.strategy_miner.sandbox import validate_strategy_code
+
+    code = """
+from freqtrade.strategy import IStrategy
+class LeakyRolling(IStrategy):
+    def populate_indicators(self, df, m):
+        df['ma'] = df['close'].rolling(10, center=True).mean()
+        return df
+    def populate_entry_trend(self, df, m): return df
+    def populate_exit_trend(self, df, m): return df
+"""
+    ok, msg = validate_strategy_code(code)
+    assert not ok
+    assert "look-ahead" in msg
+
+
 # ---------------------------------------------------------------------------
 # knowledge base
 # ---------------------------------------------------------------------------

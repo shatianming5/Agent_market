@@ -154,20 +154,17 @@ def test_update_kb_no_candidates():
 # ---------------------------------------------------------------------------
 
 
-def test_runner_passes_max_retries_to_agent():
-    """run_strategy_miner should pass config.max_retries to StrategyAgent."""
-    with patch("agent_market.strategy_miner.runner.StrategyAgent") as MockAgent:
-        mock_instance = MagicMock()
-        MockAgent.return_value = mock_instance
-        # Make it complete immediately
-        mock_instance.run.return_value = ""
+def test_build_strategy_agent_passes_max_retries_to_agent():
+    """Agent factory should pass config.max_retries into StrategyAgent."""
+    from agent_market.strategy_miner.agent_factory import build_strategy_agent
 
-        config = MinerConfig(model="test-model", max_retries=7, max_iterations=0)
-        with tempfile.TemporaryDirectory() as td:
-            with patch("agent_market.strategy_miner.runner.paths") as mock_paths:
-                mock_paths.artifacts_root.return_value = Path(td)
-                from agent_market.strategy_miner.runner import run_strategy_miner
-                run_strategy_miner(config)
+    with tempfile.TemporaryDirectory() as td:
+        with patch("agent_market.strategy_miner.agent_factory.StrategyAgent") as MockAgent:
+            mock_instance = MagicMock()
+            MockAgent.return_value = mock_instance
 
-        _, kwargs = MockAgent.call_args
-        assert kwargs["max_retries"] == 7
+            config = MinerConfig(model="test-model", max_retries=7)
+            build_strategy_agent(config, Path(td))
+
+            _, kwargs = MockAgent.call_args
+            assert kwargs["max_retries"] == 7
