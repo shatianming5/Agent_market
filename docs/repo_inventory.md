@@ -2,111 +2,92 @@
 
 ## Tree
 
-```
-Agent_market/
-  artifacts/                 # 模型与运行产物（run_meta.json / models / runs/<run_id>）
-  configs/                   # Flow/训练/回测 JSON 配置
-  docs/                      # 文档（plan/experiment/mohu/verify/inventory）
-  freqtrade/                 # Freqtrade 源码（可选本地目录）
-  scripts/                   # CLI（Flow/特征/表达式/训练/回测/TCA/捕获）
+```text
+Agent_market-1/
+  analysis/                  # 架构/安全/覆盖率等审计笔记（非运行时必须）
+  artifacts/                 # 统一产物根：models/ + runs/<run_id>/
+  configs/                   # Flow/策略挖掘等 JSON 配置模板
+  docs/                      # 文档（plan/experiment/mohu/verify/inventory 等）
+  scripts/                   # CLI / pipeline wrappers（Flow/回测/报告/策略挖掘）
   server/                    # FastAPI 后端（API + Jobs + 结果聚合）
-  src/agent_market/          # 核心业务模块（Flow/FreqAI/FactorCompiler/Microstructure/TCA）
-  tests/                     # pytest（fixture 离线可验收）
-  user_data/                 # 工作区（配置/数据/策略/回测结果/日志/反馈）
-  web/                       # 静态前端（Flow 画布 + 产物检查 + Run History）
-  plan.md                    # Proposal（更大范围的产品/研究计划）
+  src/                       # Python 包：agent_market/ + runner_fsm/
+  tests/                     # pytest（尽量离线 fixture 可验收）
+  user_data/                 # 工作区（数据/策略/回测结果/日志/反馈）
+  web/                       # 前端静态资源（挂载到 /web）
+  Makefile
   README.md
+  plan.md
+  pytest.ini
   requirements*.txt
 ```
 
 ## Entry Points
 
 - `uvicorn server.main:app --host 0.0.0.0 --port 8000`
-  - FastAPI 服务入口（会挂载 `web/` 到 `/web`）。
-- `scripts/agent_flow.py`
-  - 端到端编排器（feature → expression → ml → rl → backtest）。
-- `scripts/micro_features.py`
-  - micro_feature 生成（OHLCV mode / microstructure mode）。
-- `scripts/micro_capture.py`
-  - KuCoin 微观结构采集器（fixture 离线回放 / live capture）。
-- `scripts/lob_rebuild.py`
-  - `level2` 增量 + snapshot → 重建 `lob_state.parquet`。
-- `scripts/smoke_test.py`
-  - API 冒烟测试（不跑重任务）。
-- `scripts/e2e_smoke_flow.py`
-  - 端到端冒烟（跑 Flow 并检查关键产物是否落盘）。
-- `scripts/freqtrade_cli.py`
-  - freqtrade CLI wrapper（注入离线 markets，避免 optimize 模式下访问交易所 API）。
-- `scripts/freqai_feature_agent.py`
-  - 生成稳定的特征配置 JSON（供表达式/训练使用）。
-- `scripts/freqai_expression_agent.py`
-  - 表达式生成与因子挖掘（支持 `--mine --top-n`；LLM 可选）。
-- `scripts/train_pipeline.py`
-  - 机器学习训练（LightGBM/XGBoost/CatBoost 等；读取特征/表达式 + feather 数据）。
-- `scripts/factor_compile.py`
-  - FactorSpec → ExpressionEngine 表达式（最小离线编译）。
-- `scripts/factor_eval.py`
-  - 编译表达式的最小离线评测（落盘 `factor_scores.json` + `pareto.csv`）。
-- `scripts/eval_protocol.py`
-  - 最小评测协议（成本入账 + evidence 落盘）。
-- `scripts/tca_report.py`
-  - 从 freqtrade backtest zip 生成 TCA v1 报告（json/html）。
+  - FastAPI 服务入口（挂载 `web/` 到 `/web`）。
+- `python scripts/agent_flow.py --config <json> --steps feature expression ml backtest`
+  - 黄金路径编排器（feature/expression/ml/backtest）。
+- `python scripts/strategy_miner.py --config configs/strategy_miner_default.json --model <opencode_model>`
+  - 策略级挖掘 CLI（生成→回测→评分→迭代/进化）。
+- `python -m agent_market.strategy_miner --config <json>`
+  - strategy_miner 包入口（便于模块化调用/调试）。
+- `python scripts/smoke_test.py`
+  - API 冒烟（不跑重任务）。
+- `pytest -q`
+  - 单测/API 测试/离线 e2e fixture。
 
 ## Core Modules
 
 - `src/agent_market/agent_flow.py`
-  - Flow 配置加载与步骤编排；输出统一的 `[FLOW]` 标记日志（服务端可据此估算进度）。
+  - Flow 配置加载与步骤编排；产物写入 `artifacts/runs/<run_id>/`。
 - `src/agent_market/flow_steps.py`
-  - Flow 的每一步实际执行逻辑（执行脚本/训练/回测；并写回测摘要到 feedback）。
+  - Flow 各步骤执行逻辑（feature/expression/ml/rl/backtest/report 等）。
 - `src/agent_market/backtest_results.py`
-  - 解析 `backtest-result-*.zip` 并生成摘要、trades 等结构化结果。
-- `src/agent_market/factor_compiler/`
-  - FactorSpec/DSL（Formula ↔ ExprNode）+ checks + scoring + 编译到 ExpressionEngine。
-- `src/agent_market/freqai/`
-  - 特征、表达式执行引擎、安全 eval、训练管线、RL 环境/训练器。
-- `src/agent_market/microstructure/`
-  - capture / lob_rebuild / features registry（离线 fixture 可验收）。
-- `src/agent_market/tca/`
-  - TCA v1 schema + backtest adapter + report 生成。
+  - 解析 `backtest-result-*.zip` 并生成结构化摘要（用于反馈/评分/汇总）。
+- `src/agent_market/strategy_miner/`
+  - 策略挖掘主模块（runner/phases/sandbox/grading/knowledge_base 等）。
+- `src/agent_market/paths.py`
+  - 路径与产物根（`artifacts_root()/runs_root()/user_data_root()`）统一解析。
+- `src/runner_fsm/opencode/`
+  - OpenCode Client + 工具调用解析/执行（file/bash），用于 agentic 多轮回合。
 - `server/`
-  - 任务调度与 API 统一入口：
-    - `/run/*`：启动 feature/expression/train/backtest 等任务
-    - `/flow/*`：Flow 启动与进度流（SSE/WS）
-    - `/jobs/*`：任务状态/日志/取消
-    - `/results/*`：结果列表/摘要/聚合/反馈准备
-    - `/settings`：LLM 与默认 timeframe 设置
+  - FastAPI + JobManager：负责启动脚本作业、追踪状态与日志、聚合结果。
 
 ## Config & Data
 
-- Flow 配置：`configs/agent_flow_kucoin_cpu_nollm.json`（推荐黄金路径）
-- Flow（Factor/Bundle/Capture+LOB）示例：
-  - `configs/agent_flow_factor_smoke.json`
-  - `configs/agent_flow_bundle_smoke.json`
-  - `configs/agent_flow_capture_lob_smoke.json`
-- Freqtrade 配置示例：
-  - `user_data/config_freqai_kucoin.json`
-- 数据目录（feather）：
-  - `user_data/data/<exchange>/<PAIR>-<timeframe>.feather`
-  - 示例：`user_data/data/kucoin/BTC_USDT-1h.feather`
-- 产物与日志（默认落在仓库根目录下）：
-  - Flow 日志：`user_data/agent_logs/agent_flow_*.log`
+- Flow 配置（示例）：
+  - `configs/agent_flow_kucoin_cpu_nollm.json`
+  - `configs/agent_flow_kucoin_cpu_nollm_smoke.json`
+- Strategy Miner 配置（示例）：
+  - `configs/strategy_miner_default.json`
+- 用户工作区：
+  - 数据：`user_data/data/<exchange>/<PAIR>-<timeframe>.feather`
+  - 策略：`user_data/strategies/`
+  - 回测结果：`user_data/backtest_results/`
   - Job 日志：`user_data/job_logs/<job_id>.log`
-  - 模型摘要：`artifacts/models/**/training_summary.json`
-  - 回测结果：`user_data/backtest_results/backtest-result-*.zip`
-  - 回测摘要（用于下一轮反馈）：`user_data/llm_feedback/latest_backtest_summary.json`
-  - Flow 元信息：`artifacts/run_meta.json`（latest）与 `artifacts/runs/<run_id>/run_meta.json`
-- LLM 环境变量（可选）：
-  - `OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL`
-  - `LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`（优先级更高）
+- 统一产物（默认）：
+  - `artifacts/run_meta.json`（latest）
+  - `artifacts/runs/<run_id>/run_meta.json`
+- 关键环境变量（可选）：
+  - OpenAI 兼容 LLM（表达式/部分 fallback）：`OPENAI_BASE_URL/OPENAI_API_KEY/OPENAI_MODEL`
+  - 或 `LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`（优先级更高）
+  - OpenCode Agent（策略挖掘）：`OPENCODE_URL`、`OPENCODE_MODEL`
+  - 产物根覆盖：`AGENT_MARKET_ARTIFACTS_ROOT`、`AGENT_MARKET_RUNS_ROOT`、`AGENT_MARKET_USER_DATA_ROOT`
 
 ## How To Run
 
-### 安装依赖（本地/CPU）
+### 安装依赖（最小：服务 + 测试）
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt -r server/requirements.txt
+pip install -r server/requirements.txt -r requirements-dev.txt
+```
+
+### 安装依赖（黄金路径：含 freqtrade/ml）
+
+```bash
+pip install -r requirements-full.txt
 ```
 
 ### 启动服务
@@ -124,46 +105,8 @@ pytest -q
 python scripts/smoke_test.py
 ```
 
-### API 冒烟
-
-```bash
-python scripts/smoke_test.py
-```
-
-### 端到端冒烟（黄金路径）
-
-```bash
-python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
-```
-
 ## Risks / Unknowns
 
-- Full-scale datasets（真实历史 LOB/trades）不在仓库内；部分微观结构/TCA 指标只能以 proxy 或 fixture 方式验收。
-
-或手工分步：
-
-```bash
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps feature
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps expression
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps ml
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps backtest
-```
-
-### Factor / Bundle（最小离线）
-
-```bash
-python scripts/agent_flow.py --config configs/agent_flow_bundle_smoke.json --steps factor_compile factor_eval report
-```
-
-### Capture + LOB（fixture）
-
-```bash
-python scripts/agent_flow.py --config configs/agent_flow_capture_lob_smoke.json --steps capture lob_rebuild
-```
-
-## Risks / Unknowns
-
-- `freqtrade/` 目录会遮蔽 `python -m freqtrade` 的模块导入；回测建议优先使用 `freqtrade` 可执行文件（通常在虚拟环境的 `bin/` 内）。
-- 为保证“离线可复现回测”，本仓库通过 `scripts/freqtrade_cli.py` 注入离线 markets monkeypatch：在 optimize 模式下从 config pairs 合成最小 markets 元数据，避免访问交易所 API。
-- 回测与训练对数据依赖强：`user_data/data/<exchange>` 缺失会导致表达式挖掘与训练失败。
-- LLM 能力完全可选；默认黄金路径不依赖外部 API。
+- `freqtrade` 与历史数据缺失会导致真实回测失败：测试/冒烟尽量走 fixture 与轻量路径。
+- `opencode` 二进制是外部依赖；策略挖掘需要安装并可在 `PATH` 中找到（需 graceful fallback）。
+- agentic 工具执行（bash/file）存在安全风险：需要工具白名单 + 命令约束 + 沙箱隔离。
