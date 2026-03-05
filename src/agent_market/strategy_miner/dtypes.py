@@ -22,6 +22,12 @@ class MinerConfig:
     # Agent provider
     provider: str = "auto"  # auto|opencode|openai_compatible|template
 
+    # Multi-candidate generation
+    candidates_per_iteration: int = 1
+
+    # OpenAI-compatible fallback (used when opencode fails)
+    openai_fallback_model: str = "glm-4-flash"
+
     # Agent budget / retries
     model: str = ""  # primary model name (opencode)
     base_url: Optional[str] = None  # opencode server base url (optional)
@@ -42,14 +48,23 @@ class MinerConfig:
     tool_allowlist: List[str] = field(default_factory=lambda: ["file", "bash"])
     bash_allow: bool = True
     bash_timeout: int = 60
-    bash_allowlist: List[str] = field(default_factory=lambda: [
-        # Common safe inspection helpers
-        "ls ", "find ", "cat ", "head ", "tail ", "sed ", "grep ",
-        # Python invocations
-        "python ", "python3 ",
-        # Freqtrade (module or wrapper)
-        "freqtrade ",
-    ])
+    bash_allowlist: List[str] = field(
+        default_factory=lambda: [
+            # Common safe inspection helpers
+            "ls ",
+            "find ",
+            "cat ",
+            "head ",
+            "tail ",
+            "sed ",
+            "grep ",
+            # Python invocations
+            "python ",
+            "python3 ",
+            # Freqtrade (module or wrapper)
+            "freqtrade ",
+        ]
+    )
 
     # Evolution
     evolve_enabled: bool = True
@@ -82,6 +97,7 @@ class MinerConfig:
         - Accepts flat keys (legacy)
         - Accepts nested sections: budget/tools/evaluation/risk_constraints
         """
+
         d2: Dict[str, Any] = dict(d or {})
 
         # Flatten nested sections (new style)
@@ -89,6 +105,8 @@ class MinerConfig:
         if isinstance(budget, dict):
             for k in (
                 "provider",
+                "candidates_per_iteration",
+                "openai_fallback_model",
                 "model",
                 "base_url",
                 "max_turns",
@@ -100,6 +118,12 @@ class MinerConfig:
             ):
                 if k in budget and k not in d2:
                     d2[k] = budget[k]
+
+        generation = d2.get("generation")
+        if isinstance(generation, dict):
+            for k in ("candidates_per_iteration",):
+                if k in generation and k not in d2:
+                    d2[k] = generation[k]
 
         tools = d2.get("tools")
         if isinstance(tools, dict):
@@ -199,6 +223,8 @@ class StrategyCandidate:
                     "backtest_summary",
                     "reward",
                     "diagnosis",
+                    "constraints_ok",
+                    "constraint_violations",
                 }
             }
         )
@@ -214,6 +240,10 @@ class MinerState:
     best_candidate: Optional[StrategyCandidate] = None
     history: List[Dict[str, Any]] = field(default_factory=list)
 
+    # Multi-candidate scheduling within an iteration
+    pending_candidate_idxs: List[int] = field(default_factory=list)
+    active_candidate_idx: Optional[int] = None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -223,6 +253,8 @@ class MinerState:
             "best_reward": self.best_reward,
             "best_candidate": self.best_candidate.to_dict() if self.best_candidate else None,
             "history": self.history,
+            "pending_candidate_idxs": list(self.pending_candidate_idxs or []),
+            "active_candidate_idx": self.active_candidate_idx,
         }
 
     @classmethod
@@ -238,4 +270,7 @@ class MinerState:
         bc = d.get("best_candidate")
         if bc is not None:
             state.best_candidate = StrategyCandidate.from_dict(bc)
+
+        state.pending_candidate_idxs = list(d.get("pending_candidate_idxs") or [])
+        state.active_candidate_idx = d.get("active_candidate_idx")
         return state

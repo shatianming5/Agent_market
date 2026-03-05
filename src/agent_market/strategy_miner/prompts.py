@@ -15,6 +15,8 @@ def build_strategy_gen_prompt(
     best_strategy_code: Optional[str] = None,
     elite_summaries: Optional[List[Dict[str, Any]]] = None,
     failure_summary: Optional[str] = None,
+    candidate_idx: Optional[int] = None,
+    candidates_per_iteration: Optional[int] = None,
 ) -> str:
     history_section = ""
     if history:
@@ -50,6 +52,17 @@ def build_strategy_gen_prompt(
     if failure_summary and failure_summary != "No recorded failures.":
         kb_section += "\n## Known Failure Patterns (avoid these)\n" + failure_summary + "\n"
 
+    multi_header = ""
+    multi_rules = ""
+    if candidate_idx is not None and candidates_per_iteration:
+        multi_header = f"\n## Candidate {int(candidate_idx) + 1}/{int(candidates_per_iteration)}\n"
+        multi_rules = (
+            "\n## Multi-candidate rules\n"
+            "- This is one of several candidates generated in parallel for the same iteration.\n"
+            "- Make this strategy meaningfully different from other candidates (different indicators/logic).\n"
+            "- Use a UNIQUE class name to avoid collisions. Recommended: suffix with `_cand{idx}`.\n"
+        ).format(idx=int(candidate_idx))
+
     return f"""You are a quantitative trading strategy developer. Your goal is to create a FreqTrade strategy that maximizes risk-adjusted returns.
 
 ## Task
@@ -69,7 +82,8 @@ You MAY use tool-call tags (OpenCode-style):
 - <write filePath=\"user_data/strategies/Foo.py\">...python code...</write>
 - <edit filePath=\"user_data/strategies/Foo.py\" oldString=\"...\" newString=\"...\"/>
 - <bash command=\"ls -la\"/>
-Use tools only when needed; otherwise reply with a Python code block.
+If you use `<write>...</write>`, the **content inside** must be pure Python (no tool tags).
+If you do not use tools, reply with a single Python code block.
 
 ## Reference
 - A reference strategy is at: {sandbox_path}/user_data/strategies/ExpressionLongStrategy_reference.py
@@ -77,12 +91,12 @@ Use tools only when needed; otherwise reply with a Python code block.
 - Timerange for backtesting: {timerange}
 
 ## Iteration {iteration}
-{history_section}{best_section}{kb_section}
+{multi_header}{history_section}{best_section}{kb_section}{multi_rules}
 ## Instructions
 1. Read the reference strategy to understand the expected format
 2. Design a novel strategy with clear entry/exit logic
 3. Write the strategy file to the strategies directory
-4. {'Improve upon the best strategy above — try different indicators, parameters, or logic' if best_strategy_code else 'Start with a simple but well-reasoned approach'}
+4. {'Improve upon the best strategy above — try different indicators, parameters, or logic changes' if best_strategy_code else 'Start with a simple but well-reasoned approach'}
 
 Write the strategy file now. Name it descriptively (e.g., MomentumBreakoutStrategy.py).
 """
