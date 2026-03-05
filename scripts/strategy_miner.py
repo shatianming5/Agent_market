@@ -23,6 +23,7 @@ def main() -> None:
         help="Path to miner config JSON",
     )
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint.json for resuming")
+    parser.add_argument("--run-id", type=str, default=None, help="Override run_id (hex)")
     parser.add_argument("--max-iterations", type=int, default=None, help="Override max iterations")
     parser.add_argument("--model", type=str, default=None, help="Override LLM model")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
@@ -54,7 +55,7 @@ def main() -> None:
         config.model = args.model
 
     resume_path = Path(args.resume) if args.resume else None
-    state = run_strategy_miner(config, resume=resume_path)
+    state = run_strategy_miner(config, run_id=args.run_id, resume=resume_path)
 
     print(f"\nMining complete: run_id={state.run_id}")
     print(f"  Iterations: {state.iteration}")

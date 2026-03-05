@@ -658,7 +658,7 @@ def run_strategy_miner_step(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) 
     resume_path = cfg.get("resume")
     resume = Path(resume_path) if resume_path else None
 
-    state = run_strategy_miner(miner_cfg, resume=resume)
+    state = run_strategy_miner(miner_cfg, run_id=run_id, resume=resume)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

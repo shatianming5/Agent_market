@@ -24,6 +24,10 @@ def main() -> int:
         help="Path to checkpoint.json for resuming a previous run",
     )
     parser.add_argument(
+        "--run-id", default=None,
+        help="Override run_id (hex)",
+    )
+    parser.add_argument(
         "--model", default=None,
         help="Override LLM model name",
     )
@@ -53,7 +57,7 @@ def main() -> int:
     config = MinerConfig.from_dict(cfg_dict)
 
     try:
-        state = run_strategy_miner(config, resume=args.resume)
+        state = run_strategy_miner(config, run_id=args.run_id, resume=args.resume)
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Interrupted by user")
         return 130

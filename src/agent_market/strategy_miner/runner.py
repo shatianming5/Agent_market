@@ -22,13 +22,21 @@ from .phases import (
 logger = logging.getLogger(__name__)
 
 
-def _checkpoint_path(run_dir: Path) -> Path:
-    return run_dir / "checkpoint.json"
+def miner_run_dir(run_id: str) -> Path:
+    """Standardized miner output directory.
+
+    Layout: ``artifacts/runs/<run_id>/strategy_miner``
+    """
+    return paths.run_dir(str(run_id)) / "strategy_miner"
 
 
-def _save_checkpoint(state: MinerState, run_dir: Path) -> None:
+def _checkpoint_path(miner_dir: Path) -> Path:
+    return miner_dir / "checkpoint.json"
+
+
+def _save_checkpoint(state: MinerState, miner_dir: Path) -> None:
     """Atomic checkpoint write."""
-    cp_path = _checkpoint_path(run_dir)
+    cp_path = _checkpoint_path(miner_dir)
     cp_path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(state.to_dict(), ensure_ascii=False, indent=2)
     tmp = cp_path.with_suffix(".tmp")
@@ -78,6 +86,8 @@ def _should_evolve(config: MinerConfig, state: MinerState) -> bool:
 
 def run_strategy_miner(
     config: MinerConfig,
+    *,
+    run_id: Optional[str] = None,
     resume: Optional[Path] = None,
 ) -> MinerState:
     """Run the strategy mining loop.
@@ -89,26 +99,32 @@ def run_strategy_miner(
 
     Args:
         config: Mining configuration.
+        run_id: Optional run id (used when starting a new run).
         resume: Path to checkpoint.json for resuming.
 
     Returns:
         Final MinerState.
     """
+
     if resume and resume.exists():
         state = _load_checkpoint(resume)
-        logger.info("Resumed from checkpoint: run_id=%s iteration=%d phase=%s",
-                     state.run_id, state.iteration, state.phase.value)
+        logger.info(
+            "Resumed from checkpoint: run_id=%s iteration=%d phase=%s",
+            state.run_id,
+            state.iteration,
+            state.phase.value,
+        )
     else:
-        state = MinerState()
+        state = MinerState(run_id=str(run_id)) if run_id else MinerState()
         logger.info("Starting new mining run: run_id=%s", state.run_id)
 
-    run_dir = paths.artifacts_root() / "strategy_miner" / state.run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    miner_dir = miner_run_dir(state.run_id)
+    miner_dir.mkdir(parents=True, exist_ok=True)
 
-    kb = KnowledgeBase(run_dir / "knowledge_base.json")
+    kb = KnowledgeBase(miner_dir / "knowledge_base.json")
 
     # Create agent workspace (sandbox parent)
-    workspace = run_dir / f"iter_{state.iteration}" / "sandbox"
+    workspace = miner_dir / f"iter_{state.iteration}" / "sandbox"
     workspace.mkdir(parents=True, exist_ok=True)
 
     agent: Optional[StrategyAgent] = None
@@ -125,23 +141,24 @@ def run_strategy_miner(
         while state.phase != Phase.COMPLETE:
             logger.info(
                 "=== Iteration %d | Phase %s ===",
-                state.iteration, state.phase.value,
+                state.iteration,
+                state.phase.value,
             )
 
             if state.phase == Phase.STRATEGY_GEN:
-                workspace = run_dir / f"iter_{state.iteration}" / "sandbox"
+                workspace = miner_dir / f"iter_{state.iteration}" / "sandbox"
                 workspace.mkdir(parents=True, exist_ok=True)
-                phase_strategy_gen(state, config, run_dir, agent, kb=kb)
+                phase_strategy_gen(state, config, miner_dir, agent, kb=kb)
 
             elif state.phase == Phase.BACKTEST:
-                phase_backtest(state, config, run_dir)
+                phase_backtest(state, config, miner_dir)
 
             elif state.phase == Phase.EVALUATION:
-                phase_evaluation(state, config, run_dir=run_dir)
+                phase_evaluation(state, config, run_dir=miner_dir)
                 _update_knowledge_base(kb, state)
 
             elif state.phase == Phase.ANALYSIS:
-                phase_analysis(state, config, run_dir, agent)
+                phase_analysis(state, config, miner_dir, agent)
                 _update_knowledge_base(kb, state)
                 # After analysis, decide: evolve or next iteration
                 if state.phase == Phase.STRATEGY_GEN and _should_evolve(config, state):
@@ -150,27 +167,37 @@ def run_strategy_miner(
             elif state.phase == Phase.EVOLVE:
                 elite_codes = kb.top_elite_codes(3)
                 evolved = phase_evolve(
-                    state, config, run_dir, elite_codes=elite_codes,
+                    state,
+                    config,
+                    miner_dir,
+                    elite_codes=elite_codes,
                 )
                 if evolved is not None:
                     # Evolved candidate ready → go to backtest
                     state.phase = Phase.BACKTEST
-                    logger.info("Evolve succeeded, proceeding to backtest evolved candidate")
+                    logger.info(
+                        "Evolve succeeded, proceeding to backtest evolved candidate"
+                    )
                 else:
                     # Evolve failed → proceed to normal strategy gen
                     state.phase = Phase.STRATEGY_GEN
-                    logger.info("Evolve produced nothing, falling back to strategy gen")
+                    logger.info(
+                        "Evolve produced nothing, falling back to strategy gen"
+                    )
 
-            _save_checkpoint(state, run_dir)
+            _save_checkpoint(state, miner_dir)
 
         logger.info(
             "Mining complete: run_id=%s iterations=%d best_reward=%.4f",
-            state.run_id, state.iteration, state.best_reward,
+            state.run_id,
+            state.iteration,
+            state.best_reward,
         )
         if state.best_candidate:
             logger.info(
                 "Best strategy: %s (reward=%.4f)",
-                state.best_candidate.name, state.best_candidate.reward or 0,
+                state.best_candidate.name,
+                state.best_candidate.reward or 0,
             )
 
     finally:
@@ -180,5 +207,5 @@ def run_strategy_miner(
             except Exception:
                 pass
 
-    _save_checkpoint(state, run_dir)
+    _save_checkpoint(state, miner_dir)
     return state
