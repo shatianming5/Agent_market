@@ -20,7 +20,7 @@ class Phase(Enum):
 @dataclass
 class MinerConfig:
     # Agent provider
-    provider: str = "auto"  # auto|opencode|openai_compatible
+    provider: str = "auto"  # auto|opencode|opencode_cli|heuristic|openai_compatible
 
 
     # Multi-agent (planner/coder/reviewer) generation pipeline

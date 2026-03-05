@@ -8,7 +8,7 @@ The adapter is intentionally lightweight: phases own the state machine.
 
 Recovery hardening:
 - Robust code extraction from tool-tag / markdown outputs.
-- Provider fallback chain: opencode -> openai-compatible (glm-4-flash).
+- Provider fallback chain: opencode -> openai-compatible (glm-4-flash) (no template).
 """
 
 from __future__ import annotations
@@ -22,7 +22,9 @@ from typing import Any, Callable, Optional
 from agent_market.agents.executor import (
     AgentExecutor,
     AgentRunResult,
+    HeuristicExecutor,
     OpenAIChatExecutor,
+    OpenCodeCliExecutor,
     OpenCodeExecutor,
 )
 
@@ -192,8 +194,30 @@ class StrategyAgent:
         if self._provider == "template":
             raise ValueError(
                 "provider=template is disabled for strategy_miner (no-template enforced). "
-                "Use provider=opencode or provider=openai_compatible."
+                "Use provider=opencode, provider=opencode_cli, provider=heuristic, or provider=openai_compatible."
             )
+
+        # Heuristic offline mode (no external LLM)
+        if self._provider == "heuristic":
+            self._executor = HeuristicExecutor(repo=self._workspace)
+            self._executor_info = {"provider": "heuristic"}
+            logger.info("StrategyAgent provider=heuristic workspace=%s", self._workspace)
+            return
+
+
+        # 0) OpenCode CLI mode (no local server)
+        if self._provider == "opencode_cli":
+            self._executor = OpenCodeCliExecutor(
+                repo=self._workspace,
+                model=model,
+                max_retries=max_retries,
+                timeout_seconds=600,
+            )
+            self._executor_info = {"provider": "opencode_cli"}
+            logger.info("StrategyAgent provider=opencode_cli workspace=%s", self._workspace)
+            return
+
+
 
         # 1) Prefer OpenCode (tool loop) if possible.
         if self._provider in ("auto", "opencode"):

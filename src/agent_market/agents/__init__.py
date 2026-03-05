@@ -3,7 +3,9 @@
 from .executor import (
     AgentExecutor,
     AgentRunResult,
+    HeuristicExecutor,
     OpenAIChatExecutor,
+    OpenCodeCliExecutor,
     OpenCodeExecutor,
     TemplateExecutor,
 )
@@ -11,7 +13,9 @@ from .executor import (
 __all__ = [
     "AgentExecutor",
     "AgentRunResult",
+    "HeuristicExecutor",
     "OpenAIChatExecutor",
+    "OpenCodeCliExecutor",
     "OpenCodeExecutor",
     "TemplateExecutor",
 ]

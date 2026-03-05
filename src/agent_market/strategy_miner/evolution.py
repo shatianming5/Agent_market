@@ -46,9 +46,11 @@ def mutate_parameters(code: str, intensity: float = 0.3) -> str:
     to_mutate = random.sample(
         matches, k=max(1, int(len(matches) * intensity))
     )
+    # Apply replacements from right to left (descending span) to keep indices valid.
+    to_mutate.sort(key=lambda m: m.start(), reverse=True)
 
     result = code
-    for m in reversed(to_mutate):
+    for m in to_mutate:
         try:
             old_val = float(m.group("value"))
             new_val = _perturb_numeric(old_val)

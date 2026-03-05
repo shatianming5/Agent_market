@@ -1,26 +1,33 @@
-# Strategy Miner MaxPower（no-template + multiagent）
+# Strategy Miner MaxPower（no-template + multiagent + 实跑）
 
 本页提供一套“最大力度”实跑配置与复现命令，用于确保 strategy miner：
 - **强制 no-template**：禁用 `strategy_miner` 的 template provider 与模板兜底；leaderboard 过滤 template 来源
 - **multiagent/subagent**：planner/coder/reviewer/backtester 多角色协作；每候选写入 agent trace
 - **repair 回合**：`repair_attempts` 可配（启用时 clamp 到 **3–8**）+ 失败分类 + 定向修复/重试
-- **真实回测闭环**：静态校验 → freqtrade backtesting → 风险门禁（min_trades/DD/winrate）→ leaderboard
+- **完整验证闭环**：静态校验（语法/anti-lookahead）→ freqtrade backtesting → 风险门禁（min_trades/DD/winrate）→ leaderboard
 
-## 配置
+## 配置文件
 - `configs/strategy_miner_maxpower.json`
-  - `budget.provider`: `opencode`（或 `auto`）
-  - `budget.model`: `opencode/gpt-5-nano`（可替换为你的 OpenCode 模型）
+  - `budget.provider`: `heuristic`（推荐：本地启发式生成，无外部 LLM 依赖；仍保持 no-template + multiagent 闭环）
+  - `budget.model`: `opencode/minimax-m2.5-free`（仅在 `provider=opencode|opencode_cli` 时使用；`heuristic` 会忽略）
   - `budget.multiagent_enabled=true`
-  - `budget.candidates_per_iteration=4`
+  - `budget.candidates_per_iteration=2`
+  - `budget.max_iterations=4`
+  - `budget.repair_attempts=5`（启用后实际 clamp 到 3–8）
   - `budget.max_parallel_candidates=2`
-  - `budget.max_parallel_roles=2`（reviewer/backtester 并行）
-  - `budget.repair_attempts=5`（启用后实际在 3–8 之间）
+  - `budget.max_parallel_roles=1`（更稳；如需加速可调到 2）
   - `backtest.freqtrade_config=user_data/config_freqai.json`
-  - `backtest.timerange=20251229-20260202`（覆盖仓库内置离线 1h OHLCV）
-  - `evaluation.min_trades=5`（门禁参数可按需调整）
+  - `backtest.timerange=20260101-20260201`
+  - `evaluation.min_trades=5` / `evaluation.max_abs_drawdown=80.0`
+
+
+如需使用外部 LLM（并行 planner/coder/reviewer/backtester 真实调用），可将 `budget.provider` 改为 `opencode_cli` 并配置可用的 OpenCode 模型/额度。
 
 ## 依赖
 需要 `freqtrade` 才能做真实回测。
+
+- `provider=heuristic`：不需要 LLM/`opencode`，完全离线可跑（默认）。
+- `provider=opencode_cli`：需要可用的 `opencode` 模型/额度。
 
 推荐：
 ```bash
@@ -32,11 +39,17 @@ pip install -r requirements-full.txt
 ## 实跑（推荐）
 ```bash
 source .venv/bin/activate
-python scripts/strategy_miner.py --config configs/strategy_miner_maxpower.json --max-iterations 1 -v
+python scripts/run_strategy_miner_recovery.py --config configs/strategy_miner_maxpower.json -v
 ```
-输出中会包含 `run_id`。
 
-## 验收
+如果你使用仓库自带环境（示例）：
+```bash
+.venv312/bin/python scripts/run_strategy_miner_recovery.py --config configs/strategy_miner_maxpower.json -v
+```
+
+输出中会包含 `run_id`、`best_reward`、`leaderboard` 路径与 Top3 摘要。
+
+## 验收/验证
 通过条件（与本次验收对齐）：
 - `best_reward` 为有限值且 **不等于 `-inf`**
 - leaderboard `top3` 中不存在模板候选（`TemplateRsiStrategy` / template 来源被过滤）

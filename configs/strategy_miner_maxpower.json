@@ -1,6 +1,6 @@
 {
   "budget": {
-    "provider": "opencode",
+    "provider": "heuristic",
     "model": "opencode/minimax-m2.5-free",
     "base_url": null,
     "multiagent_enabled": true,
