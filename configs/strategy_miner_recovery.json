@@ -1,0 +1,55 @@
+{
+  "budget": {
+    "provider": "auto",
+    "model": "",
+    "base_url": null,
+    "candidates_per_iteration": 3,
+    "max_iterations": 6,
+    "max_turns": 30,
+    "max_retries": 3,
+    "stale_timeout": 180.0,
+    "repair_attempts": 2,
+    "openai_fallback_model": "glm-4-flash"
+  },
+  "backtest": {
+    "freqtrade_config": "user_data/config_freqai.json",
+    "timerange": "20260101-20260110",
+    "backtest_timeout": 240
+  },
+  "tools": {
+    "tool_allowlist": ["file", "bash"],
+    "bash_allow": true,
+    "bash_timeout": 60,
+    "bash_allowlist": [
+      "ls ",
+      "find ",
+      "cat ",
+      "head ",
+      "tail ",
+      "sed ",
+      "grep ",
+      "python ",
+      "python3 ",
+      "freqtrade "
+    ]
+  },
+  "evaluation": {
+    "reward_weights": {
+      "sharpe": 0.30,
+      "profit_pct": 0.20,
+      "max_drawdown": 0.15,
+      "winrate": 0.10,
+      "trade_count": 0.05,
+      "stability": 0.10
+    },
+    "min_trades": 5,
+    "max_abs_drawdown": 60.0,
+    "min_winrate": 0.0
+  },
+  "evolution": {
+    "evolve_enabled": true,
+    "evolve_every_n": 2,
+    "mutation_intensity": 0.3,
+    "crossover_prob": 0.3
+  }
+}
