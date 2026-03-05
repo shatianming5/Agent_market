@@ -315,3 +315,51 @@ def test_backtest_endpoint_starts_job(client):
                 assert data["job_id"] == "job-1"
                 assert data["run_id"] == run_id
                 assert "strategy_miner_backtest" in data["kind"]
+
+
+
+# ---------------------------------------------------------------------------
+# Artifacts: proposal + leaderboard
+# ---------------------------------------------------------------------------
+
+
+def test_proposal_and_leaderboard_endpoints(client):
+    with tempfile.TemporaryDirectory() as td:
+        with patch.dict(os.environ, {"AGENT_MARKET_RUNS_ROOT": td}, clear=False):
+            run_id = "aabb00cc1123"
+            miner_dir = paths.run_dir(run_id) / "strategy_miner"
+            miner_dir.mkdir(parents=True, exist_ok=True)
+
+            (miner_dir / "checkpoint.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": run_id,
+                        "phase": "analysis",
+                        "iteration": 1,
+                        "best_reward": 0.1,
+                        "best_candidate": None,
+                        "candidates": [],
+                        "history": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            proposal = {"run_id": run_id, "created_at": "2026-03-05T00:00:00Z", "config": {"max_iterations": 2}}
+            leaderboard = {"run_id": run_id, "items": [{"name": "S1", "reward": 0.2}]}
+            (miner_dir / "proposal.json").write_text(json.dumps(proposal), encoding="utf-8")
+            (miner_dir / "leaderboard.json").write_text(json.dumps(leaderboard), encoding="utf-8")
+
+            resp_p = client.get(f"/strategy-miner/runs/{run_id}/proposal")
+            assert resp_p.status_code == 200
+            assert resp_p.json()["run_id"] == run_id
+
+            resp_l = client.get(f"/strategy-miner/runs/{run_id}/leaderboard")
+            assert resp_l.status_code == 200
+            assert resp_l.json()["run_id"] == run_id
+
+            resp_d = client.get(f"/strategy-miner/runs/{run_id}")
+            assert resp_d.status_code == 200
+            data = resp_d.json()
+            assert data["proposal"]["run_id"] == run_id
+            assert data["leaderboard"]["run_id"] == run_id

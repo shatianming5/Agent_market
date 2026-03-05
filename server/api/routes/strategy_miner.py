@@ -13,9 +13,10 @@ from typing import Optional
 from fastapi import APIRouter, Body
 from pydantic import BaseModel, Field
 
+from agent_market import paths  # type: ignore
+
 from ..errors import error
 from ...runtime import ROOT, jobs
-from agent_market import paths  # type: ignore
 
 router = APIRouter(prefix="/strategy-miner", tags=["strategy-miner"])
 
@@ -37,14 +38,46 @@ def _checkpoint_path(run_id: str) -> Path:
     return _miner_dir(run_id) / "checkpoint.json"
 
 
-def _load_checkpoint(run_id: str) -> dict | None:
-    cp = _checkpoint_path(run_id)
-    if not cp.exists():
+def _load_json(path: Path) -> dict | None:
+    if not path.exists():
         return None
     try:
-        return json.loads(cp.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _load_checkpoint(run_id: str) -> dict | None:
+    return _load_json(_checkpoint_path(run_id))
+
+
+def _list_candidate_snapshots(miner_dir: Path) -> list[dict]:
+    root = miner_dir / "candidates"
+    if not root.exists():
+        return []
+
+    items: list[dict] = []
+    for meta_path in sorted(root.rglob("*.json")):
+        data = _load_json(meta_path)
+        if not isinstance(data, dict):
+            continue
+        cand = data.get("candidate")
+        if not isinstance(cand, dict):
+            continue
+        items.append(
+            {
+                "name": cand.get("name"),
+                "iteration": cand.get("iteration"),
+                "reward": cand.get("reward"),
+                "validation_passed": cand.get("validation_passed"),
+                "diagnosis": (cand.get("diagnosis") or "")[:200],
+                "code_path": (data.get("artifact") or {}).get("code_path"),
+                "meta_path": str(meta_path),
+            }
+        )
+
+    items.sort(key=lambda x: (int(x.get("iteration") or 0), str(x.get("name") or "")))
+    return items
 
 
 class StrategyMinerStartReq(BaseModel):
@@ -161,11 +194,11 @@ def miner_runs(limit: int = 10):
 
     items = []
     for _, cp in cps[: max(0, int(limit))]:
-        try:
-            data = json.loads(cp.read_text(encoding="utf-8"))
-        except Exception:
+        data = _load_json(cp)
+        if not isinstance(data, dict):
             continue
         run_id = str(data.get("run_id") or cp.parent.parent.name)
+        miner_dir = cp.parent
         items.append(
             {
                 "run_id": run_id,
@@ -173,12 +206,12 @@ def miner_runs(limit: int = 10):
                 "iteration": data.get("iteration", 0),
                 "best_reward": data.get("best_reward"),
                 "best_candidate": (
-                    data["best_candidate"].get("name")
-                    if data.get("best_candidate")
-                    else None
+                    data["best_candidate"].get("name") if data.get("best_candidate") else None
                 ),
                 "candidates_count": len(data.get("candidates", [])),
                 "checkpoint_path": str(cp),
+                "has_proposal": (miner_dir / "proposal.json").exists(),
+                "has_leaderboard": (miner_dir / "leaderboard.json").exists(),
             }
         )
 
@@ -196,18 +229,18 @@ def miner_run_detail(run_id: str):
     if not cp.exists():
         return error("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
 
-    try:
-        data = json.loads(cp.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return error("PARSE_ERROR", f"Failed to parse checkpoint: {exc}")
+    data = _load_json(cp)
+    if not isinstance(data, dict):
+        return error("PARSE_ERROR", "Failed to parse checkpoint")
 
-    kb_path = cp.parent / "knowledge_base.json"
-    kb_data = None
-    if kb_path.exists():
-        try:
-            kb_data = json.loads(kb_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+    miner_dir = _miner_dir(run_id_norm)
+
+    kb_path = miner_dir / "knowledge_base.json"
+    kb_data = _load_json(kb_path)
+
+    proposal = _load_json(miner_dir / "proposal.json")
+    leaderboard = _load_json(miner_dir / "leaderboard.json")
+    snapshots = _list_candidate_snapshots(miner_dir)
 
     return {
         "run_id": data.get("run_id"),
@@ -218,7 +251,36 @@ def miner_run_detail(run_id: str):
         "candidates": data.get("candidates", []),
         "history": data.get("history", []),
         "knowledge_base": kb_data,
+        "proposal": proposal,
+        "leaderboard": leaderboard,
+        "candidate_snapshots": {"items": snapshots, "count": len(snapshots)},
     }
+
+
+@router.get("/runs/{run_id}/proposal")
+def miner_run_proposal(run_id: str):
+    run_id_norm = _validate_run_id(run_id)
+    if not run_id_norm:
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+
+    path = _miner_dir(run_id_norm) / "proposal.json"
+    data = _load_json(path)
+    if data is None:
+        return error("NOT_FOUND", f"proposal not found for run_id={run_id_norm}")
+    return data
+
+
+@router.get("/runs/{run_id}/leaderboard")
+def miner_run_leaderboard(run_id: str):
+    run_id_norm = _validate_run_id(run_id)
+    if not run_id_norm:
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+
+    path = _miner_dir(run_id_norm) / "leaderboard.json"
+    data = _load_json(path)
+    if data is None:
+        return error("NOT_FOUND", f"leaderboard not found for run_id={run_id_norm}")
+    return data
 
 
 @router.get("/runs/{run_id}/status")
@@ -263,7 +325,7 @@ def miner_candidates(run_id: str):
                 "reward": c.get("reward"),
                 "validation_passed": c.get("validation_passed"),
                 "strategy_path": c.get("strategy_path"),
-                "diagnosis": c.get("diagnosis", "")[:200],
+                "diagnosis": (c.get("diagnosis") or "")[:200],
             }
         )
     return {"run_id": run_id_norm, "items": items, "count": len(items)}

@@ -92,6 +92,15 @@ make e2e
   - `POST /run/rl_train` 强化学习训练
   - `POST /run/train` 机器学习训练（支持内嵌 config_obj 校验）
   - `POST /flow/run` 运行 Agent Flow（可选步骤）
+- 策略挖掘（Strategy Miner）：
+  - `POST /strategy-miner/start` 启动策略挖掘（job + run）
+  - `GET /strategy-miner/runs` 列举 runs
+  - `GET /strategy-miner/runs/{run_id}` 查看 proposal/leaderboard/candidates
+  - `GET /strategy-miner/runs/{run_id}/proposal` 读取 proposal
+  - `GET /strategy-miner/runs/{run_id}/leaderboard` 读取 leaderboard
+  - `POST /strategy-miner/runs/{run_id}/approve` 批准落地到 `user_data/strategies/`
+  - `POST /strategy-miner/runs/{run_id}/backtest` 触发候选回测汇总（后台 job）
+
 - 任务管理：`GET /jobs/{id}/status`、`GET /jobs/{id}/logs?offset=0`、`POST /jobs/{id}/cancel`
 - 结果相关：
   - `GET /results/latest-summary`、`GET /results/list`、`GET /results/summary?name=...`
