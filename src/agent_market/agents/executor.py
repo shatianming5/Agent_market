@@ -194,7 +194,9 @@ class OpenAIChatExecutor:
                 msg = choice0.get("message") or {}
                 content = msg.get("content")
                 if not isinstance(content, str):
-                    content = str(content)
+                    content = "" if content is None else str(content)
+                if not content.strip():
+                    raise RuntimeError("llm_empty_response")
                 return AgentRunResult(
                     assistant_text=content,
                     provider=self._provider,

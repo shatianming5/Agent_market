@@ -6,6 +6,10 @@ Fallbacks:
 - Deterministic template strategy (no external deps)
 
 The adapter is intentionally lightweight: phases own the state machine.
+
+Recovery hardening:
+- Robust code extraction from tool-tag / markdown outputs.
+- Provider fallback chain: opencode -> openai-compatible (glm-4-flash) -> template.
 """
 
 from __future__ import annotations
@@ -27,10 +31,86 @@ from agent_market.agents.executor import (
 logger = logging.getLogger(__name__)
 
 
+def _extract_opencode_write_blocks(text: str) -> list[str]:
+    """Extract bodies inside `<write ...>...</write>` blocks."""
+    if not isinstance(text, str) or not text:
+        return []
+
+    s = text
+    lower = s.lower()
+    out: list[str] = []
+    pos = 0
+    while True:
+        i = lower.find("<write", pos)
+        if i < 0:
+            break
+        j = lower.find(">", i)
+        if j < 0:
+            break
+        k = lower.find("</write>", j)
+        if k < 0:
+            break
+        body = s[j + 1 : k]
+        body = body.strip("\n")
+        if body.strip():
+            out.append(body)
+        pos = k + len("</write>")
+
+    return out
+
+
+def _strip_opencode_tool_lines(text: str) -> str:
+    """Remove common OpenCode tool-tag lines from *text* (best-effort)."""
+    if not isinstance(text, str) or not text:
+        return ""
+
+    cleaned: list[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            cleaned.append(line)
+            continue
+        # Common tool tags
+        if s.startswith("<read") and s.endswith("/>"):
+            continue
+        if s.startswith("<bash") and s.endswith("/>"):
+            continue
+        if s.startswith("<edit") and s.endswith("/>"):
+            continue
+        if s.startswith("<write"):
+            continue
+        if s.startswith("</write"):
+            continue
+        if s.startswith("<final") or s.startswith("</final"):
+            continue
+        if s.startswith("<tool") or s.startswith("</tool"):
+            continue
+        cleaned.append(line)
+
+    return "\n".join(cleaned).strip()
+
+
 def _extract_code_block(text: str) -> str | None:
+    """Extract a python strategy body from LLM output.
+
+    Supports:
+    - OpenCode `<write ...>...</write>` tool blocks
+    - Markdown fences ```python ...```
+    - Raw python (with tool-tag lines stripped)
+    """
+
     if not isinstance(text, str) or not text.strip():
         return None
 
+    # 1) Prefer explicit tool-write blocks.
+    write_blocks = _extract_opencode_write_blocks(text)
+    if write_blocks:
+        best = max(write_blocks, key=len).strip()
+        best = _strip_opencode_tool_lines(best)
+        if best:
+            return best
+
+    # 2) Markdown code fences.
     fence = "```"
     s = text
     best: str | None = None
@@ -56,11 +136,12 @@ def _extract_code_block(text: str) -> str | None:
         pos = j + len(fence)
 
     if best:
-        return best
+        return _strip_opencode_tool_lines(best)
 
-    # Fallback: if it looks like raw Python, accept whole text.
-    if "class" in s and "IStrategy" in s and "populate_entry_trend" in s:
-        return s.strip()
+    # 3) Raw python fallback (strip obvious tool lines first).
+    stripped = _strip_opencode_tool_lines(s)
+    if "class" in stripped and "IStrategy" in stripped and "populate_entry_trend" in stripped:
+        return stripped.strip()
 
     return None
 
@@ -85,31 +166,34 @@ def _infer_strategy_class_name(code: str) -> str | None:
     return None
 
 
-_TEMPLATE_STRATEGY = """\
+_TEMPLATE_STRATEGY = """from __future__ import annotations
+
 from freqtrade.strategy import IStrategy
 
 
 class TemplateRsiStrategy(IStrategy):
-    timeframe = "5m"
+    timeframe = "1h"
     minimal_roi = {"0": 0.02}
     stoploss = -0.10
 
     def populate_indicators(self, dataframe, metadata):
-        # Minimal indicator set to keep template dependency-light.
-        try:
-            import talib.abstract as ta
-
-            dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
-        except Exception:
-            dataframe["rsi"] = 50
+        # RSI computed locally to avoid optional TA-Lib dependency.
+        close = dataframe["close"]
+        delta = close.diff()
+        gain = delta.clip(lower=0)
+        loss = (-delta).clip(lower=0)
+        avg_gain = gain.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
+        rs = avg_gain / avg_loss.replace(0, 1e-12)
+        dataframe["rsi"] = (100 - (100 / (1 + rs))).fillna(50)
         return dataframe
 
     def populate_entry_trend(self, dataframe, metadata):
-        dataframe.loc[dataframe["rsi"] < 30, "enter_long"] = 1
+        dataframe.loc[dataframe["rsi"] < 40, "enter_long"] = 1
         return dataframe
 
     def populate_exit_trend(self, dataframe, metadata):
-        dataframe.loc[dataframe["rsi"] > 70, "exit_long"] = 1
+        dataframe.loc[dataframe["rsi"] > 60, "exit_long"] = 1
         return dataframe
 """
 
@@ -127,10 +211,12 @@ class StrategyAgent:
         max_retries: int = 2,
         provider: str = "auto",
         tool_policy: Any | None = None,
+        openai_fallback_model: str = "glm-4-flash",
     ) -> None:
         self._workspace = Path(workspace)
         self._provider = (provider or "auto").strip().lower()
         self._max_retries = max(0, int(max_retries))
+        self._openai_fallback_model = str(openai_fallback_model or "").strip() or "glm-4-flash"
         self._closed = False
 
         self._executor: AgentExecutor
@@ -159,45 +245,55 @@ class StrategyAgent:
 
         # 2) Fallback: OpenAI-compatible chat completion.
         if self._provider in ("auto", "openai", "openai_compatible"):
-            api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
-            llm_base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
-            llm_model = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
-            if api_key.strip() and llm_model.strip():
-                try:
-                    self._executor = OpenAIChatExecutor(
-                        base_url=llm_base_url or "https://api.openai.com/v1",
-                        api_key=api_key,
-                        model=llm_model,
-                        system_prompt=(
-                            "You are a senior quantitative strategy engineer. "
-                            "Reply with concise, correct output."
-                        ),
-                        retries=max_retries,
-                        timeout_seconds=60,
-                    )
-                    self._executor_info = {"provider": "openai_compatible"}
-                    logger.info("StrategyAgent provider=openai_compatible workspace=%s", self._workspace)
-                    return
-                except Exception as exc:
-                    if self._provider in ("openai", "openai_compatible"):
-                        raise
-                    logger.warning("OpenAI-compatible fallback unavailable: %s", exc)
+            openai_exec = self._build_openai_executor()
+            if openai_exec is not None:
+                self._executor = openai_exec
+                self._executor_info = {"provider": "openai_compatible"}
+                logger.info("StrategyAgent provider=openai_compatible workspace=%s", self._workspace)
+                return
+
+            if self._provider in ("openai", "openai_compatible"):
+                raise ValueError(
+                    "OpenAI-compatible provider requested but missing credentials. "
+                    "Set LLM_API_KEY (or OPENAI_API_KEY)."
+                )
 
         # 3) Final fallback: deterministic template.
         self._executor = TemplateExecutor(text=_TEMPLATE_STRATEGY)
         self._executor_info = {"provider": "template"}
         logger.info("StrategyAgent provider=template workspace=%s", self._workspace)
 
+    def _build_openai_executor(self) -> OpenAIChatExecutor | None:
+        api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+        if not api_key.strip():
+            return None
+
+        llm_base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
+        llm_model = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
+        model = (llm_model or self._openai_fallback_model).strip() or self._openai_fallback_model
+
+        try:
+            return OpenAIChatExecutor(
+                base_url=llm_base_url or "https://api.openai.com/v1",
+                api_key=api_key,
+                model=model,
+                system_prompt=(
+                    "You are a senior quantitative strategy engineer. "
+                    "Reply with concise, correct output."
+                ),
+                retries=self._max_retries,
+                timeout_seconds=60,
+            )
+        except Exception as exc:
+            logger.warning("OpenAI-compatible fallback unavailable: %s", exc)
+            return None
+
     def run(
         self,
         prompt: str,
         on_turn: Optional[Callable[[Any], None]] = None,
     ) -> str:
-        """Run the underlying provider once.
-
-        Note: for non-tooling providers, this does **not** automatically write files.
-        Use ``generate_strategy`` for strategy generation.
-        """
+        """Run the underlying provider once."""
         if self._closed:
             raise RuntimeError("StrategyAgent is already closed")
         try:
@@ -212,22 +308,10 @@ class StrategyAgent:
                 raise
             logger.warning("OpenCode run failed, falling back: %s", exc)
 
-            api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
-            llm_base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
-            llm_model = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
-            if api_key.strip() and llm_model.strip():
+            openai_exec = self._build_openai_executor()
+            if openai_exec is not None:
                 try:
-                    self._executor = OpenAIChatExecutor(
-                        base_url=llm_base_url or "https://api.openai.com/v1",
-                        api_key=api_key,
-                        model=llm_model,
-                        system_prompt=(
-                            "You are a senior quantitative strategy engineer. "
-                            "Reply with concise, correct output."
-                        ),
-                        retries=self._max_retries,
-                        timeout_seconds=60,
-                    )
+                    self._executor = openai_exec
                     result2: AgentRunResult = self._executor.run(prompt, on_turn=on_turn)
                     return result2.assistant_text
                 except Exception as exc2:
@@ -244,56 +328,95 @@ class StrategyAgent:
         on_turn: Optional[Callable[[Any], None]] = None,
         filename_hint: str | None = None,
     ) -> Path | None:
-        """Generate a strategy and ensure a .py file is created in the sandbox."""
+        """Generate a strategy and ensure a .py file is created in the sandbox.
+
+        If the active provider cannot produce a usable artifact, fall back in order:
+        opencode -> openai-compatible -> template.
+        """
         if self._closed:
             raise RuntimeError("StrategyAgent is already closed")
         strategies_dir = self._workspace / "user_data" / "strategies"
         strategies_dir.mkdir(parents=True, exist_ok=True)
 
-        before_mtime = {
-            p: p.stat().st_mtime
-            for p in strategies_dir.glob("*.py")
-            if p.is_file()
-            and not p.name.startswith("_")
-            and "reference" not in p.name.lower()
-        }
+        def _snapshot_mtime() -> dict[Path, float]:
+            out: dict[Path, float] = {}
+            for p in strategies_dir.glob("*.py"):
+                if not p.is_file():
+                    continue
+                if p.name.startswith("_") or "reference" in p.name.lower():
+                    continue
+                try:
+                    out[p] = p.stat().st_mtime
+                except Exception:
+                    continue
+            return out
 
-        text = self.run(prompt, on_turn=on_turn)
+        def _list_candidates() -> list[Path]:
+            return sorted(
+                [
+                    p
+                    for p in strategies_dir.glob("*.py")
+                    if p.is_file()
+                    and not p.name.startswith("_")
+                    and "reference" not in p.name.lower()
+                ],
+                key=lambda p: p.stat().st_mtime,
+            )
 
-        candidates = sorted(
-            [
-                p
-                for p in strategies_dir.glob("*.py")
-                if p.is_file()
-                and not p.name.startswith("_")
-                and "reference" not in p.name.lower()
-            ],
-            key=lambda p: p.stat().st_mtime,
-        )
+        attempted_openai = False
+        attempted_template = False
 
-        changed = False
-        for p in candidates:
+        for _ in range(3):
+            before_mtime = _snapshot_mtime()
             try:
-                mt = p.stat().st_mtime
-            except Exception:
+                text = self.run(prompt, on_turn=on_turn)
+            except Exception as exc:
+                logger.warning("StrategyAgent.run failed: %s", exc)
+                text = ""
+
+            candidates = _list_candidates()
+
+            # If tool-capable provider wrote files, prefer newest.
+            changed = False
+            for p in candidates:
+                try:
+                    mt = p.stat().st_mtime
+                except Exception:
+                    continue
+                if p not in before_mtime or before_mtime.get(p) != mt:
+                    changed = True
+                    break
+
+            if candidates and changed:
+                return candidates[-1]
+
+            code = _extract_code_block(text)
+            if code:
+                class_name = _infer_strategy_class_name(code) or "MinedStrategy"
+                file_name = filename_hint or f"{class_name}.py"
+                out_path = strategies_dir / file_name
+                out_path.write_text(code, encoding="utf-8")
+                return out_path
+
+            # No usable artifact produced: fall back provider chain.
+            if isinstance(self._executor, OpenCodeExecutor) and not attempted_openai:
+                openai_exec = self._build_openai_executor()
+                attempted_openai = True
+                if openai_exec is not None:
+                    self._executor = openai_exec
+                    self._executor_info = {"provider": "openai_compatible"}
+                    continue
+
+            if not attempted_template:
+                self._executor = TemplateExecutor(text=_TEMPLATE_STRATEGY)
+                self._executor_info = {"provider": "template"}
+                attempted_template = True
                 continue
-            if p not in before_mtime or before_mtime.get(p) != mt:
-                changed = True
-                break
 
-        # If tool-capable provider wrote files, prefer newest.
-        if candidates and changed:
-            return candidates[-1]
+            break
 
-        code = _extract_code_block(text)
-        if code:
-            class_name = _infer_strategy_class_name(code) or "MinedStrategy"
-            file_name = filename_hint or f"{class_name}.py"
-            out_path = strategies_dir / file_name
-            out_path.write_text(code, encoding="utf-8")
-            return out_path
-
-        # If no code was provided, fall back to whatever is present.
+        # Final safety: ensure at least one strategy exists.
+        candidates = _list_candidates()
         if candidates:
             return candidates[-1]
 
