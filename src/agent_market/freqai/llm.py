@@ -254,7 +254,14 @@ def request_completion(
     base_url = config.base_url.rstrip("/")
     parsed = urlparse(base_url)
     path = (parsed.path or "").rstrip("/")
-    if not (path.endswith("/v1") or "/v1/" in (path + "/")):
+    # Keep explicit versioned endpoints intact (e.g. BigModel /api/paas/v4).
+    if not (
+        path.endswith("/v1")
+        or "/v1/" in (path + "/")
+        or path.endswith("/v4")
+        or "/v4/" in (path + "/")
+        or "/api/paas/v4" in path
+    ):
         base_url = base_url + "/v1"
     url = base_url + "/chat/completions"
     headers = {"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"}

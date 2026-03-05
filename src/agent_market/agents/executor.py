@@ -135,12 +135,26 @@ class OpenAIChatExecutor:
 
     @staticmethod
     def _normalize_base_url(raw: str) -> str:
+        """Normalize OpenAI-compatible base URL.
+
+        Rules:
+        - Keep explicit API version paths intact (e.g. /v1, /api/paas/v4).
+        - Append /v1 only for plain host-style URLs.
+        """
         base_url = raw.rstrip("/")
         parsed = urlparse(base_url)
         path = (parsed.path or "").rstrip("/")
-        if not (path.endswith("/v1") or "/v1" in path.split("/")):
-            base_url = base_url + "/v1"
-        return base_url
+
+        # Already versioned (OpenAI-compatible custom gateways, BigModel, etc.).
+        if path.endswith("/v1") or "/v1/" in (path + "/"):
+            return base_url
+        if path.endswith("/v4") or "/v4/" in (path + "/"):
+            return base_url
+        if "/api/paas/v4" in path:
+            return base_url
+
+        # Default OpenAI-compatible convention.
+        return base_url + "/v1"
 
     def _post(self, url: str, payload: dict[str, Any]) -> Response:
         headers = {

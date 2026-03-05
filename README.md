@@ -49,6 +49,8 @@ OPENAI_MODEL=gpt-4o-mini
 ```
 （兼容：也支持 `LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`）
 
+> 若你要用 BigModel（GLM）并跑第一条 agentic strategy miner，见：`docs/agentic_first_run_bigmodel.md`
+
 4) 启动后端
 ```
 uvicorn server.main:app --host 0.0.0.0 --port 8000
