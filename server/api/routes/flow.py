@@ -21,9 +21,17 @@ from agent_market import paths  # type: ignore
 router = APIRouter()
 
 
-def _resolve_under_root(path: str | Path) -> Optional[Path]:
+def _safe_resolve_under_root(path: str) -> Optional[Path]:
+    """Resolve *path* under ROOT with basic traversal protection.
+
+    Unlike ``paths.safe_resolve`` this does NOT remap ``artifacts/`` through
+    ``artifacts_root()`` — run_meta artifact paths are already correct
+    repo-relative paths and must not be double-mapped.
+    """
     try:
         p = Path(path)
+        if ".." in p.parts:
+            return None
         if not p.is_absolute():
             p = (ROOT / p).resolve()
         else:
@@ -32,17 +40,55 @@ def _resolve_under_root(path: str | Path) -> Optional[Path]:
         if p == root or root in p.parents:
             return p
     except Exception:
-        return None
+        pass
     return None
 
 
 def _check_path(path: Optional[str]) -> dict:
     if not path:
         return {"path": path, "exists": False}
-    resolved = _resolve_under_root(path)
+    resolved = _safe_resolve_under_root(path)
     if resolved is None:
         return {"path": path, "exists": False, "error": "path_outside_root"}
-    return {"path": str(resolved.relative_to(ROOT.resolve())), "exists": resolved.exists()}
+    try:
+        rel = str(resolved.relative_to(ROOT.resolve()))
+    except ValueError:
+        rel = str(resolved)
+    return {"path": rel, "exists": resolved.exists()}
+
+
+def _build_artifact_checks(payload: dict, artifacts: dict) -> dict:
+    """Build the artifact existence checks dict — shared across run-meta endpoints."""
+    return {
+        "config": _check_path((payload.get("config") or {}).get("path")),
+        "feature_output": _check_path(artifacts.get("feature_output")),
+        "capture_manifest": _check_path(artifacts.get("capture_manifest")),
+        "capture_match_path": _check_path(artifacts.get("capture_match_path")),
+        "capture_level2_path": _check_path(artifacts.get("capture_level2_path")),
+        "lob_state_parquet": _check_path(artifacts.get("lob_state_parquet")),
+        "rebuild_report": _check_path(artifacts.get("rebuild_report")),
+        "micro_feature_parquet": _check_path(artifacts.get("micro_feature_parquet")),
+        "micro_feature_manifest": _check_path(artifacts.get("micro_feature_manifest")),
+        "portfolio_weights": _check_path(artifacts.get("portfolio_weights")),
+        "portfolio_report": _check_path(artifacts.get("portfolio_report")),
+        "expression_output": _check_path(artifacts.get("expression_output")),
+        "factor_spec_json": _check_path(artifacts.get("factor_spec_json")),
+        "factor_ast_json": _check_path(artifacts.get("factor_ast_json")),
+        "factor_expression_txt": _check_path(artifacts.get("factor_expression_txt")),
+        "factor_expression_json": _check_path(artifacts.get("factor_expression_json")),
+        "factor_eval_meta": _check_path(artifacts.get("factor_eval_meta")),
+        "factor_scores_json": _check_path(artifacts.get("factor_scores_json")),
+        "factor_pareto_csv": _check_path(artifacts.get("factor_pareto_csv")),
+        "bundle_zip": _check_path(artifacts.get("bundle_zip")),
+        "bundle_manifest": _check_path(artifacts.get("bundle_manifest")),
+        "feedback_summary": _check_path(artifacts.get("feedback_summary")),
+        "training_summaries": [
+            _check_path(p) for p in (artifacts.get("training_summaries") or []) if p
+        ],
+        "backtest_zips": [_check_path(p) for p in (artifacts.get("backtest_zips") or []) if p],
+        "tca_report": _check_path(artifacts.get("tca_report")),
+        "tca_html": _check_path(artifacts.get("tca_html")),
+    }
 
 
 def _iso_to_epoch(value: Optional[str]) -> float:
@@ -54,12 +100,12 @@ def _iso_to_epoch(value: Optional[str]) -> float:
         return 0.0
 
 
-def _pick_latest_existing_path(paths: list[str]) -> Optional[str]:
+def _pick_latest_existing_path(path_list: list[str]) -> Optional[str]:
     candidates: list[tuple[float, str]] = []
-    for path in paths:
+    for path in path_list:
         if not path:
             continue
-        resolved = _resolve_under_root(path)
+        resolved = _safe_resolve_under_root(path)
         if resolved is None or not resolved.exists():
             continue
         try:
@@ -83,36 +129,7 @@ def flow_run_meta_latest():
         return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
 
     artifacts = payload.get("artifacts") or {}
-    payload["checks"] = {
-        "config": _check_path((payload.get("config") or {}).get("path")),
-        "feature_output": _check_path(artifacts.get("feature_output")),
-        "capture_manifest": _check_path(artifacts.get("capture_manifest")),
-        "capture_match_path": _check_path(artifacts.get("capture_match_path")),
-        "capture_level2_path": _check_path(artifacts.get("capture_level2_path")),
-        "lob_state_parquet": _check_path(artifacts.get("lob_state_parquet")),
-        "rebuild_report": _check_path(artifacts.get("rebuild_report")),
-        "micro_feature_parquet": _check_path(artifacts.get("micro_feature_parquet")),
-        "micro_feature_manifest": _check_path(artifacts.get("micro_feature_manifest")),
-        "portfolio_weights": _check_path(artifacts.get("portfolio_weights")),
-        "portfolio_report": _check_path(artifacts.get("portfolio_report")),
-        "expression_output": _check_path(artifacts.get("expression_output")),
-        "factor_spec_json": _check_path(artifacts.get("factor_spec_json")),
-        "factor_ast_json": _check_path(artifacts.get("factor_ast_json")),
-        "factor_expression_txt": _check_path(artifacts.get("factor_expression_txt")),
-        "factor_expression_json": _check_path(artifacts.get("factor_expression_json")),
-        "factor_eval_meta": _check_path(artifacts.get("factor_eval_meta")),
-        "factor_scores_json": _check_path(artifacts.get("factor_scores_json")),
-        "factor_pareto_csv": _check_path(artifacts.get("factor_pareto_csv")),
-        "bundle_zip": _check_path(artifacts.get("bundle_zip")),
-        "bundle_manifest": _check_path(artifacts.get("bundle_manifest")),
-        "feedback_summary": _check_path(artifacts.get("feedback_summary")),
-        "training_summaries": [
-            _check_path(p) for p in (artifacts.get("training_summaries") or []) if p
-        ],
-        "backtest_zips": [_check_path(p) for p in (artifacts.get("backtest_zips") or []) if p],
-        "tca_report": _check_path(artifacts.get("tca_report")),
-        "tca_html": _check_path(artifacts.get("tca_html")),
-    }
+    payload["checks"] = _build_artifact_checks(payload, artifacts)
     payload["run_meta_path"] = str(meta_path.relative_to(ROOT.resolve()))
     return payload
 
@@ -131,36 +148,7 @@ def flow_run_meta(run_id: str):
         return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
 
     artifacts = payload.get("artifacts") or {}
-    payload["checks"] = {
-        "config": _check_path((payload.get("config") or {}).get("path")),
-        "feature_output": _check_path(artifacts.get("feature_output")),
-        "capture_manifest": _check_path(artifacts.get("capture_manifest")),
-        "capture_match_path": _check_path(artifacts.get("capture_match_path")),
-        "capture_level2_path": _check_path(artifacts.get("capture_level2_path")),
-        "lob_state_parquet": _check_path(artifacts.get("lob_state_parquet")),
-        "rebuild_report": _check_path(artifacts.get("rebuild_report")),
-        "micro_feature_parquet": _check_path(artifacts.get("micro_feature_parquet")),
-        "micro_feature_manifest": _check_path(artifacts.get("micro_feature_manifest")),
-        "portfolio_weights": _check_path(artifacts.get("portfolio_weights")),
-        "portfolio_report": _check_path(artifacts.get("portfolio_report")),
-        "expression_output": _check_path(artifacts.get("expression_output")),
-        "factor_spec_json": _check_path(artifacts.get("factor_spec_json")),
-        "factor_ast_json": _check_path(artifacts.get("factor_ast_json")),
-        "factor_expression_txt": _check_path(artifacts.get("factor_expression_txt")),
-        "factor_expression_json": _check_path(artifacts.get("factor_expression_json")),
-        "factor_eval_meta": _check_path(artifacts.get("factor_eval_meta")),
-        "factor_scores_json": _check_path(artifacts.get("factor_scores_json")),
-        "factor_pareto_csv": _check_path(artifacts.get("factor_pareto_csv")),
-        "bundle_zip": _check_path(artifacts.get("bundle_zip")),
-        "bundle_manifest": _check_path(artifacts.get("bundle_manifest")),
-        "feedback_summary": _check_path(artifacts.get("feedback_summary")),
-        "training_summaries": [
-            _check_path(p) for p in (artifacts.get("training_summaries") or []) if p
-        ],
-        "backtest_zips": [_check_path(p) for p in (artifacts.get("backtest_zips") or []) if p],
-        "tca_report": _check_path(artifacts.get("tca_report")),
-        "tca_html": _check_path(artifacts.get("tca_html")),
-    }
+    payload["checks"] = _build_artifact_checks(payload, artifacts)
     payload["run_meta_path"] = str(meta_path.relative_to(ROOT.resolve()))
     return payload
 
@@ -174,7 +162,7 @@ def _load_portfolio_report_from_run_meta(meta_path: Path) -> dict:
         return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
     artifacts = meta.get("artifacts") or {}
     report_path = artifacts.get("portfolio_report")
-    resolved = _resolve_under_root(str(report_path)) if report_path else None
+    resolved = _safe_resolve_under_root(str(report_path)) if report_path else None
     if resolved is None or not resolved.exists():
         return error("NOT_FOUND", f"portfolio_report not found for run_meta: {meta_path}")
     try:
@@ -198,7 +186,7 @@ def _load_json_artifact_from_run_meta(meta_path: Path, key: str) -> dict:
         return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
     artifacts = meta.get("artifacts") or {}
     artifact_path = artifacts.get(key)
-    resolved = _resolve_under_root(str(artifact_path)) if artifact_path else None
+    resolved = _safe_resolve_under_root(str(artifact_path)) if artifact_path else None
     if resolved is None or not resolved.exists():
         return error("NOT_FOUND", f"{key} not found for run_meta: {meta_path}")
     try:

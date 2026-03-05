@@ -34,7 +34,10 @@ def _get_backtest_utils():
 
 @router.get("/results/list")
 def results_list(results_dir: str = "user_data/backtest_results", limit: int = 20):
-    rd = paths.resolve_repo_path(results_dir)
+    try:
+        rd = paths.safe_resolve(results_dir, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     if not rd.exists():
         return error("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
     items = []
@@ -48,7 +51,10 @@ def results_list(results_dir: str = "user_data/backtest_results", limit: int = 2
 def results_summary(name: str, results_dir: str = "user_data/backtest_results"):
     build_backtest_summary, read_backtest_trades, _ = _get_backtest_utils()
 
-    rd = paths.resolve_repo_path(results_dir)
+    try:
+        rd = paths.safe_resolve(results_dir, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     zp = rd / name
     if not zp.exists():
         return error("NOT_FOUND", f"Not found: {zp}")
@@ -61,7 +67,10 @@ def results_summary(name: str, results_dir: str = "user_data/backtest_results"):
 
 @router.get("/results/latest-training")
 def results_latest_training(models_dir: str = "artifacts/models"):
-    base = paths.resolve_repo_path(models_dir)
+    try:
+        base = paths.safe_resolve(models_dir, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     if not base.exists():
         return error("MODELS_DIR_NOT_FOUND", f"Models dir not found: {base}")
     candidates = list(base.rglob("training_summary.json"))
@@ -82,7 +91,10 @@ def latest_summary(results_dir: str = "user_data/backtest_results"):
         _get_backtest_utils()
     )
 
-    rd = paths.resolve_repo_path(results_dir)
+    try:
+        rd = paths.safe_resolve(results_dir, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     try:
         zip_path = find_latest_backtest_zip(rd)
     except FileNotFoundError:
@@ -103,7 +115,10 @@ def prepare_feedback(
 ):
     build_backtest_summary, _, find_latest_backtest_zip = _get_backtest_utils()
 
-    rd = paths.resolve_repo_path(results_dir)
+    try:
+        rd = paths.safe_resolve(results_dir, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     try:
         zip_path = find_latest_backtest_zip(rd)
     except FileNotFoundError:
@@ -111,7 +126,10 @@ def prepare_feedback(
     if not zip_path:
         return error("NO_ARCHIVES", f"No backtest archives found in {rd}")
     summary = build_backtest_summary(zip_path)
-    out_path = paths.resolve_repo_path(out)
+    try:
+        out_path = paths.safe_resolve(out, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"feedback_path": str(out_path)}
@@ -119,7 +137,10 @@ def prepare_feedback(
 
 @router.get("/results/gallery")
 def results_gallery(results_dir: str = "user_data/backtest_results", limit: int = 20):
-    rd = paths.resolve_repo_path(results_dir)
+    try:
+        rd = paths.safe_resolve(results_dir, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     if not rd.exists():
         return error("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
     zips = sorted(
@@ -186,7 +207,10 @@ def results_bundles_download(run_id: str):
 
 @router.get("/results/aggregate")
 def results_aggregate(names: str, results_dir: str = "user_data/backtest_results"):
-    rd = paths.resolve_repo_path(results_dir)
+    try:
+        rd = paths.safe_resolve(results_dir, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     if not rd.exists():
         return error("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
     build_backtest_summary, _, _ = _get_backtest_utils()

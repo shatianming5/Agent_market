@@ -5,6 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
+from agent_market import paths  # type: ignore
+
 from ..errors import error
 from ...runtime import ROOT
 
@@ -14,9 +16,10 @@ router = APIRouter()
 @router.get("/features/top")
 def features_top(file: str = "user_data/freqai_features.json", limit: int = 20):
     """Return top-N features by score/correlation/mutual_info."""
-    path = Path(file)
-    if not path.is_absolute():
-        path = (ROOT / path).resolve()
+    try:
+        path = paths.safe_resolve(file, allow_absolute=True)
+    except ValueError as exc:
+        return error("INVALID_PATH", str(exc))
     if not path.exists():
         return error("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {path}")
     try:
