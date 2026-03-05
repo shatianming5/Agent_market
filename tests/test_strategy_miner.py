@@ -455,11 +455,14 @@ def test_all_imports():
 
 
 def test_agent_adapter_passes_max_retries():
-    """StrategyAgent should forward max_retries to OpenCodeClient."""
-    from unittest.mock import patch, MagicMock
+    """StrategyAgent should forward max_retries to OpenCodeExecutor."""
+    from unittest.mock import MagicMock, patch
 
-    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeClient") as MockClient:
-        MockClient.return_value = MagicMock()
+    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeExecutor") as MockExec:
+        mock_instance = MagicMock()
+        mock_instance.close.return_value = None
+        MockExec.return_value = mock_instance
+
         from agent_market.strategy_miner.agent_adapter import StrategyAgent
 
         agent = StrategyAgent(
@@ -467,64 +470,72 @@ def test_agent_adapter_passes_max_retries():
             model="test-model",
             max_retries=5,
         )
-        _, kwargs = MockClient.call_args
-        assert kwargs["request_retry_attempts"] == 5
-        assert kwargs["session_recover_attempts"] == 5
+        _, kwargs = MockExec.call_args
+        assert kwargs["max_retries"] == 5
         agent.close()
 
 
 def test_agent_adapter_default_max_retries():
     """Default max_retries should be 2."""
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import MagicMock, patch
 
-    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeClient") as MockClient:
-        MockClient.return_value = MagicMock()
+    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeExecutor") as MockExec:
+        mock_instance = MagicMock()
+        mock_instance.close.return_value = None
+        MockExec.return_value = mock_instance
+
         from agent_market.strategy_miner.agent_adapter import StrategyAgent
 
         agent = StrategyAgent(
             workspace=Path("/tmp/test_ws"),
             model="test-model",
         )
-        _, kwargs = MockClient.call_args
-        assert kwargs["request_retry_attempts"] == 2
-        assert kwargs["session_recover_attempts"] == 2
+        _, kwargs = MockExec.call_args
+        assert kwargs["max_retries"] == 2
         agent.close()
 
 
 def test_agent_adapter_close_is_idempotent():
     """Calling close() multiple times should not raise."""
-    from unittest.mock import patch, MagicMock
+    from agent_market.strategy_miner.agent_adapter import StrategyAgent
 
-    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeClient") as MockClient:
-        MockClient.return_value = MagicMock()
-        from agent_market.strategy_miner.agent_adapter import StrategyAgent
-
-        agent = StrategyAgent(workspace=Path("/tmp/ws"), model="m")
-        agent.close()
-        agent.close()  # should not raise
+    agent = StrategyAgent(workspace=Path("/tmp/ws"), provider="template")
+    agent.close()
+    agent.close()  # should not raise
 
 
 def test_agent_adapter_run_after_close_raises():
     """Calling run() after close() should raise RuntimeError."""
-    from unittest.mock import patch, MagicMock
+    from agent_market.strategy_miner.agent_adapter import StrategyAgent
 
-    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeClient") as MockClient:
-        MockClient.return_value = MagicMock()
-        from agent_market.strategy_miner.agent_adapter import StrategyAgent
-
-        agent = StrategyAgent(workspace=Path("/tmp/ws"), model="m")
-        agent.close()
-        with pytest.raises(RuntimeError, match="already closed"):
-            agent.run("test prompt")
+    agent = StrategyAgent(workspace=Path("/tmp/ws"), provider="template")
+    agent.close()
+    with pytest.raises(RuntimeError, match="already closed"):
+        agent.run("test prompt")
 
 
-def test_agent_adapter_no_model_raises():
-    """StrategyAgent without model should raise ValueError."""
-    from unittest.mock import patch
+def test_agent_adapter_no_model_falls_back_to_template():
+    """StrategyAgent without any provider config should gracefully fall back."""
     import os
+    from unittest.mock import patch
+
+    from agent_market.strategy_miner.agent_adapter import StrategyAgent
 
     with patch.dict(os.environ, {}, clear=True):
-        with patch("agent_market.strategy_miner.agent_adapter.os.environ.get", return_value=""):
-            from agent_market.strategy_miner.agent_adapter import StrategyAgent
-            with pytest.raises(ValueError, match="No LLM model"):
-                StrategyAgent(workspace=Path("/tmp/ws"))
+        with tempfile.TemporaryDirectory() as td:
+            agent = StrategyAgent(workspace=Path(td))
+            out = agent.generate_strategy("dummy prompt")
+            assert out is not None
+            assert out.exists()
+
+
+def test_agent_adapter_opencode_without_model_raises():
+    """If provider=opencode is forced, missing model should raise."""
+    import os
+    from unittest.mock import patch
+
+    from agent_market.strategy_miner.agent_adapter import StrategyAgent
+
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(ValueError, match="model"):
+            StrategyAgent(workspace=Path("/tmp/ws"), provider="opencode")

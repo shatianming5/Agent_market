@@ -57,7 +57,7 @@ def phase_strategy_gen(
     )
 
     logger.info("Phase STRATEGY_GEN: iteration=%d, sending prompt to agent", state.iteration)
-    agent.run(prompt)
+    agent.generate_strategy(prompt)
 
     # Find generated strategy files
     strategy_files = find_strategy_files(sandbox)

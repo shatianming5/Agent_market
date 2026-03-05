@@ -47,13 +47,13 @@ def test_phase_strategy_gen_no_files_produced():
         state.phase = Phase.STRATEGY_GEN
 
         mock_agent = MagicMock()
-        mock_agent.run.return_value = "I couldn't generate a strategy."
+        mock_agent.generate_strategy.return_value = None
 
         phase_strategy_gen(state, config, run_dir, mock_agent)
 
         assert state.phase == Phase.ANALYSIS
         assert len(state.candidates) == 0
-        mock_agent.run.assert_called_once()
+        mock_agent.generate_strategy.assert_called_once()
 
 
 def test_phase_strategy_gen_writes_file():
@@ -75,7 +75,7 @@ def test_phase_strategy_gen_writes_file():
         strat_file.write_text(_VALID_STRATEGY, encoding="utf-8")
 
         mock_agent = MagicMock()
-        mock_agent.run.return_value = "Done"
+        mock_agent.generate_strategy.return_value = None
 
         phase_strategy_gen(state, config, run_dir, mock_agent)
 
