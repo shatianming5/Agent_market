@@ -13,11 +13,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from _lib import resolve_path  # noqa: E402
 from agent_market import paths  # noqa: E402
-
-
-def _resolve(path: str) -> Path:
-    return paths.resolve_repo_path(path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    cfg_path = _resolve(args.config)
+    cfg_path = resolve_path(args.config)
     if not cfg_path.exists():
         print(f"[e2e] missing config: {cfg_path}", file=sys.stderr)
         return 2
@@ -53,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"[e2e] WARN: demo data bootstrap skipped ({exc})", file=sys.stderr)
 
-    flow_script = _resolve("scripts/agent_flow.py")
+    flow_script = resolve_path("scripts/agent_flow.py")
     cmd = [sys.executable, str(flow_script), "--config", str(cfg_path)]
     if args.steps:
         cmd += ["--steps"] + [str(s) for s in args.steps]
@@ -68,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     ]
     missing: list[str] = []
     for rel in required_files:
-        p = _resolve(rel)
+        p = resolve_path(rel)
         if not p.exists():
             missing.append(rel)
 
@@ -77,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     if not training_summaries:
         missing.append("artifacts/models/**/training_summary.json")
 
-    bt_dir = _resolve("user_data/backtest_results")
+    bt_dir = resolve_path("user_data/backtest_results")
     bt_zips = list(bt_dir.glob("backtest-result-*.zip")) if bt_dir.exists() else []
     if not bt_zips:
         missing.append("user_data/backtest_results/backtest-result-*.zip")

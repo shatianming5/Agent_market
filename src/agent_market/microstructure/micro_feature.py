@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from agent_market.utils import write_json
 from agent_market.config import FreqAISettings
 from agent_market.microstructure.ohlcv_features import build_ohlcv_micro_features
 from agent_market.microstructure.features.feature_registry import (
@@ -18,11 +18,6 @@ from agent_market.microstructure.features.ofi_features import (
     compute_trade_rollups,
     load_kucoin_match_trades,
 )
-
-
-def _write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _resolve(root: Path, path: str | Path) -> Path:
@@ -105,7 +100,7 @@ def generate_micro_features_from_freqtrade_config(
             "features_parquet": str(features_path),
         },
     }
-    _write_json(manifest_path, manifest_payload)
+    write_json(manifest_path, manifest_payload)
     return MicroFeatureOutputs(features_parquet=features_path, manifest_json=manifest_path)
 
 
@@ -180,7 +175,7 @@ def generate_microstructure_features_from_lob_and_match(
             "features_parquet": str(features_path),
         },
     }
-    _write_json(manifest_path, manifest_payload)
+    write_json(manifest_path, manifest_payload)
     return MicroFeatureOutputs(features_parquet=features_path, manifest_json=manifest_path)
 
 

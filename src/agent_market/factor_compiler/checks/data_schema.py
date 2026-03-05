@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable, List, Optional, Set
 
 from agent_market.factor_compiler.api_models import ExprArg, ExprNode
 from agent_market.factor_compiler.checks.types import CheckResult, fail, ok
+from agent_market.factor_compiler.dsl.ast_utils import literal_int
 from agent_market.factor_compiler.dsl.grammar import (
     CONST_OP,
     OP_TO_BINOP_SYMBOL,
@@ -110,19 +111,6 @@ def collect_var_names(expr: ExprNode) -> Set[str]:
     return names
 
 
-def _literal_int(arg: ExprArg) -> Optional[int]:
-    try:
-        if isinstance(arg, bool) or arg is None:
-            return None
-        if isinstance(arg, int):
-            return int(arg)
-        if isinstance(arg, float) and float(arg).is_integer():
-            return int(arg)
-    except Exception:
-        return None
-    return None
-
-
 def check_variables_exist(expr: ExprNode, *, available_columns: Iterable[str]) -> CheckResult:
     available = {str(c) for c in available_columns if str(c)}
     used = collect_var_names(expr)
@@ -152,7 +140,7 @@ def check_literal_param_ranges(expr: ExprNode) -> List[CheckResult]:
             args = list(node.args or [])
             if op in {"roll_mean", "roll_std", "rolling_mean", "rolling_std", "rolling_sum", "rolling_min", "rolling_max", "ema", "ts_z", "robust_z", "decay_linear"}:
                 if len(args) >= 2:
-                    w = _literal_int(args[1])
+                    w = literal_int(args[1])
                     if w is not None and w <= 0:
                         results.append(
                             fail(
@@ -179,7 +167,7 @@ def check_literal_param_ranges(expr: ExprNode) -> List[CheckResult]:
                         )
             if op == "zscore":
                 if len(args) == 2:
-                    w = _literal_int(args[1])
+                    w = literal_int(args[1])
                     if w is not None and w <= 0:
                         results.append(
                             fail(
@@ -191,7 +179,7 @@ def check_literal_param_ranges(expr: ExprNode) -> List[CheckResult]:
                         )
             if op in {"diff", "pct_change"}:
                 if len(args) >= 2:
-                    n = _literal_int(args[1])
+                    n = literal_int(args[1])
                     if n is not None and n <= 0:
                         results.append(
                             fail(
@@ -204,7 +192,7 @@ def check_literal_param_ranges(expr: ExprNode) -> List[CheckResult]:
             if op in {"depth_bid", "depth_ask", "imbalance"}:
                 # depth_bid(levels)
                 if args:
-                    levels = _literal_int(args[0])
+                    levels = literal_int(args[0])
                     if levels is not None and levels <= 0:
                         results.append(
                             fail(
@@ -216,7 +204,7 @@ def check_literal_param_ranges(expr: ExprNode) -> List[CheckResult]:
                         )
             if op in {"vwap", "ofi", "arrival_intensity", "rv"}:
                 if len(args) >= 1:
-                    w = _literal_int(args[0])
+                    w = literal_int(args[0])
                     if w is not None and w <= 0:
                         results.append(
                             fail(
@@ -228,7 +216,7 @@ def check_literal_param_ranges(expr: ExprNode) -> List[CheckResult]:
                         )
             if op == "impact_proxy":
                 if args:
-                    w = _literal_int(args[0])
+                    w = literal_int(args[0])
                     if w is not None and w <= 0:
                         results.append(
                             fail(
@@ -240,7 +228,7 @@ def check_literal_param_ranges(expr: ExprNode) -> List[CheckResult]:
                         )
             if op == "fill_prob":
                 if len(args) >= 2:
-                    horizon = _literal_int(args[1])
+                    horizon = literal_int(args[1])
                     if horizon is not None and horizon <= 0:
                         results.append(
                             fail(

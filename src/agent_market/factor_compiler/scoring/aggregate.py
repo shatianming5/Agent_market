@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,9 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ..fc_utils import safe_float
+
+logger = logging.getLogger(__name__)
 from .objectives import information_coefficient, rank_information_coefficient
 from .novelty import ast_similarity_max, corr_to_library_max
 from .stability import rolling_ic_std
@@ -31,14 +35,6 @@ def _turnover(series: pd.Series) -> float:
     if len(s) < 2:
         return float("nan")
     return float(s.diff().abs().mean())
-
-def _safe_float(value: Any) -> Optional[float]:
-    try:
-        v = float(value)
-    except Exception:
-        return None
-    return v if np.isfinite(v) else None
-
 
 def _rolling_ic_ir(
     factor: pd.Series,
@@ -99,14 +95,15 @@ def _trading_proxies(factor: pd.Series, target: pd.Series) -> tuple[Optional[flo
     dd = (equity / peak) - 1.0
     mdd = float(abs(dd.min())) if not dd.empty else float("nan")
 
-    return _safe_float(sharpe), _safe_float(sortino), _safe_float(mdd)
+    return safe_float(sharpe), safe_float(sortino), safe_float(mdd)
 
 
 def _weighted_mean(values: pd.Series, weights: pd.Series) -> Optional[float]:
     try:
         v = pd.Series(values, copy=False).astype("float64")
         w = pd.Series(weights, copy=False).astype("float64").abs()
-    except Exception:
+    except (ValueError, TypeError) as exc:
+        logger.debug("_weighted_mean type conversion failed: %s", exc)
         return None
 
     mask = v.replace([np.inf, -np.inf], np.nan).notna() & w.replace([np.inf, -np.inf], np.nan).notna() & (w > 0.0)
@@ -139,23 +136,25 @@ def _microstructure_proxy_metrics(df: pd.DataFrame, *, factor: pd.Series) -> tup
 
     if "expected_slippage_proxy" in df.columns:
         try:
-            base = _safe_float(pd.Series(df["expected_slippage_proxy"]).astype("float64").mean())
+            base = safe_float(pd.Series(df["expected_slippage_proxy"]).astype("float64").mean())
             wmean = _weighted_mean(pd.Series(df["expected_slippage_proxy"]), weights)
             if base is not None and wmean is not None:
-                slippage_reduction_bps = _safe_float(float(base - wmean))
+                slippage_reduction_bps = safe_float(float(base - wmean))
         except Exception:
-            pass
+            logger.debug("Failed to compute slippage_reduction_bps", exc_info=True)
 
     if "fill_prob_proxy" in df.columns:
         try:
             fill_rate = _weighted_mean(pd.Series(df["fill_prob_proxy"]), weights)
         except Exception:
+            logger.debug("Failed to compute fill_rate", exc_info=True)
             fill_rate = None
 
     if "toxicity_proxy" in df.columns:
         try:
             adverse_selection_proxy = _weighted_mean(pd.Series(df["toxicity_proxy"]), weights)
         except Exception:
+            logger.debug("Failed to compute adverse_selection_proxy", exc_info=True)
             adverse_selection_proxy = None
 
     return slippage_reduction_bps, fill_rate, adverse_selection_proxy
@@ -183,7 +182,8 @@ def _expr_stats(expr: str) -> tuple[Optional[int], Optional[int], str, Optional[
         return None, None, "", None
     try:
         tree = ast.parse(text, mode="eval")
-    except Exception:
+    except SyntaxError:
+        logger.debug("Failed to parse expression: %.80s", text)
         return None, None, hashlib.sha256(text.encode("utf-8")).hexdigest(), None
 
     node_count = sum(1 for _ in ast.walk(tree))
@@ -309,15 +309,15 @@ def _pareto_front(rows: list[dict[str, Any]]) -> set[str]:
         expensive = row.get("expensive_ops")
         try:
             n = float(node) if node is not None else float("inf")
-        except Exception:
+        except (ValueError, TypeError):
             n = float("inf")
         try:
             d = float(depth) if depth is not None else 0.0
-        except Exception:
+        except (ValueError, TypeError):
             d = 0.0
         try:
             e = float(expensive) if expensive is not None else 0.0
-        except Exception:
+        except (ValueError, TypeError):
             e = 0.0
         return float(n + 10.0 * e + d)
 
@@ -418,7 +418,7 @@ def score_factors_to_artifacts(
             ic_ir=ic_ir,
             sharpe_net=sharpe_net,
             ic_rolling_std=ic_roll_std,
-            turnover=_safe_float(turnover),
+            turnover=safe_float(turnover),
             max_turnover=float(max_turnover),
             node_count=node_count,
             depth=depth,
@@ -436,29 +436,29 @@ def score_factors_to_artifacts(
             {
                 "name": str(name),
                 "ic": float(ic) if np.isfinite(ic) else None,
-                "ic_mean": _safe_float(ic_mean),
+                "ic_mean": safe_float(ic_mean),
                 "rank_ic": float(rank_ic) if np.isfinite(rank_ic) else None,
-                "ic_ir": _safe_float(ic_ir),
-                "ic_rolling_std": _safe_float(ic_roll_std),
+                "ic_ir": safe_float(ic_ir),
+                "ic_rolling_std": safe_float(ic_roll_std),
                 "ic_abs": float(ic_abs) if np.isfinite(ic_abs) else None,
                 "rank_ic_abs": float(rank_ic_abs) if np.isfinite(rank_ic_abs) else None,
-                "sharpe_net": _safe_float(sharpe_net),
-                "sortino_net": _safe_float(sortino_net),
-                "mdd": _safe_float(mdd),
+                "sharpe_net": safe_float(sharpe_net),
+                "sortino_net": safe_float(sortino_net),
+                "mdd": safe_float(mdd),
                 "nan_ratio": float(nan_ratio) if np.isfinite(nan_ratio) else None,
                 "turnover": float(turnover) if np.isfinite(turnover) else None,
-                "corr_to_library_max": _safe_float(corr_max),
-                "ast_similarity_max": _safe_float(ast_sim),
+                "corr_to_library_max": safe_float(corr_max),
+                "ast_similarity_max": safe_float(ast_sim),
                 "node_count": int(node_count) if node_count is not None else None,
                 "depth": int(depth) if depth is not None else None,
                 "expensive_ops": int(expensive_ops) if expensive_ops is not None else None,
-                "regime_consistency": _safe_float(regime_cons),
-                "train_test_gap": _safe_float(tt_gap),
-                "capacity_proxy": _safe_float(cap_proxy),
-                "slippage_reduction_bps": _safe_float(slip_red_bps),
-                "fill_rate": _safe_float(fill_rate),
-                "adverse_selection_proxy": _safe_float(adv_sel),
-                "weighted_score": _safe_float(weighted),
+                "regime_consistency": safe_float(regime_cons),
+                "train_test_gap": safe_float(tt_gap),
+                "capacity_proxy": safe_float(cap_proxy),
+                "slippage_reduction_bps": safe_float(slip_red_bps),
+                "fill_rate": safe_float(fill_rate),
+                "adverse_selection_proxy": safe_float(adv_sel),
+                "weighted_score": safe_float(weighted),
                 "gate_pass": gate_pass,
                 "gates": {
                     "max_nan_ratio": float(max_nan_ratio),

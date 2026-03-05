@@ -14,11 +14,8 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from _lib import resolve_path  # noqa: E402
 from agent_market import paths  # noqa: E402
-
-
-def _resolve(path: str | Path) -> Path:
-    return paths.resolve_repo_path(path)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -48,7 +45,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not run_id:
         run_id = uuid.uuid4().hex[:12]
 
-    out_dir = _resolve(args.out_dir) if args.out_dir else (paths.run_dir(run_id) / "micro_feature")
+    out_dir = resolve_path(args.out_dir) if args.out_dir else (paths.run_dir(run_id) / "micro_feature")
 
     if args.lob_state or args.match:
         if not args.lob_state or not args.match:
@@ -57,8 +54,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             root=ROOT,
             run_id=run_id,
             out_dir=out_dir,
-            lob_state=_resolve(str(args.lob_state)),
-            match_path=_resolve(str(args.match)),
+            lob_state=resolve_path(str(args.lob_state)),
+            match_path=resolve_path(str(args.match)),
             symbol=str(args.symbol) if args.symbol else None,
             depth_levels=int(args.depth_levels),
             windows_sec=[int(x) for x in (args.windows_sec or []) if int(x) > 0],
@@ -68,7 +65,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             raise SystemExit("--config is required for OHLCV mode (or pass --lob-state/--match for microstructure mode)")
         outputs = generate_micro_features_from_freqtrade_config(
             root=ROOT,
-            freqtrade_config=_resolve(args.config),
+            freqtrade_config=resolve_path(args.config),
             run_id=run_id,
             out_dir=out_dir,
             timeframe=args.timeframe,

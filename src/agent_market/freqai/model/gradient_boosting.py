@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
 
 from agent_market.freqai.model.base import BaseModelAdapter, ModelRegistry, TrainResult
+from agent_market.freqai.model.metrics import rmse
 
-
-def _rmse(preds: np.ndarray, target: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((preds - target) ** 2)))
+logger = logging.getLogger(__name__)
 
 
 class LightGBMAdapter(BaseModelAdapter):
@@ -45,12 +45,12 @@ class LightGBMAdapter(BaseModelAdapter):
                     pct = int(cur * 100 / tot)
                     print(f"[FLOW] EPOCH {cur}/{tot} PROGRESS {pct}%")
             except Exception:
-                pass
+                logger.debug("LightGBM progress callback error", exc_info=True)
         booster = lgb.train(params, dtrain, num_boost_round=num_boost_round, valid_sets=valid_sets, callbacks=[_progress_cb])
         self.model = booster
-        metrics = {'rmse_train': _rmse(booster.predict(X_train), y_train)}
+        metrics = {'rmse_train': rmse(booster.predict(X_train), y_train)}
         if X_valid is not None and X_valid.size:
-            metrics['rmse_valid'] = _rmse(booster.predict(X_valid), y_valid)
+            metrics['rmse_valid'] = rmse(booster.predict(X_valid), y_valid)
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / 'lightgbm_model.txt'
         booster.save_model(str(model_path))
@@ -112,12 +112,13 @@ class XGBoostAdapter(BaseModelAdapter):
                     return False
             callbacks = [_ProgressCB(num_boost_round)]
         except Exception:
+            logger.debug("XGBoost TrainingCallback not available, disabling progress callback", exc_info=True)
             callbacks = []
         booster = xgb.train(params, dtrain, num_boost_round=num_boost_round, evals=evals, verbose_eval=False, callbacks=callbacks)
         self.model = booster
-        metrics = {'rmse_train': _rmse(booster.predict(dtrain), y_train)}
+        metrics = {'rmse_train': rmse(booster.predict(dtrain), y_train)}
         if dvalid is not None:
-            metrics['rmse_valid'] = _rmse(booster.predict(dvalid), y_valid)
+            metrics['rmse_valid'] = rmse(booster.predict(dvalid), y_valid)
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / 'xgboost_model.json'
         booster.save_model(str(model_path))
@@ -171,9 +172,9 @@ class CatBoostAdapter(BaseModelAdapter):
             eval_set = (X_valid, y_valid)
         model.fit(X_train, y_train, eval_set=eval_set, verbose=False)
         self.model = model
-        metrics = {'rmse_train': _rmse(model.predict(X_train), y_train)}
+        metrics = {'rmse_train': rmse(model.predict(X_train), y_train)}
         if X_valid is not None and X_valid.size:
-            metrics['rmse_valid'] = _rmse(model.predict(X_valid), y_valid)
+            metrics['rmse_valid'] = rmse(model.predict(X_valid), y_valid)
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / 'catboost_model.cbm'
         model.save_model(model_path)

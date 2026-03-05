@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -10,6 +10,9 @@ import agent_market.freqai.model  # noqa: F401
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
+from agent_market.utils import sha256_bytes
 from agent_market.freqai.expression_engine import apply_expressions, load_expression_file
 from agent_market.freqai.features import apply_configured_features
 from agent_market.freqai.model.base import ModelRegistry, TrainResult
@@ -24,17 +27,13 @@ except Exception:
     _HAS_SKLEARN = False
 
 
-def _sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
-
-
 def _snapshot_file(src: Path, dst: Path) -> Dict[str, Any]:
     payload = src.read_bytes()
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_bytes(payload)
     return {
         "path": str(dst),
-        "sha256": _sha256_bytes(payload),
+        "sha256": sha256_bytes(payload),
         "size_bytes": int(len(payload)),
     }
 
@@ -148,7 +147,7 @@ class TrainingPipeline:
         raw_model_dir = (
             self.output_cfg.get("model_dir")
             or (self.model_cfg.get("params") or {}).get("model_dir")
-            or "artifacts/models"
+            or str(paths.models_root())
         )
         model_dir = paths.resolve_repo_path(raw_model_dir)
         params = dict(self.model_cfg.get('params', {}))
@@ -206,7 +205,7 @@ class TrainingPipeline:
                 with open(model_dir / 'scaler.pkl', 'wb') as f:
                     pickle.dump({'type': scaler_name, 'features': dataset.columns, 'scaler': scaler_obj}, f)
             except Exception:
-                pass
+                logger.warning("Failed to persist scaler to %s", model_dir / 'scaler.pkl', exc_info=True)
 
         # Summary
         summary_path = model_dir / 'training_summary.json'

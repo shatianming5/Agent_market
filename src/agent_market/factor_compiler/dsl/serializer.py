@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..api_models import ExprArg, ExprNode
+from .ast_utils import format_number
 from .errors import FormulaSerializeError
 from .grammar import (
     CONST_OP,
@@ -12,16 +13,6 @@ from .grammar import (
     VAR_OP,
     is_safe_identifier,
 )
-
-
-def _format_number(value: Any) -> str:
-    if isinstance(value, bool) or value is None:
-        raise FormulaSerializeError("Only numeric constants are supported in Formula")
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
-    raise FormulaSerializeError(f"Unsupported constant type: {type(value).__name__}")
 
 
 def _render(arg: ExprArg) -> str:
@@ -37,7 +28,7 @@ def _render(arg: ExprArg) -> str:
         if op == CONST_OP:
             if len(args) != 1:
                 raise FormulaSerializeError(f"Invalid const node: {arg!r}")
-            return _format_number(args[0])
+            return format_number(args[0])
 
         if op in OP_TO_BINOP_SYMBOL:
             if len(args) != 2:
@@ -64,7 +55,7 @@ def _render(arg: ExprArg) -> str:
         inner = ",".join(_render(a) for a in args)
         return f"{op}({inner})"
 
-    return _format_number(arg)
+    return format_number(arg)
 
 
 def to_formula(expr: ExprNode) -> str:

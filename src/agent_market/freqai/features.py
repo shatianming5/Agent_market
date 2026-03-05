@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Dict
 
 import numpy as np
@@ -8,16 +9,20 @@ from pandas import DataFrame
 
 from agent_market.freqai.expression_engine import safe_eval
 
+logger = logging.getLogger(__name__)
+
 # Try TA-Lib first; if not available, fallback to pandas_ta implementations where possible.
 try:  # pragma: no cover - runtime dependency
     import talib.abstract as ta  # type: ignore
     _HAS_TALIB = True
 except Exception:  # pragma: no cover
+    logger.debug("TA-Lib not available, trying pandas_ta fallback", exc_info=True)
     ta = None  # type: ignore
     _HAS_TALIB = False
     try:
         import pandas_ta as pta  # type: ignore
     except Exception:
+        logger.debug("pandas_ta not available either; indicator features will be limited", exc_info=True)
         pta = None  # type: ignore
 
 
@@ -203,6 +208,7 @@ def apply_configured_features(dataframe: DataFrame, feature_cfg: Dict) -> DataFr
             else:
                 continue
         except Exception:
+            logger.debug("Failed to compute feature %r (type=%s)", name, kind, exc_info=True)
             continue
         dataframe[name] = dataframe[name].replace([np.inf, -np.inf], np.nan)
 
@@ -220,6 +226,7 @@ def apply_configured_features(dataframe: DataFrame, feature_cfg: Dict) -> DataFr
             dataframe[name] = series
             local_dict[name] = series
         except Exception:
+            logger.debug("Failed to evaluate combo %r (formula=%s)", name, formula, exc_info=True)
             continue
     return dataframe
 

@@ -20,35 +20,8 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
+from _lib import read_json, resolve_label_period, resolve_path, resolve_timeframe  # noqa: E402
 from agent_market import paths  # noqa: E402
-
-
-def _resolve_path(path: str) -> Path:
-    return paths.resolve_repo_path(path)
-
-
-def _load_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
-
-
-def _resolve_timeframe(cfg: Dict[str, Any], cli_timeframe: Optional[str]) -> str:
-    if cli_timeframe:
-        return cli_timeframe
-    freqai = cfg.get("freqai") or {}
-    fp = freqai.get("feature_parameters") or {}
-    tfs = fp.get("include_timeframes") or []
-    if isinstance(tfs, list) and tfs and isinstance(tfs[0], str) and tfs[0]:
-        return tfs[0]
-    tf = cfg.get("timeframe")
-    return str(tf) if tf else "1h"
-
-
-def _resolve_label_period(cfg: Dict[str, Any], feature_cfg: Dict[str, Any]) -> int:
-    if feature_cfg.get("label_period") is not None:
-        return int(feature_cfg["label_period"])
-    freqai = cfg.get("freqai") or {}
-    fp = freqai.get("feature_parameters") or {}
-    return int(fp.get("label_period_candles") or 12)
 
 
 def _infer_feature_file(config_path: Path) -> Path:
@@ -69,7 +42,7 @@ def _infer_feature_file(config_path: Path) -> Path:
 def _read_feedback(path: Optional[str], top_lines: int = 60) -> Optional[str]:
     if not path:
         return None
-    p = _resolve_path(path)
+    p = resolve_path(path)
     if not p.exists():
         return None
     try:
@@ -624,13 +597,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--evolve-seed", type=int, default=7)
     args = parser.parse_args(argv)
 
-    config_path = _resolve_path(args.config)
-    cfg = _load_json(config_path)
-    timeframe = _resolve_timeframe(cfg, args.timeframe)
+    config_path = resolve_path(args.config)
+    cfg = read_json(config_path)
+    timeframe = resolve_timeframe(cfg, args.timeframe)
 
-    feature_path = _resolve_path(args.feature_file) if args.feature_file else _infer_feature_file(config_path)
-    feature_cfg = _load_json(feature_path)
-    label_period = _resolve_label_period(cfg, feature_cfg)
+    feature_path = resolve_path(args.feature_file) if args.feature_file else _infer_feature_file(config_path)
+    feature_cfg = read_json(feature_path)
+    label_period = resolve_label_period(cfg, feature_cfg.get("label_period"))
 
     features = feature_cfg.get("features") or []
     combos = feature_cfg.get("feature_combos") or []
@@ -642,7 +615,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if isinstance(item, dict) and item.get("name"):
             feature_cols.append(str(item["name"]))
 
-    output_path = _resolve_path(args.output)
+    output_path = resolve_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     want_llm = bool(args.llm_enabled) and not bool(args.no_llm)

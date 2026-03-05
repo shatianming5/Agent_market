@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..api_models import ExprArg, ExprNode
+from .ast_utils import literal_int, format_number
 from .errors import FormulaSerializeError
 from .grammar import (
     CONST_OP,
@@ -29,16 +30,6 @@ _MICROSTRUCTURE_WINDOW_OPS = {"vwap", "ofi", "arrival_intensity", "rv"}
 _MICROSTRUCTURE_LEVEL_OPS = {"depth_bid", "depth_ask"}
 
 
-def _format_number(value: Any) -> str:
-    if isinstance(value, bool) or value is None:
-        raise FormulaSerializeError("Only numeric constants are supported in Formula")
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
-    raise FormulaSerializeError(f"Unsupported constant type: {type(value).__name__}")
-
-
 def _map_call(op: str, args: list[ExprArg]) -> str:
     if op == "zscore":
         if len(args) == 1:
@@ -48,25 +39,12 @@ def _map_call(op: str, args: list[ExprArg]) -> str:
         raise OperatorCompileError("zscore expects 1 or 2 args")
     return CALL_ALIASES.get(op, op)
 
-def _literal_int(arg: ExprArg) -> int | None:
-    try:
-        if isinstance(arg, bool) or arg is None:
-            return None
-        if isinstance(arg, int):
-            return int(arg)
-        if isinstance(arg, float) and float(arg).is_integer():
-            return int(arg)
-    except Exception:
-        return None
-    return None
-
-
 def _depth_suffix(arg: ExprArg, *, prefix: str) -> int | None:
     if isinstance(arg, ExprNode):
         op = str(arg.op)
         args = list(arg.args or [])
         if op == prefix and len(args) == 1:
-            levels = _literal_int(args[0])
+            levels = literal_int(args[0])
             if levels is None or levels <= 0:
                 return None
             return int(levels)
@@ -97,7 +75,7 @@ def _compile_microstructure_call(op: str, args: list[ExprArg]) -> str | None:
     if op in _MICROSTRUCTURE_LEVEL_OPS:
         if len(args) != 1:
             raise OperatorCompileError(f"{op} expects 1 arg")
-        levels = _literal_int(args[0])
+        levels = literal_int(args[0])
         if levels is None:
             raise OperatorCompileError(f"{op} levels must be an integer constant")
         if levels <= 0:
@@ -120,7 +98,7 @@ def _compile_microstructure_call(op: str, args: list[ExprArg]) -> str | None:
     if op in _MICROSTRUCTURE_WINDOW_OPS:
         if len(args) != 1:
             raise OperatorCompileError(f"{op} expects 1 arg")
-        w = _literal_int(args[0])
+        w = literal_int(args[0])
         if w is None:
             raise OperatorCompileError(f"{op} window must be an integer constant")
         if w <= 0:
@@ -143,7 +121,7 @@ def _compile(arg: ExprArg) -> str:
         if op == CONST_OP:
             if len(args) != 1:
                 raise OperatorCompileError(f"Invalid const node: {arg!r}")
-            return _format_number(args[0])
+            return format_number(args[0])
 
         if op in OP_TO_BINOP_SYMBOL:
             if len(args) != 2:
@@ -175,7 +153,7 @@ def _compile(arg: ExprArg) -> str:
         inner = ",".join(_compile(a) for a in args)
         return f"{mapped}({inner})"
 
-    return _format_number(arg)
+    return format_number(arg)
 
 
 def compile_to_expression_engine(expr: ExprNode) -> str:

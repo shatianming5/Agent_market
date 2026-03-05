@@ -1,39 +1,10 @@
 from __future__ import annotations
 
-import gzip
-import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
-
-def _ensure_pandas() -> Any:
-    try:
-        import pandas as pd  # noqa: PLC0415
-    except Exception as exc:  # pragma: no cover
-        raise RuntimeError(f"Missing dependency for microstructure features: {exc}") from exc
-    return pd
-
-
-def _iter_ndjson_gz(path: Path) -> Iterator[Dict[str, Any]]:
-    with gzip.open(Path(path), "rt", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except Exception:
-                continue
-            if isinstance(obj, dict):
-                yield obj
-
-
-def _topic_symbol(topic: str) -> Optional[str]:
-    t = str(topic or "")
-    if ":" not in t:
-        return None
-    return t.split(":", 1)[1].strip() or None
+from ..ms_utils import ensure_pandas, iter_ndjson_gz, topic_symbol
 
 
 def _parse_trade_ts(msg: Dict[str, Any]) -> Optional[datetime]:
@@ -59,15 +30,15 @@ def load_kucoin_match_trades(*, match_path: Path, symbol: Optional[str] = None) 
     Output columns:
       ts, symbol, side, price, size
     """
-    pd = _ensure_pandas()
+    pd = ensure_pandas()
     rows = []
     sym_filter = str(symbol).strip() if symbol else None
 
-    for msg in _iter_ndjson_gz(Path(match_path)):
+    for msg in iter_ndjson_gz(Path(match_path)):
         if msg.get("type") != "message":
             continue
         topic = str(msg.get("topic") or "")
-        sym = _topic_symbol(topic)
+        sym = topic_symbol(topic)
         data = msg.get("data")
         if not sym or not isinstance(data, dict):
             continue
@@ -105,7 +76,7 @@ def _trade_sign(side: Any) -> Optional[int]:
 
 def compute_trade_rollups(*, trades: Any, windows_sec: Sequence[int], eps: float = 1e-12) -> Any:
     """Compute rolling trade rollups at trade timestamps (per symbol)."""
-    pd = _ensure_pandas()
+    pd = ensure_pandas()
     if trades is None or getattr(trades, "empty", True):
         return pd.DataFrame()
 
@@ -149,7 +120,7 @@ def compute_trade_rollups(*, trades: Any, windows_sec: Sequence[int], eps: float
 
 def align_trade_rollups_to_lob(*, lob: Any, trade_rollups: Any) -> Any:
     """Align trade rollups to lob timestamps via backward asof join (per symbol)."""
-    pd = _ensure_pandas()
+    pd = ensure_pandas()
     if trade_rollups is None or getattr(trade_rollups, "empty", True):
         return pd.DataFrame(index=lob.index).assign(**{})
 

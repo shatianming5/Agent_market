@@ -22,6 +22,8 @@ import requests
 import yaml
 from dateutil.parser import isoparse
 
+from _lib import load_yaml_config
+
 COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
 BASE_URL = "https://data.binance.vision"
 
@@ -53,12 +55,6 @@ class Job:
 
 class DownloadError(Exception):
     pass
-
-
-def load_config(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-    return cfg
 
 
 def parse_args() -> argparse.Namespace:
@@ -198,7 +194,7 @@ def run_jobs(jobs: Iterable[Job], base_dir: Path, limit: Optional[int], overwrit
 
 def main() -> None:
     args = parse_args()
-    cfg = load_config(args.conf)
+    cfg = load_yaml_config(args.conf)
     start = isoparse(cfg["start"]).date()
     end = date.today()
     if cfg.get("end"):

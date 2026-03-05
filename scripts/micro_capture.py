@@ -18,26 +18,12 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from _lib import parse_csv, resolve_path, utc_now_compact  # noqa: E402
 from agent_market import paths  # noqa: E402
 
 
 def _ensure_imports() -> None:
     return
-
-
-def _resolve(path: str | Path) -> Path:
-    return paths.resolve_repo_path(path)
-
-
-def _utc_now_compact() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-
-
-def _parse_csv(value: Optional[str]) -> list[str]:
-    if not value:
-        return []
-    raw = str(value).replace(",", " ").split()
-    return [x.strip() for x in raw if x.strip()]
 
 
 async def _run_fixture(*, fixture: Path, out_dir: Path, exchange: str, channels: list[str]) -> dict:
@@ -111,7 +97,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if exchange != "kucoin":
         raise SystemExit(f"Unsupported exchange: {exchange!r} (only 'kucoin' supported)")
 
-    channels = _parse_csv(str(args.channels))
+    channels = parse_csv(str(args.channels))
     if not channels:
         raise SystemExit("No channels provided")
     channels = [c.lower() for c in channels]
@@ -120,9 +106,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     if unknown:
         raise SystemExit(f"Unsupported channels: {unknown}. Allowed: {sorted(allowed)}")
 
-    session_id = f"{_utc_now_compact()}-{uuid.uuid4().hex[:8]}"
+    session_id = f"{utc_now_compact()}-{uuid.uuid4().hex[:8]}"
     if args.out_dir:
-        out_dir = _resolve(str(args.out_dir))
+        out_dir = resolve_path(str(args.out_dir))
     else:
         out_dir = (
             paths.user_data_root()
@@ -133,14 +119,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         ).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    fixture = _resolve(str(args.fixture)) if args.fixture else None
+    fixture = resolve_path(str(args.fixture)) if args.fixture else None
     if fixture is not None and not fixture.exists():
         raise SystemExit(f"Fixture not found: {fixture}")
 
     if fixture is not None:
         meta = asyncio.run(_run_fixture(fixture=fixture, out_dir=out_dir, exchange=exchange, channels=channels))
     else:
-        symbols = _parse_csv(str(args.symbols))
+        symbols = parse_csv(str(args.symbols))
         if not symbols:
             raise SystemExit("No symbols provided")
         meta = asyncio.run(
@@ -169,7 +155,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "exchange": exchange,
         "session_id": session_id,
         "out_dir": str(out_dir),
-        "symbols": _parse_csv(str(args.symbols)) if not fixture else meta.get("symbols") or [],
+        "symbols": parse_csv(str(args.symbols)) if not fixture else meta.get("symbols") or [],
         "channels": channels,
         **{k: v for k, v in meta.items() if k not in {"symbols", "channels", "counts"}},
         "files": files,
