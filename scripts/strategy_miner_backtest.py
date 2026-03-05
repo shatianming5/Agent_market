@@ -2,7 +2,7 @@
 """Backtest+summarize a Strategy Miner candidate.
 
 Designed to run as a JobManager background task.
-Outputs are written under: artifacts/runs/<run_id>/strategy_miner/
+Outputs are written under: runs/<run_id>/strategy_miner/
 """
 
 from __future__ import annotations
@@ -86,10 +86,10 @@ def main() -> int:
     # Persist checkpoint updates
     _save_checkpoint(state, miner_dir)
 
-    # Write a stable summary artifact
-    out_dir = miner_dir / "backtests" / str(chosen.name)
+    # Always write a stable job summary artifact.
+    out_dir = miner_dir / "backtests" / "jobs"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "summary.json"
+    out_path = out_dir / f"{chosen.name}__iter_{int(chosen.iteration):04d}.json"
 
     payload = {
         "run_id": state.run_id,

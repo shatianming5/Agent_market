@@ -265,3 +265,63 @@ def test_phase_evolve_with_valid_code():
         # May or may not produce a change depending on random mutations
         # But should not raise
         assert result is None or isinstance(result, StrategyCandidate)
+
+
+
+def test_phase_backtest_repairs_validation_failure(monkeypatch):
+    """When validation fails, agent repair should be attempted and backtest rerun."""
+    from types import SimpleNamespace
+
+    from agent_market.strategy_miner.phases import phase_backtest
+
+    with tempfile.TemporaryDirectory() as td:
+        run_dir = Path(td)
+        config = MinerConfig(repair_attempts=1)
+        state = MinerState()
+
+        bad_code = """
+import os
+from freqtrade.strategy import IStrategy
+class Bad(IStrategy):
+    timeframe = '5m'
+    def populate_indicators(self, df, m): return df
+    def populate_entry_trend(self, df, m): return df
+    def populate_exit_trend(self, df, m): return df
+"""
+
+        sandbox = run_dir / "iter_0" / "sandbox"
+        strat_dir = sandbox / "user_data" / "strategies"
+        strat_dir.mkdir(parents=True, exist_ok=True)
+        strat_path = strat_dir / "Bad.py"
+        strat_path.write_text(bad_code, encoding="utf-8")
+
+        candidate = StrategyCandidate(name="Bad", code=bad_code, strategy_path=strat_path)
+        state.candidates.append(candidate)
+        state.phase = Phase.BACKTEST
+
+        class FakeAgent:
+            def generate_strategy(self, prompt, *, on_turn=None, filename_hint=None):
+                _ = prompt
+                _ = on_turn
+                _ = filename_hint
+                strat_path.write_text(_VALID_STRATEGY, encoding="utf-8")
+                return strat_path
+
+        monkeypatch.setattr(
+            "agent_market.strategy_miner.phases.subprocess.run",
+            lambda *a, **kw: SimpleNamespace(returncode=0, stdout="", stderr=""),
+        )
+        monkeypatch.setattr(
+            "agent_market.strategy_miner.phases.find_latest_backtest_zip",
+            lambda *_a, **_kw: Path(td) / "bt.zip",
+        )
+        monkeypatch.setattr(
+            "agent_market.strategy_miner.phases.build_backtest_summary",
+            lambda *_a, **_kw: {"profit_total_pct": 1.0, "trades": 20, "winrate": 0.6, "max_drawdown_abs": -1.0},
+        )
+
+        phase_backtest(state, config, run_dir, agent=FakeAgent())
+
+        assert state.phase == Phase.EVALUATION
+        assert candidate.validation_passed is True
+        assert candidate.backtest_summary is not None

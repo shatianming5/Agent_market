@@ -52,6 +52,7 @@ class OpenCodeExecutor:
         unattended: str = "strict",
         auto_compact: bool = True,
         context_length: int = 128_000,
+        tool_policy: Any | None = None,
         permission_overrides: Optional[dict[str, Any]] = None,
     ) -> None:
         from runner_fsm.opencode.client import OpenCodeClient  # noqa: WPS433
@@ -76,6 +77,7 @@ class OpenCodeExecutor:
             stale_timeout=stale_timeout,
             request_retry_attempts=max(0, int(max_retries)),
             session_recover_attempts=max(0, int(max_retries)),
+            tool_policy=tool_policy,
             permission_overrides=permission_overrides or {},
         )
 

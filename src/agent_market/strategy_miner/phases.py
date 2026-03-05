@@ -17,10 +17,65 @@ from .agent_adapter import StrategyAgent
 from .dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
 from .evolution import evolve_strategy
 from .grading import compute_enhanced_reward, compute_factor_score, compute_reward
-from .prompts import build_analysis_prompt, build_strategy_gen_prompt
+from .prompts import build_analysis_prompt, build_repair_prompt, build_strategy_gen_prompt
 from .sandbox import find_strategy_files, prepare_sandbox, validate_strategy_code
 
 logger = logging.getLogger(__name__)
+
+
+def _repair_candidate(
+    *,
+    agent: StrategyAgent,
+    config: MinerConfig,
+    run_dir: Path,
+    sandbox: Path,
+    candidate: StrategyCandidate,
+    failure: str,
+    attempt: int,
+    max_attempts: int,
+) -> bool:
+    try:
+        rel = candidate.strategy_path
+        try:
+            rel = candidate.strategy_path.resolve().relative_to(sandbox.resolve())
+        except Exception:
+            rel = Path("user_data") / "strategies" / candidate.strategy_path.name
+
+        prompt = build_repair_prompt(
+            sandbox_path=str(sandbox),
+            strategy_rel_path=str(rel),
+            freqtrade_config=config.freqtrade_config,
+            timerange=config.timerange,
+            failure=failure,
+            attempt=attempt,
+            max_attempts=max_attempts,
+            tool_allowlist=list(config.tool_allowlist or []),
+            bash_allow=bool(config.bash_allow),
+            bash_timeout=int(config.bash_timeout or 60),
+            bash_allowlist=list(config.bash_allowlist or []),
+        )
+
+        repaired_path = agent.generate_strategy(prompt, filename_hint=candidate.strategy_path.name)
+        if repaired_path is None or not repaired_path.exists():
+            return False
+
+        candidate.strategy_path = repaired_path
+        candidate.name = repaired_path.stem
+        candidate.code = repaired_path.read_text(encoding="utf-8", errors="replace")
+        candidate.backtest_summary = None
+        candidate.reward = None
+
+        try:
+            from .artifacts import write_candidate_snapshot
+
+            write_candidate_snapshot(run_dir, candidate)
+        except Exception:
+            logger.debug("Candidate snapshot write failed", exc_info=True)
+
+        return True
+    except Exception:
+        logger.debug("Repair attempt failed", exc_info=True)
+        return False
 
 
 def phase_strategy_gen(
@@ -78,6 +133,14 @@ def phase_strategy_gen(
         iteration=state.iteration,
     )
     state.candidates.append(candidate)
+
+    try:
+        from .artifacts import write_candidate_snapshot
+
+        write_candidate_snapshot(run_dir, candidate)
+    except Exception:
+        logger.debug("Candidate snapshot write failed", exc_info=True)
+
     state.phase = Phase.BACKTEST
     logger.info("Strategy generated: %s (%d bytes)", name, len(code))
 
@@ -86,94 +149,223 @@ def phase_backtest(
     state: MinerState,
     config: MinerConfig,
     run_dir: Path,
+    agent: Optional[StrategyAgent] = None,
 ) -> None:
-    """Validate and backtest the latest candidate strategy."""
+    """Validate and backtest the latest candidate strategy.
+
+    When ``config.repair_attempts`` > 0 and an agent is provided, failures will
+    trigger an agent-guided repair loop that edits the existing strategy file.
+    """
     if not state.candidates:
         logger.warning("No candidates to backtest")
         state.phase = Phase.ANALYSIS
         return
 
     candidate = state.candidates[-1]
+    max_repairs = max(0, int(getattr(config, "repair_attempts", 0) or 0))
 
-    # Static validation
-    passed, msg = validate_strategy_code(candidate.code)
-    candidate.validation_passed = passed
-    if not passed:
-        logger.warning("Strategy validation failed: %s", msg)
-        candidate.diagnosis = f"Validation failed: {msg}"
-        state.phase = Phase.ANALYSIS
-        return
+    for attempt_idx in range(max_repairs + 1):
+        # Always refresh code from disk if possible (repairs may have edited it).
+        try:
+            if candidate.strategy_path.exists():
+                candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
-    logger.info("Phase BACKTEST: running freqtrade backtesting for %s", candidate.name)
+        # Static validation
+        passed, msg = validate_strategy_code(candidate.code)
+        candidate.validation_passed = passed
+        if not passed:
+            failure = f"Validation failed: {msg}"
+            logger.warning("%s", failure)
+            candidate.diagnosis = failure
 
-    sandbox = candidate.strategy_path.parent.parent.parent  # sandbox root
-    strategies_dir = sandbox / "user_data" / "strategies"
+            if agent is not None and attempt_idx < max_repairs:
+                sandbox = candidate.strategy_path.parent.parent.parent
+                ok = _repair_candidate(
+                    agent=agent,
+                    config=config,
+                    run_dir=run_dir,
+                    sandbox=sandbox,
+                    candidate=candidate,
+                    failure=failure,
+                    attempt=attempt_idx + 1,
+                    max_attempts=max_repairs,
+                )
+                if ok:
+                    continue
 
-    # Build backtest command
-    ft_config = paths.resolve_repo_path(config.freqtrade_config)
-    results_dir = sandbox / "user_data" / "backtest_results"
-    results_dir.mkdir(parents=True, exist_ok=True)
+            state.phase = Phase.ANALYSIS
+            return
 
-    cmd = [
-        sys.executable, "-m", "freqtrade",
-        "backtesting",
-        "--config", str(ft_config),
-        "--strategy", candidate.name,
-        "--strategy-path", str(strategies_dir),
-        "--timerange", config.timerange,
-        "--userdir", str(sandbox / "user_data"),
-    ]
+        logger.info(
+            "Phase BACKTEST: running freqtrade backtesting for %s (attempt %d/%d)",
+            candidate.name,
+            attempt_idx,
+            max_repairs,
+        )
 
-    # Try wrapper script first
-    wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
-    if wrapper.exists():
+        sandbox = candidate.strategy_path.parent.parent.parent  # sandbox root
+        strategies_dir = sandbox / "user_data" / "strategies"
+
+        # Build backtest command
+        ft_config = paths.resolve_repo_path(config.freqtrade_config)
+        results_dir = sandbox / "user_data" / "backtest_results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+
         cmd = [
-            sys.executable, str(wrapper),
+            sys.executable,
+            "-m",
+            "freqtrade",
             "backtesting",
-            "--config", str(ft_config),
-            "--strategy", candidate.name,
-            "--strategy-path", str(strategies_dir),
-            "--timerange", config.timerange,
-            "--userdir", str(sandbox / "user_data"),
+            "--config",
+            str(ft_config),
+            "--strategy",
+            candidate.name,
+            "--strategy-path",
+            str(strategies_dir),
+            "--timerange",
+            config.timerange,
+            "--userdir",
+            str(sandbox / "user_data"),
         ]
 
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(paths.REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=config.backtest_timeout,
-            check=False,
-        )
-        if proc.returncode != 0:
-            stderr_tail = (proc.stderr or "")[-500:]
-            logger.warning("Backtest failed (rc=%d): %s", proc.returncode, stderr_tail)
-            candidate.diagnosis = f"Backtest failed (rc={proc.returncode}): {stderr_tail}"
-            state.phase = Phase.ANALYSIS
-            return
-    except subprocess.TimeoutExpired:
-        logger.warning("Backtest timed out after %ds", config.backtest_timeout)
-        candidate.diagnosis = f"Backtest timed out after {config.backtest_timeout}s"
-        state.phase = Phase.ANALYSIS
-        return
+        # Try wrapper script first
+        wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
+        if wrapper.exists():
+            cmd = [
+                sys.executable,
+                str(wrapper),
+                "backtesting",
+                "--config",
+                str(ft_config),
+                "--strategy",
+                candidate.name,
+                "--strategy-path",
+                str(strategies_dir),
+                "--timerange",
+                config.timerange,
+                "--userdir",
+                str(sandbox / "user_data"),
+            ]
 
-    # Parse results
-    try:
-        zip_path = find_latest_backtest_zip(results_dir)
-        if zip_path is None:
-            candidate.diagnosis = "No backtest result zip found"
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(paths.REPO_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=config.backtest_timeout,
+                check=False,
+            )
+            if proc.returncode != 0:
+                stderr_tail = (proc.stderr or "")[-500:]
+                failure = f"Backtest failed (rc={proc.returncode}): {stderr_tail}"
+                logger.warning("%s", failure)
+                candidate.diagnosis = failure
+
+                if agent is not None and attempt_idx < max_repairs:
+                    ok = _repair_candidate(
+                        agent=agent,
+                        config=config,
+                        run_dir=run_dir,
+                        sandbox=sandbox,
+                        candidate=candidate,
+                        failure=failure,
+                        attempt=attempt_idx + 1,
+                        max_attempts=max_repairs,
+                    )
+                    if ok:
+                        continue
+
+                state.phase = Phase.ANALYSIS
+                return
+        except subprocess.TimeoutExpired:
+            failure = f"Backtest timed out after {config.backtest_timeout}s"
+            logger.warning("%s", failure)
+            candidate.diagnosis = failure
+
+            if agent is not None and attempt_idx < max_repairs:
+                ok = _repair_candidate(
+                    agent=agent,
+                    config=config,
+                    run_dir=run_dir,
+                    sandbox=sandbox,
+                    candidate=candidate,
+                    failure=failure,
+                    attempt=attempt_idx + 1,
+                    max_attempts=max_repairs,
+                )
+                if ok:
+                    continue
+
             state.phase = Phase.ANALYSIS
             return
-        summary = build_backtest_summary(zip_path)
-        candidate.backtest_summary = summary
-        state.phase = Phase.EVALUATION
-        logger.info("Backtest completed: profit=%.2f%% trades=%s",
-                     summary.get("profit_total_pct", 0), summary.get("trades"))
-    except Exception as e:
-        logger.warning("Failed to parse backtest results: %s", e)
-        candidate.diagnosis = f"Backtest result parsing failed: {e}"
-        state.phase = Phase.ANALYSIS
+
+        # Parse results
+        try:
+            zip_path = find_latest_backtest_zip(results_dir)
+            if zip_path is None:
+                failure = "No backtest result zip found"
+                candidate.diagnosis = failure
+
+                if agent is not None and attempt_idx < max_repairs:
+                    ok = _repair_candidate(
+                        agent=agent,
+                        config=config,
+                        run_dir=run_dir,
+                        sandbox=sandbox,
+                        candidate=candidate,
+                        failure=failure,
+                        attempt=attempt_idx + 1,
+                        max_attempts=max_repairs,
+                    )
+                    if ok:
+                        continue
+
+                state.phase = Phase.ANALYSIS
+                return
+
+            summary = build_backtest_summary(zip_path)
+            candidate.backtest_summary = summary
+            state.phase = Phase.EVALUATION
+
+            try:
+                from .artifacts import write_backtest_summary
+
+                write_backtest_summary(run_dir, candidate, zip_path=zip_path)
+            except Exception:
+                logger.debug("Backtest summary artifact write failed", exc_info=True)
+
+            logger.info(
+                "Backtest completed: profit=%.2f%% trades=%s",
+                summary.get("profit_total_pct", 0),
+                summary.get("trades"),
+            )
+            return
+        except Exception as e:
+            failure = f"Backtest result parsing failed: {e}"
+            logger.warning("%s", failure)
+            candidate.diagnosis = failure
+
+            if agent is not None and attempt_idx < max_repairs:
+                ok = _repair_candidate(
+                    agent=agent,
+                    config=config,
+                    run_dir=run_dir,
+                    sandbox=sandbox,
+                    candidate=candidate,
+                    failure=failure,
+                    attempt=attempt_idx + 1,
+                    max_attempts=max_repairs,
+                )
+                if ok:
+                    continue
+
+            state.phase = Phase.ANALYSIS
+            return
+
+    state.phase = Phase.ANALYSIS
 
 
 def phase_evaluation(
@@ -220,7 +412,9 @@ def phase_evaluation(
 
     logger.info(
         "Phase EVALUATION: reward=%.4f (best=%.4f) components=%s",
-        reward, state.best_reward, components,
+        reward,
+        state.best_reward,
+        components,
     )
 
     if reward > state.best_reward:
@@ -229,18 +423,28 @@ def phase_evaluation(
         logger.info("New best candidate: %s with reward=%.4f", candidate.name, reward)
 
     # Store in history
-    state.history.append({
-        "iteration": state.iteration,
-        "name": candidate.name,
-        "reward": reward,
-        "components": components,
-        "profit_pct": candidate.backtest_summary.get("profit_total_pct"),
-        "trades": candidate.backtest_summary.get("trades"),
-        "winrate": candidate.backtest_summary.get("winrate"),
-        "max_drawdown": candidate.backtest_summary.get("max_drawdown_abs"),
-        "factor_scores": factor_scores,
-        "diagnosis": "",
-    })
+    state.history.append(
+        {
+            "iteration": state.iteration,
+            "name": candidate.name,
+            "reward": reward,
+            "components": components,
+            "profit_pct": candidate.backtest_summary.get("profit_total_pct"),
+            "trades": candidate.backtest_summary.get("trades"),
+            "winrate": candidate.backtest_summary.get("winrate"),
+            "max_drawdown": candidate.backtest_summary.get("max_drawdown_abs"),
+            "factor_scores": factor_scores,
+            "diagnosis": "",
+        }
+    )
+
+    if run_dir is not None:
+        try:
+            from .artifacts import write_leaderboard
+
+            write_leaderboard(run_dir, state, config=config)
+        except Exception:
+            logger.debug("Leaderboard write failed", exc_info=True)
 
     state.phase = Phase.ANALYSIS
 
@@ -259,11 +463,7 @@ def phase_analysis(
     candidate = state.candidates[-1]
 
     # If we have backtest results and an agent, do LLM analysis
-    if (
-        candidate.backtest_summary is not None
-        and candidate.reward is not None
-        and agent is not None
-    ):
+    if candidate.backtest_summary is not None and candidate.reward is not None and agent is not None:
         last_history = state.history[-1] if state.history else {}
         components = last_history.get("components", {})
 
@@ -346,5 +546,18 @@ def phase_evolve(
         validation_passed=True,
     )
     state.candidates.append(candidate)
-    logger.info("Evolved candidate: %s (%d bytes, ops=%s)", evolved_name, len(evolved_code), ops)
+
+    try:
+        from .artifacts import write_candidate_snapshot
+
+        write_candidate_snapshot(run_dir, candidate)
+    except Exception:
+        logger.debug("Candidate snapshot write failed", exc_info=True)
+
+    logger.info(
+        "Evolved candidate: %s (%d bytes, ops=%s)",
+        evolved_name,
+        len(evolved_code),
+        ops,
+    )
     return candidate

@@ -27,11 +27,7 @@ def build_strategy_gen_prompt(
                 f"trades={h.get('trades', 'N/A')}, "
                 f"diagnosis: {h.get('diagnosis', 'N/A')}"
             )
-        history_section = (
-            "\n## Previous Iterations (most recent 5)\n"
-            + "\n".join(lines)
-            + "\n"
-        )
+        history_section = "\n## Previous Iterations (most recent 5)\n" + "\n".join(lines) + "\n"
 
     best_section = ""
     if best_strategy_code and best_reward > float("-inf"):
@@ -52,11 +48,7 @@ def build_strategy_gen_prompt(
         kb_section += "\n## Elite Strategy Archive (top performers)\n" + "\n".join(elite_lines) + "\n"
 
     if failure_summary and failure_summary != "No recorded failures.":
-        kb_section += (
-            "\n## Known Failure Patterns (avoid these)\n"
-            + failure_summary
-            + "\n"
-        )
+        kb_section += "\n## Known Failure Patterns (avoid these)\n" + failure_summary + "\n"
 
     return f"""You are a quantitative trading strategy developer. Your goal is to create a FreqTrade strategy that maximizes risk-adjusted returns.
 
@@ -70,6 +62,14 @@ Create a complete FreqTrade IStrategy class in Python. The strategy file must be
 3. Use standard TA indicators (talib, pandas_ta, or manual calculation)
 4. Set reasonable `minimal_roi`, `stoploss`, `timeframe` parameters
 5. Do NOT import os, subprocess, socket, requests, or use exec/eval/open
+
+## Tooling (optional)
+You MAY use tool-call tags (OpenCode-style):
+- <read filePath=\"user_data/strategies/Foo.py\"/>
+- <write filePath=\"user_data/strategies/Foo.py\">...python code...</write>
+- <edit filePath=\"user_data/strategies/Foo.py\" oldString=\"...\" newString=\"...\"/>
+- <bash command=\"ls -la\"/>
+Use tools only when needed; otherwise reply with a Python code block.
 
 ## Reference
 - A reference strategy is at: {sandbox_path}/user_data/strategies/ExpressionLongStrategy_reference.py
@@ -95,9 +95,7 @@ def build_analysis_prompt(
     reward: float,
     reward_components: Dict[str, float],
 ) -> str:
-    components_str = "\n".join(
-        f"  - {k}: {v:.4f}" for k, v in reward_components.items()
-    )
+    components_str = "\n".join(f"  - {k}: {v:.4f}" for k, v in reward_components.items())
 
     return f"""You are analyzing a FreqTrade trading strategy's backtest results.
 
@@ -128,4 +126,63 @@ Provide a concise diagnosis (max 200 words):
    - Focus on the lowest-scoring components above
 
 Respond with ONLY the diagnosis text, no code.
+"""
+
+
+def build_repair_prompt(
+    *,
+    sandbox_path: str,
+    strategy_rel_path: str,
+    freqtrade_config: str,
+    timerange: str,
+    failure: str,
+    attempt: int,
+    max_attempts: int,
+    tool_allowlist: Optional[List[str]] = None,
+    bash_allow: bool = True,
+    bash_timeout: int = 60,
+    bash_allowlist: Optional[List[str]] = None,
+) -> str:
+    tools_s = ", ".join(tool_allowlist or []) or "(default)"
+    bash_list_s = "\n".join(f"  - {x}" for x in (bash_allowlist or [])[:20])
+    if not bash_list_s:
+        bash_list_s = "  - (none)"
+
+    return f"""You are a senior Freqtrade strategy engineer.
+
+## Goal
+Repair the existing strategy to pass static validation and run backtesting successfully.
+
+## Context
+- Sandbox root: {sandbox_path}
+- Strategy file to edit: {sandbox_path}/{strategy_rel_path}
+- FreqTrade config: {freqtrade_config}
+- Timerange: {timerange}
+- Repair attempt: {attempt}/{max_attempts}
+
+## Failure
+{failure}
+
+## Tool policy
+- Allowed tools: {tools_s}
+- Bash enabled: {bash_allow} (timeout={bash_timeout}s)
+- Bash allowlist (prefix match):
+{bash_list_s}
+
+## Requirements (must keep)
+1. The class MUST inherit from `freqtrade.strategy.IStrategy`
+2. MUST implement: `populate_indicators()`, `populate_entry_trend()`, `populate_exit_trend()`
+3. Do NOT import os, subprocess, socket, requests, urllib, or use exec/eval/open
+
+## How to work
+1. Start by reading the current file:
+   <read filePath=\"{strategy_rel_path}\"/>
+2. Apply minimal edits to fix issues:
+   <edit filePath=\"{strategy_rel_path}\" oldString=\"...\" newString=\"...\"/>
+   or rewrite the full file:
+   <write filePath=\"{strategy_rel_path}\">...python code...</write>
+3. (Optional) Run quick checks:
+   <bash command=\"python3 -m py_compile {strategy_rel_path}\"/>
+
+Make the changes now.
 """

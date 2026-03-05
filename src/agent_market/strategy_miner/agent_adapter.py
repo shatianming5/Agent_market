@@ -126,6 +126,7 @@ class StrategyAgent:
         stale_timeout: float = 180.0,
         max_retries: int = 2,
         provider: str = "auto",
+        tool_policy: Any | None = None,
     ) -> None:
         self._workspace = Path(workspace)
         self._provider = (provider or "auto").strip().lower()
@@ -145,6 +146,7 @@ class StrategyAgent:
                     max_turns=max_turns,
                     stale_timeout=stale_timeout,
                     max_retries=max_retries,
+                    tool_policy=tool_policy,
                     permission_overrides={"external_directory": {"*": "allow"}},
                 )
                 self._executor_info = {"provider": "opencode"}
@@ -245,12 +247,19 @@ class StrategyAgent:
         """Generate a strategy and ensure a .py file is created in the sandbox."""
         if self._closed:
             raise RuntimeError("StrategyAgent is already closed")
-        text = self.run(prompt, on_turn=on_turn)
-
         strategies_dir = self._workspace / "user_data" / "strategies"
         strategies_dir.mkdir(parents=True, exist_ok=True)
 
-        # If tool-capable provider wrote files already, prefer newest.
+        before_mtime = {
+            p: p.stat().st_mtime
+            for p in strategies_dir.glob("*.py")
+            if p.is_file()
+            and not p.name.startswith("_")
+            and "reference" not in p.name.lower()
+        }
+
+        text = self.run(prompt, on_turn=on_turn)
+
         candidates = sorted(
             [
                 p
@@ -261,17 +270,35 @@ class StrategyAgent:
             ],
             key=lambda p: p.stat().st_mtime,
         )
-        if candidates:
+
+        changed = False
+        for p in candidates:
+            try:
+                mt = p.stat().st_mtime
+            except Exception:
+                continue
+            if p not in before_mtime or before_mtime.get(p) != mt:
+                changed = True
+                break
+
+        # If tool-capable provider wrote files, prefer newest.
+        if candidates and changed:
             return candidates[-1]
 
         code = _extract_code_block(text)
-        if not code:
-            code = _TEMPLATE_STRATEGY
+        if code:
+            class_name = _infer_strategy_class_name(code) or "MinedStrategy"
+            file_name = filename_hint or f"{class_name}.py"
+            out_path = strategies_dir / file_name
+            out_path.write_text(code, encoding="utf-8")
+            return out_path
 
-        class_name = _infer_strategy_class_name(code) or "MinedStrategy"
-        file_name = filename_hint or f"{class_name}.py"
-        out_path = strategies_dir / file_name
-        out_path.write_text(code, encoding="utf-8")
+        # If no code was provided, fall back to whatever is present.
+        if candidates:
+            return candidates[-1]
+
+        out_path = strategies_dir / (filename_hint or "MinedStrategy.py")
+        out_path.write_text(_TEMPLATE_STRATEGY, encoding="utf-8")
         return out_path
 
     def close(self) -> None:

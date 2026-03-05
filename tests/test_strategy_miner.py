@@ -22,6 +22,49 @@ def test_miner_config_from_dict():
     assert cfg.max_turns == 30  # default
 
 
+def test_miner_config_nested_sections():
+    from agent_market.strategy_miner.dtypes import MinerConfig
+
+    cfg = MinerConfig.from_dict(
+        {
+            "budget": {
+                "provider": "opencode",
+                "max_iterations": 3,
+                "max_turns": 9,
+                "max_retries": 4,
+                "repair_attempts": 2,
+            },
+            "tools": {
+                "tool_allowlist": ["file"],
+                "bash_allow": False,
+                "bash_timeout": 12,
+                "bash_allowlist": ["echo ", "python3 "],
+            },
+            "evaluation": {
+                "min_trades": 25,
+                "max_abs_drawdown": 12.5,
+                "min_winrate": 0.55,
+            },
+        }
+    )
+
+    assert cfg.provider == "opencode"
+    assert cfg.max_iterations == 3
+    assert cfg.max_turns == 9
+    assert cfg.max_retries == 4
+    assert cfg.repair_attempts == 2
+
+    assert cfg.tool_allowlist == ["file"]
+    assert cfg.bash_allow is False
+    assert cfg.bash_timeout == 12
+    assert cfg.bash_allowlist == ["echo ", "python3 "]
+
+    assert cfg.min_trades == 25
+    assert cfg.max_abs_drawdown == 12.5
+    assert cfg.min_winrate == 0.55
+
+
+
 def test_miner_config_max_retries_default():
     from agent_market.strategy_miner.dtypes import MinerConfig
 

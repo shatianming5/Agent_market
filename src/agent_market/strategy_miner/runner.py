@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def miner_run_dir(run_id: str) -> Path:
     """Standardized miner output directory.
 
-    Layout: ``artifacts/runs/<run_id>/strategy_miner``
+    Layout: ``runs/<run_id>/strategy_miner`` (runs root is configurable).
     """
     return paths.run_dir(str(run_id)) / "strategy_miner"
 
@@ -121,14 +121,60 @@ def run_strategy_miner(
     miner_dir = miner_run_dir(state.run_id)
     miner_dir.mkdir(parents=True, exist_ok=True)
 
+    # Persist a stable proposal artifact for API/audit.
+    from .artifacts import write_proposal
+
+    write_proposal(miner_dir, run_id=state.run_id, config=config, overwrite=False)
+
     kb = KnowledgeBase(miner_dir / "knowledge_base.json")
 
-    # Create agent workspace (sandbox parent)
-    workspace = miner_dir / f"iter_{state.iteration}" / "sandbox"
-    workspace.mkdir(parents=True, exist_ok=True)
-
     agent: Optional[StrategyAgent] = None
-    try:
+    agent_workspace: Optional[Path] = None
+
+    def _build_tool_policy(workspace: Path):
+        from runner_fsm.opencode.tool_executor import ToolPolicy  # noqa: WPS433
+
+        allowed = (
+            frozenset(
+                str(x).strip().lower()
+                for x in (config.tool_allowlist or [])
+                if str(x).strip()
+            )
+            if (config.tool_allowlist is not None)
+            else None
+        )
+        return ToolPolicy(
+            repo=workspace.resolve(),
+            unattended="strict",
+            allowed_tool_kinds=allowed,
+            bash_allow=bool(config.bash_allow),
+            bash_allowlist=tuple(
+                str(x) for x in (config.bash_allowlist or []) if str(x).strip()
+            ),
+            bash_timeout_seconds=int(config.bash_timeout or 60),
+        )
+
+    def _ensure_agent() -> StrategyAgent:
+        nonlocal agent
+        nonlocal agent_workspace
+
+        workspace = miner_dir / f"iter_{state.iteration}" / "sandbox"
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        if agent is not None and agent_workspace is not None:
+            try:
+                if agent_workspace.resolve() == workspace.resolve():
+                    return agent
+            except Exception:
+                pass
+
+        if agent is not None:
+            try:
+                agent.close()
+            except Exception:
+                pass
+
+        tool_policy = _build_tool_policy(workspace)
         agent = StrategyAgent(
             workspace=workspace,
             model=config.model,
@@ -136,8 +182,13 @@ def run_strategy_miner(
             max_turns=config.max_turns,
             stale_timeout=config.stale_timeout,
             max_retries=config.max_retries,
+            provider=config.provider,
+            tool_policy=tool_policy,
         )
+        agent_workspace = workspace
+        return agent
 
+    try:
         while state.phase != Phase.COMPLETE:
             logger.info(
                 "=== Iteration %d | Phase %s ===",
@@ -146,19 +197,20 @@ def run_strategy_miner(
             )
 
             if state.phase == Phase.STRATEGY_GEN:
-                workspace = miner_dir / f"iter_{state.iteration}" / "sandbox"
-                workspace.mkdir(parents=True, exist_ok=True)
-                phase_strategy_gen(state, config, miner_dir, agent, kb=kb)
+                agent_i = _ensure_agent()
+                phase_strategy_gen(state, config, miner_dir, agent_i, kb=kb)
 
             elif state.phase == Phase.BACKTEST:
-                phase_backtest(state, config, miner_dir)
+                agent_i = _ensure_agent()
+                phase_backtest(state, config, miner_dir, agent=agent_i)
 
             elif state.phase == Phase.EVALUATION:
                 phase_evaluation(state, config, run_dir=miner_dir)
                 _update_knowledge_base(kb, state)
 
             elif state.phase == Phase.ANALYSIS:
-                phase_analysis(state, config, miner_dir, agent)
+                agent_i = _ensure_agent()
+                phase_analysis(state, config, miner_dir, agent_i)
                 _update_knowledge_base(kb, state)
                 # After analysis, decide: evolve or next iteration
                 if state.phase == Phase.STRATEGY_GEN and _should_evolve(config, state):
@@ -175,15 +227,11 @@ def run_strategy_miner(
                 if evolved is not None:
                     # Evolved candidate ready → go to backtest
                     state.phase = Phase.BACKTEST
-                    logger.info(
-                        "Evolve succeeded, proceeding to backtest evolved candidate"
-                    )
+                    logger.info("Evolve succeeded, proceeding to backtest evolved candidate")
                 else:
                     # Evolve failed → proceed to normal strategy gen
                     state.phase = Phase.STRATEGY_GEN
-                    logger.info(
-                        "Evolve produced nothing, falling back to strategy gen"
-                    )
+                    logger.info("Evolve produced nothing, falling back to strategy gen")
 
             _save_checkpoint(state, miner_dir)
 
