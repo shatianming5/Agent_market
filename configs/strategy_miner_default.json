@@ -1,0 +1,22 @@
+{
+  "model": "",
+  "max_iterations": 5,
+  "max_turns": 30,
+  "max_retries": 2,
+  "freqtrade_config": "user_data/config_freqai.json",
+  "timerange": "20250101-20260101",
+  "backtest_timeout": 300,
+  "stale_timeout": 180.0,
+  "evolve_enabled": true,
+  "evolve_every_n": 2,
+  "mutation_intensity": 0.3,
+  "crossover_prob": 0.3,
+  "reward_weights": {
+    "sharpe": 0.30,
+    "profit_pct": 0.20,
+    "max_drawdown": 0.15,
+    "winrate": 0.10,
+    "trade_count": 0.05,
+    "stability": 0.10
+  }
+}
