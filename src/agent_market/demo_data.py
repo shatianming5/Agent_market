@@ -92,6 +92,10 @@ def ensure_demo_ohlcv_feather(
     if len(dates) < int(min_rows):
         return []
 
+    required_start = pd.Timestamp(start_dt, tz="UTC")
+    required_end = pd.Timestamp(end_exclusive, tz="UTC")
+    required_last = required_end - pd.tseries.frequencies.to_offset(freq)
+
     created: list[Path] = []
     for pair in pairs:
         if not isinstance(pair, str) or "/" not in pair:
@@ -99,7 +103,18 @@ def ensure_demo_ohlcv_feather(
         sanitized = pair.replace("/", "_")
         out_path = ex_dir / f"{sanitized}-{timeframe}.feather"
         if out_path.exists():
-            continue
+            try:
+                existing = pd.read_feather(out_path, columns=["date"])
+                if "date" in existing.columns and not existing.empty:
+                    s = pd.to_datetime(existing["date"], utc=True, errors="coerce")
+                    if s.notna().any() and s.min() <= required_start and s.max() >= required_last:
+                        continue
+            except Exception:
+                pass
+            try:
+                out_path.unlink()
+            except Exception:
+                pass
 
         base_price = 100.0
         if pair.startswith("BTC/"):

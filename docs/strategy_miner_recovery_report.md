@@ -34,7 +34,7 @@
 2. **本地 auto-fix 兜底**：遇到 `SyntaxError` / 常见结构错误时先本地轻修（去工具标记、补 import、补 pass、修继承），再走 LLM repair。
 
 ### P1（稳定产出非 -inf leaderboard）
-3. **provider 重试与降级链**：`opencode` 失败或产出不可用时，自动 fallback 到 `openai-compatible (glm-4-flash)`，再到 deterministic template strategy。
+3. **provider 重试与降级链**：`opencode` 失败或产出不可用时，自动 fallback 到 `openai-compatible (glm-4-flash)`；不再有 template 兜底（no-template enforced）。
 4. **多候选并行**：每迭代至少生成 3 个候选（可配置），并各自独立验证/回测；避免单点失败导致整轮无有效产出。
 5. **回测失败可诊断可恢复**：将失败分为依赖缺失/参数错误/策略路径错误等，并在 diagnosis 中给出明确可执行建议（必要时驱动 repair prompt 更精准）。
 

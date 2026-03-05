@@ -20,10 +20,20 @@ class Phase(Enum):
 @dataclass
 class MinerConfig:
     # Agent provider
-    provider: str = "auto"  # auto|opencode|openai_compatible|template
+    provider: str = "auto"  # auto|opencode|openai_compatible
+
+
+    # Multi-agent (planner/coder/reviewer) generation pipeline
+    multiagent_enabled: bool = True
+    multiagent_refine_rounds: int = 1  # reviewer->coder refinement loops per candidate
+
 
     # Multi-candidate generation
     candidates_per_iteration: int = 1
+
+    # Concurrency controls (0=auto)
+    max_parallel_candidates: int = 0
+    max_parallel_roles: int = 2
 
     # OpenAI-compatible fallback (used when opencode fails)
     openai_fallback_model: str = "glm-4-flash"
@@ -42,7 +52,7 @@ class MinerConfig:
     backtest_timeout: int = 300
 
     # Self-repair / retries
-    repair_attempts: int = 1
+    repair_attempts: int = 3
 
     # Tool policy (OpenCode tool loop)
     tool_allowlist: List[str] = field(default_factory=lambda: ["file", "bash"])
@@ -105,7 +115,11 @@ class MinerConfig:
         if isinstance(budget, dict):
             for k in (
                 "provider",
+                "multiagent_enabled",
+                "multiagent_refine_rounds",
                 "candidates_per_iteration",
+                "max_parallel_candidates",
+                "max_parallel_roles",
                 "openai_fallback_model",
                 "model",
                 "base_url",
@@ -121,7 +135,13 @@ class MinerConfig:
 
         generation = d2.get("generation")
         if isinstance(generation, dict):
-            for k in ("candidates_per_iteration",):
+            for k in (
+                "candidates_per_iteration",
+                "max_parallel_candidates",
+                "max_parallel_roles",
+                "multiagent_enabled",
+                "multiagent_refine_rounds",
+            ):
                 if k in generation and k not in d2:
                     d2[k] = generation[k]
 
@@ -182,10 +202,26 @@ class StrategyCandidate:
     code: str
     strategy_path: Path
     iteration: int = 0
+    candidate_slot: int = 0
+    source_provider: str = ""
+    source_model: Optional[str] = None
+    agent_traces: Dict[str, str] = field(default_factory=dict)
     validation_passed: bool = False
     backtest_summary: Optional[Dict[str, Any]] = None
     reward: Optional[float] = None
     diagnosis: str = ""
+
+    # Provenance (for audit + enforcing no-template mode)
+    generation_provider: str = ""
+    generation_model: Optional[str] = None
+
+    # Multi-agent traces (truncated for checkpoint size)
+    planner_notes: str = ""
+    reviewer_notes: str = ""
+    backtester_notes: str = ""
+
+    # Failure categorization (validation/backtest)
+    failure_category: str = ""
 
     # Risk constraint gating (computed during evaluation)
     constraints_ok: bool = True
@@ -197,10 +233,20 @@ class StrategyCandidate:
             "code": self.code,
             "strategy_path": str(self.strategy_path),
             "iteration": self.iteration,
+            "candidate_slot": int(getattr(self, "candidate_slot", 0) or 0),
+            "source_provider": self.source_provider,
+            "source_model": self.source_model,
+            "agent_traces": dict(self.agent_traces or {}),
             "validation_passed": self.validation_passed,
             "backtest_summary": self.backtest_summary,
             "reward": self.reward,
             "diagnosis": self.diagnosis,
+            "generation_provider": self.generation_provider,
+            "generation_model": self.generation_model,
+            "planner_notes": self.planner_notes,
+            "reviewer_notes": self.reviewer_notes,
+            "backtester_notes": self.backtester_notes,
+            "failure_category": self.failure_category,
             "constraints_ok": self.constraints_ok,
             "constraint_violations": list(self.constraint_violations or []),
         }
@@ -219,10 +265,20 @@ class StrategyCandidate:
                     "code",
                     "strategy_path",
                     "iteration",
+                    "candidate_slot",
+                    "source_provider",
+                    "source_model",
+                    "agent_traces",
                     "validation_passed",
                     "backtest_summary",
                     "reward",
                     "diagnosis",
+                    "generation_provider",
+                    "generation_model",
+                    "planner_notes",
+                    "reviewer_notes",
+                    "backtester_notes",
+                    "failure_category",
                     "constraints_ok",
                     "constraint_violations",
                 }

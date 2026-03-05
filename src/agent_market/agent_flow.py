@@ -317,9 +317,13 @@ class AgentFlow:
         feature_out = None
         if self.config.feature:
             feature_out = _extract_flag_value(self.config.feature.get("args"), "--output")
+            if feature_out:
+                feature_out = _relpath(paths.resolve_repo_path(feature_out))
         expr_out = None
         if self.config.expression:
             expr_out = _extract_flag_value(self.config.expression.get("args"), "--output")
+            if expr_out:
+                expr_out = _relpath(paths.resolve_repo_path(expr_out))
         arts.feature_output = feature_out
         arts.expression_output = expr_out
 

@@ -11,7 +11,7 @@
 - 新增能力（本次改造）：
   - 策略挖掘模块：`src/agent_market/strategy_miner/`（runner/phases/sandbox/grading/artifacts）
   - OpenCode Client + 工具循环：`src/runner_fsm/opencode/`（file/bash tool-call + policy）
-  - Provider-agnostic Agent Executor：`src/agent_market/agents/executor.py`（opencode → openai_compatible → template）
+  - Provider-agnostic Agent Executor：`src/agent_market/agents/executor.py`（opencode → openai_compatible；no-template）
   - API 路由：`server/api/routes/strategy_miner.py`
 
 ## 2. 分层架构（目标形态 / 当前实现）
@@ -63,7 +63,7 @@
 默认配置：`configs/strategy_miner_default.json`（支持嵌套与旧版扁平字段兼容）。
 
 - `budget.*`
-  - `provider`: `auto|opencode|openai_compatible|template`
+  - `provider`: `auto|opencode|openai_compatible`（`template` 已禁用：no-template enforced）
   - `model`, `base_url`
   - `max_iterations`, `max_turns`, `max_retries`, `stale_timeout`
   - `repair_attempts`

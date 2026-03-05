@@ -13,6 +13,20 @@ from agent_market import paths
 
 logger = logging.getLogger(__name__)
 
+_FREQTRADE_REQUIRED_ORDERTYPES = ("entry", "exit", "stoploss", "stoploss_on_exchange")
+_FREQTRADE_REQUIRED_ORDERTIF = ("entry", "exit")
+
+_DEFAULT_ORDER_TYPES: dict[str, object] = {
+    "entry": "limit",
+    "exit": "limit",
+    "stoploss": "market",
+    "stoploss_on_exchange": False,
+}
+_DEFAULT_ORDER_TIME_IN_FORCE: dict[str, str] = {
+    "entry": "GTC",
+    "exit": "GTC",
+}
+
 _FORBIDDEN_IMPORTS = frozenset(
     {
         "os",
@@ -180,10 +194,30 @@ def auto_fix_strategy_code(code: str) -> tuple[str, list[str]]:
     out = "\n".join(lines).strip() + "\n"
 
     # 4) Avoid NameError from runtime-evaluated annotations (DataFrame, Order, etc.).
-    if "from __future__ import annotations" not in out.splitlines()[:5]:
-        if "DataFrame" in out or "Order" in out or "Trade" in out:
-            out = "from __future__ import annotations\n\n" + out
+    if "DataFrame" in out or "Order" in out or "Trade" in out:
+        future_line = "from __future__ import annotations"
+        lines2 = out.splitlines()
+        future_idxs = [i for i, l in enumerate(lines2) if l.strip() == future_line]
+
+        if not future_idxs:
+            out = future_line + "\n\n" + out.lstrip("\n")
             fixes.append("add_future_annotations")
+        else:
+            # Normalize: ensure the future import is *once* and at the top.
+            prefix: list[str] = []
+            rest = list(lines2)
+            if rest and rest[0].startswith("#!"):
+                prefix.append(rest[0])
+                rest = rest[1:]
+            if rest and re.match(r"^#.*coding[:=]\s*[-\w.]+", rest[0]):
+                prefix.append(rest[0])
+                rest = rest[1:]
+
+            rest_wo_future = [l for l in rest if l.strip() != future_line]
+            out_norm = "\n".join(prefix + [future_line, ""] + rest_wo_future).strip() + "\n"
+            if out_norm != out:
+                out = out_norm
+                fixes.append("normalize_future_annotations")
 
     # 5) Common inheritance mismatch: class Foo(Strategy) -> class Foo(IStrategy)
     if "IStrategy" in out and "class" in out:
@@ -204,6 +238,273 @@ def auto_fix_strategy_file(path: Path) -> tuple[bool, list[str]]:
         return False, ["read_failed"]
 
     fixed, fixes = auto_fix_strategy_code(raw)
+    if not fixes:
+        return False, []
+
+    try:
+        Path(path).write_text(fixed, encoding="utf-8")
+    except Exception:
+        return False, fixes + ["write_failed"]
+
+    return True, fixes
+
+
+def ensure_freqtrade_strategy_compliance_code(
+    code: str,
+    *,
+    timeframe: str = "1h",
+    enforce_can_short_false: bool = True,
+) -> tuple[str, list[str]]:
+    """Ensure generated strategies pass freqtrade sanity checks (best-effort).
+
+    This patches the IStrategy class body to ensure:
+    - timeframe is set (and optionally forced to *timeframe*)
+    - order_types includes required keys
+    - order_time_in_force includes required keys
+    - can_short is False in spot-mode pipelines (optional)
+
+    It does NOT import freqtrade at runtime.
+    """
+    if not isinstance(code, str) or not code.strip():
+        return "", ["non_string_input"]
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code, []
+
+    fixes: list[str] = []
+
+    def _is_istrategy_base(base: ast.expr) -> bool:
+        if isinstance(base, ast.Name):
+            return base.id == "IStrategy"
+        if isinstance(base, ast.Attribute):
+            return base.attr == "IStrategy"
+        return False
+
+    def _targets_name(stmt: ast.stmt, name: str) -> bool:
+        if isinstance(stmt, ast.Assign):
+            return any(isinstance(t, ast.Name) and t.id == name for t in stmt.targets)
+        if isinstance(stmt, ast.AnnAssign):
+            return isinstance(stmt.target, ast.Name) and stmt.target.id == name
+        return False
+
+    def _set_value(stmt: ast.stmt, value: ast.expr) -> bool:
+        if isinstance(stmt, ast.Assign):
+            stmt.value = value
+            return True
+        if isinstance(stmt, ast.AnnAssign):
+            stmt.value = value
+            return True
+        return False
+
+    def _dict_literal_keys(expr: ast.expr) -> set[str] | None:
+        if not isinstance(expr, ast.Dict):
+            return None
+        keys: set[str] = set()
+        for k in expr.keys:
+            if not isinstance(k, ast.Constant) or not isinstance(k.value, str):
+                return None
+            keys.add(k.value)
+        return keys
+
+    def _make_dict(mapping: dict[str, object]) -> ast.Dict:
+        keys = [ast.Constant(k) for k in mapping.keys()]
+        vals: list[ast.expr] = []
+        for v in mapping.values():
+            if isinstance(v, bool):
+                vals.append(ast.Constant(v))
+            elif isinstance(v, (int, float, str)):
+                vals.append(ast.Constant(v))
+            else:
+                vals.append(ast.Constant(str(v)))
+        return ast.Dict(keys=keys, values=vals)
+
+    class _Transformer(ast.NodeTransformer):
+        def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
+            is_target = any(_is_istrategy_base(b) for b in node.bases)
+            if not is_target:
+                return self.generic_visit(node)
+
+            found_timeframe = False
+            found_order_types = False
+            found_order_tif = False
+            found_can_short = False
+
+            for stmt in node.body:
+                if _targets_name(stmt, "timeframe"):
+                    found_timeframe = True
+                    if timeframe:
+                        v = getattr(stmt, "value", None)
+                        if not (isinstance(v, ast.Constant) and v.value == timeframe):
+                            _set_value(stmt, ast.Constant(timeframe))
+                            fixes.append("fix_timeframe")
+                elif _targets_name(stmt, "order_types"):
+                    found_order_types = True
+                    v = getattr(stmt, "value", None)
+                    keys = _dict_literal_keys(v) if isinstance(v, ast.expr) else None
+                    needs_fix = keys is None or not all(
+                        k in keys for k in _FREQTRADE_REQUIRED_ORDERTYPES
+                    )
+                    if not needs_fix and isinstance(v, ast.Dict):
+                        idx_by_key: dict[str, int] = {}
+                        for i, (k_node, _v_node) in enumerate(zip(v.keys, v.values)):
+                            if isinstance(k_node, ast.Constant) and isinstance(k_node.value, str):
+                                idx_by_key[k_node.value] = i
+
+                        allowed = {"limit", "market"}
+                        for k_req in ("entry", "exit", "stoploss"):
+                            i = idx_by_key.get(k_req)
+                            if i is None:
+                                needs_fix = True
+                                break
+                            v_node = v.values[i]
+                            if not (isinstance(v_node, ast.Constant) and isinstance(v_node.value, str)):
+                                needs_fix = True
+                                break
+                            norm = v_node.value.strip().lower()
+                            if norm not in allowed:
+                                needs_fix = True
+                                break
+                            if v_node.value != norm:
+                                v.values[i] = ast.Constant(norm)
+                                fixes.append("normalize_order_types_values")
+
+                        if not needs_fix:
+                            i = idx_by_key.get("stoploss_on_exchange")
+                            if i is None:
+                                needs_fix = True
+                            else:
+                                v_node = v.values[i]
+                                if not (
+                                    isinstance(v_node, ast.Constant)
+                                    and isinstance(v_node.value, bool)
+                                ):
+                                    v.values[i] = ast.Constant(False)
+                                    fixes.append("normalize_order_types_values")
+
+                    if needs_fix:
+                        _set_value(stmt, _make_dict(_DEFAULT_ORDER_TYPES))
+                        fixes.append("fix_order_types")
+                elif _targets_name(stmt, "order_time_in_force"):
+                    found_order_tif = True
+                    v = getattr(stmt, "value", None)
+                    keys = _dict_literal_keys(v) if isinstance(v, ast.expr) else None
+                    needs_fix = keys is None or not all(k in keys for k in _FREQTRADE_REQUIRED_ORDERTIF)
+                    if not needs_fix and isinstance(v, ast.Dict):
+                        idx_by_key: dict[str, int] = {}
+                        for i, (k_node, _v_node) in enumerate(zip(v.keys, v.values)):
+                            if isinstance(k_node, ast.Constant) and isinstance(k_node.value, str):
+                                idx_by_key[k_node.value] = i
+
+                        for k_req in ("entry", "exit"):
+                            i = idx_by_key.get(k_req)
+                            if i is None:
+                                needs_fix = True
+                                break
+                            v_node = v.values[i]
+                            if not (isinstance(v_node, ast.Constant) and isinstance(v_node.value, str)):
+                                needs_fix = True
+                                break
+                            norm = v_node.value.strip().upper()
+                            if not norm:
+                                needs_fix = True
+                                break
+                            if v_node.value != norm:
+                                v.values[i] = ast.Constant(norm)
+                                fixes.append("normalize_order_tif_values")
+
+                    if needs_fix:
+                        _set_value(stmt, _make_dict(_DEFAULT_ORDER_TIME_IN_FORCE))
+                        fixes.append("fix_order_time_in_force")
+                elif _targets_name(stmt, "can_short"):
+                    found_can_short = True
+                    if enforce_can_short_false:
+                        v = getattr(stmt, "value", None)
+                        if not (isinstance(v, ast.Constant) and v.value is False):
+                            _set_value(stmt, ast.Constant(False))
+                            fixes.append("fix_can_short_false")
+
+            insert_at = 0
+            if node.body and isinstance(node.body[0], ast.Expr):
+                v0 = getattr(node.body[0], "value", None)
+                if isinstance(v0, ast.Constant) and isinstance(v0.value, str):
+                    insert_at = 1
+
+            if not found_can_short and enforce_can_short_false:
+                node.body.insert(
+                    insert_at,
+                    ast.Assign(
+                        targets=[ast.Name(id="can_short", ctx=ast.Store())],
+                        value=ast.Constant(False),
+                    ),
+                )
+                insert_at += 1
+                fixes.append("add_can_short_false")
+
+            if not found_timeframe and timeframe:
+                node.body.insert(
+                    insert_at,
+                    ast.Assign(
+                        targets=[ast.Name(id="timeframe", ctx=ast.Store())],
+                        value=ast.Constant(timeframe),
+                    ),
+                )
+                insert_at += 1
+                fixes.append("add_timeframe")
+
+            if not found_order_types:
+                node.body.insert(
+                    insert_at,
+                    ast.Assign(
+                        targets=[ast.Name(id="order_types", ctx=ast.Store())],
+                        value=_make_dict(_DEFAULT_ORDER_TYPES),
+                    ),
+                )
+                insert_at += 1
+                fixes.append("add_order_types")
+
+            if not found_order_tif:
+                node.body.insert(
+                    insert_at,
+                    ast.Assign(
+                        targets=[ast.Name(id="order_time_in_force", ctx=ast.Store())],
+                        value=_make_dict(_DEFAULT_ORDER_TIME_IN_FORCE),
+                    ),
+                )
+                fixes.append("add_order_time_in_force")
+
+            return self.generic_visit(node)
+
+    _Transformer().visit(tree)
+    if not fixes:
+        return code, []
+
+    try:
+        ast.fix_missing_locations(tree)
+        out = ast.unparse(tree).strip() + "\n"
+        return out, fixes
+    except Exception:
+        return code, []
+
+
+def ensure_freqtrade_strategy_compliance_file(
+    path: Path,
+    *,
+    timeframe: str = "1h",
+    enforce_can_short_false: bool = True,
+) -> tuple[bool, list[str]]:
+    """Apply `ensure_freqtrade_strategy_compliance_code` to an on-disk strategy file."""
+    try:
+        raw = Path(path).read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False, ["read_failed"]
+
+    fixed, fixes = ensure_freqtrade_strategy_compliance_code(
+        raw,
+        timeframe=timeframe,
+        enforce_can_short_false=enforce_can_short_false,
+    )
     if not fixes:
         return False, []
 

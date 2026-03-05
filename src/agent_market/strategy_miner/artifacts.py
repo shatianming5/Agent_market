@@ -58,6 +58,33 @@ def backtests_dir(miner_dir: Path) -> Path:
     return miner_dir / "backtests"
 
 
+def traces_dir(miner_dir: Path) -> Path:
+    return miner_dir / "agent_traces"
+
+
+def write_agent_trace(
+    miner_dir: Path,
+    *,
+    iteration: int,
+    candidate_idx: int,
+    role: str,
+    payload: Any,
+) -> Path:
+    """Write an agent trace JSON under agent_traces/iter_xxxx/cand_xx/."""
+    safe_role = "".join(ch if (ch.isalnum() or ch in "-_@.") else "_" for ch in (role or "role"))
+    out_dir = traces_dir(miner_dir) / f"iter_{int(iteration):04d}" / f"cand_{int(candidate_idx):02d}"
+    out = out_dir / f"{safe_role}.json"
+    wrapped = {
+        "saved_at": _iso_now(),
+        "iteration": int(iteration),
+        "candidate_idx": int(candidate_idx),
+        "role": str(role),
+        "payload": payload,
+    }
+    _atomic_write_json(out, wrapped)
+    return out
+
+
 def write_proposal(
     miner_dir: Path,
     *,
@@ -142,6 +169,10 @@ def write_leaderboard(
     all_items: list[dict[str, Any]] = []
     for c in state.candidates:
         if c.reward is None:
+            continue
+        # Force no-template: never show template-sourced candidates.
+        src_provider = str(getattr(c, 'source_provider', '') or getattr(c, 'agent_provider', '') or '').strip().lower()
+        if src_provider == 'template' or c.name == 'TemplateRsiStrategy' or 'TemplateRsiStrategy' in (c.code or ''):
             continue
         summary = c.backtest_summary or {}
         all_items.append(

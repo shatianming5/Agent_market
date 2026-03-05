@@ -574,25 +574,39 @@ def test_agent_adapter_default_max_retries():
 
 def test_agent_adapter_close_is_idempotent():
     """Calling close() multiple times should not raise."""
-    from agent_market.strategy_miner.agent_adapter import StrategyAgent
+    from unittest.mock import MagicMock, patch
 
-    agent = StrategyAgent(workspace=Path("/tmp/ws"), provider="template")
-    agent.close()
-    agent.close()  # should not raise
+    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeExecutor") as MockExec:
+        mock_instance = MagicMock()
+        mock_instance.close.return_value = None
+        MockExec.return_value = mock_instance
+
+        from agent_market.strategy_miner.agent_adapter import StrategyAgent
+
+        agent = StrategyAgent(workspace=Path("/tmp/ws"), provider="opencode", model="test-model")
+        agent.close()
+        agent.close()  # should not raise
 
 
 def test_agent_adapter_run_after_close_raises():
     """Calling run() after close() should raise RuntimeError."""
-    from agent_market.strategy_miner.agent_adapter import StrategyAgent
+    from unittest.mock import MagicMock, patch
 
-    agent = StrategyAgent(workspace=Path("/tmp/ws"), provider="template")
-    agent.close()
-    with pytest.raises(RuntimeError, match="already closed"):
-        agent.run("test prompt")
+    with patch("agent_market.strategy_miner.agent_adapter.OpenCodeExecutor") as MockExec:
+        mock_instance = MagicMock()
+        mock_instance.close.return_value = None
+        MockExec.return_value = mock_instance
+
+        from agent_market.strategy_miner.agent_adapter import StrategyAgent
+
+        agent = StrategyAgent(workspace=Path("/tmp/ws"), provider="opencode", model="test-model")
+        agent.close()
+        with pytest.raises(RuntimeError, match="already closed"):
+            agent.run("test prompt")
 
 
-def test_agent_adapter_no_model_falls_back_to_template():
-    """StrategyAgent without any provider config should gracefully fall back."""
+def test_agent_adapter_no_model_errors_in_no_template_mode():
+    """Without a configured model/credentials, StrategyAgent should error (no-template enforced)."""
     import os
     from unittest.mock import patch
 
@@ -600,10 +614,8 @@ def test_agent_adapter_no_model_falls_back_to_template():
 
     with patch.dict(os.environ, {}, clear=True):
         with tempfile.TemporaryDirectory() as td:
-            agent = StrategyAgent(workspace=Path(td))
-            out = agent.generate_strategy("dummy prompt")
-            assert out is not None
-            assert out.exists()
+            with pytest.raises(ValueError, match="No usable LLM provider"):
+                StrategyAgent(workspace=Path(td))
 
 
 def test_agent_adapter_opencode_without_model_raises():

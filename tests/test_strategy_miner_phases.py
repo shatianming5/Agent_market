@@ -68,7 +68,7 @@ def test_phase_strategy_gen_writes_file():
         state.phase = Phase.STRATEGY_GEN
 
         # Pre-create sandbox and write a strategy file (simulating agent behavior)
-        sandbox = prepare_sandbox(config, run_dir, 0)
+        sandbox = prepare_sandbox(config, run_dir, 0, variant="cand_00/coder")
         strat_dir = sandbox / "user_data" / "strategies"
         strat_dir.mkdir(parents=True, exist_ok=True)
         strat_file = strat_dir / "TestStrategy.py"

@@ -164,7 +164,7 @@ def test_strategy_agent_fallback_opencode_to_openai(monkeypatch, tmp_path: Path)
     assert seen["model"] == "glm-4-flash"
 
 
-def test_strategy_agent_fallback_to_template_when_openai_unavailable(monkeypatch, tmp_path: Path):
+def test_strategy_agent_errors_when_no_llm_provider_available(monkeypatch, tmp_path: Path):
     from agent_market.strategy_miner.agent_adapter import StrategyAgent
 
     class BoomOpenCode:
@@ -181,10 +181,11 @@ def test_strategy_agent_fallback_to_template_when_openai_unavailable(monkeypatch
     monkeypatch.setattr("agent_market.strategy_miner.agent_adapter.OpenCodeExecutor", BoomOpenCode)
     monkeypatch.setattr("agent_market.strategy_miner.agent_adapter.OpenAIChatExecutor", BoomOpenAI)
 
-    agent = StrategyAgent(workspace=tmp_path, provider="auto")
-    out = agent.generate_strategy("dummy prompt")
-    assert out is not None and out.exists()
-    assert "TemplateRsiStrategy" in out.read_text(encoding="utf-8")
+    import pytest
+
+    with pytest.raises(ValueError):
+        StrategyAgent(workspace=tmp_path, provider="auto")
+
 
 
 # ---------------------------------------------------------------------------

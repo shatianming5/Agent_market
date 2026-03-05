@@ -3,13 +3,12 @@
 Primary provider: OpenCode client (tool-calling loop).
 Fallbacks:
 - OpenAI-compatible chat completion (no tools)
-- Deterministic template strategy (no external deps)
 
 The adapter is intentionally lightweight: phases own the state machine.
 
 Recovery hardening:
 - Robust code extraction from tool-tag / markdown outputs.
-- Provider fallback chain: opencode -> openai-compatible (glm-4-flash) -> template.
+- Provider fallback chain: opencode -> openai-compatible (glm-4-flash).
 """
 
 from __future__ import annotations
@@ -25,7 +24,6 @@ from agent_market.agents.executor import (
     AgentRunResult,
     OpenAIChatExecutor,
     OpenCodeExecutor,
-    TemplateExecutor,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,37 +164,6 @@ def _infer_strategy_class_name(code: str) -> str | None:
     return None
 
 
-_TEMPLATE_STRATEGY = """from __future__ import annotations
-
-from freqtrade.strategy import IStrategy
-
-
-class TemplateRsiStrategy(IStrategy):
-    timeframe = "1h"
-    minimal_roi = {"0": 0.02}
-    stoploss = -0.10
-
-    def populate_indicators(self, dataframe, metadata):
-        # RSI computed locally to avoid optional TA-Lib dependency.
-        close = dataframe["close"]
-        delta = close.diff()
-        gain = delta.clip(lower=0)
-        loss = (-delta).clip(lower=0)
-        avg_gain = gain.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
-        avg_loss = loss.ewm(alpha=1 / 14, min_periods=14, adjust=False).mean()
-        rs = avg_gain / avg_loss.replace(0, 1e-12)
-        dataframe["rsi"] = (100 - (100 / (1 + rs))).fillna(50)
-        return dataframe
-
-    def populate_entry_trend(self, dataframe, metadata):
-        dataframe.loc[dataframe["rsi"] < 40, "enter_long"] = 1
-        return dataframe
-
-    def populate_exit_trend(self, dataframe, metadata):
-        dataframe.loc[dataframe["rsi"] > 60, "exit_long"] = 1
-        return dataframe
-"""
-
 
 class StrategyAgent:
     """Strategy-miner agent wrapper with graceful fallback."""
@@ -221,6 +188,12 @@ class StrategyAgent:
 
         self._executor: AgentExecutor
         self._executor_info: dict[str, Any] = {}
+
+        if self._provider == "template":
+            raise ValueError(
+                "provider=template is disabled for strategy_miner (no-template enforced). "
+                "Use provider=opencode or provider=openai_compatible."
+            )
 
         # 1) Prefer OpenCode (tool loop) if possible.
         if self._provider in ("auto", "opencode"):
@@ -257,11 +230,11 @@ class StrategyAgent:
                     "OpenAI-compatible provider requested but missing credentials. "
                     "Set LLM_API_KEY (or OPENAI_API_KEY)."
                 )
-
-        # 3) Final fallback: deterministic template.
-        self._executor = TemplateExecutor(text=_TEMPLATE_STRATEGY)
-        self._executor_info = {"provider": "template"}
-        logger.info("StrategyAgent provider=template workspace=%s", self._workspace)
+        raise ValueError(
+            "No usable LLM provider available for strategy_miner (no-template enforced). "
+            "Provide an OpenCode model (MinerConfig.model / OPENCODE_MODEL) "
+            "or set OpenAI-compatible credentials (LLM_API_KEY / OPENAI_API_KEY)."
+        )
 
     def _build_openai_executor(self) -> OpenAIChatExecutor | None:
         api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
@@ -288,20 +261,20 @@ class StrategyAgent:
             logger.warning("OpenAI-compatible fallback unavailable: %s", exc)
             return None
 
-    def run(
+    def run_result(
         self,
         prompt: str,
         on_turn: Optional[Callable[[Any], None]] = None,
-    ) -> str:
-        """Run the underlying provider once."""
+    ) -> AgentRunResult:
+        """Run the underlying provider once and return a rich result."""
         if self._closed:
             raise RuntimeError("StrategyAgent is already closed")
         try:
             result: AgentRunResult = self._executor.run(prompt, on_turn=on_turn)
-            return result.assistant_text
+            return result
         except Exception as exc:
             # Graceful fallback when OpenCode is selected but unavailable at runtime
-            # (e.g. `opencode` missing from PATH, server crash, stale timeout).
+            # (e.g. server crash, stale timeout).
             if self._provider == "opencode":
                 raise
             if not isinstance(self._executor, OpenCodeExecutor):
@@ -313,25 +286,32 @@ class StrategyAgent:
                 try:
                     self._executor = openai_exec
                     result2: AgentRunResult = self._executor.run(prompt, on_turn=on_turn)
-                    return result2.assistant_text
+                    return result2
                 except Exception as exc2:
                     logger.warning("OpenAI-compatible fallback failed: %s", exc2)
 
-            self._executor = TemplateExecutor(text=_TEMPLATE_STRATEGY)
-            result3: AgentRunResult = self._executor.run(prompt, on_turn=on_turn)
-            return result3.assistant_text
+            raise RuntimeError(f"StrategyAgent.run failed: {exc}") from exc
+
+    def run(
+        self,
+        prompt: str,
+        on_turn: Optional[Callable[[Any], None]] = None,
+    ) -> str:
+        """Run the underlying provider once."""
+        return self.run_result(prompt, on_turn=on_turn).assistant_text
 
     def generate_strategy(
         self,
         prompt: str,
         *,
         on_turn: Optional[Callable[[Any], None]] = None,
+        on_result: Optional[Callable[[AgentRunResult], None]] = None,
         filename_hint: str | None = None,
     ) -> Path | None:
         """Generate a strategy and ensure a .py file is created in the sandbox.
 
         If the active provider cannot produce a usable artifact, fall back in order:
-        opencode -> openai-compatible -> template.
+        opencode -> openai-compatible.
         """
         if self._closed:
             raise RuntimeError("StrategyAgent is already closed")
@@ -364,12 +344,14 @@ class StrategyAgent:
             )
 
         attempted_openai = False
-        attempted_template = False
 
         for _ in range(3):
             before_mtime = _snapshot_mtime()
             try:
-                text = self.run(prompt, on_turn=on_turn)
+                result = self.run_result(prompt, on_turn=on_turn)
+                if on_result is not None:
+                    on_result(result)
+                text = result.assistant_text
             except Exception as exc:
                 logger.warning("StrategyAgent.run failed: %s", exc)
                 text = ""
@@ -407,22 +389,9 @@ class StrategyAgent:
                     self._executor_info = {"provider": "openai_compatible"}
                     continue
 
-            if not attempted_template:
-                self._executor = TemplateExecutor(text=_TEMPLATE_STRATEGY)
-                self._executor_info = {"provider": "template"}
-                attempted_template = True
-                continue
-
             break
 
-        # Final safety: ensure at least one strategy exists.
-        candidates = _list_candidates()
-        if candidates:
-            return candidates[-1]
-
-        out_path = strategies_dir / (filename_hint or "MinedStrategy.py")
-        out_path.write_text(_TEMPLATE_STRATEGY, encoding="utf-8")
-        return out_path
+        return None
 
     def close(self) -> None:
         if self._closed:
