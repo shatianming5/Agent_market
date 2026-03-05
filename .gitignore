@@ -35,6 +35,9 @@ artifacts/
 tmp_*
 *.tmp
 
+.coverage
+htmlcov/
+
 # local artifacts (not part of repo)
 Archive.zip
 market_dashboard.pdf
