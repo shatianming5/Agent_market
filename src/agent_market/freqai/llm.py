@@ -251,6 +251,10 @@ def request_completion(
     if not config.api_key:
         raise ValueError("?? LLM ???????? API Key?")
 
+    # Allow OPENAI_API_BASE for OpenAI-compatible gateways.
+    if not config.base_url:
+        config.base_url = os.environ.get("OPENAI_API_BASE") or config.base_url
+
     base_url = config.base_url.rstrip("/")
     parsed = urlparse(base_url)
     path = (parsed.path or "").rstrip("/")

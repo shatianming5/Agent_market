@@ -575,6 +575,16 @@ class OpenAIChatExecutor:
             try:
                 resp = self._post(url, payload)
                 if resp.status_code >= 400:
+                    # Exponential backoff for rate limiting / transient gateway errors.
+                    if resp.status_code in (429, 500, 502, 503, 504):
+                        ra = resp.headers.get("Retry-After")
+                        sleep_s = 0.5 * (attempt + 1)
+                        if ra:
+                            try:
+                                sleep_s = max(sleep_s, float(ra))
+                            except Exception:
+                                pass
+                        time.sleep(min(10.0, sleep_s))
                     raise RuntimeError(f"llm_http_{resp.status_code}: {resp.text[:200]}")
                 data = resp.json()
                 choice0 = (data.get("choices") or [{}])[0]

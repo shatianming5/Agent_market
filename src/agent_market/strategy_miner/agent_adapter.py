@@ -265,7 +265,12 @@ class StrategyAgent:
         if not api_key.strip():
             return None
 
-        llm_base_url = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
+        llm_base_url = (
+            os.environ.get("LLM_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or os.environ.get("OPENAI_API_BASE")
+            or ""
+        )
         llm_model = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
         model = (llm_model or self._openai_fallback_model).strip() or self._openai_fallback_model
 
@@ -403,6 +408,29 @@ class StrategyAgent:
                 out_path = strategies_dir / file_name
                 out_path.write_text(code, encoding="utf-8")
                 return out_path
+
+            # Retry once with a stricter "write a python file" instruction.
+            if text and "IStrategy" not in text:
+                strict_prompt = (
+                    prompt
+                    + "\n\nIMPORTANT:\n"
+                    + "- You MUST output a complete Freqtrade strategy as a single Python file.\n"
+                    + "- The code MUST define exactly one class inheriting from IStrategy.\n"
+                    + "- Output ONLY a single ```python ...``` code block (no extra text).\n"
+                )
+                try:
+                    result2 = self.run_result(strict_prompt, on_turn=on_turn)
+                    if on_result is not None:
+                        on_result(result2)
+                    code2 = _extract_code_block(result2.assistant_text)
+                    if code2:
+                        class_name = _infer_strategy_class_name(code2) or "MinedStrategy"
+                        file_name = filename_hint or f"{class_name}.py"
+                        out_path = strategies_dir / file_name
+                        out_path.write_text(code2, encoding="utf-8")
+                        return out_path
+                except Exception:
+                    logger.debug("Strict generate retry failed", exc_info=True)
 
             # No usable artifact produced: fall back provider chain.
             if isinstance(self._executor, OpenCodeExecutor) and not attempted_openai:
