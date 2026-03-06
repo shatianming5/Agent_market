@@ -8,8 +8,8 @@
 
 ## 配置文件
 - `configs/strategy_miner_maxpower.json`
-  - `budget.provider`: `heuristic`（推荐：本地启发式生成，无外部 LLM 依赖；仍保持 no-template + multiagent 闭环）
-  - `budget.model`: `opencode/minimax-m2.5-free`（仅在 `provider=opencode|opencode_cli` 时使用；`heuristic` 会忽略）
+  - `budget.provider`: `openai_compatible`（当前已切换为 LLM API 路线）
+  - `budget.model`: `gpt-5.2`
   - `budget.multiagent_enabled=true`
   - `budget.candidates_per_iteration=2`
   - `budget.max_iterations=4`
@@ -21,7 +21,17 @@
   - `evaluation.min_trades=5` / `evaluation.max_abs_drawdown=80.0`
 
 
-如需使用外部 LLM（并行 planner/coder/reviewer/backtester 真实调用），可将 `budget.provider` 改为 `opencode_cli` 并配置可用的 OpenCode 模型/额度。
+当前默认就是外部 LLM 路线（`openai_compatible + gpt-5.2`）。
+请在运行前设置：
+
+```bash
+export OPENAI_API_KEY="<your-key>"
+export OPENAI_API_BASE="http://10.150.240.117:38889"
+# 兼容变量（代码会优先读取 OPENAI_BASE_URL / LLM_BASE_URL）
+export OPENAI_BASE_URL="$OPENAI_API_BASE"
+```
+
+> 代码会自动把 `OPENAI_API_BASE` 兼容映射到 `OPENAI_BASE_URL`，并处理 `/v1` 路径。
 
 ## 依赖
 需要 `freqtrade` 才能做真实回测。
