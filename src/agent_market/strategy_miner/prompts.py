@@ -11,12 +11,14 @@ def build_strategy_gen_prompt(
     freqtrade_config: str,
     timerange: str,
     history: List[Dict[str, Any]],
-    best_reward: float,
+    best_score: float,
     best_strategy_code: Optional[str] = None,
     elite_summaries: Optional[List[Dict[str, Any]]] = None,
     failure_summary: Optional[str] = None,
     candidate_idx: Optional[int] = None,
     candidates_per_iteration: Optional[int] = None,
+    provider: str = "auto",
+    market_profile: Optional[str] = None,
 ) -> str:
     history_section = ""
     if history:
@@ -24,17 +26,20 @@ def build_strategy_gen_prompt(
         for h in history[-5:]:
             lines.append(
                 f"  - Iteration {h.get('iteration', '?')}: "
-                f"reward={h.get('reward', 'N/A'):.4f}, "
+                f"sharpe={h.get('sharpe', 'N/A')}, "
+                f"sortino={h.get('sortino', 'N/A')}, "
                 f"profit={h.get('profit_pct', 'N/A')}%, "
                 f"trades={h.get('trades', 'N/A')}, "
+                f"winrate={h.get('winrate', 'N/A')}, "
+                f"profit_factor={h.get('profit_factor', 'N/A')}, "
                 f"diagnosis: {h.get('diagnosis', 'N/A')}"
             )
         history_section = "\n## Previous Iterations (most recent 5)\n" + "\n".join(lines) + "\n"
 
     best_section = ""
-    if best_strategy_code and best_reward > float("-inf"):
+    if best_strategy_code and best_score > float("-inf"):
         best_section = (
-            f"\n## Current Best Strategy (reward={best_reward:.4f})\n"
+            f"\n## Current Best Strategy (sharpe={best_score:.4f})\n"
             f"```python\n{best_strategy_code}\n```\n"
         )
 
@@ -43,7 +48,7 @@ def build_strategy_gen_prompt(
         elite_lines = []
         for e in elite_summaries[:3]:
             elite_lines.append(
-                f"  - {e.get('name', '?')}: reward={e.get('reward', 0):.4f}, "
+                f"  - {e.get('name', '?')}: sharpe={e.get('reward', 0):.4f}, "
                 f"profit={e.get('profit_pct', '?')}%, "
                 f"trades={e.get('trades', '?')}, winrate={e.get('winrate', '?')}"
             )
@@ -63,6 +68,30 @@ def build_strategy_gen_prompt(
             "- Use a UNIQUE class name to avoid collisions. Recommended: suffix with `_cand{idx}`.\n"
         ).format(idx=int(candidate_idx))
 
+    market_section = ""
+    if market_profile:
+        market_section = f"\n## Market Profile\n{market_profile}\n"
+
+    # Tool tags section: only for opencode provider
+    use_tool_tags = provider in ("opencode", "auto")
+    if use_tool_tags:
+        tooling_section = """
+## Tooling (optional)
+You MAY use tool-call tags (OpenCode-style):
+- <read filePath="user_data/strategies/Foo.py"/>
+- <write filePath="user_data/strategies/Foo.py">...python code...</write>
+- <edit filePath="user_data/strategies/Foo.py" oldString="..." newString="..."/>
+- <bash command="ls -la"/>
+If you use `<write>...</write>`, the **content inside** must be pure Python (no tool tags).
+If you do not use tools, reply with a single Python code block.
+"""
+    else:
+        tooling_section = """
+## Output format
+Reply with a single Python code block containing the complete strategy file.
+Do NOT use any XML tool tags (no <read>, <write>, <edit>, <bash> tags).
+"""
+
     return f"""You are a quantitative trading strategy developer. Your goal is to create a FreqTrade strategy that maximizes risk-adjusted returns.
 
 ## Task
@@ -73,7 +102,7 @@ Create a complete FreqTrade IStrategy class in Python. The strategy file must be
 1. The class MUST inherit from `freqtrade.strategy.IStrategy`
 2. MUST implement: `populate_indicators()`, `populate_entry_trend()`, `populate_exit_trend()`
 3. Use Freqtrade v3 signal columns: set `enter_long` / `exit_long` (and optionally `enter_tag`/`exit_tag`). Do NOT use `buy`/`sell` columns
-4. Prefer `pandas_ta` or manual indicator implementations (avoid TA-Lib dependency unless you verify it's available)
+4. Use `pandas_ta` or manual indicator implementations. DO NOT import `talib` or `talib.abstract` — TA-Lib is NOT installed and will cause backtest failure. Use `import pandas_ta as ta` instead
 5. No look-ahead / future leakage (MUST NOT use):
    - `shift(-1)`, `diff(-1)`, `pct_change(-1)`
    - `rolling(..., center=True)`
@@ -83,26 +112,23 @@ Create a complete FreqTrade IStrategy class in Python. The strategy file must be
 7. Define complete order config using **entry/exit** wording (not buy/sell):
    - `order_types` must include keys: `entry`, `exit`, `stoploss`, `stoploss_on_exchange`
    - `order_time_in_force` must include keys: `entry`, `exit`
-8. Ensure the strategy is likely to produce >= 10 trades over the timerange (avoid overly-strict filters)
-9. Set reasonable `minimal_roi`, `stoploss` parameters
+   - Use `"market"` for entry and exit order types (avoid limit orders which may result in 0 fills)
+8. Ensure the strategy is likely to produce >= 20 trades over the timerange (avoid overly-strict filters).
+   - Use relaxed thresholds: e.g. RSI 35-65 instead of 20-80, ADX > 15 instead of > 25
+   - Combine at most 3-4 entry conditions (more conditions = fewer trades)
+   - Test your logic mentally: would it trigger on a typical trending day?
+9. Set reasonable `minimal_roi`, `stoploss` parameters. Prefer wider ROI (e.g. 5-10%) and moderate stoploss (-5% to -10%)
 10. Do NOT import os, subprocess, socket, requests, urllib, or use exec/eval/open
-
-## Tooling (optional)
-You MAY use tool-call tags (OpenCode-style):
-- <read filePath=\"user_data/strategies/Foo.py\"/>
-- <write filePath=\"user_data/strategies/Foo.py\">...python code...</write>
-- <edit filePath=\"user_data/strategies/Foo.py\" oldString=\"...\" newString=\"...\"/>
-- <bash command=\"ls -la\"/>
-If you use `<write>...</write>`, the **content inside** must be pure Python (no tool tags).
-If you do not use tools, reply with a single Python code block.
-
+11. IMPORTANT: Strategies that produce 0 trades are worthless. Prioritize generating trades over perfect precision.
+    If unsure, make entry conditions LESS strict rather than more strict.
+{tooling_section}
 ## Reference
 - A reference strategy is at: {sandbox_path}/user_data/strategies/ExpressionLongStrategy_reference.py
 - FreqTrade config: {freqtrade_config}
 - Timerange for backtesting: {timerange}
 
 ## Iteration {iteration}
-{multi_header}{history_section}{best_section}{kb_section}{multi_rules}
+{multi_header}{history_section}{best_section}{kb_section}{market_section}{multi_rules}
 ## Instructions
 1. Read the reference strategy to understand the expected format
 2. Design a novel strategy with clear entry/exit logic
@@ -117,10 +143,9 @@ def build_analysis_prompt(
     *,
     strategy_code: str,
     backtest_summary: Dict[str, Any],
-    reward: float,
-    reward_components: Dict[str, float],
+    metrics: Optional[Dict[str, Any]] = None,
 ) -> str:
-    components_str = "\n".join(f"  - {k}: {v:.4f}" for k, v in reward_components.items())
+    m = metrics or {}
 
     return f"""You are analyzing a FreqTrade trading strategy's backtest results.
 
@@ -138,19 +163,26 @@ def build_analysis_prompt(
 - Best Pair: {backtest_summary.get('best_pair', 'N/A')}
 - Worst Pair: {backtest_summary.get('worst_pair', 'N/A')}
 
-## Reward Score: {reward:.4f}
-## Component Scores
-{components_str}
+## Professional Metrics
+- Sharpe Ratio: {m.get('sharpe', 'N/A')}
+- Sortino Ratio: {m.get('sortino', 'N/A')}
+- Calmar Ratio: {m.get('calmar', 'N/A')}
+- Profit Factor: {m.get('profit_factor', 'N/A')}
+- Expectancy: {m.get('expectancy', 'N/A')}
+- SQN: {m.get('sqn', 'N/A')}
+- CAGR: {m.get('cagr', 'N/A')}
+- Max Drawdown %: {m.get('max_drawdown_pct', 'N/A')}
 
 ## Task
-Provide a concise diagnosis (max 200 words):
-1. What worked well in this strategy?
-2. What are the main weaknesses?
-3. What specific improvements should be tried in the next iteration?
-   - Be concrete: suggest specific indicators, parameter ranges, or logic changes
-   - Focus on the lowest-scoring components above
+Analyze the strategy and provide a structured diagnosis.
 
-Respond with ONLY the diagnosis text, no code.
+## Output format (STRICT)
+Return a single JSON object (no markdown fences) with these keys:
+- strengths: list[string] — what worked well (1-3 items)
+- weaknesses: list[string] — main weaknesses focusing on Sharpe, drawdown, profit factor (1-3 items)
+- suggestions: list[string] — specific improvements for next iteration with concrete indicators/parameters (1-3 items)
+- verdict: string — one of "promising", "mediocre", "poor"
+- summary: string — one-sentence overall assessment (max 100 words)
 """
 
 
@@ -167,11 +199,34 @@ def build_repair_prompt(
     bash_allow: bool = True,
     bash_timeout: int = 60,
     bash_allowlist: Optional[List[str]] = None,
+    provider: str = "auto",
 ) -> str:
     tools_s = ", ".join(tool_allowlist or []) or "(default)"
     bash_list_s = "\n".join(f"  - {x}" for x in (bash_allowlist or [])[:20])
     if not bash_list_s:
         bash_list_s = "  - (none)"
+
+    use_tool_tags = provider in ("opencode", "auto")
+    if use_tool_tags:
+        tool_policy_section = f"""## Tool policy
+- Allowed tools: {tools_s}
+- Bash enabled: {bash_allow} (timeout={bash_timeout}s)
+- Bash allowlist (prefix match):
+{bash_list_s}"""
+        how_to_work_section = f"""## How to work
+1. Start by reading the current file:
+   <read filePath="{strategy_rel_path}"/>
+2. Apply minimal edits to fix issues:
+   <edit filePath="{strategy_rel_path}" oldString="..." newString="..."/>
+   or rewrite the full file:
+   <write filePath="{strategy_rel_path}">...python code...</write>
+3. (Optional) Run quick checks:
+   <bash command="python3 -m py_compile {strategy_rel_path}"/>"""
+    else:
+        tool_policy_section = ""
+        how_to_work_section = """## Output format
+Reply with a single Python code block containing the complete fixed strategy file.
+Do NOT use any XML tool tags."""
 
     return f"""You are a senior Freqtrade strategy engineer.
 
@@ -188,11 +243,7 @@ Repair the existing strategy to pass static validation and run backtesting succe
 ## Failure
 {failure}
 
-## Tool policy
-- Allowed tools: {tools_s}
-- Bash enabled: {bash_allow} (timeout={bash_timeout}s)
-- Bash allowlist (prefix match):
-{bash_list_s}
+{tool_policy_section}
 
 ## Requirements (must keep)
 1. The class MUST inherit from `freqtrade.strategy.IStrategy`
@@ -200,17 +251,10 @@ Repair the existing strategy to pass static validation and run backtesting succe
 3. Use `enter_long` / `exit_long` columns (not `buy`/`sell`)
 4. Set `timeframe = "1h"` (this repo ships offline OHLCV at 1h)
 5. Ensure `order_types` / `order_time_in_force` use entry/exit keys (not buy/sell) and include required keys
-6. Do NOT import os, subprocess, socket, requests, urllib, or use exec/eval/open
+6. Do NOT import os, subprocess, socket, requests, urllib, talib, or use exec/eval/open
+7. Use `pandas_ta` (NOT `talib`) for indicators. If the current code uses `talib.abstract as ta`, replace with `import pandas_ta as ta` and update ALL API calls (e.g. `ta.EMA(dataframe, timeperiod=N)` → `ta.ema(dataframe['close'], length=N)`, `ta.BBANDS(...)` → `ta.bbands(...)` etc.)
 
-## How to work
-1. Start by reading the current file:
-   <read filePath=\"{strategy_rel_path}\"/>
-2. Apply minimal edits to fix issues:
-   <edit filePath=\"{strategy_rel_path}\" oldString=\"...\" newString=\"...\"/>
-   or rewrite the full file:
-   <write filePath=\"{strategy_rel_path}\">...python code...</write>
-3. (Optional) Run quick checks:
-   <bash command=\"python3 -m py_compile {strategy_rel_path}\"/>
+{how_to_work_section}
 
 Make the changes now.
 """
@@ -235,9 +279,10 @@ def build_planner_prompt(
         for h in history[-5:]:
             lines.append(
                 f"  - Iteration {h.get('iteration', '?')}: "
-                f"reward={h.get('reward', 'N/A'):.4f}, "
+                f"sharpe={h.get('sharpe', 'N/A')}, "
                 f"profit={h.get('profit_pct', 'N/A')}%, "
-                f"trades={h.get('trades', 'N/A')}"
+                f"trades={h.get('trades', 'N/A')}, "
+                f"profit_factor={h.get('profit_factor', 'N/A')}"
             )
         history_section = "\n## Recent history (most recent 5)\n" + "\n".join(lines) + "\n"
 
@@ -246,7 +291,7 @@ def build_planner_prompt(
         elite_lines = []
         for e in elite_summaries[:3]:
             elite_lines.append(
-                f"  - {e.get('name', '?')}: reward={e.get('reward', 0):.4f}, "
+                f"  - {e.get('name', '?')}: sharpe={e.get('reward', 0):.4f}, "
                 f"profit={e.get('profit_pct', '?')}%, trades={e.get('trades', '?')}"
             )
         kb_section += "\n## Elite archive (top performers)\n" + "\n".join(elite_lines) + "\n"
@@ -265,12 +310,19 @@ Propose a concrete trading-strategy design for a new candidate. Do NOT write cod
 - FreqTrade config: {freqtrade_config}
 - Backtest timerange: {timerange}
 {history_section}{kb_section}
+## CRITICAL: Trade generation
+- The strategy MUST produce >= 20 trades over the timerange. Strategies with 0 trades are worthless.
+- Use at most 3-4 entry conditions. More conditions = fewer trades = likely failure.
+- Use relaxed indicator thresholds (e.g. RSI 35-65, ADX > 15, not extreme values).
+- Prefer simple, proven patterns: EMA crossovers, RSI mean-reversion, breakout above recent high.
+- Timeframe MUST be "1h" (only 1h data is available).
+
 ## Output format (STRICT)
 Return a single JSON object (no markdown fences) with keys:
 - name_hint: string (CamelCase class name suggestion)
-- timeframe: string
+- timeframe: string (MUST be "1h")
 - indicators: list[string]
-- entry_rules: list[string]
+- entry_rules: list[string] (keep to 3-4 rules max)
 - exit_rules: list[string]
 - risk_controls: list[string]
 - parameters: object (key->value)
@@ -295,7 +347,8 @@ Review the strategy for correctness, miner safety rules, and Freqtrade backtest 
 ## Miner safety rules (must pass)
 - MUST inherit from `freqtrade.strategy.IStrategy`
 - MUST implement: populate_indicators(), populate_entry_trend(), populate_exit_trend()
-- Do NOT import: os, subprocess, socket, requests, urllib, http, ftplib, smtplib, telnetlib, xmlrpc, shutil, pathlib
+- Do NOT import: os, subprocess, socket, requests, urllib, http, ftplib, smtplib, telnetlib, xmlrpc, shutil, pathlib, talib
+- Use `pandas_ta` (NOT `talib`) for all indicators
 - Do NOT call: exec, eval, open, __import__, compile, getattr, setattr, delattr, globals, locals
 - Avoid look-ahead leakage (negative shift/diff/pct_change, centered rolling, backfill)
 

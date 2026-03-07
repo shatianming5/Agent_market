@@ -1,7 +1,6 @@
 """Phase handlers for the strategy mining loop."""
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 import logging
@@ -22,8 +21,7 @@ from agent_market.backtest_results import build_backtest_summary, find_latest_ba
 from .agent_adapter import StrategyAgent
 from .agent_factory import build_strategy_agent
 from .dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
-from .evolution import evolve_strategy
-from .grading import compute_enhanced_reward, compute_factor_score, compute_reward
+from .grading import compute_factor_score
 from .prompts import (
     build_analysis_prompt,
     build_backtester_prompt,
@@ -66,6 +64,32 @@ def _freqtrade_config_defaults(freqtrade_config_path: str) -> tuple[str, bool]:
     except Exception:
         return "1h", True
 
+
+
+def _build_market_profile(freqtrade_config_path: str) -> Optional[str]:
+    """Extract market profile info from freqtrade config for prompt injection."""
+    try:
+        ft_path = paths.resolve_repo_path(freqtrade_config_path)
+        payload = json.loads(ft_path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return None
+
+    lines = []
+    pairs = payload.get("exchange", {}).get("pair_whitelist", [])
+    if pairs:
+        lines.append(f"- Trading pairs: {', '.join(pairs[:10])}" + (f" (+{len(pairs)-10} more)" if len(pairs) > 10 else ""))
+    stake = payload.get("stake_currency")
+    if stake:
+        lines.append(f"- Stake currency: {stake}")
+    mode = payload.get("trading_mode", "spot")
+    lines.append(f"- Trading mode: {mode}")
+    wallet = payload.get("dry_run_wallet")
+    if wallet:
+        lines.append(f"- Dry-run wallet: {wallet}")
+    timeframe = payload.get("timeframe")
+    if timeframe:
+        lines.append(f"- Timeframe: {timeframe}")
+    return "\n".join(lines) if lines else None
 
 
 def _parse_json_object(text: str) -> dict[str, Any] | None:
@@ -246,6 +270,7 @@ def _repair_candidate(
             bash_allow=bool(config.bash_allow),
             bash_timeout=int(config.bash_timeout or 60),
             bash_allowlist=list(config.bash_allowlist or []),
+            provider=config.provider,
         )
 
         repair_provider = ""
@@ -341,6 +366,8 @@ def _repair_candidate(
         candidate.name = infer_strategy_class_name(candidate.code) or repaired_path.stem
         candidate.backtest_summary = None
         candidate.reward = None
+        candidate.failure_category = ""
+        candidate.diagnosis = ""
 
         # Record repair trace (best-effort).
         try:
@@ -436,10 +463,12 @@ def phase_strategy_gen(
                 freqtrade_config=config.freqtrade_config,
                 timerange=config.timerange,
                 history=state.history,
-                best_reward=state.best_reward,
+                best_score=state.best_score,
                 best_strategy_code=best_code,
                 elite_summaries=elite_summaries,
                 failure_summary=failure_summary,
+                provider=config.provider,
+                market_profile=_build_market_profile(config.freqtrade_config),
             )
 
             gen_provider = ""
@@ -547,10 +576,12 @@ def phase_strategy_gen(
             freqtrade_config=config.freqtrade_config,
             timerange=config.timerange,
             history=state.history,
-            best_reward=state.best_reward,
+            best_score=state.best_score,
             best_strategy_code=best_code,
             elite_summaries=elite_summaries,
             failure_summary=failure_summary,
+            provider=config.provider,
+            market_profile=_build_market_profile(config.freqtrade_config),
         )
 
         planner_prompt = build_planner_prompt(
@@ -990,10 +1021,14 @@ def _classify_backtest_failure(stderr: str, stdout: str, *, rc: int | None = Non
             "Backtest failed: dependency_missing(ccxt_static_dependencies). Pin ccxt==4.5.4 (known-good) or reinstall ccxt.",
         )
 
-    if "no module named 'talib'" in blob_l or ("importerror" in blob_l and "talib" in blob_l):
+    if "no module named 'talib'" in blob_l or ("importerror" in blob_l and "talib" in blob_l) or "talib" in blob_l:
         return (
             "backtest.dependency_missing.talib",
-            "Backtest failed: dependency_missing(talib). Avoid TA-Lib; use pandas_ta or manual indicator implementations.",
+            "Backtest failed: dependency_missing(talib). TA-Lib is NOT installed. "
+            "Replace `import talib.abstract as ta` with `import pandas_ta as ta` and update ALL API calls: "
+            "e.g. ta.EMA(dataframe, timeperiod=N) → ta.ema(dataframe['close'], length=N), "
+            "ta.BBANDS(dataframe, ...) → bbands_df = ta.bbands(dataframe['close'], length=20, std=2); "
+            "upper=bbands_df['BBU_20_2.0'], middle=bbands_df['BBM_20_2.0'], lower=bbands_df['BBL_20_2.0'].",
         )
 
     if "no module named 'pandas_ta'" in blob_l:
@@ -1032,69 +1067,9 @@ def _classify_backtest_failure(stderr: str, stdout: str, *, rc: int | None = Non
             "Backtest failed: config_path_error. freqtrade_config path is invalid.",
         )
 
-    tail = (stderr or "")[-500:] or (stdout or "")[-500:]
+    tail = (stderr or "")[-2000:] or (stdout or "")[-2000:]
     rc_s = "" if rc is None else f"rc={rc} "
     return "backtest.unknown", f"Backtest failed ({rc_s}tail={tail})"
-
-
-def _compute_overfit_penalty(
-    code: str,
-    summary: dict[str, Any],
-    *,
-    min_trades: int,
-) -> tuple[float, list[str]]:
-    """Heuristic penalty for low-trade overfit and threshold hacking."""
-
-    reasons: list[str] = []
-    penalty = 0.0
-
-    def _as_float(v: Any) -> float:
-        try:
-            return float(v)
-        except Exception:
-            return 0.0
-
-    profit_pct = _as_float((summary or {}).get("profit_total_pct") or 0.0)
-    trades = int(_as_float((summary or {}).get("trades") or 0.0))
-    winrate = _as_float((summary or {}).get("winrate") or 0.0)
-    if winrate > 1.0:
-        winrate = winrate / 100.0
-
-    # 1) Low-trade penalty (soft, even when min_trades is small for recovery).
-    trade_floor = max(10, int(min_trades or 0))
-    if trades and trades < trade_floor:
-        penalty += 0.10
-        reasons.append(f"low_trades:{trades}<{trade_floor}")
-
-    # 2) Suspiciously high winrate/profit with few trades (overfit).
-    if trades and trades < max(20, trade_floor) and winrate >= 0.80:
-        penalty += 0.15
-        reasons.append(f"high_winrate_low_trades:{winrate:.3f}@{trades}")
-
-    if trades and trades < max(30, trade_floor) and abs(profit_pct) >= 50.0:
-        penalty += 0.15
-        reasons.append(f"extreme_profit_low_trades:{profit_pct:.1f}@{trades}")
-
-    # 3) Threshold/constant hacking: many numeric constants used in comparisons.
-    try:
-        tree = ast.parse(code or "")
-        thresholds: list[float] = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Compare):
-                parts = [node.left, *list(node.comparators or [])]
-                for part in parts:
-                    if isinstance(part, ast.Constant) and isinstance(part.value, (int, float)):
-                        thresholds.append(float(part.value))
-        if len(thresholds) > 12:
-            extra = len(thresholds) - 12
-            p = min(0.30, extra * 0.02)
-            penalty += p
-            reasons.append(f"too_many_thresholds:{len(thresholds)}")
-    except SyntaxError:
-        pass
-
-    penalty = min(0.60, penalty)
-    return penalty, reasons
 
 
 def phase_backtest(
@@ -1125,8 +1100,8 @@ def phase_backtest(
     if raw_repairs <= 0:
         max_repairs = 0
     else:
-        # Configurable repair rounds: clamp to [3, 8] when enabled.
-        max_repairs = max(3, min(8, raw_repairs))
+        # Configurable repair rounds: clamp to [1, 8] when enabled.
+        max_repairs = max(1, min(8, raw_repairs))
 
     for attempt_idx in range(max_repairs + 1):
         # Always refresh code from disk if possible (repairs may have edited it).
@@ -1145,8 +1120,9 @@ def phase_backtest(
             failure = f"[{category}] Validation failed: {msg}"
             candidate.diagnosis = failure
 
-            # Local auto-fix first for syntax/tool-tag failures.
-            if "syntax error" in msg.lower() or "<write" in candidate.code.lower():
+            # Local auto-fix first for syntax/tool-tag/forbidden-import failures.
+            msg_lower = msg.lower()
+            if "syntax error" in msg_lower or "<write" in candidate.code.lower() or "forbidden import" in msg_lower:
                 did, fixes = auto_fix_strategy_file(candidate.strategy_path)
                 if did:
                     try:
@@ -1245,14 +1221,57 @@ def phase_backtest(
             logger.debug("Compliance auto-fix failed", exc_info=True)
 
 
+        # Preflight: verify strategy is loadable via freqtrade list-strategies
+        strategies_dir = sandbox / "user_data" / "strategies"
+        try:
+            ls_cmd = [
+                sys.executable, "-m", "freqtrade", "list-strategies",
+                "--strategy-path", str(strategies_dir),
+            ]
+            ls_proc = subprocess.run(
+                ls_cmd, capture_output=True, text=True, timeout=30, check=False,
+            )
+            if ls_proc.returncode == 0 and (ls_proc.stdout or "").strip() and candidate.name not in ls_proc.stdout:
+                logger.warning(
+                    "Preflight: %s not found by freqtrade list-strategies — skipping to repair",
+                    candidate.name,
+                )
+                candidate.failure_category = "backtest.preflight_not_found"
+                candidate.diagnosis = (
+                    f"[backtest.preflight_not_found] Strategy {candidate.name} not loadable by freqtrade. "
+                    f"stderr: {(ls_proc.stderr or '')[:500]}"
+                )
+                if attempt_idx < max_repairs:
+                    local_agent = agent
+                    if local_agent is None:
+                        try:
+                            local_agent = build_strategy_agent(config, sandbox)
+                        except Exception:
+                            local_agent = None
+                    if local_agent is not None:
+                        ok = _repair_candidate(
+                            agent=local_agent,
+                            config=config,
+                            run_dir=run_dir,
+                            sandbox=sandbox,
+                            candidate=candidate,
+                            failure=candidate.diagnosis,
+                            attempt=attempt_idx + 1,
+                            max_attempts=max_repairs,
+                        )
+                        if ok:
+                            continue
+                _advance_after_candidate(state)
+                return
+        except Exception:
+            pass  # preflight is best-effort; continue to backtest
+
         logger.info(
             "Phase BACKTEST: running freqtrade backtesting for %s (attempt %d/%d)",
             candidate.name,
             attempt_idx,
             max_repairs,
         )
-
-        strategies_dir = sandbox / "user_data" / "strategies"
 
         # Build backtest command
         ft_config = paths.resolve_repo_path(config.freqtrade_config)
@@ -1472,6 +1491,8 @@ def phase_backtest(
 
             summary = build_backtest_summary(zip_path)
             candidate.backtest_summary = summary
+            candidate.failure_category = ""
+            candidate.diagnosis = ""
             state.phase = Phase.EVALUATION
 
             try:
@@ -1552,13 +1573,26 @@ def phase_backtest(
     _advance_after_candidate(state)
 
 
+def _safe_metric(summary: Dict[str, Any], key: str, default: float = 0.0) -> float:
+    """Extract a float metric from backtest summary, defaulting on None/error."""
+    try:
+        v = summary.get(key)
+        if v is None:
+            return default
+        f = float(v)
+        import math
+        return f if math.isfinite(f) else default
+    except (TypeError, ValueError):
+        return default
+
+
 def phase_evaluation(
     state: MinerState,
     config: MinerConfig,
     run_dir: Optional[Path] = None,
     kb: Optional["KnowledgeBase"] = None,
 ) -> None:
-    """Score backtest results for the active candidate and update best candidate."""
+    """Score backtest results using professional quant metrics (Sharpe as primary)."""
 
     candidate = _pick_active_candidate(state)
     if candidate is None:
@@ -1569,53 +1603,23 @@ def phase_evaluation(
         _advance_after_candidate(state)
         return
 
-    # Try factor-level scoring if features are available
-    factor_scores = None
-    if run_dir is not None:
-        iter_dir = run_dir / f"iter_{state.iteration}"
-        features_candidates = list(iter_dir.rglob("features.parquet")) if iter_dir.exists() else []
-        if features_candidates:
-            factor_scores = compute_factor_score(
-                features_parquet=features_candidates[0],
-                expression=candidate.name,
-                out_dir=iter_dir / "factor_scores",
-            )
-
-    if factor_scores is not None:
-        reward, components = compute_enhanced_reward(
-            candidate.backtest_summary,
-            config.reward_weights,
-            factor_scores=factor_scores,
-        )
-        logger.info("Enhanced scoring with factor quality: %s", factor_scores)
-    else:
-        reward, components = compute_reward(
-            candidate.backtest_summary,
-            config.reward_weights,
-        )
-
-    penalty, penalty_reasons = _compute_overfit_penalty(
-        candidate.code,
-        candidate.backtest_summary or {},
-        min_trades=int(getattr(config, "min_trades", 0) or 0),
-    )
-    if penalty:
-        reward = max(-1.0, float(reward) - float(penalty))
-        components["overfit_penalty"] = -float(penalty)
-        logger.info("Applied overfit penalty %.3f for %s: %s", penalty, candidate.name, ";".join(penalty_reasons))
-
-    candidate.reward = reward
-
-    # Risk constraint gating (used by leaderboard/best selection)
-    violations: list[str] = []
     summary = candidate.backtest_summary or {}
+
+    # Extract professional metrics directly from backtest summary
+    sharpe = _safe_metric(summary, "sharpe")
+    sortino = _safe_metric(summary, "sortino")
+    calmar = _safe_metric(summary, "calmar")
+    profit_factor = _safe_metric(summary, "profit_factor")
+    profit_pct = _safe_metric(summary, "profit_total_pct")
+    expectancy = _safe_metric(summary, "expectancy")
+    sqn = _safe_metric(summary, "sqn")
+    cagr = _safe_metric(summary, "cagr")
+    max_dd_pct = _safe_metric(summary, "max_drawdown_account")
+
     try:
         trades = int(summary.get("trades") or 0)
     except Exception:
         trades = 0
-    min_trades = int(getattr(config, "min_trades", 0) or 0)
-    if min_trades and trades < min_trades:
-        violations.append(f"min_trades:{trades}<{min_trades}")
 
     try:
         winrate = float(summary.get("winrate") or 0.0)
@@ -1623,6 +1627,17 @@ def phase_evaluation(
             winrate = winrate / 100.0
     except Exception:
         winrate = 0.0
+
+    # Primary score = Sharpe with trade-count penalty for statistical significance
+    effective_sharpe = sharpe * min(1.0, trades / 30) if trades > 0 else 0.0
+    candidate.reward = effective_sharpe
+
+    # Risk constraint gating
+    violations: list[str] = []
+    min_trades = int(getattr(config, "min_trades", 0) or 0)
+    if min_trades and trades < min_trades:
+        violations.append(f"min_trades:{trades}<{min_trades}")
+
     min_winrate = float(getattr(config, "min_winrate", 0.0) or 0.0)
     if min_winrate and winrate < min_winrate:
         violations.append(f"min_winrate:{winrate:.4f}<{min_winrate}")
@@ -1635,48 +1650,59 @@ def phase_evaluation(
     if max_abs_dd and max_dd > max_abs_dd:
         violations.append(f"max_abs_drawdown:{max_dd:.4f}>{max_abs_dd}")
 
+    max_dd_pct_limit = float(getattr(config, "max_drawdown_pct", 0.0) or 0.0)
+    if max_dd_pct_limit and max_dd_pct > max_dd_pct_limit:
+        violations.append(f"max_drawdown_pct:{max_dd_pct:.2f}>{max_dd_pct_limit:.2f}")
+
     candidate.constraint_violations = violations
     candidate.constraints_ok = not violations
     if violations:
         logger.info("Risk constraints violated for %s: %s", candidate.name, violations)
 
     logger.info(
-        "Phase EVALUATION: reward=%.4f (best=%.4f) components=%s",
-        reward,
-        state.best_reward,
-        components,
+        "Phase EVALUATION: %s sharpe=%.4f sortino=%.4f calmar=%.4f "
+        "profit_factor=%.4f profit=%.2f%% trades=%d winrate=%.4f "
+        "max_dd=%.2f%% sqn=%.4f (best_score=%.4f)",
+        candidate.name, sharpe, sortino, calmar,
+        profit_factor, profit_pct, trades, winrate,
+        max_dd_pct, sqn, state.best_score,
     )
 
-    if candidate.constraints_ok and reward > state.best_reward:
-        state.best_reward = reward
+    if candidate.constraints_ok and effective_sharpe > state.best_score:
+        state.best_score = effective_sharpe
         state.best_candidate = candidate
-        logger.info("New best candidate: %s with reward=%.4f", candidate.name, reward)
+        logger.info(
+            "New best candidate: %s with effective_sharpe=%.4f (raw=%.4f, trades=%d)",
+            candidate.name, effective_sharpe, sharpe, trades,
+        )
 
-    # Store in history
+    # Store in history with professional metrics
     state.history.append(
         {
             "iteration": state.iteration,
             "name": candidate.name,
-            "reward": reward,
+            "sharpe": sharpe,
+            "sortino": sortino,
+            "calmar": calmar,
+            "profit_factor": profit_factor,
+            "profit_pct": profit_pct,
+            "trades": trades,
+            "winrate": winrate,
+            "max_drawdown_pct": max_dd_pct,
+            "expectancy": expectancy,
+            "sqn": sqn,
+            "cagr": cagr,
             "constraints_ok": bool(candidate.constraints_ok),
             "constraint_violations": list(candidate.constraint_violations or []),
-            "components": components,
-            "overfit_penalty": float(penalty or 0.0),
-            "overfit_reasons": list(penalty_reasons or []),
-            "profit_pct": candidate.backtest_summary.get("profit_total_pct"),
-            "trades": candidate.backtest_summary.get("trades"),
-            "winrate": candidate.backtest_summary.get("winrate"),
-            "max_drawdown": candidate.backtest_summary.get("max_drawdown_abs"),
-            "factor_scores": factor_scores,
             "diagnosis": "",
         }
     )
 
-    if kb is not None and candidate.reward is not None:
+    if kb is not None and candidate.reward is not None and candidate.constraints_ok:
         kb.add_elite(
             name=candidate.name,
             code=candidate.code,
-            reward=candidate.reward,
+            reward=effective_sharpe,
             backtest_summary=candidate.backtest_summary,
             iteration=state.iteration,
         )
@@ -1720,20 +1746,32 @@ def phase_analysis(
     # If we have backtest results and an agent, do LLM analysis
     if candidate.backtest_summary is not None and candidate.reward is not None and agent is not None:
         last_history = state.history[-1] if state.history else {}
-        components = last_history.get("components", {})
 
         prompt = build_analysis_prompt(
             strategy_code=candidate.code,
             backtest_summary=candidate.backtest_summary,
-            reward=candidate.reward,
-            reward_components=components,
+            metrics=last_history,
         )
 
         try:
-            diagnosis = agent.run(prompt)
-            candidate.diagnosis = diagnosis.strip()[:1000]
-            if state.history:
-                state.history[-1]["diagnosis"] = candidate.diagnosis
+            raw_diagnosis = agent.run(prompt)
+            # Try to parse structured JSON response
+            parsed = _parse_json_object(raw_diagnosis)
+            if parsed and "summary" in parsed:
+                candidate.diagnosis = str(parsed.get("summary", ""))[:1000]
+                # Store structured data in history
+                if state.history:
+                    state.history[-1]["diagnosis"] = candidate.diagnosis
+                    state.history[-1]["analysis_structured"] = {
+                        "strengths": parsed.get("strengths", []),
+                        "weaknesses": parsed.get("weaknesses", []),
+                        "suggestions": parsed.get("suggestions", []),
+                        "verdict": parsed.get("verdict", ""),
+                    }
+            else:
+                candidate.diagnosis = raw_diagnosis.strip()[:1000]
+                if state.history:
+                    state.history[-1]["diagnosis"] = candidate.diagnosis
         except Exception as e:
             logger.warning("Analysis agent failed: %s", e)
             candidate.diagnosis = f"Analysis failed: {e}"
@@ -1741,6 +1779,32 @@ def phase_analysis(
         candidate.diagnosis = "No backtest results to analyze"
 
     logger.info("Phase ANALYSIS complete: %s", (candidate.diagnosis or "")[:200])
+
+    # Check if this iteration produced any candidates with backtest results.
+    # If not (pure infra failure), don't waste the iteration counter.
+    iter_candidates = [c for c in state.candidates if c.iteration == state.iteration]
+    has_results = any(c.backtest_summary is not None for c in iter_candidates)
+
+    if not has_results and iter_candidates:
+        gen_retries = getattr(state, "_gen_retries", 0)
+        if gen_retries < 2:
+            state._gen_retries = gen_retries + 1
+            logger.info(
+                "No candidates produced results in iteration %d — retrying (%d/2) without incrementing iteration",
+                state.iteration, gen_retries + 1,
+            )
+            state.phase = Phase.STRATEGY_GEN
+            return
+        else:
+            logger.warning(
+                "No candidates produced results after %d retries — moving on",
+                gen_retries,
+            )
+            state._gen_retries = 0
+
+    # Reset retry counter on successful iteration
+    if hasattr(state, "_gen_retries"):
+        state._gen_retries = 0
 
     # Decide next phase
     if state.iteration + 1 >= config.max_iterations:
@@ -1750,73 +1814,3 @@ def phase_analysis(
         state.phase = Phase.STRATEGY_GEN
 
 
-def phase_evolve(
-    state: MinerState,
-    config: MinerConfig,
-    run_dir: Path,
-    elite_codes: Optional[List[str]] = None,
-) -> Optional[StrategyCandidate]:
-    """Evolve the best candidate through mutation/crossover.
-
-    Returns a new evolved candidate or None.
-    This phase is optional and can be inserted between ANALYSIS and STRATEGY_GEN.
-    """
-    if state.best_candidate is None:
-        logger.info("No best candidate to evolve, skipping")
-        return None
-
-    code = state.best_candidate.code
-    evolved_code, ops = evolve_strategy(
-        code,
-        elite_codes=elite_codes,
-        mutation_intensity=config.mutation_intensity,
-        indicator_swaps=1,
-        crossover_prob=config.crossover_prob if elite_codes else 0.0,
-    )
-
-    if "no_change" in ops and len(ops) == 1:
-        logger.info("Evolution produced no changes")
-        return None
-
-    logger.info("Evolution applied: %s", ", ".join(ops))
-
-    evolved_name = f"{state.best_candidate.name}_evolved_{state.iteration}"
-    base_name = infer_strategy_class_name(evolved_code) or state.best_candidate.name
-    if base_name != evolved_name:
-        evolved_code = _rewrite_strategy_class_name(evolved_code, old=base_name, new=evolved_name)
-
-    # Validate evolved code
-    passed, msg = validate_strategy_code(evolved_code)
-    if not passed:
-        logger.warning("Evolved strategy failed validation: %s", msg)
-        return None
-
-    # Write evolved strategy to sandbox (legacy path, no variant)
-    sandbox = prepare_sandbox(config, run_dir, state.iteration)
-    strategies_dir = sandbox / "user_data" / "strategies"
-    evolved_path = strategies_dir / f"{evolved_name}.py"
-    evolved_path.write_text(evolved_code, encoding="utf-8")
-
-    candidate = StrategyCandidate(
-        name=evolved_name,
-        code=evolved_code,
-        strategy_path=evolved_path,
-        iteration=state.iteration,
-        validation_passed=True,
-    )
-    state.candidates.append(candidate)
-
-    try:
-        from .artifacts import write_candidate_snapshot
-
-        write_candidate_snapshot(run_dir, candidate)
-    except Exception:
-        logger.debug("Candidate snapshot write failed", exc_info=True)
-
-    logger.info(
-        "Evolved candidate: %s (%d bytes, ops=%s)",
-        evolved_name,
-        len(evolved_code),
-        ops,
-    )
-    return candidate

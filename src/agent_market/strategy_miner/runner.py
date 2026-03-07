@@ -15,7 +15,6 @@ from .phases import (
     phase_analysis,
     phase_backtest,
     phase_evaluation,
-    phase_evolve,
     phase_strategy_gen,
 )
 
@@ -67,13 +66,21 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState) -> None:
         cand = state.candidates[-1]
 
     if cand.reward is not None and cand.backtest_summary is not None:
-        kb.add_elite(
-            name=cand.name,
-            code=cand.code,
-            reward=cand.reward,
-            backtest_summary=cand.backtest_summary,
-            iteration=state.iteration,
-        )
+        if getattr(cand, "constraints_ok", True):
+            kb.add_elite(
+                name=cand.name,
+                code=cand.code,
+                reward=cand.reward,  # stores Sharpe
+                backtest_summary=cand.backtest_summary,
+                iteration=state.iteration,
+            )
+        else:
+            kb.add_failure(
+                name=cand.name,
+                iteration=state.iteration,
+                failure_type="constraint_violation",
+                detail=f"Constraint violations: {', '.join(cand.constraint_violations or [])}",
+            )
     elif cand.diagnosis:
         failure_type = "validation" if not cand.validation_passed else "backtest"
         kb.add_failure(
@@ -82,18 +89,6 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState) -> None:
             failure_type=failure_type,
             detail=cand.diagnosis,
         )
-
-
-def _should_evolve(config: MinerConfig, state: MinerState) -> bool:
-    """Decide whether to attempt evolution this iteration."""
-
-    if not config.evolve_enabled:
-        return False
-    if state.best_candidate is None:
-        return False
-    if state.iteration < 1:
-        return False
-    return state.iteration % config.evolve_every_n == 0
 
 
 def run_strategy_miner(
@@ -105,9 +100,7 @@ def run_strategy_miner(
     """Run the strategy mining loop.
 
     State machine flow:
-        STRATEGY_GEN → BACKTEST → EVALUATION → ANALYSIS → EVOLVE → STRATEGY_GEN
-                                                             ↓ (if evolve succeeds)
-                                                          BACKTEST (evolved candidate)
+        STRATEGY_GEN → BACKTEST → EVALUATION → ANALYSIS → STRATEGY_GEN
 
     Args:
         config: Mining configuration.
@@ -177,38 +170,19 @@ def run_strategy_miner(
                         except Exception:
                             pass
 
-                # After analysis, decide: evolve or next iteration
-                if state.phase == Phase.STRATEGY_GEN and _should_evolve(config, state):
-                    state.phase = Phase.EVOLVE
-
-            elif state.phase == Phase.EVOLVE:
-                elite_codes = kb.top_elite_codes(3)
-                evolved = phase_evolve(
-                    state,
-                    config,
-                    miner_dir,
-                    elite_codes=elite_codes,
-                )
-                if evolved is not None:
-                    # Evolved candidate ready → go to backtest
-                    state.phase = Phase.BACKTEST
-                    logger.info("Evolve succeeded, proceeding to backtest evolved candidate")
-                else:
-                    # Evolve failed → proceed to normal strategy gen
-                    state.phase = Phase.STRATEGY_GEN
-                    logger.info("Evolve produced nothing, falling back to strategy gen")
-
             _save_checkpoint(state, miner_dir)
 
+        best_summary = state.best_candidate.backtest_summary if state.best_candidate else {}
         logger.info(
-            "Mining complete: run_id=%s iterations=%d best_reward=%.4f",
+            "Mining complete: run_id=%s iterations=%d best_sharpe=%.4f best_profit=%.2f%%",
             state.run_id,
             state.iteration,
-            state.best_reward,
+            state.best_score,
+            float((best_summary or {}).get("profit_total_pct") or 0),
         )
         if state.best_candidate:
             logger.info(
-                "Best strategy: %s (reward=%.4f)",
+                "Best strategy: %s (sharpe=%.4f)",
                 state.best_candidate.name,
                 state.best_candidate.reward or 0,
             )

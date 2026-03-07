@@ -65,11 +65,13 @@ def test_miner_config_nested_sections():
 
 
 
-def test_miner_config_max_retries_default():
+def test_miner_config_defaults():
     from agent_market.strategy_miner.dtypes import MinerConfig
 
     cfg = MinerConfig()
     assert cfg.max_retries == 2
+    assert cfg.max_parallel_roles == 1
+    assert cfg.max_drawdown_pct == 0.0
 
 
 def test_miner_config_max_retries_override():
@@ -90,7 +92,7 @@ def test_miner_state_roundtrip():
     )
     state.candidates.append(candidate)
     state.best_candidate = candidate
-    state.best_reward = 0.42
+    state.best_score = 0.42
 
     d = state.to_dict()
     j = json.dumps(d)
@@ -98,9 +100,25 @@ def test_miner_state_roundtrip():
     assert state2.run_id == state.run_id
     assert state2.phase == Phase.BACKTEST
     assert state2.iteration == 2
-    assert state2.best_reward == 0.42
+    assert state2.best_score == 0.42
     assert state2.best_candidate.name == "TestStrat"
     assert len(state2.candidates) == 1
+
+
+def test_miner_state_backward_compat_best_reward():
+    """Old checkpoints with 'best_reward' should load into best_score."""
+    from agent_market.strategy_miner.dtypes import MinerState, Phase
+
+    old_data = {
+        "run_id": "abc123",
+        "phase": "strategy_gen",
+        "iteration": 1,
+        "best_reward": 0.75,
+        "candidates": [],
+        "history": [],
+    }
+    state = MinerState.from_dict(old_data)
+    assert state.best_score == 0.75
 
 
 # ---------------------------------------------------------------------------
@@ -108,60 +126,11 @@ def test_miner_state_roundtrip():
 # ---------------------------------------------------------------------------
 
 
-def test_compute_reward_basic():
-    from agent_market.strategy_miner.grading import compute_reward
+def test_compute_factor_score_none_inputs():
+    from agent_market.strategy_miner.grading import compute_factor_score
 
-    summary = {
-        "profit_total_pct": 10.0,
-        "trades": 50,
-        "winrate": 0.6,
-        "max_drawdown_abs": -5.0,
-        "avg_profit_pct": 0.5,
-    }
-    weights = {
-        "sharpe": 0.3, "profit_pct": 0.2, "max_drawdown": 0.15,
-        "winrate": 0.1, "trade_count": 0.05, "stability": 0.1,
-    }
-    reward, comps = compute_reward(summary, weights)
-    assert -1.0 <= reward <= 1.0
-    assert "sharpe" in comps
-    assert "profit_pct" in comps
-
-
-def test_compute_reward_edge_cases():
-    from agent_market.strategy_miner.grading import compute_reward
-
-    # Zero trades
-    summary = {"profit_total_pct": 0, "trades": 0, "winrate": 0, "max_drawdown_abs": 0, "avg_profit_pct": 0}
-    weights = {"sharpe": 1.0}
-    reward, _ = compute_reward(summary, weights)
-    assert -1.0 <= reward <= 1.0
-
-    # None values
-    summary = {}
-    reward, _ = compute_reward(summary, {"profit_pct": 1.0})
-    assert reward == 0.0
-
-
-def test_enhanced_reward_without_factors():
-    from agent_market.strategy_miner.grading import compute_enhanced_reward
-
-    summary = {"profit_total_pct": 10.0, "trades": 50, "winrate": 0.6, "max_drawdown_abs": -5.0, "avg_profit_pct": 0.5}
-    weights = {"sharpe": 0.3, "profit_pct": 0.2}
-    reward, comps = compute_enhanced_reward(summary, weights)
-    assert -1.0 <= reward <= 1.0
-    assert "factor_quality" not in comps  # no factor scores
-
-
-def test_enhanced_reward_with_factors():
-    from agent_market.strategy_miner.grading import compute_enhanced_reward
-
-    summary = {"profit_total_pct": 10.0, "trades": 50, "winrate": 0.6, "max_drawdown_abs": -5.0, "avg_profit_pct": 0.5}
-    weights = {"sharpe": 0.3, "profit_pct": 0.2}
-    factor_scores = {"best_ic": 0.05, "best_sharpe": 1.5}
-    reward, comps = compute_enhanced_reward(summary, weights, factor_scores=factor_scores)
-    assert -1.0 <= reward <= 1.0
-    assert "factor_quality" in comps
+    assert compute_factor_score() is None
+    assert compute_factor_score(features_parquet=None, expression="x") is None
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +143,7 @@ def test_validate_strategy_code_pass():
 
     code = """
 from freqtrade.strategy import IStrategy
-import talib.abstract as ta
+import pandas_ta as ta
 
 class MyStrategy(IStrategy):
     timeframe = "5m"
@@ -307,66 +276,6 @@ def test_knowledge_base_roundtrip():
         assert kb2.to_dict()["top_reward"] == 0.8
 
 
-# ---------------------------------------------------------------------------
-# evolution
-# ---------------------------------------------------------------------------
-
-
-def test_mutate_parameters():
-    from agent_market.strategy_miner.evolution import mutate_parameters
-
-    code = """
-class MyStrategy(IStrategy):
-    stoploss = -0.10
-    minimal_roi = 0.05
-    buy_rsi_threshold = 30
-"""
-    mutated = mutate_parameters(code, intensity=1.0)
-    # At least some parameter should change
-    assert isinstance(mutated, str)
-    assert "class MyStrategy" in mutated
-
-
-def test_mutate_indicators():
-    from agent_market.strategy_miner.evolution import mutate_indicators
-
-    code = """
-        dataframe['rsi'] = ta.RSI(dataframe, timeperiod=14)
-        dataframe['sma'] = ta.SMA(dataframe, timeperiod=20)
-"""
-    mutated = mutate_indicators(code, n_swaps=2)
-    assert isinstance(mutated, str)
-
-
-def test_evolve_strategy():
-    from agent_market.strategy_miner.evolution import evolve_strategy
-
-    code = """
-from freqtrade.strategy import IStrategy
-import talib.abstract as ta
-
-class TestStrat(IStrategy):
-    stoploss = -0.10
-    minimal_roi = 0.05
-    timeframe = "5m"
-
-    def populate_indicators(self, dataframe, metadata):
-        dataframe['rsi'] = ta.RSI(dataframe, timeperiod=14)
-        return dataframe
-
-    def populate_entry_trend(self, dataframe, metadata):
-        dataframe.loc[dataframe['rsi'] < 30, 'enter_long'] = 1
-        return dataframe
-
-    def populate_exit_trend(self, dataframe, metadata):
-        dataframe.loc[dataframe['rsi'] > 70, 'exit_long'] = 1
-        return dataframe
-"""
-    evolved, ops = evolve_strategy(code, mutation_intensity=1.0, indicator_swaps=1)
-    assert isinstance(evolved, str)
-    assert isinstance(ops, list)
-    assert len(ops) >= 1
-
 
 # ---------------------------------------------------------------------------
 # prompts
@@ -382,7 +291,7 @@ def test_build_strategy_gen_prompt():
         freqtrade_config="config.json",
         timerange="20250101-20260101",
         history=[],
-        best_reward=float("-inf"),
+        best_score=float("-inf"),
     )
     assert "IStrategy" in p
     assert "Iteration 0" in p
@@ -394,46 +303,89 @@ def test_build_analysis_prompt():
     p = build_analysis_prompt(
         strategy_code="class X: pass",
         backtest_summary={"profit_total_pct": 5.0, "trades": 30},
-        reward=0.5,
-        reward_components={"sharpe": 0.3},
+        metrics={"sharpe": 1.2, "sortino": 1.5},
     )
-    assert "diagnosis" in p.lower()
+    assert "JSON" in p
+    assert "strengths" in p
+    assert "verdict" in p
 
 
-# ---------------------------------------------------------------------------
-# Phase.EVOLVE in dtypes
-# ---------------------------------------------------------------------------
+def test_strategy_gen_prompt_openai_compatible_no_tool_tags():
+    from agent_market.strategy_miner.prompts import build_strategy_gen_prompt
+
+    p = build_strategy_gen_prompt(
+        iteration=0,
+        sandbox_path="/tmp/sandbox",
+        freqtrade_config="config.json",
+        timerange="20250101-20260101",
+        history=[],
+        best_score=float("-inf"),
+        provider="openai_compatible",
+    )
+    assert "You MAY use tool-call tags" not in p
+    assert "single Python code block" in p
 
 
-def test_phase_evolve_enum():
-    from agent_market.strategy_miner.dtypes import Phase
+def test_strategy_gen_prompt_opencode_has_tool_tags():
+    from agent_market.strategy_miner.prompts import build_strategy_gen_prompt
 
-    assert Phase.EVOLVE.value == "evolve"
-    # Roundtrip
-    assert Phase("evolve") == Phase.EVOLVE
-
-
-def test_miner_config_evolve_fields():
-    from agent_market.strategy_miner.dtypes import MinerConfig
-
-    cfg = MinerConfig.from_dict({"evolve_enabled": False, "evolve_every_n": 3})
-    assert cfg.evolve_enabled is False
-    assert cfg.evolve_every_n == 3
-    # Defaults
-    cfg2 = MinerConfig()
-    assert cfg2.evolve_enabled is True
-    assert cfg2.mutation_intensity == 0.3
+    p = build_strategy_gen_prompt(
+        iteration=0,
+        sandbox_path="/tmp/sandbox",
+        freqtrade_config="config.json",
+        timerange="20250101-20260101",
+        history=[],
+        best_score=float("-inf"),
+        provider="opencode",
+    )
+    assert "<write" in p or "tool-call tags" in p
 
 
-def test_miner_state_evolve_roundtrip():
-    """Verify EVOLVE phase survives serialization."""
-    from agent_market.strategy_miner.dtypes import MinerState, Phase
+def test_strategy_gen_prompt_market_orders_advice():
+    from agent_market.strategy_miner.prompts import build_strategy_gen_prompt
 
-    state = MinerState()
-    state.phase = Phase.EVOLVE
-    d = state.to_dict()
-    state2 = MinerState.from_dict(d)
-    assert state2.phase == Phase.EVOLVE
+    p = build_strategy_gen_prompt(
+        iteration=0,
+        sandbox_path="/tmp/sandbox",
+        freqtrade_config="config.json",
+        timerange="20250101-20260101",
+        history=[],
+        best_score=float("-inf"),
+    )
+    assert "market" in p.lower()
+
+
+def test_strategy_gen_prompt_market_profile():
+    from agent_market.strategy_miner.prompts import build_strategy_gen_prompt
+
+    p = build_strategy_gen_prompt(
+        iteration=0,
+        sandbox_path="/tmp/sandbox",
+        freqtrade_config="config.json",
+        timerange="20250101-20260101",
+        history=[],
+        best_score=float("-inf"),
+        market_profile="- Trading pairs: BTC/USDT\n- Stake currency: USDT",
+    )
+    assert "Market Profile" in p
+    assert "BTC/USDT" in p
+
+
+def test_repair_prompt_openai_compatible_no_tool_tags():
+    from agent_market.strategy_miner.prompts import build_repair_prompt
+
+    p = build_repair_prompt(
+        sandbox_path="/tmp/sandbox",
+        strategy_rel_path="user_data/strategies/Foo.py",
+        freqtrade_config="config.json",
+        timerange="20250101-20260101",
+        failure="Syntax error",
+        attempt=1,
+        max_attempts=3,
+        provider="openai_compatible",
+    )
+    assert "Start by reading" not in p
+    assert "single Python code block" in p
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +406,7 @@ def test_prompt_with_kb_context():
         freqtrade_config="config.json",
         timerange="20250101-20260101",
         history=[],
-        best_reward=0.8,
+        best_score=0.8,
         elite_summaries=elites,
         failure_summary=failure_summary,
     )
@@ -473,7 +425,7 @@ def test_prompt_without_kb_context():
         freqtrade_config="config.json",
         timerange="20250101-20260101",
         history=[],
-        best_reward=float("-inf"),
+        best_score=float("-inf"),
         elite_summaries=None,
         failure_summary=None,
     )
@@ -502,7 +454,7 @@ def test_kb_feeds_into_prompt():
             freqtrade_config="cfg.json",
             timerange="20250101-20260101",
             history=[],
-            best_reward=0.9,
+            best_score=0.9,
             elite_summaries=kb.elites[:3],
             failure_summary=kb.failure_summary(5),
         )
@@ -519,11 +471,8 @@ def test_all_imports():
     """Ensure the full module tree is importable."""
     from agent_market.strategy_miner import KnowledgeBase, MinerConfig, MinerState, Phase, StrategyCandidate, run_strategy_miner
     from agent_market.strategy_miner.agent_adapter import StrategyAgent
-    from agent_market.strategy_miner.evolution import evolve_strategy, mutate_parameters
-    from agent_market.strategy_miner.grading import compute_enhanced_reward, compute_factor_score
-    from agent_market.strategy_miner.phases import phase_evolve
+    from agent_market.strategy_miner.grading import compute_factor_score
     from agent_market.strategy_miner.sandbox import validate_strategy_code
-    assert Phase.EVOLVE.value == "evolve"
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +563,7 @@ def test_agent_adapter_no_model_errors_in_no_template_mode():
 
     with patch.dict(os.environ, {}, clear=True):
         with tempfile.TemporaryDirectory() as td:
-            with pytest.raises(ValueError, match="No usable LLM provider"):
+            with pytest.raises(ValueError, match="model"):
                 StrategyAgent(workspace=Path(td))
 
 

@@ -1,14 +1,13 @@
 """Provider-agnostic agent adapter for strategy mining.
 
-Primary provider: OpenCode client (tool-calling loop).
-Fallbacks:
+Providers:
+- OpenCode client (tool-calling loop)
 - OpenAI-compatible chat completion (no tools)
 
 The adapter is intentionally lightweight: phases own the state machine.
 
 Recovery hardening:
 - Robust code extraction from tool-tag / markdown outputs.
-- Provider fallback chain: opencode -> openai-compatible (glm-4-flash) (no template).
 """
 
 from __future__ import annotations
@@ -22,9 +21,7 @@ from typing import Any, Callable, Optional
 from agent_market.agents.executor import (
     AgentExecutor,
     AgentRunResult,
-    HeuristicExecutor,
     OpenAIChatExecutor,
-    OpenCodeCliExecutor,
     OpenCodeExecutor,
 )
 
@@ -168,7 +165,7 @@ def _infer_strategy_class_name(code: str) -> str | None:
 
 
 class StrategyAgent:
-    """Strategy-miner agent wrapper with graceful fallback."""
+    """Strategy-miner agent wrapper (OpenCode or OpenAI-compatible)."""
 
     def __init__(
         self,
@@ -180,46 +177,23 @@ class StrategyAgent:
         max_retries: int = 2,
         provider: str = "auto",
         tool_policy: Any | None = None,
-        openai_fallback_model: str = "glm-4-flash",
     ) -> None:
         self._workspace = Path(workspace)
         self._provider = (provider or "auto").strip().lower()
         self._max_retries = max(0, int(max_retries))
-        self._openai_fallback_model = str(openai_fallback_model or "").strip() or "glm-4-flash"
         self._closed = False
 
         self._executor: AgentExecutor
         self._executor_info: dict[str, Any] = {}
 
-        if self._provider == "template":
-            raise ValueError(
-                "provider=template is disabled for strategy_miner (no-template enforced). "
-                "Use provider=opencode, provider=opencode_cli, provider=heuristic, or provider=openai_compatible."
-            )
-
-        # Heuristic offline mode (no external LLM)
-        if self._provider == "heuristic":
-            self._executor = HeuristicExecutor(repo=self._workspace)
-            self._executor_info = {"provider": "heuristic"}
-            logger.info("StrategyAgent provider=heuristic workspace=%s", self._workspace)
+        # 1) OpenAI-compatible chat completion
+        if self._provider in ("openai", "openai_compatible"):
+            self._executor = self._build_openai_executor(model, base_url)
+            self._executor_info = {"provider": "openai_compatible"}
+            logger.info("StrategyAgent provider=openai_compatible workspace=%s", self._workspace)
             return
 
-
-        # 0) OpenCode CLI mode (no local server)
-        if self._provider == "opencode_cli":
-            self._executor = OpenCodeCliExecutor(
-                repo=self._workspace,
-                model=model,
-                max_retries=max_retries,
-                timeout_seconds=600,
-            )
-            self._executor_info = {"provider": "opencode_cli"}
-            logger.info("StrategyAgent provider=opencode_cli workspace=%s", self._workspace)
-            return
-
-
-
-        # 1) Prefer OpenCode (tool loop) if possible.
+        # 2) OpenCode (tool loop) — explicit or auto
         if self._provider in ("auto", "opencode"):
             try:
                 self._executor = OpenCodeExecutor(
@@ -238,57 +212,58 @@ class StrategyAgent:
             except Exception as exc:
                 if self._provider == "opencode":
                     raise
-                logger.warning("OpenCode unavailable, falling back: %s", exc)
+                logger.warning("OpenCode unavailable, trying openai_compatible: %s", exc)
 
-        # 2) Fallback: OpenAI-compatible chat completion.
-        if self._provider in ("auto", "openai", "openai_compatible"):
-            openai_exec = self._build_openai_executor()
-            if openai_exec is not None:
-                self._executor = openai_exec
+        # 3) Auto fallback to OpenAI-compatible
+        if self._provider == "auto":
+            try:
+                self._executor = self._build_openai_executor(model, base_url)
                 self._executor_info = {"provider": "openai_compatible"}
-                logger.info("StrategyAgent provider=openai_compatible workspace=%s", self._workspace)
+                logger.info("StrategyAgent provider=openai_compatible (fallback) workspace=%s", self._workspace)
                 return
+            except Exception as exc:
+                logger.warning("OpenAI-compatible also unavailable: %s", exc)
 
-            if self._provider in ("openai", "openai_compatible"):
-                raise ValueError(
-                    "OpenAI-compatible provider requested but missing credentials. "
-                    "Set LLM_API_KEY (or OPENAI_API_KEY)."
-                )
         raise ValueError(
-            "No usable LLM provider available for strategy_miner (no-template enforced). "
-            "Provide an OpenCode model (MinerConfig.model / OPENCODE_MODEL) "
-            "or set OpenAI-compatible credentials (LLM_API_KEY / OPENAI_API_KEY)."
+            "No usable LLM provider available. "
+            "Provide an OpenCode model (OPENCODE_MODEL) "
+            "or set OpenAI-compatible credentials (OPENAI_API_KEY / LLM_API_KEY)."
         )
 
-    def _build_openai_executor(self) -> OpenAIChatExecutor | None:
+    def _build_openai_executor(self, model: str = "", base_url: Optional[str] = None) -> OpenAIChatExecutor:
         api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
         if not api_key.strip():
-            return None
+            raise ValueError("OpenAI-compatible api_key is required (LLM_API_KEY or OPENAI_API_KEY).")
+
+        # Multi-URL support: LLM_BASE_URLS (comma-separated) takes priority
+        base_urls_env = os.environ.get("LLM_BASE_URLS", "").strip()
+        base_urls: list[str] | None = None
+        if base_urls_env:
+            base_urls = [u.strip() for u in base_urls_env.split(",") if u.strip()]
 
         llm_base_url = (
-            os.environ.get("LLM_BASE_URL")
+            base_url
+            or os.environ.get("LLM_BASE_URL")
             or os.environ.get("OPENAI_BASE_URL")
             or os.environ.get("OPENAI_API_BASE")
-            or ""
+            or "https://api.openai.com/v1"
         )
-        llm_model = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
-        model = (llm_model or self._openai_fallback_model).strip() or self._openai_fallback_model
+        llm_model = model or os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or ""
+        if not llm_model.strip():
+            raise ValueError("OpenAI-compatible model is required.")
 
-        try:
-            return OpenAIChatExecutor(
-                base_url=llm_base_url or "https://api.openai.com/v1",
-                api_key=api_key,
-                model=model,
-                system_prompt=(
-                    "You are a senior quantitative strategy engineer. "
-                    "Reply with concise, correct output."
-                ),
-                retries=self._max_retries,
-                timeout_seconds=60,
-            )
-        except Exception as exc:
-            logger.warning("OpenAI-compatible fallback unavailable: %s", exc)
-            return None
+        return OpenAIChatExecutor(
+            base_url=llm_base_url,
+            base_urls=base_urls,
+            api_key=api_key,
+            model=llm_model,
+            system_prompt=(
+                "You are a senior quantitative strategy engineer. "
+                "Reply with concise, correct output."
+            ),
+            retries=self._max_retries,
+            timeout_seconds=60,
+        )
 
     def run_result(
         self,
@@ -298,28 +273,7 @@ class StrategyAgent:
         """Run the underlying provider once and return a rich result."""
         if self._closed:
             raise RuntimeError("StrategyAgent is already closed")
-        try:
-            result: AgentRunResult = self._executor.run(prompt, on_turn=on_turn)
-            return result
-        except Exception as exc:
-            # Graceful fallback when OpenCode is selected but unavailable at runtime
-            # (e.g. server crash, stale timeout).
-            if self._provider == "opencode":
-                raise
-            if not isinstance(self._executor, OpenCodeExecutor):
-                raise
-            logger.warning("OpenCode run failed, falling back: %s", exc)
-
-            openai_exec = self._build_openai_executor()
-            if openai_exec is not None:
-                try:
-                    self._executor = openai_exec
-                    result2: AgentRunResult = self._executor.run(prompt, on_turn=on_turn)
-                    return result2
-                except Exception as exc2:
-                    logger.warning("OpenAI-compatible fallback failed: %s", exc2)
-
-            raise RuntimeError(f"StrategyAgent.run failed: {exc}") from exc
+        return self._executor.run(prompt, on_turn=on_turn)
 
     def run(
         self,
@@ -337,11 +291,7 @@ class StrategyAgent:
         on_result: Optional[Callable[[AgentRunResult], None]] = None,
         filename_hint: str | None = None,
     ) -> Path | None:
-        """Generate a strategy and ensure a .py file is created in the sandbox.
-
-        If the active provider cannot produce a usable artifact, fall back in order:
-        opencode -> openai-compatible.
-        """
+        """Generate a strategy and ensure a .py file is created in the sandbox."""
         if self._closed:
             raise RuntimeError("StrategyAgent is already closed")
         strategies_dir = self._workspace / "user_data" / "strategies"
@@ -371,8 +321,6 @@ class StrategyAgent:
                 ],
                 key=lambda p: p.stat().st_mtime,
             )
-
-        attempted_openai = False
 
         for _ in range(3):
             before_mtime = _snapshot_mtime()
@@ -431,15 +379,6 @@ class StrategyAgent:
                         return out_path
                 except Exception:
                     logger.debug("Strict generate retry failed", exc_info=True)
-
-            # No usable artifact produced: fall back provider chain.
-            if isinstance(self._executor, OpenCodeExecutor) and not attempted_openai:
-                openai_exec = self._build_openai_executor()
-                attempted_openai = True
-                if openai_exec is not None:
-                    self._executor = openai_exec
-                    self._executor_info = {"provider": "openai_compatible"}
-                    continue
 
             break
 

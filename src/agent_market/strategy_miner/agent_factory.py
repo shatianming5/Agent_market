@@ -42,5 +42,4 @@ def build_strategy_agent(config: MinerConfig, workspace: Path) -> StrategyAgent:
         max_retries=config.max_retries,
         provider=config.provider,
         tool_policy=tool_policy,
-        openai_fallback_model=str(getattr(config, "openai_fallback_model", "glm-4-flash") or "glm-4-flash"),
     )

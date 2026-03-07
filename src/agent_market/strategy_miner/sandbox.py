@@ -17,8 +17,8 @@ _FREQTRADE_REQUIRED_ORDERTYPES = ("entry", "exit", "stoploss", "stoploss_on_exch
 _FREQTRADE_REQUIRED_ORDERTIF = ("entry", "exit")
 
 _DEFAULT_ORDER_TYPES: dict[str, object] = {
-    "entry": "limit",
-    "exit": "limit",
+    "entry": "market",
+    "exit": "market",
     "stoploss": "market",
     "stoploss_on_exchange": False,
 }
@@ -41,6 +41,7 @@ _FORBIDDEN_IMPORTS = frozenset(
         "xmlrpc",
         "shutil",
         "pathlib",
+        "talib",
     }
 )
 
@@ -226,6 +227,35 @@ def auto_fix_strategy_code(code: str) -> tuple[str, list[str]]:
         if updated != out:
             out = updated
             fixes.append("fix_inheritance_strategy_to_istrategy")
+
+    # 6) Replace talib imports with pandas_ta (talib is not installed).
+    if re.search(r"^\s*(import\s+talib|from\s+talib)", out, re.MULTILINE):
+        # Replace common talib import patterns
+        out = re.sub(
+            r"^\s*import\s+talib\.abstract\s+as\s+(\w+)\s*$",
+            r"import pandas_ta as \1",
+            out,
+            flags=re.MULTILINE,
+        )
+        out = re.sub(
+            r"^\s*import\s+talib\s+as\s+(\w+)\s*$",
+            r"import pandas_ta as \1",
+            out,
+            flags=re.MULTILINE,
+        )
+        out = re.sub(
+            r"^\s*from\s+talib\.abstract\s+import\s+.*$",
+            "import pandas_ta as ta",
+            out,
+            flags=re.MULTILINE,
+        )
+        out = re.sub(
+            r"^\s*from\s+talib\s+import\s+.*$",
+            "import pandas_ta as ta",
+            out,
+            flags=re.MULTILINE,
+        )
+        fixes.append("replace_talib_with_pandas_ta")
 
     return out, fixes
 

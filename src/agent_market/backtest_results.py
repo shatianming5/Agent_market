@@ -96,6 +96,13 @@ def build_backtest_summary(zip_path: Path) -> Dict[str, Any]:
     max_drawdown_abs = strategy_metrics.get("max_drawdown_abs")
     if max_drawdown_abs is None and comparison_row is not None:
         max_drawdown_abs = comparison_row.get("max_drawdown_abs")
+    # Backtest duration in days (for trades_per_day)
+    _trades_per_day = None
+    if trades_count is not None:
+        _dur = as_float(strategy_metrics.get("backtest_days"))
+        if _dur and _dur > 0:
+            _trades_per_day = round(trades_count / _dur, 4)
+
     return {
         "source": zip_path.name,
         "strategy": strategy_name,
@@ -105,6 +112,26 @@ def build_backtest_summary(zip_path: Path) -> Dict[str, Any]:
         "avg_profit_pct": as_float(avg_profit_pct),
         "winrate": as_float(winrate),
         "max_drawdown_abs": as_float(max_drawdown_abs),
+        # Professional quant metrics (freqtrade native)
+        "sharpe": as_float(strategy_metrics.get("sharpe")),
+        "sortino": as_float(strategy_metrics.get("sortino")),
+        "calmar": as_float(strategy_metrics.get("calmar")),
+        "profit_factor": as_float(strategy_metrics.get("profit_factor")),
+        "expectancy": as_float(strategy_metrics.get("expectancy")),
+        "expectancy_ratio": as_float(strategy_metrics.get("expectancy_ratio")),
+        "sqn": as_float(strategy_metrics.get("sqn")),
+        "cagr": as_float(strategy_metrics.get("cagr")),
+        "max_drawdown_account": as_float(strategy_metrics.get("max_drawdown_account")),
+        "trades_per_day": _trades_per_day,
+        "max_consecutive_wins": _as_int(strategy_metrics.get("max_consecutive_wins")),
+        "max_consecutive_losses": _as_int(strategy_metrics.get("max_consecutive_losses")),
+        "holding_avg_s": as_float(strategy_metrics.get("holding_avg_s")),
+        "draw_days": _as_int(strategy_metrics.get("draw_days")),
+        "winning_days": _as_int(strategy_metrics.get("winning_days")),
+        "losing_days": _as_int(strategy_metrics.get("losing_days")),
+        "profit_median": as_float(strategy_metrics.get("profit_median")),
+        "market_change": as_float(strategy_metrics.get("market_change")),
+        # Context
         "best_pair": strategy_metrics.get("best_pair", {}).get("key"),
         "worst_pair": strategy_metrics.get("worst_pair", {}).get("key"),
         "backtest_timerange": f"{strategy_metrics.get('backtest_start')} -> {strategy_metrics.get('backtest_end')}",

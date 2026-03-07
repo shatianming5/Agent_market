@@ -13,54 +13,6 @@ from agent_market.strategy_miner.knowledge_base import KnowledgeBase
 
 
 # ---------------------------------------------------------------------------
-# _should_evolve
-# ---------------------------------------------------------------------------
-
-
-def test_should_evolve_disabled():
-    from agent_market.strategy_miner.runner import _should_evolve
-
-    config = MinerConfig(evolve_enabled=False)
-    state = MinerState(iteration=2)
-    state.best_candidate = StrategyCandidate("S", "code", Path("/tmp/x.py"))
-    assert _should_evolve(config, state) is False
-
-
-def test_should_evolve_no_best():
-    from agent_market.strategy_miner.runner import _should_evolve
-
-    config = MinerConfig(evolve_enabled=True)
-    state = MinerState(iteration=2)
-    assert _should_evolve(config, state) is False
-
-
-def test_should_evolve_first_iteration():
-    from agent_market.strategy_miner.runner import _should_evolve
-
-    config = MinerConfig(evolve_enabled=True, evolve_every_n=2)
-    state = MinerState(iteration=0)
-    state.best_candidate = StrategyCandidate("S", "code", Path("/tmp/x.py"))
-    assert _should_evolve(config, state) is False
-
-
-def test_should_evolve_every_n():
-    from agent_market.strategy_miner.runner import _should_evolve
-
-    config = MinerConfig(evolve_enabled=True, evolve_every_n=2)
-    state = MinerState()
-    state.best_candidate = StrategyCandidate("S", "code", Path("/tmp/x.py"))
-
-    state.iteration = 1
-    assert _should_evolve(config, state) is False
-    state.iteration = 2
-    assert _should_evolve(config, state) is True
-    state.iteration = 3
-    assert _should_evolve(config, state) is False
-    state.iteration = 4
-    assert _should_evolve(config, state) is True
-
-
-# ---------------------------------------------------------------------------
 # Checkpoint save/load
 # ---------------------------------------------------------------------------
 
@@ -73,7 +25,7 @@ def test_checkpoint_roundtrip():
         state = MinerState()
         state.phase = Phase.EVALUATION
         state.iteration = 3
-        state.best_reward = 0.75
+        state.best_score = 0.75
 
         _save_checkpoint(state, run_dir)
 
@@ -84,7 +36,7 @@ def test_checkpoint_roundtrip():
         assert loaded.run_id == state.run_id
         assert loaded.phase == Phase.EVALUATION
         assert loaded.iteration == 3
-        assert loaded.best_reward == 0.75
+        assert loaded.best_score == 0.75
 
 
 def test_checkpoint_atomic_write():
@@ -147,6 +99,26 @@ def test_update_kb_no_candidates():
         _update_knowledge_base(kb, state)
         assert len(kb.elites) == 0
         assert len(kb.failures) == 0
+
+
+def test_update_kb_constraint_violated_goes_to_failures():
+    """Candidates that violate constraints should go to failures, not elites."""
+    from agent_market.strategy_miner.runner import _update_knowledge_base
+
+    with tempfile.TemporaryDirectory() as td:
+        kb = KnowledgeBase(Path(td) / "kb.json")
+        state = MinerState()
+        c = StrategyCandidate("Constrained", "code", Path("/tmp/x.py"))
+        c.reward = 0.5
+        c.backtest_summary = {"profit_total_pct": 5, "trades": 3}
+        c.constraints_ok = False
+        c.constraint_violations = ["min_trades:3<10"]
+        state.candidates.append(c)
+
+        _update_knowledge_base(kb, state)
+        assert len(kb.elites) == 0
+        assert len(kb.failures) == 1
+        assert kb.failures[0]["failure_type"] == "constraint_violation"
 
 
 # ---------------------------------------------------------------------------

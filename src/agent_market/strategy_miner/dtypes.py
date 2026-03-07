@@ -13,30 +13,24 @@ class Phase(Enum):
     BACKTEST = "backtest"
     EVALUATION = "evaluation"
     ANALYSIS = "analysis"
-    EVOLVE = "evolve"
     COMPLETE = "complete"
 
 
 @dataclass
 class MinerConfig:
     # Agent provider
-    provider: str = "auto"  # auto|opencode|opencode_cli|heuristic|openai_compatible
-
+    provider: str = "auto"  # auto|opencode|openai_compatible
 
     # Multi-agent (planner/coder/reviewer) generation pipeline
     multiagent_enabled: bool = True
     multiagent_refine_rounds: int = 1  # reviewer->coder refinement loops per candidate
-
 
     # Multi-candidate generation
     candidates_per_iteration: int = 1
 
     # Concurrency controls (0=auto)
     max_parallel_candidates: int = 0
-    max_parallel_roles: int = 2
-
-    # OpenAI-compatible fallback (used when opencode fails)
-    openai_fallback_model: str = "glm-4-flash"
+    max_parallel_roles: int = 1
 
     # Agent budget / retries
     model: str = ""  # primary model name (opencode)
@@ -76,27 +70,10 @@ class MinerConfig:
         ]
     )
 
-    # Evolution
-    evolve_enabled: bool = True
-    evolve_every_n: int = 2
-    mutation_intensity: float = 0.3
-    crossover_prob: float = 0.3
-
-    # Evaluation
-    reward_weights: Dict[str, float] = field(
-        default_factory=lambda: {
-            "sharpe": 0.30,
-            "profit_pct": 0.20,
-            "max_drawdown": 0.15,
-            "winrate": 0.10,
-            "trade_count": 0.05,
-            "stability": 0.10,
-        }
-    )
-
     # Risk constraints / gating (optional)
     min_trades: int = 10
     max_abs_drawdown: float = 50.0
+    max_drawdown_pct: float = 0.0  # max_drawdown_account percentage (0 = disabled)
     min_winrate: float = 0.0
 
     @classmethod
@@ -120,7 +97,6 @@ class MinerConfig:
                 "candidates_per_iteration",
                 "max_parallel_candidates",
                 "max_parallel_roles",
-                "openai_fallback_model",
                 "model",
                 "base_url",
                 "max_turns",
@@ -166,28 +142,15 @@ class MinerConfig:
                 if k in backtest and k not in d2:
                     d2[k] = backtest[k]
 
-        evolution = d2.get("evolution")
-        if isinstance(evolution, dict):
-            for k in (
-                "evolve_enabled",
-                "evolve_every_n",
-                "mutation_intensity",
-                "crossover_prob",
-            ):
-                if k in evolution and k not in d2:
-                    d2[k] = evolution[k]
-
         evaluation = d2.get("evaluation")
         if isinstance(evaluation, dict):
-            if "reward_weights" in evaluation and "reward_weights" not in d2:
-                d2["reward_weights"] = evaluation.get("reward_weights")
-            for k in ("min_trades", "max_abs_drawdown", "min_winrate"):
+            for k in ("min_trades", "max_abs_drawdown", "max_drawdown_pct", "min_winrate"):
                 if k in evaluation and k not in d2:
                     d2[k] = evaluation[k]
 
         risk = d2.get("risk_constraints")
         if isinstance(risk, dict):
-            for k in ("min_trades", "max_abs_drawdown", "min_winrate"):
+            for k in ("min_trades", "max_abs_drawdown", "max_drawdown_pct", "min_winrate"):
                 if k in risk and k not in d2:
                     d2[k] = risk[k]
 
@@ -292,7 +255,7 @@ class MinerState:
     phase: Phase = Phase.STRATEGY_GEN
     iteration: int = 0
     candidates: List[StrategyCandidate] = field(default_factory=list)
-    best_reward: float = float("-inf")
+    best_score: float = float("-inf")
     best_candidate: Optional[StrategyCandidate] = None
     history: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -306,7 +269,7 @@ class MinerState:
             "phase": self.phase.value,
             "iteration": self.iteration,
             "candidates": [c.to_dict() for c in self.candidates],
-            "best_reward": self.best_reward,
+            "best_score": self.best_score,
             "best_candidate": self.best_candidate.to_dict() if self.best_candidate else None,
             "history": self.history,
             "pending_candidate_idxs": list(self.pending_candidate_idxs or []),
@@ -319,7 +282,7 @@ class MinerState:
             run_id=d["run_id"],
             phase=Phase(d["phase"]),
             iteration=d.get("iteration", 0),
-            best_reward=d.get("best_reward", float("-inf")),
+            best_score=d.get("best_score", d.get("best_reward", float("-inf"))),
             history=d.get("history", []),
         )
         state.candidates = [StrategyCandidate.from_dict(c) for c in d.get("candidates", [])]

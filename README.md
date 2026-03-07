@@ -147,6 +147,112 @@ make e2e
   - `python scripts/clean_workspace.py`
   - `python scripts/clean_workspace.py --dry-run`
 
+## Strategy Miner（策略挖掘）
+
+通过 LLM 多 Agent 管线（planner → coder → reviewer → backtester）自动生成、回测、评估和迭代优化交易策略。
+
+### 环境搭建
+
+```bash
+# 1. 创建 conda 环境
+conda create -n agent_market python=3.11 -y
+conda activate agent_market
+
+# 2. 安装 freqtrade
+pip install freqtrade
+
+# 3. 安装项目依赖（pandas_ta/vectorbt 安装失败可忽略，freqtrade 自带 ft-pandas-ta）
+pip install -r requirements.txt
+
+# 4. macOS 需要 TA-Lib：brew install ta-lib
+#    Linux：参考 https://github.com/TA-Lib/ta-lib-python#dependencies
+```
+
+### LLM API 配置
+
+Strategy miner 需要 OpenAI 兼容的 LLM API：
+
+```bash
+export OPENAI_API_KEY=sk-your-key
+export OPENAI_API_BASE=http://your-api-host:port
+```
+
+**通过 SSH 隧道访问内网 API：**
+
+```bash
+# 终端 1 — cloudflared 代理
+cloudflared access tcp --hostname ssh.langskills.org --url localhost:2222
+
+# 终端 2 — 端口转发
+ssh -p 2222 -N -L 38889:10.150.240.117:38889 v-tiansha@localhost
+
+# 终端 3 — 设置环境变量
+export OPENAI_API_KEY=sk-1234
+export OPENAI_API_BASE=http://localhost:38889
+```
+
+### 运行
+
+```bash
+conda activate agent_market
+
+# 快速测试（1 轮迭代）
+PYTHONPATH=src python -m agent_market.strategy_miner \
+  --config configs/strategy_miner_maxpower.json \
+  --max-iterations 1 -v
+
+# 完整挖掘（4 轮迭代）
+PYTHONPATH=src python -m agent_market.strategy_miner \
+  --config configs/strategy_miner_maxpower.json -v
+
+# 恢复中断的运行
+PYTHONPATH=src python -m agent_market.strategy_miner \
+  --resume artifacts/runs/<run_id>/strategy_miner/checkpoint.json -v
+```
+
+### 参数说明
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--config PATH` | 配置文件（JSON） | `configs/strategy_miner_default.json` |
+| `--max-iterations N` | 最大迭代次数 | 配置文件中的值 |
+| `--model NAME` | 覆盖 LLM 模型名 | 配置文件中的值 |
+| `--resume PATH` | 从 checkpoint 恢复 | — |
+| `-v` | 启用 DEBUG 日志 | — |
+
+### 配置文件
+
+| 文件 | 用途 |
+|------|------|
+| `configs/strategy_miner_default.json` | 默认配置 |
+| `configs/strategy_miner_maxpower.json` | 高性能（2 候选/轮，4 轮） |
+| `configs/strategy_miner_maxpower_rerun.json` | 高并发重跑（5 候选/轮，10 轮） |
+| `configs/strategy_miner_recovery.json` | 恢复配置（3 候选/轮） |
+
+### 输出目录
+
+```
+artifacts/runs/<run_id>/strategy_miner/
+├── checkpoint.json              # 恢复检查点
+├── iter_N/cand_XX/
+│   ├── coder/sandbox/           # 策略代码
+│   ├── planner/sandbox/
+│   ├── reviewer/sandbox/
+│   └── backtester/sandbox/
+├── leaderboard.json             # 排行榜
+└── knowledge_base.json          # 知识库
+```
+
+### 流程
+
+每轮迭代：Strategy Gen → Backtest → Evaluation → Analysis → Evolve（可选）
+
+1. **Strategy Gen** — planner 设计方案，coder 生成代码，reviewer 审查
+2. **Backtest** — freqtrade 回测，失败时 LLM 自动修复（最多 5 次）
+3. **Evaluation** — Sharpe、收益率、回撤、胜率等综合打分
+4. **Analysis** — LLM 总结经验教训，指导下轮改进
+5. **Evolve** — 对优秀策略进行参数变异和交叉
+
 ## 已知问题
 
 - Remixicon 字体未内置（为保证离线可用，默认不依赖外部 CDN）；因此图标可能不显示，但不影响核心功能。

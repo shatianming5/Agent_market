@@ -165,7 +165,7 @@ def write_leaderboard(
     *,
     config: MinerConfig,
 ) -> Path:
-    """Write leaderboard.json sorted by reward desc and filtered by constraints."""
+    """Write leaderboard.json sorted by Sharpe desc and filtered by constraints."""
     all_items: list[dict[str, Any]] = []
     for c in state.candidates:
         if c.reward is None:
@@ -179,7 +179,7 @@ def write_leaderboard(
             {
                 "name": c.name,
                 "iteration": c.iteration,
-                "reward": c.reward,
+                "sharpe": c.reward,
                 "validation_passed": c.validation_passed,
                 "constraints_ok": bool(getattr(c, "constraints_ok", True)),
                 "constraint_violations": list(getattr(c, "constraint_violations", []) or []),
@@ -187,6 +187,10 @@ def write_leaderboard(
                 "winrate": summary.get("winrate"),
                 "profit_total_pct": summary.get("profit_total_pct"),
                 "max_drawdown_abs": summary.get("max_drawdown_abs"),
+                "sortino": summary.get("sortino"),
+                "calmar": summary.get("calmar"),
+                "profit_factor": summary.get("profit_factor"),
+                "sqn": summary.get("sqn"),
                 "diagnosis": (c.diagnosis or "")[:200],
             }
         )
@@ -194,8 +198,8 @@ def write_leaderboard(
     eligible = [i for i in all_items if i.get("constraints_ok", True)]
     rejected = [i for i in all_items if not i.get("constraints_ok", True)]
 
-    eligible.sort(key=lambda x: float(x.get("reward") or -1e9), reverse=True)
-    rejected.sort(key=lambda x: float(x.get("reward") or -1e9), reverse=True)
+    eligible.sort(key=lambda x: float(x.get("sharpe") or -1e9), reverse=True)
+    rejected.sort(key=lambda x: float(x.get("sharpe") or -1e9), reverse=True)
 
     payload = {
         "run_id": state.run_id,

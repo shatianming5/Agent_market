@@ -9,9 +9,8 @@
     "max_retries": 3,
     "stale_timeout": 180.0,
     "repair_attempts": 3,
-    "openai_fallback_model": "gpt-5.2",
     "multiagent_enabled": true,
-    "max_parallel_roles": 2
+    "max_parallel_roles": 1
   },
   "backtest": {
     "freqtrade_config": "user_data/config_freqai.json",
@@ -39,22 +38,8 @@
     ]
   },
   "evaluation": {
-    "reward_weights": {
-      "sharpe": 0.3,
-      "profit_pct": 0.2,
-      "max_drawdown": 0.15,
-      "winrate": 0.1,
-      "trade_count": 0.05,
-      "stability": 0.1
-    },
     "min_trades": 5,
     "max_abs_drawdown": 60.0,
     "min_winrate": 0.0
-  },
-  "evolution": {
-    "evolve_enabled": true,
-    "evolve_every_n": 2,
-    "mutation_intensity": 0.3,
-    "crossover_prob": 0.3
   }
 }

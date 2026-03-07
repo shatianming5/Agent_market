@@ -65,7 +65,7 @@ def main() -> int:
         logging.getLogger(__name__).exception("Strategy miner failed")
         return 1
 
-    print(f"Run {state.run_id} finished: best_reward={state.best_reward:.4f}")
+    print(f"Run {state.run_id} finished: best_sharpe={state.best_score:.4f}")
     return 0
 
 
