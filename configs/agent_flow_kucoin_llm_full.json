@@ -18,7 +18,20 @@
       "1h",
       "--mine",
       "--top-n",
-      "30"
+      "30",
+      "--llm-enabled",
+      "--llm-base-url",
+      "http://localhost:4141/v1",
+      "--llm-api-key",
+      "_",
+      "--llm-model",
+      "gpt-5.2",
+      "--llm-count",
+      "30",
+      "--llm-loops",
+      "2",
+      "--llm-temperature",
+      "0.3"
     ],
     "feedback_top": 8,
     "script": "scripts/freqai_expression_agent.py"
