@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import textwrap
 from datetime import datetime, timezone
@@ -60,35 +61,87 @@ class AutoImprover:
     # ------------------------------------------------------------------
 
     def _llm_call(self, system: str, user: str, *, temperature: float = 0.4) -> str:
-        """Call LLM with retry."""
+        """Call LLM via opencode run (uses project .opencode.json config).
+
+        Falls back to direct HTTP if opencode is not available.
+        """
+        prompt = f"{system}\n\n{user}" if system else user
+
+        for attempt in range(self.max_retries):
+            try:
+                # Primary: opencode run
+                proc = subprocess.run(
+                    [
+                        "opencode", "run",
+                        "-m", f"custom/{self.model}",
+                        "--format", "json",
+                        prompt,
+                    ],
+                    cwd=str(ROOT),
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout,
+                )
+                if proc.returncode == 0:
+                    # Parse JSON event stream — extract assistant text
+                    return self._parse_opencode_output(proc.stdout)
+                # Fallback: direct HTTP
+                return self._llm_call_http(system, user, temperature=temperature)
+            except subprocess.TimeoutExpired:
+                if attempt == self.max_retries - 1:
+                    raise RuntimeError(f"opencode run timed out after {self.timeout}s")
+            except Exception as exc:
+                if attempt == self.max_retries - 1:
+                    raise RuntimeError(f"LLM call failed after {self.max_retries} attempts: {exc}")
+        return ""
+
+    def _parse_opencode_output(self, raw: str) -> str:
+        """Extract assistant text from opencode --format json NDJSON stream.
+
+        Event format: {"type":"text","part":{"type":"text","text":"..."}}
+        """
+        text_parts = []
+        for line in raw.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+                if not isinstance(event, dict):
+                    continue
+                # opencode v1.3: type="text", part.text=content
+                if event.get("type") == "text":
+                    part = event.get("part", {})
+                    text = part.get("text", "")
+                    if text:
+                        text_parts.append(str(text))
+            except json.JSONDecodeError:
+                continue
+        return "\n".join(text_parts) if text_parts else raw
+
+    def _llm_call_http(self, system: str, user: str, *, temperature: float = 0.4) -> str:
+        """Fallback: direct HTTP call to OpenAI-compatible API."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
 
-        for attempt in range(self.max_retries):
-            try:
-                resp = requests.post(
-                    f"{self.base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "temperature": temperature,
-                        "max_tokens": 4096,
-                    },
-                    timeout=self.timeout,
-                )
-                resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
-            except Exception as exc:
-                if attempt == self.max_retries - 1:
-                    raise RuntimeError(f"LLM call failed after {self.max_retries} attempts: {exc}")
-                continue
-        return ""
+        resp = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": 4096,
+            },
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
 
     # ------------------------------------------------------------------
     # Step 1: Analyze history
