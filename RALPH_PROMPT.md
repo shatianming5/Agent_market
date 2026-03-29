@@ -1,89 +1,103 @@
-# Ralph Loop: 让 OpenCode 自主写 ML/DL/RL 算法
+# Ralph Loop: 打造真实可交易的 Agent 策略系统
 
 ## 总目标
-扩展 auto_improver，让 opencode 能自主编写 ML/DL/RL 模型代码，训练模型，再写策略调用模型预测做交易。
-
-## 完整链路
-```
-opencode → 写模型代码(workspace/models/xxx.py)
-         → 训练模型(TrainingPipeline)
-         → 写策略代码(workspace/strategies/ml_xxx.py, 加载模型做预测)
-         → 回测 → 评估 → 记录
-```
-
-## 已有基础
-- ModelRegistry: lightgbm, xgboost, catboost, pytorch_mlp, ridge_regression
-- model_loader.py: 动态扫描 workspace/models/ 注册新模型
-- TrainingPipeline: 支持任何 BaseModelAdapter
-- ExpressionLongStrategy: 示范了如何加载模型做预测
-- backtest_api.py / evaluator.py / tracker.py 全部就绪
-- opencode run -m custom/gpt-5.2 已验证可用
+将当前研究原型升级为可在真实市场运行的 agent-driven 策略挖掘系统。
 
 ## 10 轮迭代计划
 
-### 迭代 1: auto_improver 增加 generate_model() + train_model()
+### 迭代 1: 下载 2 年历史数据
+解决：60 天数据导致 ML 必然过拟合
 CHECK:
-- [ ] generate_model(model_type, iteration) 调用 opencode 写模型代码
-- [ ] model_type 支持: "ml"(sklearn/lightgbm), "dl"(pytorch), "rl"(简单Q-learning)
-- [ ] 写出的代码继承 BaseModelAdapter，有 fit/predict/save/load
-- [ ] train_model(model_path) 调用 TrainingPipeline 训练
-- [ ] 训练产出 model 文件 + training_summary.json
-- [ ] python3 -c "from workspace.auto_improver import AutoImprover; ai=AutoImprover(); print('OK')"
+- [ ] 用 freqtrade download-data 下载 BTC/USDT ETH/USDT 2 年 1H 数据
+- [ ] 额外下载 4-6 个品种：SOL/USDT, DOGE/USDT, XRP/USDT, AVAX/USDT
+- [ ] 验证数据行数 >= 15000 (2年×365×24/1)
+- [ ] 数据保存为 feather 格式到 user_data/data/kucoin/
+- [ ] 更新 objectives.json 的数据配置
 
-### 迭代 2: generate_ml_strategy() — 写加载模型的策略
+### 迭代 2: Walk-Forward 滚动验证器
+解决：单次切分不可靠
 CHECK:
-- [ ] generate_ml_strategy(model_dir, iteration) 写策略代码
-- [ ] 策略在 populate_indicators 中加载模型、做预测
-- [ ] 策略用模型预测值做 entry/exit 决策
-- [ ] 语法验证通过
+- [ ] 实现 workspace/walk_forward.py
+- [ ] WalkForwardValidator 类：将 2 年数据切成 N 个窗口
+- [ ] 每窗口：用前 6 月训练，后 2 月测试，滚动前进
+- [ ] 返回每个窗口的 Sharpe/DD/profit，加上聚合统计（均值±标准差）
+- [ ] 只有全部窗口平均 Sharpe > 0 才算通过
+- [ ] 集成到 auto_improver.run_full_cycle()
 
-### 迭代 3: 端到端验证 — 写模型 → 训练 → 写策略 → 回测
+### 迭代 3: 真实交易成本建模
+解决：0.1% 固定费不现实
 CHECK:
-- [ ] opencode 写一个 ML 模型（如 GradientBoosting 变体）
-- [ ] 训练成功，产出 training_summary.json
-- [ ] opencode 写配套策略
-- [ ] 回测成功，返回 Sharpe/DD 等指标
-- [ ] experiments.jsonl 记录完整
+- [ ] 创建 workspace/cost_model.py
+- [ ] 实现 SlippageModel：基于成交量估算滑点
+- [ ] 实现 spread_cost = f(volatility, volume)
+- [ ] 修改 freqtrade 回测配置：加入 realistic fee + slippage
+- [ ] 对比：固定费 vs 真实成本 模型下的策略表现差异
 
-### 迭代 4: opencode 写 DL 模型（PyTorch）
+### 迭代 4: 多品种数据 + 品种选择器
+解决：2 个品种不够分散
 CHECK:
-- [ ] opencode 写一个 LSTM 或 GRU 模型
-- [ ] 训练成功
-- [ ] 配套策略回测成功
-- [ ] 对比 ML vs DL 结果
+- [ ] 验证 6+ 品种数据已下载
+- [ ] 实现 workspace/universe_selector.py
+- [ ] 基于流动性+波动率自动筛选品种
+- [ ] 更新 backtest_api 支持多品种回测
+- [ ] 运行 auto_improver 在新品种上生成策略
 
-### 迭代 5: opencode 写 RL 模型
+### 迭代 5: 特征选择 + 正则化
+解决：50-80 维特征导致过拟合
 CHECK:
-- [ ] opencode 写一个简单 RL（Q-learning / DQN-lite）模型
-- [ ] 训练成功
-- [ ] 配套策略回测成功
+- [ ] 实现 workspace/feature_selector.py
+- [ ] 方法：mutual_info + 递归特征消除(RFE) + L1 正则化
+- [ ] 目标：从 50-80 维降到 10-20 维核心特征
+- [ ] 验证：降维后 train/valid IC 差距缩小
+- [ ] 集成到 auto_improver 的训练流程
 
-### 迭代 6: run_full_cycle() — 自动 ML/DL/策略迭代
+### 迭代 6: 用新数据+验证器跑 auto_improver
+解决：在真实条件下验证 agent 策略
 CHECK:
-- [ ] 新方法 run_full_cycle(model_types=["ml","dl"], iterations=3)
-- [ ] 每轮: 分析 → 选模型类型 → 写模型 → 训练 → 写策略 → 回测 → 评估
-- [ ] 3 轮不崩溃
+- [ ] auto_improver.run_full_cycle() 使用 2 年数据
+- [ ] Walk-Forward 验证（非单次切分）
+- [ ] 真实成本模型
+- [ ] 特征选择后的模型
+- [ ] 至少 3 个策略跑完整流程
+- [ ] 检查 OOS 平均 Sharpe
 
-### 迭代 7-8: 批量实验积累
+### 迭代 7: 策略集成 + 市场状态
+解决：单策略不稳定
 CHECK:
-- [ ] 跑 run_full_cycle 积累至少 5 个 ML/DL 实验
-- [ ] experiments.jsonl 中有 ML/DL 标签的记录
-- [ ] query_best 能区分模型类型
+- [ ] 实现 workspace/ensemble.py
+- [ ] 多策略信号加权组合（等权 / IC 加权 / 风险平价）
+- [ ] 市场状态检测（高波/低波/趋势/震荡）
+- [ ] 不同状态激活不同策略子集
+- [ ] 回测集成策略 vs 单策略对比
 
-### 迭代 9: 最终报告
+### 迭代 8: 仓位管理 + 风控
+解决：无风控=赌博
 CHECK:
-- [ ] 生成 final_report.json: 策略进化、ML vs DL vs RL 对比
-- [ ] 至少 1 个 ML/DL 策略 Sharpe > 0
+- [ ] 实现 workspace/risk_manager.py
+- [ ] Kelly 公式仓位管理
+- [ ] 最大回撤熔断（DD>X% 自动停止）
+- [ ] 单笔最大亏损限制
+- [ ] 品种间相关性检查（防集中暴露）
 
-### 迭代 10: 测试 + 清理
+### 迭代 9: 纸盘验证框架
+解决：回测不等于实盘
 CHECK:
-- [ ] pytest 全部通过
-- [ ] toolbox.md 更新 ML/DL/RL 使用说明
-- [ ] git commit
+- [ ] 实现 workspace/paper_trader.py
+- [ ] 接入交易所实时数据（WebSocket）
+- [ ] 模拟下单（不花真钱）
+- [ ] 记录每笔模拟交易到日志
+- [ ] 对比纸盘 vs 回测差异
 
-## 关键约束
-- 模型代码必须在 workspace/models/ 下
-- 策略代码必须在 workspace/strategies/ 下
-- 训练数据用 user_data/data/kucoin/*.feather
-- opencode 写代码有 bug → 自动修复重试（最多 3 次）
-- 每轮结尾必须有文字总结 + CHECK 表
+### 迭代 10: 最终集成 + 验证
+CHECK:
+- [ ] 完整链路：数据 → 特征选择 → 模型训练 → Walk-Forward → 集成 → 风控 → 回测
+- [ ] auto_improver 使用全部升级后的基础设施
+- [ ] 生成最终报告：最佳策略 + 全窗口 Sharpe 分布
+- [ ] pytest 通过
+- [ ] 所有模块文档更新
+
+## 约束
+- 数据下载需要网络，如果交易所不可达则跳过该品种
+- Walk-Forward 计算量大，每个窗口限制训练时间
+- 每轮结尾必须有 CHECK 表 + 文字总结
+- 每轮有代码改动必须 git commit
