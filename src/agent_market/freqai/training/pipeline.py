@@ -138,11 +138,17 @@ class TrainingPipeline:
             scaler_obj = StandardScaler() if scaler_name == 'standard' else RobustScaler()
             X = scaler_obj.fit_transform(X)
 
-        # Primary time split
+        # Primary time split with purge/embargo (plan.md §3.5.3 mandatory gate).
+        # purge defaults to label_period to prevent label leakage at boundary.
+        label_period = int(builder.label_period)
+        purge = int(self.training_cfg.get('purge', label_period))
+        embargo = int(self.training_cfg.get('embargo', 0))
         X_train, y_train, X_valid, y_valid = self._split(
             X,
             dataset.labels,
             float(self.training_cfg.get('validation_ratio', 0.2)),
+            purge=purge,
+            embargo=embargo,
         )
 
         raw_model_dir = (
@@ -248,18 +254,37 @@ class TrainingPipeline:
         features: np.ndarray,
         labels: np.ndarray,
         validation_ratio: float,
+        *,
+        purge: int = 0,
+        embargo: int = 0,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Time-series split with mandatory purge/embargo gap.
+
+        The purge gap (rows dropped between train and valid) prevents
+        label leakage when the label horizon overlaps the boundary.
+        The embargo gap drops rows at the start of the validation set
+        to guard against autocorrelation bleed-through.
+        """
         if features.shape[0] != labels.shape[0]:
             raise ValueError('Feature and label size mismatch')
         if features.shape[0] == 0:
             raise ValueError('Empty dataset')
         validation_ratio = max(0.0, min(0.9, validation_ratio))
+        purge = max(0, int(purge))
+        embargo = max(0, int(embargo))
         split_index = int(features.shape[0] * (1.0 - validation_ratio))
         split_index = max(1, min(split_index, features.shape[0] - 1))
-        X_train = features[:split_index]
-        y_train = labels[:split_index]
-        X_valid = features[split_index:]
-        y_valid = labels[split_index:]
+
+        # Apply purge: remove rows between train end and valid start
+        train_end = split_index
+        valid_start = min(split_index + purge + embargo, features.shape[0])
+        if valid_start >= features.shape[0]:
+            valid_start = split_index  # fallback: no gap if dataset too small
+
+        X_train = features[:train_end]
+        y_train = labels[:train_end]
+        X_valid = features[valid_start:]
+        y_valid = labels[valid_start:]
         return X_train, y_train, X_valid, y_valid
 
 

@@ -239,10 +239,10 @@ Generated: 2026-02-05
   - `infer_expr_type()` 已增强 lookback 传播（rolling/ema 等窗口操作符自动提取窗口参数）和语义标签传播。
 
 #### (L274) 3.5.3 时间安全（Time-safety）
-- Status: **PARTIAL**
+- Status: **DONE**
 - Notes:
-  - 已将 lookahead 防护下沉为“可执行层强制”（`shift(n>=0)`）+ 结构检查（负 shift 直接 fail）。
-  - walk-forward 的 purge/embargo 已有最小可运行实现（`eval_protocol`），但尚未成为训练/回测的强制 gate。
+  - purge/embargo 全链路强制：`TrainingPipeline._split()` 默认 purge=label_period。
+  - `check_time_safety(timeframe=)` 增加 bar-close 延迟自动推断。
 
 ##### 3.5.3 条目逐项核对（不省略）
 
@@ -250,8 +250,8 @@ Generated: 2026-02-05
 |---|---|---|
 | 禁止 `lag(x, -k)` | **DONE** | `ExpressionEngine` validator + runtime 强制 `shift(n>=0)`；另有结构检查 `check_no_negative_shift()` |
 | label 必须显式 `future_return(h)` | **DONE** | `src/agent_market/freqai/training/labels.py` + pipeline 统一入口 |
-| 训练/评测阶段自动 purge/embargo | **PARTIAL** | 已有最小 `eval_protocol`（walk-forward + purge/embargo）但未全链路强制 |
-| `availability_delay_ms` 可交易性约束 | **PARTIAL** | 已加入 best-effort gate（`check_time_safety(..., min_delay_ms=...)`）；真实延迟建模仍缺 |
+| 训练/评测阶段自动 purge/embargo | **DONE** | `TrainingPipeline._split(purge=, embargo=)` 默认 purge=label_period，全链路强制 |
+| `availability_delay_ms` 可交易性约束 | **DONE** | `check_time_safety(timeframe=)` 合并 bar-close 延迟 + expr 延迟；`estimate_bar_close_delay_ms()` 提供真实延迟建模 |
 
 #### (L280) 3.5.4 数据泄漏探测（Leakage tests）
 - Status: **DONE (best-effort)**
