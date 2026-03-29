@@ -66,12 +66,31 @@ class ExpressionLongStrategy(IStrategy):
     _expressions_file: Optional[Path] = None
     _expression_specs: Optional[List[Any]] = None
 
+    def _resolve_model_dir(self) -> Path:
+        """Resolve model directory: env MODEL_DIR > latest modified > lightgbm_real."""
+        import os
+        env_dir = os.environ.get("AGENT_MODEL_DIR")
+        if env_dir:
+            p = _resolve_under_root(env_dir)
+            if (p / "training_summary.json").exists():
+                return p
+
+        # Pick the most recently modified model dir under artifacts/models/
+        models_root = PROJECT_ROOT / "artifacts" / "models"
+        if models_root.exists():
+            candidates = [
+                d for d in models_root.iterdir()
+                if d.is_dir() and (d / "training_summary.json").exists()
+            ]
+            if candidates:
+                return max(candidates, key=lambda d: (d / "training_summary.json").stat().st_mtime)
+
+        return PROJECT_ROOT / "artifacts" / "models" / "lightgbm_real"
+
     def _load_training_summary(self) -> Optional[Dict[str, Any]]:
         if self._training_summary is not None:
             return self._training_summary
-        summary_path = (
-            PROJECT_ROOT / "artifacts" / "models" / "lightgbm_real" / "training_summary.json"
-        )
+        summary_path = self._resolve_model_dir() / "training_summary.json"
         if not summary_path.exists():
             return None
         try:
@@ -104,9 +123,7 @@ class ExpressionLongStrategy(IStrategy):
         if self._model is not None and self._model_features is not None:
             return self._model, self._model_features
 
-        summary_path = (
-            PROJECT_ROOT / "artifacts" / "models" / "lightgbm_real" / "training_summary.json"
-        )
+        summary_path = self._resolve_model_dir() / "training_summary.json"
         summary = self._load_training_summary()
         if summary is None:
             summary = _read_json(summary_path)
