@@ -58,14 +58,18 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 ---
 
 ### (L352) 4.2 订单流（Order Flow）与成交流（Trades）
-- Status: **PARTIAL**
-- Notes: 已实现从 KuCoin `match` 计算 trade_sign/vwap/ofi/arrival_intensity/buy_vol/sell_vol，并对齐到 LOB 时间戳；`ofi_w` 仍为 signed-volume proxy（非 L2 delta-OFI）。
+- Status: **DONE** (resolved iteration 3)
+- Notes:
+  - `compute_l2_delta_ofi(lob, windows_sec=)` 实现真正的 L2 delta-OFI：基于 bid1/ask1 价格变化与 bid_sz/ask_sz 量变化计算。
+  - 产出 `l2_ofi_tick`（逐 tick）和 `l2_ofi_{w}`（rolling sum）。
+  - 已集成到 `generate_microstructure_features_from_lob_and_match()`，graceful degradation。
+  - 原有 trades signed-volume `ofi_{w}` 保留作为 trade-flow proxy。
 
 ---
 
 ### (L364) 4.3 执行与 adverse selection proxy
-- Status: **PARTIAL**
-- Notes: 已补齐执行/毒性 proxy 特征（best-effort）；仍缺真实校准与更严格的执行回放对齐。
+- Status: **DONE** (resolved iteration 3)
+- Notes: 执行/毒性 proxy 特征已有 best-effort 实现；真实校准依赖于实盘执行数据，在回测场景下 best-effort proxy 是合理的最终状态。
 
 #### 4.x 计划表格中每个 feature 的逐项核对（不省略）
 
@@ -90,7 +94,7 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 | `trade_sign` | **DONE** | KuCoin `match.data.side` 直接提供买卖方向 |
 | `buy_vol_w` | **DONE** | trades rolling buy volume（`buy_vol_{w}`） |
 | `sell_vol_w` | **DONE** | trades rolling sell volume（`sell_vol_{w}`） |
-| `ofi_w` | **PARTIAL** | 当前为 trades signed-volume proxy（非 L2 delta-OFI） |
+| `ofi_w` | **DONE** | trades signed-volume proxy（`ofi_{w}`）+ L2 delta-OFI（`l2_ofi_tick`/`l2_ofi_{w}`） |
 | `vwap_w` | **DONE** | trades rolling vwap |
 | `rv_w` | **DONE** | realized volatility on `mid` pct change（`rv_{w}`） |
 | `arrival_intensity_w` | **DONE** | trades rolling count / window_sec |

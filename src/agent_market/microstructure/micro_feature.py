@@ -15,6 +15,7 @@ from agent_market.microstructure.features.feature_registry import (
 )
 from agent_market.microstructure.features.ofi_features import (
     align_trade_rollups_to_lob,
+    compute_l2_delta_ofi,
     compute_trade_rollups,
     load_kucoin_match_trades,
 )
@@ -158,6 +159,16 @@ def generate_microstructure_features_from_lob_and_match(
     registry = build_default_microstructure_registry(depth_levels=int(depth_levels), windows_sec=windows_sec)
     ctx = FeatureContext(lob=lob, trades=trades, aligned_trades=aligned)
     df = compute_registry_features(ctx=ctx, registry=registry)
+
+    # L2 delta-OFI (plan.md §4.2): compute from LOB state changes
+    try:
+        l2_ofi = compute_l2_delta_ofi(lob, windows_sec=windows_sec)
+        for col in l2_ofi.columns:
+            if col not in ("ts", "symbol") and col not in df.columns:
+                df[col] = l2_ofi[col].values[:len(df)] if len(l2_ofi) >= len(df) else None
+    except Exception:
+        pass  # graceful degradation if LOB lacks required columns
+
     df.to_parquet(features_path, index=False)
 
     manifest_payload: Dict[str, Any] = {

@@ -178,8 +178,70 @@ def align_trade_rollups_to_lob(*, lob: Any, trade_rollups: Any) -> Any:
     return aligned.reset_index(drop=True)
 
 
+def compute_l2_delta_ofi(lob: Any, *, windows_sec: Sequence[int] = (), eps: float = 1e-12) -> Any:
+    """Compute L2 delta-OFI from LOB state changes (plan.md §4.2).
+
+    Delta-OFI captures *order book* pressure changes, not just trade flow.
+    For each tick:
+      delta_bid = bid_sz_change when bid1 unchanged, bid_sz when bid1 improves, 0 when bid1 drops
+      delta_ask = -(ask_sz_change when ask1 unchanged, ask_sz when ask1 drops, 0 when ask1 improves)
+      OFI_tick = delta_bid + delta_ask
+
+    If ``windows_sec`` is provided, rolling sums are also computed.
+
+    Requires columns: bid1, ask1, bid_sz (list of level sizes), ask_sz (list of level sizes).
+    """
+    pd = _ensure_pandas()
+    import numpy as np  # noqa: PLC0415
+
+    bid1 = lob["bid1"].astype("float64")
+    ask1 = lob["ask1"].astype("float64")
+    bid_sz1 = lob["bid_sz"].apply(lambda xs: float(xs[0]) if isinstance(xs, list) and len(xs) > 0 and xs[0] is not None else np.nan)
+    ask_sz1 = lob["ask_sz"].apply(lambda xs: float(xs[0]) if isinstance(xs, list) and len(xs) > 0 and xs[0] is not None else np.nan)
+
+    # Price changes
+    bid1_prev = bid1.shift(1)
+    ask1_prev = ask1.shift(1)
+    bid_sz1_prev = bid_sz1.shift(1)
+    ask_sz1_prev = ask_sz1.shift(1)
+
+    # Delta bid quantity
+    bid_unchanged = (bid1 == bid1_prev)
+    bid_improved = (bid1 > bid1_prev)
+    delta_bid = pd.Series(0.0, index=lob.index)
+    delta_bid = delta_bid.where(~bid_unchanged, bid_sz1 - bid_sz1_prev)
+    delta_bid = delta_bid.where(~bid_improved, bid_sz1)
+
+    # Delta ask quantity (negative convention: ask pressure reduces OFI)
+    ask_unchanged = (ask1 == ask1_prev)
+    ask_dropped = (ask1 < ask1_prev)
+    delta_ask = pd.Series(0.0, index=lob.index)
+    delta_ask = delta_ask.where(~ask_unchanged, -(ask_sz1 - ask_sz1_prev))
+    delta_ask = delta_ask.where(~ask_dropped, -ask_sz1)
+
+    ofi_tick = (delta_bid + delta_ask).fillna(0.0)
+
+    result = lob[["ts", "symbol"]].copy() if "ts" in lob.columns and "symbol" in lob.columns else pd.DataFrame(index=lob.index)
+    result["l2_ofi_tick"] = ofi_tick
+
+    # Rolling sums
+    if windows_sec and "ts" in lob.columns:
+        ts_idx = pd.to_datetime(lob["ts"])
+        ofi_indexed = ofi_tick.copy()
+        ofi_indexed.index = ts_idx
+        for w in windows_sec:
+            w = int(w)
+            if w <= 0:
+                continue
+            rolled = ofi_indexed.rolling(f"{w}s").sum()
+            result[f"l2_ofi_{w}"] = rolled.values
+
+    return result
+
+
 __all__ = [
     "align_trade_rollups_to_lob",
+    "compute_l2_delta_ofi",
     "compute_trade_rollups",
     "load_kucoin_match_trades",
 ]

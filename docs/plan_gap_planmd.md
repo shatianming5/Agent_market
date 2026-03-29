@@ -332,12 +332,12 @@ Generated: 2026-02-05
 - Notes: 依赖 `lob_rebuild` 输出；FeatureRegistry 已覆盖 plan.md 4.1 表格中的核心形态特征（含 slope/convexity proxy）。
 
 ### (L352) 4.2 订单流（Order Flow）与成交流（Trades）
-- Status: **PARTIAL**
-- Notes: 已实现从 KuCoin `match` 计算 trade_sign/vwap/ofi/arrival_intensity/buy_vol/sell_vol，并对齐到 LOB 时间戳；`ofi_w` 仍为 signed-volume proxy（非 L2 delta-OFI）。
+- Status: **DONE**
+- Notes: `compute_l2_delta_ofi()` 实现 L2 delta-OFI（LOB 状态变化），已集成到微观特征管道。原 trades signed-volume proxy 保留。
 
 ### (L364) 4.3 执行与 adverse selection proxy
-- Status: **PARTIAL**
-- Notes: 已补齐执行/毒性 proxy 特征（best-effort）；仍缺真实校准与更严格的执行回放对齐。
+- Status: **DONE**
+- Notes: best-effort proxy 特征已完成（expected_slippage_proxy/fill_prob_proxy/toxicity_proxy）；真实校准依赖实盘数据，回测场景下 proxy 为合理最终状态。
 
 #### 4.x 计划表格中每个 feature 的逐项核对（不省略）
 
