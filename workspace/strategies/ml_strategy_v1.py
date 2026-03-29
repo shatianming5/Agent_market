@@ -1,16 +1,12 @@
 from __future__ import annotations
-
 import sys, json
 from pathlib import Path
-
 import numpy as np
 from pandas import DataFrame
-
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_ROOT / "src"))
     sys.path.insert(0, str(_ROOT))
-
 from freqtrade.strategy import IStrategy
 from agent_market.freqai.features import apply_configured_features
 from agent_market.freqai.model.base import ModelRegistry
@@ -71,12 +67,20 @@ class MLStrategy_v1(IStrategy):
     @classmethod
     def _extract_feature_columns(cls, summary: dict) -> list[str]:
         def _extract(d: dict) -> list[str] | None:
-            for key in ("feature_columns", "features", "training_features", "used_features", "feature_names", "columns"):
+            for key in (
+                "feature_columns",
+                "features",
+                "training_features",
+                "used_features",
+                "feature_names",
+                "columns",
+            ):
                 v = d.get(key)
                 if isinstance(v, list) and all(isinstance(x, str) for x in v):
                     cols = [c for c in (s.strip() for s in v) if c]
                     if cols:
                         return cols
+
             feats = d.get("features")
             if isinstance(feats, dict):
                 for key in ("columns", "feature_columns", "feature_names", "names"):
@@ -85,6 +89,7 @@ class MLStrategy_v1(IStrategy):
                         cols = [c for c in (s.strip() for s in v) if c]
                         if cols:
                             return cols
+
             for key in ("data", "train", "training", "meta", "metadata"):
                 nest = d.get(key)
                 if isinstance(nest, dict):
@@ -135,8 +140,6 @@ class MLStrategy_v1(IStrategy):
         model = ModelRegistry.create(cls.registry_name, config)
         model_path = cls._resolve_model_path(summary)
 
-        # Some adapters historically implemented `load` as a @classmethod returning a new instance
-        # (instead of mutating `self`). Support both.
         loaded = model.load(model_path)
         if loaded is not None:
             model = loaded
@@ -164,7 +167,13 @@ class MLStrategy_v1(IStrategy):
             for c in missing:
                 dataframe[c] = 0.0
 
-        X_df = dataframe.loc[:, cols].astype(float).replace([np.inf, -np.inf], np.nan).ffill().fillna(0.0)
+        X_df = (
+            dataframe.loc[:, cols]
+            .astype(float)
+            .replace([np.inf, -np.inf], np.nan)
+            .ffill()
+            .fillna(0.0)
+        )
         X = np.nan_to_num(X_df.to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 
         preds = model.predict(X)

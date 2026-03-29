@@ -69,12 +69,12 @@
   "train_size": 2147,
   "valid_size": 525,
   "metrics": {
-    "train_rmse": 0.0162981781451282,
-    "train_corr": 0.4496488599431101,
-    "n_models": 5.0,
+    "train_rmse": 0.009840093828791602,
+    "train_corr": 0.9154699496576786,
+    "n_models": 3.0,
     "n_features": 54.0,
-    "valid_rmse": 0.0192354425430249,
-    "valid_corr": -0.06646304856900745
+    "valid_rmse": 0.018170226234174316,
+    "valid_corr": 0.060050423694281645
   },
   "model_path": "/Users/shatianming/Downloads/Agent_market/workspace/results/model_auto_ml_v1/auto_ml_v1.pkl",
   "feature_file": "/Users/shatianming/Downloads/Agent_market/user_data/freqai_features_real.json",

@@ -1,155 +1,188 @@
 from __future__ import annotations
 
-import sys
 import json
+import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from pandas import DataFrame
 
-_ROOT = Path(__file__).resolve().parents[2]
-if str(_ROOT / "src") not in sys.path:
-    sys.path.insert(0, str(_ROOT / "src"))
-    sys.path.insert(0, str(_ROOT))
+def _inject_project_paths() -> Path:
+    here = Path(__file__).resolve()
+    root: Path | None = None
+    for parent in here.parents:
+        if (parent / "src" / "agent_market").exists():
+            root = parent
+            break
+    if root is None:
+        # Fallback to the original heuristic
+        root = here.parents[2] if len(here.parents) >= 3 else here.parent
+    src = root / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    return root
 
-from freqtrade.strategy import IStrategy
-from agent_market.freqai.features import apply_configured_features
-from agent_market.freqai.model.base import ModelRegistry
-import agent_market.freqai.model
-from workspace.model_loader import scan_and_register
+
+_ROOT = _inject_project_paths()
+
+from freqtrade.strategy import IStrategy  # noqa: E402
+
+from agent_market.freqai.features import apply_configured_features  # noqa: E402
+from agent_market.freqai.model.base import ModelRegistry  # noqa: E402
+import agent_market.freqai.model  # noqa: F401, E402
+from workspace.model_loader import scan_and_register  # noqa: E402
 
 
 class MLStrategy_v2(IStrategy):
     timeframe = "5m"
-    can_short = False
-    process_only_new_candles = True
     startup_candle_count = 200
 
-    stoploss = -0.1
+    process_only_new_candles = True
+    use_exit_signal = True
+    ignore_roi_if_entry_signal = False
 
-    buy_threshold: float = 0.0
+    minimal_roi = {"0": 0.0}
+    stoploss = -0.99
 
-    _MODEL_DIR = Path("/Users/shatianming/Downloads/Agent_market/workspace/results/model_auto_dl_v2")
-    _REGISTRY_NAME = "auto_dl_v2"
+    prediction_threshold: float = 0.0
+
+    _MODEL_DIR = Path("/Users/shatianming/Downloads/Agent_market/workspace/results/model_auto_ml_v2")
+    _REGISTRY_NAME = "auto_ml_v2"
+    _FEATURE_CFG_PATH = _ROOT / "user_data" / "freqai_features_real.json"
     _PRED_COL = "ml_pred"
 
-    def __init__(self, config: dict) -> None:
-        super().__init__(config)
-        self._model = None
-        self._feature_columns: list[str] | None = None
-        self._model_ready: bool = False
+    _model: Any = None
+    _feature_cols: list[str] | None = None
+    _feature_cfg: dict | None = None
+    _expressions_path: Path | None = None
+    _expression_specs: list[Any] | None = None
 
     @staticmethod
     def _read_json(path: Path) -> dict:
-        with path.open("r", encoding="utf-8") as f:
+        with path.open("r", encoding="utf-8-sig") as f:
             return json.load(f)
 
     @staticmethod
-    def _extract_feature_columns(training_summary: dict) -> list[str]:
-        for key in ("feature_columns", "feature_cols", "features", "feature_names", "columns"):
-            v = training_summary.get(key)
-            if isinstance(v, list) and all(isinstance(x, str) for x in v):
-                return v
+    def _resolve_under_root(path: str | Path) -> Path:
+        p = Path(path)
+        return p if p.is_absolute() else (_ROOT / p).resolve()
+
+    @classmethod
+    def _extract_feature_cols(cls, training_summary: dict) -> list[str]:
+        for key in ("feature_columns", "features", "feature_cols"):
+            cols = training_summary.get(key)
+            if isinstance(cols, list) and cols and all(isinstance(c, str) for c in cols):
+                return cols
 
         data = training_summary.get("data")
         if isinstance(data, dict):
-            for key in ("feature_columns", "feature_cols", "features", "feature_names", "columns"):
-                v = data.get(key)
-                if isinstance(v, list) and all(isinstance(x, str) for x in v):
-                    return v
+            cols = data.get("feature_columns") or data.get("features")
+            if isinstance(cols, list) and cols and all(isinstance(c, str) for c in cols):
+                return cols
 
-        feats = training_summary.get("features")
-        if isinstance(feats, dict):
-            v = feats.get("columns") or feats.get("feature_columns") or feats.get("names")
-            if isinstance(v, list) and all(isinstance(x, str) for x in v):
-                return v
+        raise ValueError(
+            "training_summary.json missing feature column list (expected key: "
+            "feature_columns/features/feature_cols)"
+        )
 
-        raise ValueError("Could not find feature column names in training_summary.json")
-
-    def _ensure_model_loaded(self) -> None:
-        if self._model_ready:
+    @classmethod
+    def _ensure_resources_loaded(cls) -> None:
+        if cls._model is not None and cls._feature_cols is not None and cls._feature_cfg is not None:
             return
 
-        model_dir = self._MODEL_DIR
-        training_summary_path = model_dir / "training_summary.json"
-        if not training_summary_path.exists():
-            raise FileNotFoundError(f"Missing training summary: {training_summary_path}")
+        if not cls._MODEL_DIR.exists():
+            raise FileNotFoundError(f"Model directory not found: {cls._MODEL_DIR}")
 
-        training_summary = self._read_json(training_summary_path)
-        self._feature_columns = self._extract_feature_columns(training_summary)
+        training_summary_path = cls._MODEL_DIR / "training_summary.json"
+        if not training_summary_path.exists():
+            raise FileNotFoundError(f"training_summary.json not found: {training_summary_path}")
+
+        training_summary = cls._read_json(training_summary_path)
+        cls._feature_cols = cls._extract_feature_cols(training_summary)
+
+        # Load the exact feature config used during training when available
+        if cls._feature_cfg is None:
+            feat_path_val = training_summary.get("feature_snapshot") or training_summary.get("feature_file")
+            if feat_path_val:
+                feat_path = cls._resolve_under_root(str(feat_path_val))
+            else:
+                feat_path = cls._FEATURE_CFG_PATH
+
+            if not feat_path.exists():
+                raise FileNotFoundError(f"Feature config not found: {feat_path}")
+            cls._feature_cfg = cls._read_json(feat_path)
+
+        # Load expression snapshot (needed for f001.. factors) when available
+        expr_path_val = training_summary.get("expressions_snapshot") or training_summary.get("expressions_file")
+        if expr_path_val:
+            cls._expressions_path = cls._resolve_under_root(str(expr_path_val))
+        else:
+            cls._expressions_path = None
 
         scan_and_register()
+        model = ModelRegistry.create(cls._REGISTRY_NAME, training_summary)
+        model.load(str(cls._MODEL_DIR))
+        cls._model = model
 
-        model_config = {}
-        cfg = training_summary.get("config")
-        if isinstance(cfg, dict):
-            model_config.update(cfg)
-        cfg2 = training_summary.get("model_config")
-        if isinstance(cfg2, dict):
-            model_config.update(cfg2)
+    @classmethod
+    def _apply_expressions_if_needed(cls, df: DataFrame) -> DataFrame:
+        if cls._expressions_path is None:
+            return df
+        if not cls._expressions_path.exists():
+            return df
 
-        model_config.setdefault("model_dir", str(model_dir))
-        model_config.setdefault("registry_name", self._REGISTRY_NAME)
+        if cls._expression_specs is None:
+            from agent_market.freqai.expression_engine import load_expression_file  # noqa: WPS433
 
-        self._model = ModelRegistry.create(self._REGISTRY_NAME, model_config)
-        self._model.load(str(model_dir))
+            cls._expression_specs = load_expression_file(cls._expressions_path)
 
-        self._model_ready = True
+        if not cls._expression_specs:
+            return df
+
+        from agent_market.freqai.expression_engine import apply_expressions  # noqa: WPS433
+
+        df, _added = apply_expressions(df, cls._expression_specs, on_error="raise")
+        return df
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        if dataframe is None or dataframe.empty:
-            return dataframe
+        self._ensure_resources_loaded()
+        df = dataframe
 
-        features_cfg_path = _ROOT / "user_data" / "freqai_features_real.json"
-        if not features_cfg_path.exists():
-            raise FileNotFoundError(f"Missing feature config: {features_cfg_path}")
+        df = apply_configured_features(df, self._feature_cfg)
+        df = self._apply_expressions_if_needed(df)
 
-        features_cfg = self._read_json(features_cfg_path)
-        dataframe = apply_configured_features(dataframe, features_cfg)
-
-        self._ensure_model_loaded()
-        assert self._feature_columns is not None
-        assert self._model is not None
-
-        missing = [c for c in self._feature_columns if c not in dataframe.columns]
+        missing = [c for c in self._feature_cols if c not in df.columns]
         if missing:
             raise KeyError(
-                f"Missing feature columns in dataframe: {missing[:20]}{'...' if len(missing) > 20 else ''}"
+                f"Missing feature columns in dataframe: {missing}. "
+                f"Available columns: {list(df.columns)}"
             )
 
-        X_df = dataframe[self._feature_columns].copy()
-        X_df = X_df.replace([np.inf, -np.inf], np.nan)
-        X = np.nan_to_num(X_df.to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        X = df[self._feature_cols].to_numpy(dtype=np.float32, copy=False)
+        np.nan_to_num(X, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
         preds = self._model.predict(X)
-        preds_arr = np.asarray(preds, dtype=np.float32).reshape(-1)
+        preds = np.asarray(preds, dtype=np.float32).reshape(-1)
+        if len(preds) != len(df):
+            raise ValueError(f"Prediction length ({len(preds)}) != dataframe length ({len(df)})")
 
-        if preds_arr.shape[0] != len(dataframe):
-            raise ValueError(f"Prediction length mismatch: preds={preds_arr.shape[0]} rows={len(dataframe)}")
-
-        dataframe[self._PRED_COL] = preds_arr
-        return dataframe
+        df[self._PRED_COL] = preds
+        return df
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        if dataframe is None or dataframe.empty:
-            return dataframe
-        if self._PRED_COL not in dataframe.columns:
-            dataframe[self._PRED_COL] = 0.0
-
-        dataframe.loc[
-            (dataframe[self._PRED_COL] > float(self.buy_threshold)),
-            "enter_long",
-        ] = 1
+        dataframe.loc[:, "enter_long"] = 0
+        if self._PRED_COL in dataframe.columns:
+            dataframe.loc[
+                dataframe[self._PRED_COL] > float(self.prediction_threshold),
+                "enter_long",
+            ] = 1
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        if dataframe is None or dataframe.empty:
-            return dataframe
-        if self._PRED_COL not in dataframe.columns:
-            dataframe[self._PRED_COL] = 0.0
-
-        dataframe.loc[
-            (dataframe[self._PRED_COL] < 0.0),
-            "exit_long",
-        ] = 1
+        dataframe.loc[:, "exit_long"] = 0
+        if self._PRED_COL in dataframe.columns:
+            dataframe.loc[dataframe[self._PRED_COL] < 0.0, "exit_long"] = 1
         return dataframe
