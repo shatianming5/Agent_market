@@ -336,6 +336,350 @@ class AutoImprover:
         return ok
 
     # ------------------------------------------------------------------
+    # Step 3b: Generate ML/DL/RL model code
+    # ------------------------------------------------------------------
+
+    def generate_model(self, model_type: str, iteration: int, analysis: str = "") -> Path:
+        """Have opencode write a custom model. model_type: 'ml', 'dl', 'rl'."""
+        class_name = f"Auto{model_type.upper()}_v{iteration}"
+        registry_name = f"auto_{model_type}_v{iteration}"
+        file_name = f"auto_{model_type}_v{iteration}.py"
+        out_path = ROOT / "workspace" / "models" / file_name
+
+        type_hints = {
+            "ml": "Write a scikit-learn style ML model (e.g., GradientBoosting, ElasticNet, RandomForest, or custom ensemble). Use numpy/scipy/sklearn.",
+            "dl": "Write a PyTorch neural network model (e.g., LSTM, GRU, Transformer, or MLP variant). Use torch and torch.nn.",
+            "rl": "Write a simple reinforcement learning model (e.g., tabular Q-learning, DQN-lite, or policy gradient). Use numpy; torch optional.",
+        }
+
+        system = textwrap.dedent(f"""
+            You are an expert ML engineer writing a trading model for the Agent Market platform.
+            Output ONLY valid Python code, no markdown, no explanation.
+
+            {type_hints.get(model_type, type_hints['ml'])}
+
+            DATA: BTC/ETH 1H OHLCV, ~1448 rows, 12 features. Target: future 12-bar return.
+            X_train shape: (~2000, 12), y_train shape: (~2000,). Values are float32.
+
+            CRITICAL REQUIREMENTS:
+            - Class name: {class_name}
+            - registry_name = "{registry_name}"
+            - Must inherit from BaseModelAdapter
+            - Must implement: fit(X_train, y_train, X_valid=None, y_valid=None) -> TrainResult
+            - Must implement: predict(X) -> np.ndarray
+            - Must implement: save(path) and load(path)
+            - fit() must save model to model_dir from self.config.get("model_dir")
+            - fit() must return TrainResult(model_path=Path, metrics=dict)
+            - predict() must return 1D numpy array same length as input
+
+            Import block (use exactly):
+            from __future__ import annotations
+            import pickle
+            from pathlib import Path
+            from typing import Any, Dict, Optional
+            import numpy as np
+            from agent_market.freqai.model.base import BaseModelAdapter, TrainResult
+        """).strip()
+
+        user = f"Previous analysis:\n{analysis[:2000]}\n\nWrite a {model_type.upper()} model class named {class_name}."
+
+        code = self._llm_call(system, user, temperature=0.4)
+        code = self._extract_code(code)
+        out_path.write_text(code, encoding="utf-8")
+        return out_path
+
+    def validate_model(self, path: Path) -> tuple[bool, str]:
+        """Validate model code: syntax + BaseModelAdapter subclass + required methods."""
+        try:
+            code = path.read_text(encoding="utf-8")
+        except Exception as exc:
+            return False, f"Cannot read: {exc}"
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as exc:
+            return False, f"Syntax error: {exc}"
+
+        has_adapter = False
+        required = {"fit", "predict", "save", "load"}
+        found = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for base in node.bases:
+                    name = base.id if isinstance(base, ast.Name) else (base.attr if isinstance(base, ast.Attribute) else "")
+                    if name == "BaseModelAdapter":
+                        has_adapter = True
+            if isinstance(node, ast.FunctionDef) and node.name in required:
+                found.add(node.name)
+
+        if not has_adapter:
+            return False, "No BaseModelAdapter subclass found"
+        missing = required - found
+        if missing:
+            return False, f"Missing methods: {', '.join(sorted(missing))}"
+        return True, "OK"
+
+    def fix_model(self, path: Path, error: str) -> bool:
+        """Have opencode fix a broken model."""
+        code = path.read_text(encoding="utf-8")
+        system = "You are fixing a Python ML model. Output ONLY the complete fixed code, no markdown."
+        user = f"Error:\n{error}\n\nCode:\n```python\n{code}\n```\n\nFix it."
+        fixed = self._llm_call(system, user, temperature=0.1)
+        fixed = self._extract_code(fixed)
+        path.write_text(fixed, encoding="utf-8")
+        ok, _ = self.validate_model(path)
+        return ok
+
+    def train_model(self, model_path: Path, iteration: int) -> Dict[str, Any]:
+        """Train a workspace model using TrainingPipeline."""
+        from workspace.model_loader import scan_and_register
+        import agent_market.freqai.model  # noqa: F401
+
+        scan_and_register()
+
+        # Detect registry_name from the file
+        code = model_path.read_text(encoding="utf-8")
+        registry_name = None
+        for line in code.split("\n"):
+            if "registry_name" in line and "=" in line:
+                # Extract string value
+                match = re.search(r'registry_name\s*=\s*["\']([^"\']+)["\']', line)
+                if match:
+                    registry_name = match.group(1)
+                    break
+
+        if not registry_name:
+            return {"ok": False, "error": "Cannot find registry_name in model code"}
+
+        model_dir = str(ROOT / "workspace" / "results" / f"model_{registry_name}")
+
+        train_config = {
+            "data": {
+                "feature_file": "user_data/freqai_features_real.json",
+                "expressions_file": "user_data/freqai_expressions_selected.json",
+                "data_dir": "user_data/data",
+                "exchange": "kucoin",
+                "pairs": ["BTC/USDT", "ETH/USDT"],
+                "timeframe": "1h",
+                "label_period": 12,
+            },
+            "model": {
+                "name": registry_name,
+                "params": {"model_dir": model_dir},
+            },
+            "training": {
+                "validation_ratio": 0.2,
+                "purge": 12,
+                "embargo": 0,
+            },
+        }
+
+        try:
+            from agent_market.freqai.training.pipeline import TrainingPipeline
+            pipeline = TrainingPipeline(train_config)
+            result = pipeline.run()
+            return {
+                "ok": True,
+                "model_path": str(result.model_path),
+                "model_dir": model_dir,
+                "registry_name": registry_name,
+                "metrics": result.metrics,
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)[:500], "registry_name": registry_name}
+
+    def generate_ml_strategy(self, model_dir: str, registry_name: str, iteration: int) -> Path:
+        """Generate a strategy that loads a trained model for predictions."""
+        strategy_name = f"MLStrategy_v{iteration}"
+        file_name = f"ml_strategy_v{iteration}.py"
+        out_path = self.strategies_dir / file_name
+
+        system = textwrap.dedent(f"""
+            You are writing a freqtrade strategy that uses a pre-trained ML model.
+            Output ONLY valid Python code, no markdown.
+
+            Class name: {strategy_name}
+            Model location: {model_dir}
+            Model registry name: {registry_name}
+
+            The strategy must:
+            1. In populate_indicators: load the model, compute features, run predict()
+            2. Use model predictions (float values, positive=buy signal) for entry/exit
+            3. Set enter_long=1 when prediction > threshold, exit_long=1 when prediction < 0
+
+            Import block:
+            from __future__ import annotations
+            import sys, json
+            from pathlib import Path
+            import numpy as np
+            from pandas import DataFrame
+            _ROOT = Path(__file__).resolve().parents[2]
+            if str(_ROOT / "src") not in sys.path:
+                sys.path.insert(0, str(_ROOT / "src"))
+                sys.path.insert(0, str(_ROOT))
+            from freqtrade.strategy import IStrategy
+            from agent_market.freqai.features import apply_configured_features
+            from agent_market.freqai.model.base import ModelRegistry
+            import agent_market.freqai.model
+            from workspace.model_loader import scan_and_register
+
+            In populate_indicators:
+            - Load feature config from user_data/freqai_features_real.json
+            - Apply features with apply_configured_features(dataframe, cfg)
+            - Load training_summary.json from model_dir to get feature column names
+            - scan_and_register() to ensure custom model is available
+            - Create model via ModelRegistry.create(registry_name, config)
+            - model.load(model_path)
+            - model.predict(feature_matrix) → predictions column
+        """).strip()
+
+        user = f"Write strategy {strategy_name} that uses model '{registry_name}' from '{model_dir}'."
+
+        code = self._llm_call(system, user, temperature=0.3)
+        code = self._extract_code(code)
+        out_path.write_text(code, encoding="utf-8")
+        return out_path
+
+    def run_full_cycle(self, model_types: Optional[list] = None, max_iterations: int = 3) -> Dict[str, Any]:
+        """Full ML/DL/RL cycle: analyze → write model → train → write strategy → backtest."""
+        if model_types is None:
+            model_types = ["ml", "dl"]
+
+        cycle_results = []
+        for i in range(1, max_iterations + 1):
+            model_type = model_types[(i - 1) % len(model_types)]
+
+            print(f"\n{'='*60}")
+            print(f"FULL CYCLE {i}/{max_iterations} — {model_type.upper()}")
+            print(f"{'='*60}")
+
+            # 1. Analyze
+            print("[1/6] Analyzing...")
+            try:
+                analysis = self.analyze_history()
+                print(f"  {len(analysis)} chars")
+            except Exception as exc:
+                print(f"  Failed: {exc}")
+                analysis = ""
+
+            # 2. Generate model
+            print(f"[2/6] Generating {model_type} model...")
+            try:
+                model_path = self.generate_model(model_type, i, analysis)
+                print(f"  Written: {model_path.name}")
+            except Exception as exc:
+                print(f"  Failed: {exc}")
+                cycle_results.append({"iteration": i, "type": model_type, "error": str(exc)})
+                continue
+
+            # 3. Validate model (with fix)
+            print("[3/6] Validating model...")
+            ok, err = self.validate_model(model_path)
+            if not ok:
+                print(f"  Failed: {err}, fixing...")
+                for attempt in range(3):
+                    if self.fix_model(model_path, err):
+                        ok = True
+                        break
+                    ok, err = self.validate_model(model_path)
+            if not ok:
+                print(f"  SKIP model")
+                cycle_results.append({"iteration": i, "type": model_type, "error": err})
+                continue
+            print("  OK")
+
+            # 4. Train model
+            print("[4/6] Training model...")
+            train_result = self.train_model(model_path, i)
+            if not train_result.get("ok"):
+                print(f"  Train failed: {train_result.get('error', '?')[:200]}")
+                # Try fix and retrain
+                fixed = self.fix_model(model_path, train_result.get("error", ""))
+                if fixed:
+                    train_result = self.train_model(model_path, i)
+                if not train_result.get("ok"):
+                    print(f"  SKIP after fix attempt")
+                    cycle_results.append({"iteration": i, "type": model_type, "error": train_result.get("error")})
+                    continue
+            print(f"  Metrics: {train_result.get('metrics', {})}")
+
+            # 5. Generate ML strategy
+            print("[5/6] Generating ML strategy...")
+            try:
+                strat_path = self.generate_ml_strategy(
+                    train_result["model_dir"],
+                    train_result["registry_name"],
+                    i,
+                )
+                print(f"  Written: {strat_path.name}")
+            except Exception as exc:
+                print(f"  Failed: {exc}")
+                cycle_results.append({"iteration": i, "type": model_type, "error": str(exc)})
+                continue
+
+            # Validate strategy
+            ok, err = self.validate_strategy(strat_path)
+            if not ok:
+                for attempt in range(3):
+                    if self.fix_strategy(strat_path, err):
+                        ok = True
+                        break
+                    ok, err = self.validate_strategy(strat_path)
+            if not ok:
+                print(f"  Strategy validation failed: {err}")
+                cycle_results.append({"iteration": i, "type": model_type, "error": err})
+                continue
+
+            # 6. Backtest + evaluate
+            print("[6/6] Backtesting...")
+            try:
+                result = self.run_and_evaluate(strat_path, i)
+                bt = result["backtest"]
+                ev = result["evaluation"]
+                if bt.get("ok"):
+                    print(f"  Trades={bt['trades']}, Sharpe={bt['sharpe']:.4f}, "
+                          f"Profit={bt['profit_pct']}%, Score={ev['total_score']}/100")
+                else:
+                    print(f"  Backtest failed: {bt.get('error', '?')[:200]}")
+                    # Try fix strategy runtime error
+                    if self.fix_strategy(strat_path, str(bt.get("error", ""))):
+                        result = self.run_and_evaluate(strat_path, i)
+                        bt = result["backtest"]
+                        ev = result["evaluation"]
+                        if bt.get("ok"):
+                            print(f"  Fixed! Trades={bt['trades']}, Sharpe={bt['sharpe']:.4f}")
+
+                result["type"] = model_type
+                result["model_metrics"] = train_result.get("metrics", {})
+                cycle_results.append(result)
+            except Exception as exc:
+                print(f"  Error: {exc}")
+                cycle_results.append({"iteration": i, "type": model_type, "error": str(exc)})
+
+        # Report
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "iterations": len(cycle_results),
+            "results": [
+                {
+                    "iteration": r.get("iteration"),
+                    "type": r.get("type"),
+                    "strategy": r.get("strategy_name", "?"),
+                    "sharpe": r.get("backtest", {}).get("sharpe"),
+                    "profit_pct": r.get("backtest", {}).get("profit_pct"),
+                    "score": r.get("evaluation", {}).get("total_score"),
+                    "model_rmse": r.get("model_metrics", {}).get("rmse_valid"),
+                    "error": r.get("error"),
+                }
+                for r in cycle_results
+            ],
+        }
+        rp = self.results_dir / f"full_cycle_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        rp.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+        print(f"\nReport: {rp}")
+        return report
+
+    # ------------------------------------------------------------------
     # Step 4: Run and evaluate
     # ------------------------------------------------------------------
 
