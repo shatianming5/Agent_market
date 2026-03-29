@@ -1,0 +1,91 @@
+{
+  "feature": {
+    "args": [
+      "--config",
+      "user_data/config_freqai_kucoin.json",
+      "--output",
+      "user_data/freqai_features_real.json"
+    ],
+    "script": "scripts/freqai_feature_agent.py"
+  },
+  "expression": {
+    "args": [
+      "--config",
+      "user_data/config_freqai_kucoin.json",
+      "--output",
+      "user_data/freqai_expressions_selected.json",
+      "--timeframe",
+      "1h",
+      "--mine",
+      "--top-n",
+      "40",
+      "--llm-enabled",
+      "--llm-base-url",
+      "http://localhost:4141/v1",
+      "--llm-api-key",
+      "_",
+      "--llm-model",
+      "gpt-5.2",
+      "--llm-count",
+      "40",
+      "--llm-loops",
+      "3",
+      "--llm-temperature",
+      "0.25"
+    ],
+    "feedback_top": 8,
+    "script": "scripts/freqai_expression_agent.py"
+  },
+  "ml_training": {
+    "configs": [
+      {
+        "data": {
+          "feature_file": "user_data/freqai_features_real.json",
+          "expressions_file": "user_data/freqai_expressions_selected.json",
+          "data_dir": "user_data/data",
+          "exchange": "kucoin",
+          "pairs": [
+            "BTC/USDT",
+            "ETH/USDT"
+          ],
+          "timeframe": "1h",
+          "label_period": 12
+        },
+        "model": {
+          "name": "lightgbm",
+          "params": {
+            "objective": "regression",
+            "metric": "rmse",
+            "learning_rate": 0.04,
+            "num_leaves": 55,
+            "subsample": 0.8,
+            "feature_fraction": 0.8,
+            "num_boost_round": 260,
+            "model_dir": "artifacts/models/lightgbm_llm"
+          }
+        },
+        "training": {
+          "validation_ratio": 0.25,
+          "purge": 18,
+          "embargo": 6
+        },
+        "output": {
+          "model_dir": "artifacts/models/lightgbm_llm"
+        }
+      }
+    ]
+  },
+  "backtest": {
+    "binary": "freqtrade",
+    "generate_rl_signals": false,
+    "config": "user_data/config_freqai_kucoin.json",
+    "strategy": "ExpressionLongStrategy",
+    "strategy_path": "user_data/strategies",
+    "timerange": "20251126-20260125",
+    "extra_args": [
+      "--cache",
+      "none"
+    ],
+    "results_dir": "user_data/backtest_results"
+  }
+}
