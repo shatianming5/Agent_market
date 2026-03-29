@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-03-29T19:06:54.428643+00:00",
+  "strategy_path": "/Users/shatianming/Downloads/Agent_market/workspace/strategies/strategy_template.py",
+  "n_windows": 6,
+  "n_successful": 6,
+  "mean_sharpe": -19.614614387508684,
+  "std_sharpe": 17.04724178571407,
+  "mean_profit": -0.4066666666666667,
+  "pct_profitable": 0.16666666666666666,
+  "passed": false,
+  "verdict": "FAIL: mean Sharpe -19.61 (need >= 0.0), 17% profitable (need >= 50%)",
+  "windows": [
+    {
+      "id": 1,
+      "test_range": "20251212-20251218",
+      "sharpe": -26.874342155173956,
+      "profit_pct": -0.92,
+      "trades": 12,
+      "ok": true
+    },
+    {
+      "id": 2,
+      "test_range": "20251218-20251225",
+      "sharpe": -36.07771514518442,
+      "profit_pct": -0.56,
+      "trades": 38,
+      "ok": true
+    },
+    {
+      "id": 3,
+      "test_range": "20251225-20251231",
+      "sharpe": -22.897002423220563,
+      "profit_pct": -0.51,
+      "trades": 32,
+      "ok": true
+    },
+    {
+      "id": 4,
+      "test_range": "20251231-20260106",
+      "sharpe": -5.47455233826392,
+      "profit_pct": -0.07,
+      "trades": 54,
+      "ok": true
+    },
+    {
+      "id": 5,
+      "test_range": "20260106-20260112",
+      "sharpe": -36.91431320139782,
+      "profit_pct": -0.69,
+      "trades": 22,
+      "ok": true
+    },
+    {
+      "id": 6,
+      "test_range": "20260112-20260119",
+      "sharpe": 10.550238938188564,
+      "profit_pct": 0.31,
+      "trades": 42,
+      "ok": true
+    }
+  ]
+}
