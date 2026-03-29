@@ -15,129 +15,115 @@ from workspace.model_loader import scan_and_register
 
 
 class MLStrategy_v1(IStrategy):
-    interface_version = 3
-
     timeframe = "1h"
-    can_short = False
     process_only_new_candles = True
-    startup_candle_count: int = 60
+    startup_candle_count = 200
 
-    minimal_roi = {"0": 0.01}
-    stoploss = -0.05
-    use_exit_signal = True
+    minimal_roi = {"0": 0.10}
+    stoploss = -0.10
 
     threshold: float = 0.0
 
-    _MODEL_DIR = Path("/Users/shatianming/Downloads/Agent_market/workspace/results/model_auto_ml_v1")
-    _REGISTRY_NAME = "auto_ml_v1"
+    model_dir: Path = Path("/Users/shatianming/Downloads/Agent_market/workspace/results/model_auto_rl_v1")
+    registry_name: str = "auto_rl_v1"
+
+    pred_col: str = "ml_pred"
 
     _feature_cfg: dict | None = None
-    _training_summary: dict | None = None
     _feature_cols: list[str] | None = None
     _model = None
-    _model_loaded: bool = False
-    _registry_scanned: bool = False
+    _model_path: Path | None = None
 
-    @staticmethod
-    def _read_json(path: Path) -> dict:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-
-    @classmethod
-    def _load_feature_cfg(cls) -> dict:
-        if cls._feature_cfg is not None:
-            return cls._feature_cfg
+    def _load_feature_cfg(self) -> dict:
+        if self.__class__._feature_cfg is not None:
+            return self.__class__._feature_cfg
         cfg_path = _ROOT / "user_data" / "freqai_features_real.json"
-        cls._feature_cfg = cls._read_json(cfg_path)
-        return cls._feature_cfg
+        with cfg_path.open("r", encoding="utf-8") as f:
+            self.__class__._feature_cfg = json.load(f)
+        return self.__class__._feature_cfg
 
-    @classmethod
-    def _load_training_summary(cls) -> dict:
-        if cls._training_summary is not None:
-            return cls._training_summary
-        summary_path = cls._MODEL_DIR / "training_summary.json"
-        cls._training_summary = cls._read_json(summary_path)
-        return cls._training_summary
+    def _load_training_summary(self) -> dict:
+        summary_path = self.model_dir / "training_summary.json"
+        with summary_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
 
-    @classmethod
-    def _ensure_model_loaded(cls) -> None:
-        if cls._model_loaded and cls._model is not None and cls._feature_cols is not None:
+    def _ensure_model_loaded(self) -> None:
+        if self.__class__._model is not None and self.__class__._model_path is not None:
             return
 
-        if not cls._registry_scanned:
-            scan_and_register()
-            cls._registry_scanned = True
+        scan_and_register()
 
-        summary = cls._load_training_summary()
-        cols = [str(c) for c in (summary.get("features") or []) if str(c).strip()]
-        if not cols:
-            raise ValueError(f"Model feature list missing in {cls._MODEL_DIR / 'training_summary.json'}")
-        cls._feature_cols = cols
+        summary = self._load_training_summary()
+        feature_cols = summary.get("features") or []
+        if not isinstance(feature_cols, list) or not feature_cols:
+            raise ValueError("training_summary.json missing non-empty 'features' list")
+        self.__class__._feature_cols = [str(c) for c in feature_cols]
 
-        model_config: dict = {"model_dir": str(cls._MODEL_DIR)}
-        cls._model = ModelRegistry.create(cls._REGISTRY_NAME, model_config)
+        model_path = summary.get("model_path")
+        if model_path:
+            model_path = Path(str(model_path))
+        else:
+            model_path = self.model_dir / f"{self.registry_name}.pkl"
 
-        model_path_raw = str(summary.get("model_path") or "").strip()
-        model_path = Path(model_path_raw) if model_path_raw else cls._MODEL_DIR
+        config = {"model_dir": str(self.model_dir)}
+        model = ModelRegistry.create(self.registry_name, config)
+        model.load(model_path)
 
-        cls._model.load(model_path)
-        cls._model_loaded = True
+        self.__class__._model = model
+        self.__class__._model_path = model_path
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         if dataframe is None or dataframe.empty:
             return dataframe
 
-        dataframe["prediction"] = np.nan
+        cfg = self._load_feature_cfg()
+        dataframe = apply_configured_features(dataframe, cfg)
 
-        try:
-            self._ensure_model_loaded()
+        self._ensure_model_loaded()
+        feature_cols = self.__class__._feature_cols
+        model = self.__class__._model
+        if feature_cols is None or model is None:
+            raise RuntimeError("Model or feature columns not initialized")
 
-            cfg = self._load_feature_cfg()
-            df = apply_configured_features(dataframe, cfg)
-            if df is None:
-                df = dataframe
+        for col in feature_cols:
+            if col not in dataframe.columns:
+                dataframe[col] = np.nan
 
-            cols = self._feature_cols or []
-            for c in cols:
-                if c not in df.columns:
-                    df[c] = np.nan
+        X = dataframe[feature_cols].to_numpy(dtype=np.float32, copy=False)
+        preds = model.predict(X)
+        preds = np.asarray(preds, dtype=np.float32).reshape(-1)
+        if preds.shape[0] != len(dataframe):
+            raise RuntimeError(f"predict() length mismatch: got {preds.shape[0]} expected {len(dataframe)}")
 
-            matrix_df = (
-                df[cols]
-                .astype(float)
-                .replace([np.inf, -np.inf], np.nan)
-                .ffill()
-                .bfill()
-                .fillna(0.0)
-            )
-            X = matrix_df.to_numpy(dtype=np.float32, copy=False)
-
-            pred = self._model.predict(X)
-            pred = np.asarray(pred, dtype=np.float32).reshape(-1)
-            if pred.shape[0] != len(df):
-                dataframe["prediction"] = np.nan
-                return dataframe
-
-            dataframe["prediction"] = pred
-            return dataframe
-        except Exception:
-            return dataframe
+        dataframe[self.pred_col] = preds
+        return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         if dataframe is None or dataframe.empty:
             return dataframe
-        if "prediction" not in dataframe.columns:
+
+        if self.pred_col not in dataframe.columns:
             dataframe["enter_long"] = 0
             return dataframe
-        cond = (dataframe["volume"] > 0) & (dataframe["prediction"] > float(self.threshold))
-        dataframe.loc[cond, "enter_long"] = 1
+
+        pred = dataframe[self.pred_col].to_numpy(dtype=np.float32, copy=False)
+        enter = np.isfinite(pred) & (pred > float(self.threshold))
+
+        dataframe["enter_long"] = 0
+        dataframe.loc[enter, "enter_long"] = 1
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         if dataframe is None or dataframe.empty:
             return dataframe
-        if "prediction" not in dataframe.columns:
+
+        if self.pred_col not in dataframe.columns:
             dataframe["exit_long"] = 0
             return dataframe
-        cond = (dataframe["volume"] > 0) & (dataframe["prediction"] < 0.0)
-        dataframe.loc[cond, "exit_long"] = 1
+
+        pred = dataframe[self.pred_col].to_numpy(dtype=np.float32, copy=False)
+        exit_ = np.isfinite(pred) & (pred < 0.0)
+
+        dataframe["exit_long"] = 0
+        dataframe.loc[exit_, "exit_long"] = 1
         return dataframe
