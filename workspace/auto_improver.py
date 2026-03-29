@@ -160,6 +160,18 @@ class AutoImprover:
             You are an expert Python developer writing freqtrade trading strategies.
             Output ONLY valid Python code, no markdown, no explanation.
 
+            DATA STATISTICS (BTC/USDT 1H, ~60 days):
+            - close: 84488-97656, mean=90276, std=2526
+            - hourly_return: mean~0%, std=0.43%, range [-3.7%, +2.6%]
+            - RSI(14): range 8-91, mean=50
+            - BB_width(20): range 0.001-0.056, mean=0.013
+            - volume_ratio (vs 20-bar avg): range 0.08-6.4, mean=1.04
+            - Market is CHOPPY/BEARISH (-2.47% total). Trend strategies fail.
+
+            CRITICAL: entry conditions must NOT be too strict! With ~1448 bars,
+            your strategy should generate 20-100 trades. If conditions are too
+            narrow you get 0 trades. Use relaxed thresholds.
+
             Requirements:
             - Class name must be: {strategy_name}
             - Must inherit from freqtrade.strategy.IStrategy
