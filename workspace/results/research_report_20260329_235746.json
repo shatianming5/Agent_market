@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-03-29T15:57:46.721496+00:00",
+  "total_strategies": 4,
+  "successful_runs": 4,
+  "failed_runs": 0,
+  "ranking": [
+    {
+      "rank": 1,
+      "experiment_id": 4,
+      "strategy": "RSIBBMeanReversion",
+      "strategy_path": "workspace/strategies/rsi_bb_mean_reversion.py",
+      "score": 30.6,
+      "grade": "F",
+      "sharpe": -2.082781100810783,
+      "profit_pct": -0.9,
+      "max_drawdown_pct": 1.1689947579315538,
+      "trades": 38
+    },
+    {
+      "rank": 2,
+      "experiment_id": 6,
+      "strategy": "VolatilityAdaptive",
+      "strategy_path": "workspace/strategies/volatility_adaptive.py",
+      "score": 28.8,
+      "grade": "F",
+      "sharpe": -4.4207389243502115,
+      "profit_pct": -1.63,
+      "max_drawdown_pct": 1.6291087130000053,
+      "trades": 65
+    },
+    {
+      "rank": 3,
+      "experiment_id": 3,
+      "strategy": "MomentumBreakout",
+      "strategy_path": "workspace/strategies/momentum_breakout.py",
+      "score": 23.4,
+      "grade": "F",
+      "sharpe": -4.893799588473311,
+      "profit_pct": -1.98,
+      "max_drawdown_pct": 2.592917932864411,
+      "trades": 50
+    },
+    {
+      "rank": 4,
+      "experiment_id": 5,
+      "strategy": "StrategyTemplate",
+      "strategy_path": "workspace/strategies/strategy_template.py",
+      "score": 22.9,
+      "grade": "F",
+      "sharpe": -20.010338727112437,
+      "profit_pct": -4.84,
+      "max_drawdown_pct": 4.838237161999996,
+      "trades": 287
+    }
+  ],
+  "best": {
+    "strategy": "RSIBBMeanReversion",
+    "score": 30.6,
+    "grade": "F"
+  },
+  "recommendations": [
+    "Sharpe=-2.08 (target≥1.0): improve signal quality or reduce trade frequency",
+    "sortino=-2.2695698417532837 needs improvement (target=1.0)",
+    "Profit=-0.90% (target≥1.0%): improve entry timing or hold winners longer"
+  ]
+}
