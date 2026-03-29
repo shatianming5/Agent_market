@@ -1,75 +1,143 @@
-# Ralph Loop: 驱动 Agent Market 生产可盈利策略
+# Ralph Loop: 搭建 OpenCode 自主量化研究工作台
 
-## 目标
-让 Agent Market 的完整管道真正跑通，利用 LLM (localhost:4141/v1, gpt-5.2) 驱动因子生成、编译、评估、训练、回测，并整合微观结构特征和 TCA 成本分析，最终产出可验证收益的策略文件。
+## 总目标
+搭建一个 workspace，让 OpenCode agent 拥有量化研究员的完全自主权：自己写算法代码、写策略逻辑、生成配置、调用回测 API、根据多目标反馈自我迭代。
 
-## 当前环境
-- LLM API: http://localhost:4141/v1 (支持 gpt-4o-mini, gpt-4.1, gpt-5.2)
-- 数据: user_data/data/kucoin/BTC_USDT-1h.feather, ETH_USDT-1h.feather
-- 回测框架: freqtrade (本地子模块)
-- ML: LightGBM/XGBoost (需确认已安装)
-- Factor Compiler: src/agent_market/factor_compiler/ (完整)
-- 微观结构: src/agent_market/microstructure/ (OHLCV 模式可用)
-- TCA: src/agent_market/tca/ (完整)
+## 架构设计
 
-## 每次迭代的工作流
+```
+workspace/
+├── models/              ← agent 写的算法代码（ML/DL/统计模型）
+├── strategies/          ← agent 写的 freqtrade 策略
+├── configs/             ← agent 生成的回测配置
+├── results/             ← 每次实验的结果记录
+├── objectives.json      ← 多目标优化定义
+└── toolbox.md           ← 可用的工具/数据/API 说明
+```
 
-### Phase 1: 诊断与修复 (前 1-3 轮)
-1. 验证 LLM 连通性: 用 Python 测试 localhost:4141/v1 是否正常响应
-2. 验证依赖: 检查 lightgbm, xgboost, freqtrade 等是否可导入，缺什么装什么
-3. 验证数据: 确认 feather 文件可读，列名正确
-4. 修复阻塞: 如果 agent_flow.py 跑不通，逐步定位并修复问题
-5. 先跑最小闭环: python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps feature expression ml backtest
+## 需要实现的 4 个核心模块
 
-### Phase 2: 启用 LLM 驱动 (第 4-6 轮)
-1. 创建/修改配置文件启用 LLM 表达式生成:
-   - 确保配置中 llm.enabled=true, llm.base_url=http://localhost:4141/v1, llm.model=gpt-5.2
-2. 运行 LLM 驱动的表达式生成: --steps feature expression
-3. 验证 LLM 生成的表达式质量: 检查 user_data/freqai_expressions_selected.json
-4. 用 Factor Compiler 编译并验证表达式: --steps factor_compile factor_eval
-5. 如果表达式质量差，调整 prompt 模板或参数后重试
+### 模块 1: 回测 API (workspace/backtest_api.py)
+封装 freqtrade 回测为一个 Python 函数调用：
+```python
+result = run_backtest(
+    strategy_path="workspace/strategies/my_strategy.py",
+    config_path="workspace/configs/backtest.json",
+    timerange="20251126-20260125",
+    pairs=["BTC/USDT", "ETH/USDT"],
+)
+# result = {sharpe, sortino, max_dd, profit_pct, win_rate, trades, calmar, profit_factor, ...}
+```
+- 输入：策略 .py 文件路径 + 配置
+- 输出：标准化的指标字典
+- 必须处理异常（策略代码有 bug 时返回 error 而不是崩溃）
+- 结果自动写入 workspace/results/
 
-### Phase 3: 全管道 + 扩展 (第 7-9 轮)
-1. 跑完整管道: --steps feature micro_feature expression factor_compile factor_eval ml backtest tca
-2. 分析回测结果: 检查 backtest-result-*.zip 和 latest_backtest_summary.json
-3. 分析 TCA 报告: 检查 IS 分解、spread/impact 是否合理
-4. 分析微观结构特征: 检查 features.parquet 是否正常产出
-5. 根据回测和 TCA 结果调整策略参数（如 label_period, 表达式筛选阈值等）
-6. 如果回测亏损，分析原因并调整:
-   - 表达式质量差 → 改进 LLM prompt
-   - 过拟合 → 增大 purge/embargo, 减小 train_period
-   - 成本太高 → 从 TCA 报告中找到成本最高的组件并优化
+### 模块 2: 动态模型加载器 (workspace/model_loader.py)
+让 agent 写的模型代码自动被 pipeline 识别：
+- 扫描 workspace/models/*.py
+- 找到继承 BaseModelAdapter 的类
+- 自动注册到 ModelRegistry
+- 策略中可以通过 model_name 引用
 
-### Phase 4: 迭代优化 (第 10 轮)
-1. 汇总所有轮次的回测结果
-2. 对比不同配置下的 Sharpe/drawdown/费用
-3. 输出最终的最优策略配置和回测结果
-4. 确保所有产物落盘: run_meta.json, backtest_summary, tca_report, factor_scores
+### 模块 3: 多目标评估器 (workspace/evaluator.py)
+读取 objectives.json，判断回测结果是否达标：
+```json
+{
+  "targets": {
+    "sharpe": {"min": 1.0, "weight": 0.3},
+    "max_drawdown_pct": {"max": 5.0, "weight": 0.2},
+    "profit_pct": {"min": 1.0, "weight": 0.2},
+    "win_rate": {"min": 0.45, "weight": 0.15},
+    "profit_factor": {"min": 1.1, "weight": 0.15}
+  },
+  "constraints": {
+    "min_trades": 50,
+    "max_avg_duration_hours": 48
+  }
+}
+```
+- 计算综合得分 (0-100)
+- 标记哪些目标达标/未达标
+- 给出改进建议（哪个指标最差，应该往哪个方向调）
 
-## 关键文件位置
-- 主入口: scripts/agent_flow.py
-- 配置模板: configs/agent_flow_kucoin_cpu_nollm.json
-- LLM 配置: .env (已更新为 localhost:4141)
-- LLM 调用: src/agent_market/freqai/llm.py
-- 表达式引擎: src/agent_market/freqai/expression_engine.py
-- 训练管道: src/agent_market/freqai/training/pipeline.py
-- Factor Compiler: src/agent_market/factor_compiler/
-- 微观结构: src/agent_market/microstructure/micro_feature.py
-- TCA: src/agent_market/tca/report.py
-- 策略模板: freqtrade/ 子模块
+### 模块 4: 实验追踪器 (workspace/tracker.py)
+每次实验自动记录：
+- 实验 ID + 时间戳
+- 使用的策略代码 SHA256
+- 使用的模型代码 SHA256
+- 配置快照
+- 回测结果指标
+- 多目标评分
+- 写入 workspace/results/experiments.jsonl（追加模式）
+- 支持查询历史最佳、对比两次实验
+
+## 实现顺序（每轮迭代的 checklist）
+
+### 迭代 1: workspace 骨架 + objectives
+- [ ] 创建 workspace/ 完整目录结构
+- [ ] 写 workspace/objectives.json（多目标定义）
+- [ ] 写 workspace/toolbox.md（可用工具/数据说明）
+- [ ] 写 workspace/strategy_template.py（策略基类模板）
+- [ ] pytest 通过
+
+### 迭代 2: 回测 API
+- [ ] 实现 workspace/backtest_api.py
+- [ ] run_backtest() 函数：接收策略路径+配置 → 返回指标字典
+- [ ] 错误处理：策略代码有 bug 时返回 {error: "..."} 不崩溃
+- [ ] 写测试 tests/test_backtest_api.py
+- [ ] 用现有策略验证 API 能正常返回结果
+
+### 迭代 3: 动态模型加载器
+- [ ] 实现 workspace/model_loader.py
+- [ ] scan_workspace_models() 扫描并注册
+- [ ] 写一个示例模型 workspace/models/example_ridge.py（Ridge 回归）
+- [ ] 验证示例模型能被 pipeline 加载和训练
+
+### 迭代 4: 多目标评估器
+- [ ] 实现 workspace/evaluator.py
+- [ ] evaluate(result, objectives) → {score, details, suggestions}
+- [ ] 写测试验证评分逻辑
+- [ ] 用真实回测结果验证
+
+### 迭代 5: 实验追踪器
+- [ ] 实现 workspace/tracker.py
+- [ ] record_experiment() 写入 experiments.jsonl
+- [ ] query_best() 查询历史最佳
+- [ ] compare(id1, id2) 对比两次实验
+
+### 迭代 6: agent 写第一个自定义策略
+- [ ] 用 LLM 在 workspace/strategies/ 写一个新策略
+- [ ] 用 backtest_api 回测
+- [ ] 用 evaluator 评分
+- [ ] 用 tracker 记录
+
+### 迭代 7: agent 写第一个自定义模型
+- [ ] 用 LLM 在 workspace/models/ 写一个新模型（如 LSTM/GRU）
+- [ ] 通过 model_loader 动态注册
+- [ ] 配合策略跑回测
+- [ ] 评分 + 记录
+
+### 迭代 8: 端到端自动化
+- [ ] 写 workspace/orchestrator.py 串联所有模块
+- [ ] orchestrator 读 objectives → 写策略/模型 → 回测 → 评估 → 记录
+- [ ] 验证完整循环跑通
+
+### 迭代 9: 优化迭代
+- [ ] orchestrator 读取历史实验结果
+- [ ] 根据 evaluator 的建议自动改进策略/模型
+- [ ] 跑多轮对比实验
+
+### 迭代 10: 最终验证
+- [ ] 所有模块测试通过
+- [ ] 至少 3 个不同策略/模型的回测结果
+- [ ] 实验追踪有完整记录
+- [ ] 多目标评分有改善趋势
+- [ ] workspace/toolbox.md 更新为最终版
 
 ## 约束
-- 使用真实数据 (user_data/data/kucoin/*.feather)，禁止模拟数据
-- 每次迭代结束必须有文字总结（否则 Ralph Loop hook 会崩）
-- 代码改动要保持向后兼容，不破坏现有测试
-- 每次有实质性改动后 git commit
-- 如果某个步骤失败，先诊断原因再修复，不要跳过
-
-## 成功标准
-当满足以下全部条件时，输出 completion promise:
-1. LLM 驱动的表达式生成可正常工作
-2. Factor Compiler 编译+评估链路跑通
-3. 完整管道 (feature→expression→ml→backtest→tca) 至少成功运行一次
-4. 回测结果有明确的 Sharpe ratio 和 drawdown 数据
-5. TCA 报告包含完整的 IS 分解
-6. 微观结构特征正常产出
+- 所有代码在 workspace/ 目录下（不改动 src/ 核心代码，只调用）
+- 回测 API 必须 catch 异常，不能因为 agent 写的代码有 bug 就崩溃
+- 每次迭代结束必须有文字总结
+- 每次有代码改动 git commit
+- 使用真实数据（user_data/data/kucoin/*.feather）

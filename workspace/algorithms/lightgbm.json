@@ -1,0 +1,26 @@
+{
+  "_doc": "LightGBM 梯度提升决策树 — 适合表格数据，训练快，可解释性好",
+  "enabled": true,
+  "name": "lightgbm",
+  "params": {
+    "objective": "regression",
+    "metric": "rmse",
+    "learning_rate": 0.045,
+    "num_leaves": 63,
+    "max_depth": -1,
+    "subsample": 0.85,
+    "feature_fraction": 0.85,
+    "num_boost_round": 220,
+    "min_data_in_leaf": 10,
+    "lambda_l1": 0.0,
+    "lambda_l2": 0.0,
+    "verbose": -1
+  },
+  "tuning_hints": {
+    "learning_rate": {"range": [0.01, 0.1], "note": "越小越稳但需要更多轮次"},
+    "num_leaves": {"range": [15, 127], "note": "越大越容易过拟合"},
+    "num_boost_round": {"range": [100, 1000], "note": "配合 learning_rate 调整"},
+    "subsample": {"range": [0.5, 1.0], "note": "行采样率，防过拟合"},
+    "feature_fraction": {"range": [0.5, 1.0], "note": "列采样率，防过拟合"}
+  }
+}

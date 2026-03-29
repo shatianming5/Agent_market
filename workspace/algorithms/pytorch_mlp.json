@@ -1,0 +1,21 @@
+{
+  "_doc": "PyTorch 多层感知机 — 深度学习，适合捕捉非线性模式，需要更多数据",
+  "enabled": false,
+  "name": "pytorch_mlp",
+  "params": {
+    "hidden_dims": [128, 64, 32],
+    "dropout": 0.2,
+    "learning_rate": 0.001,
+    "epochs": 50,
+    "batch_size": 64,
+    "seed": 42,
+    "use_cuda": false
+  },
+  "tuning_hints": {
+    "hidden_dims": {"examples": [[64, 32], [128, 64, 32], [256, 128, 64]], "note": "层数和宽度"},
+    "dropout": {"range": [0.0, 0.5], "note": "防过拟合"},
+    "learning_rate": {"range": [0.0001, 0.01]},
+    "epochs": {"range": [10, 200]},
+    "batch_size": {"options": [32, 64, 128, 256]}
+  }
+}

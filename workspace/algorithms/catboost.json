@@ -1,0 +1,21 @@
+{
+  "_doc": "CatBoost — 自动处理类别特征，天然抗过拟合，无需特征标准化",
+  "enabled": false,
+  "name": "catboost",
+  "params": {
+    "loss_function": "RMSE",
+    "learning_rate": 0.05,
+    "depth": 6,
+    "iterations": 200,
+    "l2_leaf_reg": 3.0,
+    "subsample": 0.8,
+    "random_seed": 42,
+    "verbose": 0
+  },
+  "tuning_hints": {
+    "learning_rate": {"range": [0.01, 0.1]},
+    "depth": {"range": [4, 10]},
+    "iterations": {"range": [100, 1000]},
+    "l2_leaf_reg": {"range": [1.0, 10.0], "note": "L2 正则化"}
+  }
+}
