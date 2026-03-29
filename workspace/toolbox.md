@@ -1,110 +1,142 @@
-# OpenCode Quant Workspace — Toolbox
+# OpenCode Quant Workspace — Complete Toolbox
 
-## 你可以做什么
+## System Architecture
 
-你是一个自主量化研究员。你可以：
-
-1. **写算法** — 在 `workspace/models/` 下创建 .py 文件，实现任何 ML/DL/统计模型
-2. **写策略** — 在 `workspace/strategies/` 下创建 freqtrade 策略 .py 文件
-3. **写配置** — 在 `workspace/configs/` 下创建 freqtrade JSON 配置
-4. **调用回测** — `from workspace.backtest_api import run_backtest`
-5. **评估结果** — `from workspace.evaluator import evaluate`
-6. **追踪实验** — `from workspace.tracker import record_experiment, query_best`
-
-## 可用数据
-
-| 文件 | 内容 | 列 |
-|------|------|----|
-| `user_data/data/kucoin/BTC_USDT-1h.feather` | BTC 1小时K线 | date, open, high, low, close, volume |
-| `user_data/data/kucoin/ETH_USDT-1h.feather` | ETH 1小时K线 | 同上 |
-
-时间范围：约 1448 行（~60天）
-
-## 可用的特征工程工具
-
-```python
-# 技术指标（已内置于 freqai features）
-from agent_market.freqai.features import apply_configured_features
-
-# 表达式引擎（安全执行数学表达式）
-from agent_market.freqai.expression_engine import safe_eval_expression, apply_expressions
-
-# 微观结构特征（OHLCV 模式）
-from agent_market.microstructure.ohlcv_features import build_ohlcv_micro_features
-
-# Factor Compiler（类型安全的因子编译）
-from agent_market.factor_compiler.dsl.parser import parse_formula
-from agent_market.factor_compiler.dsl.types import typecheck
+```
+┌─────────────────────────────────────────────────────────┐
+│ auto_improver.py — OpenCode Agent Brain                  │
+│   opencode run → analyze → write model → train → test   │
+├─────────────────────────────────────────────────────────┤
+│ ensemble.py — Regime Detection + Signal Combination      │
+│   trending_up / trending_down / ranging / volatile       │
+├─────────────────────────────────────────────────────────┤
+│ risk_manager.py — Kelly + Circuit Breaker                │
+│   position sizing / DD stop / consecutive loss limit     │
+├─────────────────────────────────────────────────────────┤
+│ walk_forward.py + lookahead_checker.py — Validation      │
+│   rolling OOS / bfill detection / train-test overlap     │
+├─────────────────────────────────────────────────────────┤
+│ backtest_api.py + evaluator.py + tracker.py              │
+│   one-call backtest / multi-objective score / experiment │
+├─────────────────────────────────────────────────────────┤
+│ cost_model.py + feature_selector.py + universe_selector  │
+│   realistic fees / MI+stability ranking / liquidity scan │
+├─────────────────────────────────────────────────────────┤
+│ paper_trader.py — Simulated Live Trading                 │
+│   order execution / PnL tracking / equity history        │
+└─────────────────────────────────────────────────────────┘
 ```
 
-## 写模型的规范
+## Quick Start
 
-继承 `BaseModelAdapter`，实现 4 个方法：
-
+### 1. Auto-Improver (Full Autonomous Mode)
 ```python
-from agent_market.freqai.model.base import BaseModelAdapter, TrainResult
+from workspace.auto_improver import AutoImprover
+ai = AutoImprover()
 
-class MyModel(BaseModelAdapter):
-    registry_name = "my_model"  # 唯一名称
+# OpenCode writes ML model → trains → writes strategy → backtests
+report = ai.run_full_cycle(model_types=["ml", "dl"], max_iterations=3)
 
-    def fit(self, X_train, y_train, X_valid=None, y_valid=None) -> TrainResult:
-        # 训练逻辑
-        # 返回 TrainResult(model_path=Path, metrics=dict)
-
-    def predict(self, X) -> np.ndarray:
-        # 推理逻辑
-
-    def save(self, path): ...
-    def load(self, path): ...
+# Pure strategy generation (technical indicators)
+report = ai.run_cycle(max_iterations=5)
 ```
 
-## 写策略的规范
-
-继承 `IStrategy`，实现 3 个方法：
-
-```python
-from freqtrade.strategy import IStrategy
-
-class MyStrategy(IStrategy):
-    timeframe = "1h"
-    minimal_roi = {"0": 0.1, "240": -1}
-    stoploss = -0.05
-
-    def populate_indicators(self, dataframe, metadata):
-        # 添加指标列
-        return dataframe
-
-    def populate_entry_trend(self, dataframe, metadata):
-        # 设置 enter_long = 1 的条件
-        return dataframe
-
-    def populate_exit_trend(self, dataframe, metadata):
-        # 设置 exit_long = 1 的条件
-        return dataframe
-```
-
-## 回测 API
-
+### 2. Single Backtest
 ```python
 from workspace.backtest_api import run_backtest
-
-result = run_backtest(
-    strategy_path="workspace/strategies/my_strategy.py",
-    strategy_name="MyStrategy",  # 类名
-    pairs=["BTC/USDT", "ETH/USDT"],
-    timerange="20251126-20260125",
-)
-# result = {"ok": True, "sharpe": 0.72, "sortino": 1.13, ...}
-# 或者 {"ok": False, "error": "错误信息"}
+result = run_backtest("workspace/strategies/my_strategy.py", timerange="20260107-20260125")
 ```
 
-## 优化目标（workspace/objectives.json）
+### 3. Walk-Forward Validation
+```python
+from workspace.walk_forward import WalkForwardValidator
+wf = WalkForwardValidator(train_bars=400, test_bars=150, step_bars=150)
+report = wf.validate("workspace/strategies/my_strategy.py", exchange="kucoin")
+print(report.summary())  # PASS/FAIL with per-window breakdown
+```
 
-| 指标 | 方向 | 目标 | 权重 |
-|------|------|------|------|
-| Sharpe | 越高越好 | ≥ 1.0 | 30% |
-| Max Drawdown | 越低越好 | ≤ 5% | 20% |
-| Profit % | 越高越好 | ≥ 1% | 20% |
-| Sortino | 越高越好 | ≥ 1.0 | 10% |
-| Win Rate | 越高越好 | ≥ 45% | 10% |
-| Profit Factor | 越高越好 | ≥ 1.1 | 10% |
+### 4. Multi-Objective Evaluation
+```python
+from workspace.evaluator import evaluate
+score = evaluate(backtest_result)  # {total_score, grade, details, suggestions}
+```
+
+### 5. Cost Analysis
+```python
+from workspace.cost_model import CostModel
+model = CostModel(exchange="gate")
+cost = model.estimate_total_cost(trade_size_usd=500, daily_volume_usd=1e8)
+print(f"Round-trip: {cost.round_trip_bps:.0f} bps")  # ~46 bps
+```
+
+### 6. Market Regime
+```python
+from workspace.ensemble import RegimeDetector
+rd = RegimeDetector()
+state = rd.current_regime(df)  # trending_up / trending_down / ranging / volatile
+```
+
+### 7. Risk Check Before Trade
+```python
+from workspace.risk_manager import RiskManager
+rm = RiskManager(max_drawdown_pct=5.0)
+decision = rm.check_trade(signal_strength=0.8, win_rate=0.55, avg_win_pct=1.5, avg_loss_pct=1.0)
+if decision.allowed:
+    print(f"Trade OK, size={decision.position_size_pct}%")
+```
+
+### 8. Paper Trading
+```python
+from workspace.paper_trader import PaperTrader
+pt = PaperTrader(initial_equity=1000, pairs=["BTC/USDT"])
+pt.update_prices({"BTC/USDT": 84000})
+pt.submit_order("BTC/USDT", "buy", size_usd=100)
+print(pt.status())
+```
+
+## Module Reference
+
+| Module | Purpose | Key Functions |
+|--------|---------|---------------|
+| auto_improver | OpenCode agent brain | run_cycle(), run_full_cycle(), generate_model() |
+| backtest_api | Backtest wrapper | run_backtest() → {sharpe, profit, dd, ...} |
+| evaluator | Multi-objective scoring | evaluate() → {score, grade, suggestions} |
+| tracker | Experiment history | record_experiment(), query_best(), compare() |
+| orchestrator | Batch runner | run_research_loop(), run_experiment() |
+| model_loader | Dynamic model registry | scan_and_register(), list_available_models() |
+| lookahead_checker | Anti-cheating | check_lookahead(), fix_lookahead_issues() |
+| walk_forward | Rolling validation | WalkForwardValidator.validate() |
+| cost_model | Realistic costs | CostModel.estimate_total_cost() |
+| universe_selector | Asset filtering | select_universe() |
+| feature_selector | Dimensionality reduction | select_features(), build_feature_matrix() |
+| ensemble | Regime + combination | RegimeDetector, StrategyEnsemble |
+| risk_manager | Position sizing + stops | RiskManager.check_trade() |
+| paper_trader | Simulated trading | PaperTrader.submit_order() |
+| download_data | Data acquisition | CLI: python workspace/download_data.py |
+
+## Data
+
+| Source | Pairs | Bars | Period |
+|--------|-------|------|--------|
+| KuCoin | BTC/USDT, ETH/USDT | ~1448 | ~60 days |
+| Gate.io | BTC, ETH, SOL, DOGE, XRP, AVAX | ~1000 | ~41 days |
+
+For more data: `python workspace/download_data.py --exchange gate --days 730`
+
+## Optimization Targets (objectives.json)
+
+| Metric | Target | Weight |
+|--------|--------|--------|
+| Sharpe | ≥ 1.0 | 30% |
+| Max DD | ≤ 5% | 20% |
+| Profit | ≥ 1% | 20% |
+| Sortino | ≥ 1.0 | 10% |
+| Win Rate | ≥ 45% | 10% |
+| Profit Factor | ≥ 1.1 | 10% |
+
+## Integration Test
+
+```bash
+PYTHONPATH=. python3 workspace/integration_test.py
+# Expected: 40 passed, 0 failed
+```
