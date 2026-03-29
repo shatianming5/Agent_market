@@ -6,53 +6,87 @@ import numpy as np
 from agent_market.freqai.model.base import BaseModelAdapter, TrainResult
 
 
-def _as_2d_float_array(X: Any) -> np.ndarray:
-    arr = np.asarray(X)
-    if arr.ndim == 1:
-        arr = arr.reshape(1, -1)
-    if arr.ndim != 2:
-        raise ValueError(f"X must be 2D array-like, got shape={arr.shape}")
-    if arr.size == 0:
-        return arr.astype(np.float32, copy=False)
-    return arr.astype(np.float32, copy=False)
-
-
-def _as_1d_float_array(y: Any) -> np.ndarray:
-    arr = np.asarray(y)
-    if arr.ndim != 1:
-        arr = arr.reshape(-1)
-    if arr.size == 0:
-        return arr.astype(np.float32, copy=False)
-    return arr.astype(np.float32, copy=False)
-
-
-def _safe_corrcoef(a: np.ndarray, b: np.ndarray) -> float:
-    a = np.asarray(a).reshape(-1)
-    b = np.asarray(b).reshape(-1)
-    if a.size == 0 or b.size == 0:
-        return 0.0
-    if a.size != b.size:
-        raise ValueError("corrcoef inputs must have same length")
-    a = a.astype(np.float64, copy=False)
-    b = b.astype(np.float64, copy=False)
-    a_std = float(np.std(a))
-    b_std = float(np.std(b))
-    if not np.isfinite(a_std) or not np.isfinite(b_std) or a_std == 0.0 or b_std == 0.0:
-        return 0.0
-    c = float(np.corrcoef(a, b)[0, 1])
-    if not np.isfinite(c):
-        return 0.0
-    return c
-
-
 class AutoML_v1(BaseModelAdapter):
     registry_name = "auto_ml_v1"
 
-    def __init__(self, config: Dict[str, Any]):
-        super().__init__(config)
-        self.model_: Any = None
-        self.model_path_: Optional[Path] = None
-        self.n_features_in_: Optional[int] = None
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        try:
+            super().__init__(config)
+        except Exception:
+            self.config = config or {}
+
+        cfg = getattr(self, "config", None) or {}
+        self._cfg: Dict[str, Any] = dict(cfg)
+
+        self.n_models: int = int(self._cfg.get("n_models", 5))
+        self.bootstrap: bool = bool(self._cfg.get("bootstrap", True))
+        self.random_state: int = int(self._cfg.get("random_state", 42))
+
+        alpha_grid = self._cfg.get("alpha_grid", None)
+        if alpha_grid is None:
+            alpha_grid = [1e-4, 3e-4, 1e-3, 3e-3, 1e-2]
+        self.alpha_grid = (
+            [float(a) for a in alpha_grid]
+            if isinstance(alpha_grid, (list, tuple))
+            else [float(alpha_grid)]
+        )
+
+        self.clip_pred: Optional[float] = self._cfg.get("clip_pred", None)
+        self._is_fitted: bool = False
+
+        self._n_features: Optional[int] = None
+        self._x_mean: Optional[np.ndarray] = None
+        self._x_scale: Optional[np.ndarray] = None
+        self._weights: Optional[np.ndarray] = None  # shape: (n_models, n_features + 1)
+
+    @staticmethod
+    def _nan_to_num_inplace(x: np.ndarray) -> np.ndarray:
+        if not isinstance(x, np.ndarray):
+            x = np.asarray(x)
+        x = x.astype(np.float32, copy=False)
+        np.nan_to_num(x, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        return x
+
+    @staticmethod
+    def _design_matrix(x_std: np.ndarray) -> np.ndarray:
+        n = x_std.shape[0]
+        bias = np.ones((n, 1), dtype=np.float32)
+        return np.concatenate([bias, x_std], axis=1)
+
+    @staticmethod
+    def _ridge_solve(x: np.ndarray, y: np.ndarray, alpha: float) -> np.ndarray:
+        xtx = x.T @ x
+        xty = x.T @ y
+        reg = np.eye(xtx.shape[0], dtype=np.float32) * np.float32(alpha)
+        reg[0, 0] = np.float32(0.0)  # do not regularize bias
+        a = xtx + reg
+        try:
+            w = np.linalg.solve(a.astype(np.float64), xty.astype(np.float64)).astype(
+                np.float32
+            )
+        except Exception:
+            w = np.linalg.lstsq(
+                a.astype(np.float64), xty.astype(np.float64), rcond=None
+            )[0].astype(np.float32)
+        return w
+
+    @staticmethod
+    def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        y_true = y_true.astype(np.float64, copy=False)
+        y_pred = y_pred.astype(np.float64, copy=False)
+        e = y_pred - y_true
+        return float(np.sqrt(np.mean(e * e)))
+
+    @staticmethod
+    def _corr(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        y_true = y_true.astype(np.float64, copy=False)
+        y_pred = y_pred.astype(np.float64, copy=False)
+        yt = y_true - np.mean(y_true)
+        yp = y_pred - np.mean(y_pred)
+        denom = np.sqrt(np.sum(yt * yt) * np.sum(yp * yp))
+        if denom <= 0.0:
+            return 0.0
+        return float(np.sum(yt * yp) / denom)
 
     def fit(
         self,
@@ -61,175 +95,160 @@ class AutoML_v1(BaseModelAdapter):
         X_valid: Optional[np.ndarray] = None,
         y_valid: Optional[np.ndarray] = None,
     ) -> TrainResult:
-        X_tr = _as_2d_float_array(X_train)
-        y_tr = _as_1d_float_array(y_train)
+        x = self._nan_to_num_inplace(np.asarray(X_train))
+        y = self._nan_to_num_inplace(np.asarray(y_train)).reshape(-1)
 
-        if X_tr.shape[0] != y_tr.shape[0]:
-            raise ValueError(f"X_train and y_train length mismatch: {X_tr.shape[0]} vs {y_tr.shape[0]}")
-        self.n_features_in_ = int(X_tr.shape[1])
-
-        model_dir = self.config.get("model_dir")
-        if model_dir is None:
-            raise ValueError('config["model_dir"] is required')
-        model_dir = Path(model_dir)
-        model_dir.mkdir(parents=True, exist_ok=True)
-
-        random_state = int(self.config.get("random_state", 42))
-        enet_alpha = float(self.config.get("enet_alpha", 1e-3))
-        enet_l1_ratio = float(self.config.get("enet_l1_ratio", 0.1))
-        rf_n_estimators = int(self.config.get("rf_n_estimators", 400))
-        rf_max_depth = self.config.get("rf_max_depth", None)
-        rf_min_samples_leaf = int(self.config.get("rf_min_samples_leaf", 5))
-        hgb_max_depth = int(self.config.get("hgb_max_depth", 3))
-        hgb_learning_rate = float(self.config.get("hgb_learning_rate", 0.05))
-        hgb_max_leaf_nodes = int(self.config.get("hgb_max_leaf_nodes", 31))
-        weights = self.config.get("ensemble_weights", None)
-
-        # Lazy sklearn imports (import block is fixed by platform requirement)
-        from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor, VotingRegressor
-        from sklearn.impute import SimpleImputer
-        from sklearn.linear_model import ElasticNet
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
-        lin = Pipeline(
-            steps=[
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler(with_mean=True, with_std=True)),
-                (
-                    "enet",
-                    ElasticNet(
-                        alpha=enet_alpha,
-                        l1_ratio=enet_l1_ratio,
-                        fit_intercept=True,
-                        max_iter=20000,
-                        random_state=random_state,
-                    ),
-                ),
-            ]
-        )
-
-        rf = Pipeline(
-            steps=[
-                ("imputer", SimpleImputer(strategy="median")),
-                (
-                    "rf",
-                    RandomForestRegressor(
-                        n_estimators=rf_n_estimators,
-                        max_depth=rf_max_depth,
-                        min_samples_leaf=rf_min_samples_leaf,
-                        n_jobs=-1,
-                        random_state=random_state,
-                    ),
-                ),
-            ]
-        )
-
-        hgb = Pipeline(
-            steps=[
-                ("imputer", SimpleImputer(strategy="median")),
-                (
-                    "hgb",
-                    HistGradientBoostingRegressor(
-                        loss="squared_error",
-                        learning_rate=hgb_learning_rate,
-                        max_depth=hgb_max_depth,
-                        max_leaf_nodes=hgb_max_leaf_nodes,
-                        early_stopping=True,
-                        random_state=random_state,
-                    ),
-                ),
-            ]
-        )
-
-        estimators = [("lin", lin), ("rf", rf), ("hgb", hgb)]
-        if weights is None:
-            weights = [1.0, 1.0, 1.0]
-        else:
-            if not isinstance(weights, (list, tuple)) or len(weights) != 3:
-                raise ValueError('config["ensemble_weights"] must be a list/tuple of length 3: [lin, rf, hgb]')
-            weights = [float(w) for w in weights]
-
-        model = VotingRegressor(estimators=estimators, weights=weights)
-        model.fit(X_tr, y_tr)
-        self.model_ = model
-
-        metrics: Dict[str, float] = {}
-
-        yhat_tr = np.asarray(self.model_.predict(X_tr), dtype=np.float64).reshape(-1)
-        resid_tr = yhat_tr - y_tr.astype(np.float64, copy=False)
-        metrics["train_mse"] = float(np.mean(resid_tr**2)) if y_tr.size else 0.0
-        metrics["train_mae"] = float(np.mean(np.abs(resid_tr))) if y_tr.size else 0.0
-        metrics["train_corr"] = _safe_corrcoef(yhat_tr, y_tr)
-        metrics["train_dir_acc"] = (
-            float(np.mean((np.sign(yhat_tr) == np.sign(y_tr.astype(np.float64, copy=False))).astype(np.float64)))
-            if y_tr.size
-            else 0.0
-        )
-
-        if X_valid is not None and y_valid is not None:
-            X_va = _as_2d_float_array(X_valid)
-            y_va = _as_1d_float_array(y_valid)
-            if X_va.shape[1] != self.n_features_in_:
-                raise ValueError(
-                    f"X_valid has different feature count: {X_va.shape[1]} vs expected {self.n_features_in_}"
-                )
-            if X_va.shape[0] != y_va.shape[0]:
-                raise ValueError(f"X_valid and y_valid length mismatch: {X_va.shape[0]} vs {y_va.shape[0]}")
-
-            yhat_va = np.asarray(self.model_.predict(X_va), dtype=np.float64).reshape(-1)
-            resid_va = yhat_va - y_va.astype(np.float64, copy=False)
-            metrics["valid_mse"] = float(np.mean(resid_va**2)) if y_va.size else 0.0
-            metrics["valid_mae"] = float(np.mean(np.abs(resid_va))) if y_va.size else 0.0
-            metrics["valid_corr"] = _safe_corrcoef(yhat_va, y_va)
-            metrics["valid_dir_acc"] = (
-                float(np.mean((np.sign(yhat_va) == np.sign(y_va.astype(np.float64, copy=False))).astype(np.float64)))
-                if y_va.size
-                else 0.0
+        if x.ndim != 2:
+            raise ValueError(f"X_train must be 2D, got shape={x.shape}")
+        if y.ndim != 1:
+            raise ValueError(f"y_train must be 1D, got shape={y.shape}")
+        if x.shape[0] != y.shape[0]:
+            raise ValueError(
+                f"X_train and y_train length mismatch: {x.shape[0]} vs {y.shape[0]}"
             )
 
+        n, d = x.shape
+        self._n_features = int(d)
+
+        x_mean = np.mean(x, axis=0).astype(np.float32)
+        x_std = np.std(x, axis=0).astype(np.float32)
+        x_std = np.where(x_std > np.float32(1e-8), x_std, np.float32(1.0)).astype(
+            np.float32
+        )
+
+        x_stdzd = ((x - x_mean) / x_std).astype(np.float32)
+        x_design = self._design_matrix(x_stdzd)
+
+        rng = np.random.default_rng(self.random_state)
+        weights = np.zeros((self.n_models, d + 1), dtype=np.float32)
+
+        for m in range(self.n_models):
+            alpha = self.alpha_grid[m % len(self.alpha_grid)]
+            alpha_eff = float(alpha) * float(d)
+
+            if self.bootstrap:
+                idx = rng.integers(0, n, size=n, endpoint=False)
+                xb = x_design[idx]
+                yb = y[idx]
+            else:
+                xb = x_design
+                yb = y
+
+            weights[m] = self._ridge_solve(xb, yb, alpha_eff)
+
+        self._x_mean = x_mean
+        self._x_scale = x_std
+        self._weights = weights
+        self._is_fitted = True
+
+        yhat_train = self.predict(x)
+        metrics: Dict[str, float] = {
+            "train_rmse": self._rmse(y, yhat_train),
+            "train_corr": self._corr(y, yhat_train),
+            "n_models": float(self.n_models),
+            "n_features": float(d),
+        }
+
+        if X_valid is not None and y_valid is not None:
+            xv = self._nan_to_num_inplace(np.asarray(X_valid))
+            yv = self._nan_to_num_inplace(np.asarray(y_valid)).reshape(-1)
+            if xv.ndim != 2 or yv.ndim != 1 or xv.shape[0] != yv.shape[0]:
+                raise ValueError(
+                    f"Invalid validation shapes: X_valid={xv.shape}, y_valid={yv.shape}"
+                )
+            yhat_valid = self.predict(xv)
+            metrics["valid_rmse"] = self._rmse(yv, yhat_valid)
+            metrics["valid_corr"] = self._corr(yv, yhat_valid)
+
+        model_dir = Path((getattr(self, "config", None) or {}).get("model_dir", "."))
+        model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / "auto_ml_v1.pkl"
         self.save(model_path)
-        self.model_path_ = model_path
 
         return TrainResult(model_path=model_path, metrics=metrics)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        if self.model_ is None:
-            raise RuntimeError("Model is not loaded/fitted yet")
-        X_in = _as_2d_float_array(X)
-        if X_in.size == 0:
-            return np.asarray([], dtype=np.float32)
+        if (
+            not self._is_fitted
+            or self._weights is None
+            or self._x_mean is None
+            or self._x_scale is None
+        ):
+            raise RuntimeError("Model is not fitted. Call fit() first.")
 
-        if self.n_features_in_ is not None and X_in.shape[1] != self.n_features_in_:
-            raise ValueError(f"X has {X_in.shape[1]} features, expected {self.n_features_in_}")
+        x = self._nan_to_num_inplace(np.asarray(X))
+        if x.ndim != 2:
+            raise ValueError(f"X must be 2D, got shape={x.shape}")
+        if self._n_features is not None and x.shape[1] != self._n_features:
+            raise ValueError(
+                f"Feature dimension mismatch: got {x.shape[1]}, expected {self._n_features}"
+            )
 
-        yhat = self.model_.predict(X_in)
-        yhat = np.asarray(yhat).reshape(-1)
-        if yhat.shape[0] != X_in.shape[0]:
-            raise RuntimeError("predict() returned wrong length")
-        return yhat.astype(np.float32, copy=False)
+        x_stdzd = ((x - self._x_mean) / self._x_scale).astype(np.float32)
+        x_design = self._design_matrix(x_stdzd)
 
-    def save(self, path: Path) -> None:
-        if self.model_ is None:
-            raise RuntimeError("Nothing to save: model is not fitted/loaded")
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        preds = x_design @ self._weights.T  # (n, n_models)
+        yhat = np.mean(preds, axis=1).astype(np.float32)
 
-        payload = {
+        if self.clip_pred is not None:
+            c = float(self.clip_pred)
+            yhat = np.clip(yhat, -c, c).astype(np.float32)
+
+        return np.asarray(yhat).reshape(-1)
+
+    def save(self, path: Any) -> None:
+        p = Path(path)
+        if p.exists() and p.is_dir():
+            p = p / "auto_ml_v1.pkl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+
+        state = {
             "registry_name": self.registry_name,
-            "model": self.model_,
-            "n_features_in": self.n_features_in_,
+            "config": getattr(self, "config", None),
+            "n_models": self.n_models,
+            "bootstrap": self.bootstrap,
+            "random_state": self.random_state,
+            "alpha_grid": self.alpha_grid,
+            "clip_pred": self.clip_pred,
+            "_is_fitted": self._is_fitted,
+            "_n_features": self._n_features,
+            "_x_mean": self._x_mean,
+            "_x_scale": self._x_scale,
+            "_weights": self._weights,
         }
 
-        with path.open("wb") as f:
-            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        with p.open("wb") as f:
+            pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def load(self, path: Path) -> None:
-        path = Path(path)
-        with path.open("rb") as f:
-            payload = pickle.load(f)
+    def load(self, path: Any) -> None:
+        """Load model state from disk into this instance.
 
-        self.model_ = payload.get("model")
-        self.n_features_in_ = payload.get("n_features_in", None)
-        self.model_path_ = path
+        Note: BaseModelAdapter.load is an instance method. Older versions of this
+        adapter implemented load() as a @classmethod returning a new instance,
+        which breaks callers that expect in-place mutation.
+        """
+        p = Path(path)
+        if p.exists() and p.is_dir():
+            p = p / "auto_ml_v1.pkl"
+
+        with p.open("rb") as f:
+            state = pickle.load(f)
+
+        self.n_models = int(state.get("n_models", self.n_models))
+        self.bootstrap = bool(state.get("bootstrap", self.bootstrap))
+        self.random_state = int(state.get("random_state", self.random_state))
+        self.alpha_grid = list(state.get("alpha_grid", self.alpha_grid))
+        self.clip_pred = state.get("clip_pred", self.clip_pred)
+
+        self._is_fitted = bool(state.get("_is_fitted", False))
+        self._n_features = state.get("_n_features", None)
+        self._x_mean = state.get("_x_mean", None)
+        self._x_scale = state.get("_x_scale", None)
+        self._weights = state.get("_weights", None)
+
+    @classmethod
+    def load_from_file(cls, path: Any) -> "AutoML_v1":
+        """Backward-compatible loader returning a new instance."""
+        model = cls(config={})
+        model.load(path)
+        return model

@@ -539,8 +539,19 @@ class AutoImprover:
         out_path.write_text(code, encoding="utf-8")
         return out_path
 
-    def run_full_cycle(self, model_types: Optional[list] = None, max_iterations: int = 3) -> Dict[str, Any]:
-        """Full ML/DL/RL cycle: analyze → write model → train → write strategy → backtest."""
+    def run_full_cycle(
+        self,
+        model_types: Optional[list] = None,
+        max_iterations: int = 3,
+        *,
+        backtest_timerange: str = "20260107-20260125",
+    ) -> Dict[str, Any]:
+        """Full ML/DL/RL cycle with anti-lookahead checks.
+
+        Training uses all available data up to the backtest start.
+        Backtesting uses only the out-of-sample period (default: last 30%).
+        All generated strategies are checked for lookahead bias before backtesting.
+        """
         if model_types is None:
             model_types = ["ml", "dl"]
 
@@ -629,10 +640,25 @@ class AutoImprover:
                 cycle_results.append({"iteration": i, "type": model_type, "error": err})
                 continue
 
-            # 6. Backtest + evaluate
-            print("[6/6] Backtesting...")
+            # 5.5. Lookahead bias check
+            from workspace.lookahead_checker import check_lookahead, fix_lookahead_issues
+            la_report = check_lookahead(strat_path)
+            if not la_report.ok:
+                print(f"  LOOKAHEAD DETECTED ({la_report.critical_count} issues):")
+                print(la_report.summary())
+                changed, fix_desc = fix_lookahead_issues(strat_path)
+                if changed:
+                    print(f"  Auto-fixed: {fix_desc}")
+                else:
+                    print("  Could not auto-fix — requesting LLM fix...")
+                    self.fix_strategy(strat_path, f"Lookahead bias: {la_report.summary()}")
+            elif la_report.warning_count > 0:
+                print(f"  Lookahead warnings: {la_report.warning_count} (non-critical)")
+
+            # 6. Backtest + evaluate (out-of-sample only)
+            print(f"[6/6] Backtesting (OOS: {backtest_timerange})...")
             try:
-                result = self.run_and_evaluate(strat_path, i)
+                result = self.run_and_evaluate(strat_path, i, timerange=backtest_timerange)
                 bt = result["backtest"]
                 ev = result["evaluation"]
                 if bt.get("ok"):
@@ -683,13 +709,13 @@ class AutoImprover:
     # Step 4: Run and evaluate
     # ------------------------------------------------------------------
 
-    def run_and_evaluate(self, path: Path, iteration: int) -> Dict[str, Any]:
-        """Backtest + evaluate + record. Returns combined result."""
+    def run_and_evaluate(self, path: Path, iteration: int, *, timerange: str = "20260107-20260125") -> Dict[str, Any]:
+        """Backtest + evaluate + record. Uses out-of-sample period by default."""
         from workspace.backtest_api import _detect_strategy_name
 
         strategy_name = _detect_strategy_name(path) or f"AutoStrategy_v{iteration}"
 
-        bt_result = run_backtest(str(path), strategy_name, timerange="20251126-20260125")
+        bt_result = run_backtest(str(path), strategy_name, timerange=timerange)
         evaluation = evaluate(bt_result)
 
         if bt_result.get("ok"):

@@ -6,67 +6,31 @@ import numpy as np
 from agent_market.freqai.model.base import BaseModelAdapter, TrainResult
 
 import torch
-from torch import nn
+import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 
-def _rmse(preds: np.ndarray, targets: np.ndarray) -> float:
-    preds = preds.reshape(-1).astype(np.float64, copy=False)
-    targets = targets.reshape(-1).astype(np.float64, copy=False)
-    return float(np.sqrt(np.mean((preds - targets) ** 2)))
-
-
-def _mae(preds: np.ndarray, targets: np.ndarray) -> float:
-    preds = preds.reshape(-1).astype(np.float64, copy=False)
-    targets = targets.reshape(-1).astype(np.float64, copy=False)
-    return float(np.mean(np.abs(preds - targets)))
-
-
-class _ResidualBlock(nn.Module):
-    def __init__(self, dim: int, hidden_mult: int = 4, dropout: float = 0.1):
-        super().__init__()
-        hidden_dim = max(dim * hidden_mult, dim)
-        self.net = nn.Sequential(
-            nn.LayerNorm(dim),
-            nn.Linear(dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, dim),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x + self.net(x)
-
-
-class _Regressor(nn.Module):
+class _MLPRegressor(nn.Module):
     def __init__(
         self,
         input_dim: int,
-        model_dim: int = 64,
-        n_blocks: int = 3,
-        dropout: float = 0.1,
-    ):
+        hidden_dims: list[int],
+        dropout: float,
+    ) -> None:
         super().__init__()
-        self.in_proj = nn.Sequential(
-            nn.LayerNorm(input_dim),
-            nn.Linear(input_dim, model_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-        )
-        blocks = []
-        for _ in range(int(n_blocks)):
-            blocks.append(_ResidualBlock(model_dim, hidden_mult=4, dropout=dropout))
-        self.blocks = nn.Sequential(*blocks)
-        self.out = nn.Sequential(
-            nn.LayerNorm(model_dim),
-            nn.Linear(model_dim, 1),
-        )
+        layers: list[nn.Module] = []
+        d_in = input_dim
+        for d_out in hidden_dims:
+            layers.append(nn.Linear(d_in, d_out))
+            layers.append(nn.GELU())
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+            d_in = d_out
+        layers.append(nn.Linear(d_in, 1))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = self.in_proj(x)
-        h = self.blocks(h)
-        return self.out(h).squeeze(-1)
+        return self.net(x).squeeze(-1)
 
 
 class AutoDL_v2(BaseModelAdapter):
@@ -74,11 +38,78 @@ class AutoDL_v2(BaseModelAdapter):
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        use_cuda = bool(config.get("use_cuda", False))
-        self.device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
         self.model: Optional[nn.Module] = None
-        self.scaler: Optional[Dict[str, np.ndarray]] = None
-        self._model_cfg: Optional[Dict[str, Any]] = None
+        self.device: Optional[torch.device] = None
+
+        self.x_mean: Optional[np.ndarray] = None
+        self.x_std: Optional[np.ndarray] = None
+
+        self._model_hparams: Dict[str, Any] = {}
+        self._is_fitted: bool = False
+
+    def _get_device(self) -> torch.device:
+        if self.device is not None:
+            return self.device
+        cfg_device = str(self.config.get("device", "auto")).lower()
+        if cfg_device in ("cuda", "gpu"):
+            d = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        elif cfg_device in ("cpu",):
+            d = torch.device("cpu")
+        else:
+            d = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = d
+        return d
+
+    def _seed_everything(self) -> None:
+        seed = self.config.get("seed", None)
+        if seed is None:
+            return
+        try:
+            seed_int = int(seed)
+        except Exception:
+            return
+        np.random.seed(seed_int)
+        torch.manual_seed(seed_int)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed_int)
+
+    def _sanitize_inputs(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> tuple[np.ndarray, Optional[np.ndarray]]:
+        Xn = np.asarray(X, dtype=np.float32)
+        Xn = np.nan_to_num(Xn, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+        yn = None
+        if y is not None:
+            yn = np.asarray(y, dtype=np.float32).reshape(-1)
+            yn = np.nan_to_num(yn, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32, copy=False)
+        return Xn, yn
+
+    def _fit_scaler(self, X_train: np.ndarray) -> None:
+        mean = X_train.mean(axis=0, keepdims=False).astype(np.float32)
+        std = X_train.std(axis=0, keepdims=False).astype(np.float32)
+        std = np.where(std < 1e-6, 1.0, std).astype(np.float32)
+        self.x_mean = mean
+        self.x_std = std
+
+    def _transform_X(self, X: np.ndarray) -> np.ndarray:
+        if self.x_mean is None or self.x_std is None:
+            raise RuntimeError("Scaler not fitted. Call fit() or load() first.")
+        return ((X - self.x_mean) / self.x_std).astype(np.float32, copy=False)
+
+    def _build_model(self, input_dim: int) -> nn.Module:
+        hidden_dims = self.config.get("hidden_dims", [128, 64, 32])
+        if isinstance(hidden_dims, (tuple, list)):
+            hidden_dims_list = [int(x) for x in hidden_dims]
+        else:
+            hidden_dims_list = [128, 64, 32]
+
+        dropout = float(self.config.get("dropout", 0.10))
+        model = _MLPRegressor(input_dim=input_dim, hidden_dims=hidden_dims_list, dropout=dropout)
+
+        self._model_hparams = {
+            "input_dim": int(input_dim),
+            "hidden_dims": hidden_dims_list,
+            "dropout": float(dropout),
+        }
+        return model
 
     def fit(
         self,
@@ -87,213 +118,206 @@ class AutoDL_v2(BaseModelAdapter):
         X_valid: Optional[np.ndarray] = None,
         y_valid: Optional[np.ndarray] = None,
     ) -> TrainResult:
-        seed = int(self.config.get("seed", 42))
-        torch.manual_seed(seed)
-        np.random.seed(seed)
+        self._seed_everything()
 
-        if X_train is None or y_train is None:
-            raise ValueError("X_train / y_train must not be None")
+        model_dir_raw = self.config.get("model_dir", None)
+        if not model_dir_raw:
+            raise ValueError("config['model_dir'] is required")
+        model_dir = Path(model_dir_raw)
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_path = model_dir / "auto_dl_v2.pkl"
+
+        X_train, y_train = self._sanitize_inputs(X_train, y_train)
         if X_train.ndim != 2:
-            raise ValueError(f"X_train must be 2D (N, F), got shape {getattr(X_train, 'shape', None)}")
-        if y_train.ndim != 1:
-            y_train = y_train.reshape(-1)
+            raise ValueError(f"X_train must be 2D, got shape={X_train.shape}")
+        if y_train is None:
+            raise ValueError("y_train is required")
+        if X_train.shape[0] != y_train.shape[0]:
+            raise ValueError(f"X_train and y_train length mismatch: {X_train.shape[0]} vs {y_train.shape[0]}")
 
-        X_train = X_train.astype(np.float32, copy=False)
-        y_train = y_train.astype(np.float32, copy=False)
-
-        input_dim = int(X_train.shape[1])
-
-        mean = X_train.mean(axis=0, dtype=np.float64).astype(np.float32)
-        std = X_train.std(axis=0, dtype=np.float64).astype(np.float32)
-        std = np.where(std < 1e-6, np.float32(1.0), std)
-
-        self.scaler = {"mean": mean, "std": std}
-
-        Xtr = (X_train - mean) / std
-
-        has_valid = (
-            X_valid is not None
-            and y_valid is not None
-            and getattr(X_valid, "size", 0) != 0
-            and getattr(y_valid, "size", 0) != 0
-        )
-        if has_valid:
-            X_valid = X_valid.astype(np.float32, copy=False)
-            y_valid = y_valid.astype(np.float32, copy=False).reshape(-1)
-            Xva = (X_valid - mean) / std
+        if X_valid is not None and y_valid is not None:
+            X_valid, y_valid = self._sanitize_inputs(X_valid, y_valid)
+            if X_valid.ndim != 2:
+                raise ValueError(f"X_valid must be 2D, got shape={X_valid.shape}")
+            if y_valid is None:
+                raise ValueError("y_valid is None")
+            if X_valid.shape[0] != y_valid.shape[0]:
+                raise ValueError(f"X_valid and y_valid length mismatch: {X_valid.shape[0]} vs {y_valid.shape[0]}")
         else:
-            Xva = None
+            X_valid, y_valid = None, None
 
-        model_dim = int(self.config.get("model_dim", 64))
-        n_blocks = int(self.config.get("n_blocks", 3))
-        dropout = float(self.config.get("dropout", 0.1))
+        self._fit_scaler(X_train)
+        Xtr = self._transform_X(X_train)
 
-        self._model_cfg = {
-            "input_dim": input_dim,
-            "model_dim": model_dim,
-            "n_blocks": n_blocks,
-            "dropout": dropout,
-        }
+        Xva = None
+        yva = None
+        if X_valid is not None and y_valid is not None:
+            Xva = self._transform_X(X_valid)
+            yva = y_valid
 
-        model = _Regressor(input_dim=input_dim, model_dim=model_dim, n_blocks=n_blocks, dropout=dropout).to(self.device)
+        device = self._get_device()
+        self.model = self._build_model(input_dim=Xtr.shape[1]).to(device)
 
-        lr = float(self.config.get("learning_rate", 2e-3))
-        weight_decay = float(self.config.get("weight_decay", 1e-2))
+        lr = float(self.config.get("lr", 3e-4))
+        weight_decay = float(self.config.get("weight_decay", 1e-3))
         batch_size = int(self.config.get("batch_size", 128))
-        epochs = int(self.config.get("epochs", 80))
-        patience = int(self.config.get("patience", 12))
-        clip_grad = float(self.config.get("clip_grad_norm", 1.0))
+        max_epochs = int(self.config.get("max_epochs", 200))
+        patience = int(self.config.get("patience", 20))
+        grad_clip = float(self.config.get("grad_clip", 1.0))
 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-        criterion = nn.SmoothL1Loss(beta=float(self.config.get("huber_beta", 0.05)))
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        loss_fn = nn.SmoothL1Loss(beta=float(self.config.get("huber_beta", 0.5)))
 
-        train_loader = self._build_loader(Xtr, y_train, batch_size=batch_size, shuffle=True)
-        valid_loader = self._build_loader(Xva, y_valid, batch_size=batch_size, shuffle=False) if has_valid else None
+        train_ds = TensorDataset(torch.from_numpy(Xtr), torch.from_numpy(y_train))
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
 
-        best_state = None
-        best_metric = float("inf")
-        bad_epochs = 0
+        valid_loader = None
+        if Xva is not None and yva is not None:
+            valid_ds = TensorDataset(torch.from_numpy(Xva), torch.from_numpy(yva))
+            valid_loader = DataLoader(valid_ds, batch_size=max(256, batch_size), shuffle=False, drop_last=False)
 
-        for _ in range(epochs):
-            model.train()
+        best_val = float("inf")
+        best_state: Optional[dict[str, torch.Tensor]] = None
+        best_epoch = -1
+        no_improve = 0
+
+        last_train_loss = float("inf")
+        last_val_loss = float("inf")
+
+        for epoch in range(max_epochs):
+            self.model.train()
+            train_losses = []
+
             for xb, yb in train_loader:
-                xb = xb.to(self.device, non_blocking=True)
-                yb = yb.to(self.device, non_blocking=True)
+                xb = xb.to(device)
+                yb = yb.to(device)
 
                 optimizer.zero_grad(set_to_none=True)
-                preds = model(xb)
-                loss = criterion(preds, yb)
+                pred = self.model(xb)
+                loss = loss_fn(pred, yb)
                 loss.backward()
-                if clip_grad > 0:
-                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=clip_grad)
+
+                if grad_clip > 0:
+                    nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=grad_clip)
+
                 optimizer.step()
+                train_losses.append(float(loss.detach().cpu().item()))
 
-            if valid_loader is not None:
-                val_rmse = self._evaluate_rmse(model, valid_loader)
-                metric = val_rmse
-            else:
-                metric = self._evaluate_rmse(model, train_loader)
+            last_train_loss = float(np.mean(train_losses)) if train_losses else float("inf")
 
-            if metric + 1e-10 < best_metric:
-                best_metric = metric
-                best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-                bad_epochs = 0
+            if valid_loader is None:
+                continue
+
+            self.model.eval()
+            val_losses = []
+            with torch.no_grad():
+                for xb, yb in valid_loader:
+                    xb = xb.to(device)
+                    yb = yb.to(device)
+                    pred = self.model(xb)
+                    loss = loss_fn(pred, yb)
+                    val_losses.append(float(loss.detach().cpu().item()))
+            last_val_loss = float(np.mean(val_losses)) if val_losses else float("inf")
+
+            if last_val_loss + 1e-9 < best_val:
+                best_val = last_val_loss
+                best_epoch = epoch
+                best_state = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+                no_improve = 0
             else:
-                bad_epochs += 1
-                if bad_epochs >= patience:
+                no_improve += 1
+                if no_improve >= patience:
                     break
 
         if best_state is not None:
-            model.load_state_dict(best_state)
+            self.model.load_state_dict(best_state)
 
-        self.model = model
+        self.model.eval()
+        self._is_fitted = True
 
-        metrics: Dict[str, float] = {}
-        metrics["rmse_train"] = self._evaluate_rmse(model, train_loader)
-        metrics["mae_train"] = self._evaluate_mae(model, train_loader)
-        if valid_loader is not None:
-            metrics["rmse_valid"] = self._evaluate_rmse(model, valid_loader)
-            metrics["mae_valid"] = self._evaluate_mae(model, valid_loader)
-
-        model_dir = Path(self.config.get("model_dir", "artifacts/models/auto_dl_v2"))
-        model_dir.mkdir(parents=True, exist_ok=True)
-        model_path = model_dir / "auto_dl_v2.pt"
         self.save(model_path)
+
+        metrics: Dict[str, float] = {
+            "train_loss": float(last_train_loss),
+        }
+        if valid_loader is not None:
+            metrics["val_loss"] = float(best_val if best_state is not None else last_val_loss)
+            metrics["best_epoch"] = float(best_epoch)
 
         return TrainResult(model_path=model_path, metrics=metrics)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        if self.model is None or self.scaler is None:
-            raise RuntimeError("Model not trained/loaded")
-        if X is None:
-            raise ValueError("X must not be None")
-        if X.ndim != 2:
-            raise ValueError(f"X must be 2D (N, F), got shape {getattr(X, 'shape', None)}")
+        if self.model is None or not self._is_fitted:
+            raise RuntimeError("Model not fitted/loaded. Call fit() or load() first.")
 
-        X = X.astype(np.float32, copy=False)
-        mean = self.scaler["mean"]
-        std = self.scaler["std"]
-        Xn = (X - mean) / std
+        X, _ = self._sanitize_inputs(X, None)
+        if X.ndim != 2:
+            raise ValueError(f"X must be 2D, got shape={X.shape}")
+
+        Xt = self._transform_X(X)
+        device = self._get_device()
 
         self.model.eval()
         with torch.no_grad():
-            xb = torch.from_numpy(Xn).to(self.device)
-            preds = self.model(xb).detach().cpu().numpy().reshape(-1)
+            xb = torch.from_numpy(Xt).to(device)
+            pred = self.model(xb).detach().cpu().numpy().astype(np.float32, copy=False)
 
-        if preds.shape[0] != X.shape[0]:
-            preds = preds[: X.shape[0]]
-        return preds
+        pred = pred.reshape(-1)
+        if pred.shape[0] != X.shape[0]:
+            raise RuntimeError("Prediction shape mismatch.")
+        return pred
 
     def save(self, path: Path) -> None:
-        if self.model is None or self.scaler is None or self._model_cfg is None:
-            raise RuntimeError("Nothing to save (train/load first)")
+        if self.model is None or not self._is_fitted:
+            raise RuntimeError("Nothing to save. Call fit() first.")
+
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        checkpoint = {
-            "state_dict": self.model.state_dict(),
-            "model_cfg": self._model_cfg,
-            "scaler": self.scaler,
+        payload = {
+            "registry_name": self.registry_name,
+            "model_hparams": dict(self._model_hparams),
+            "state_dict": {k: v.detach().cpu() for k, v in self.model.state_dict().items()},
+            "x_mean": self.x_mean,
+            "x_std": self.x_std,
             "config": dict(self.config),
         }
-        torch.save(checkpoint, path)
+
+        with path.open("wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def load(self, path: Path) -> None:
         path = Path(path)
-        checkpoint = torch.load(path, map_location=self.device)
+        if path.is_dir():
+            path = path / "auto_dl_v2.pkl"
 
-        model_cfg = checkpoint.get("model_cfg")
-        if not isinstance(model_cfg, dict):
-            raise ValueError("Invalid checkpoint: missing model_cfg")
+        with path.open("rb") as f:
+            payload = pickle.load(f)
 
-        self._model_cfg = dict(model_cfg)
-        input_dim = int(self._model_cfg["input_dim"])
-        model_dim = int(self._model_cfg.get("model_dim", 64))
-        n_blocks = int(self._model_cfg.get("n_blocks", 3))
-        dropout = float(self._model_cfg.get("dropout", 0.1))
+        model_hparams = payload.get("model_hparams", None)
+        if not isinstance(model_hparams, dict):
+            raise ValueError("Invalid model file: missing model_hparams")
 
-        model = _Regressor(input_dim=input_dim, model_dim=model_dim, n_blocks=n_blocks, dropout=dropout).to(self.device)
-        model.load_state_dict(checkpoint["state_dict"])
-        self.model = model
+        self.x_mean = payload.get("x_mean", None)
+        self.x_std = payload.get("x_std", None)
 
-        scaler = checkpoint.get("scaler")
-        if not isinstance(scaler, dict) or "mean" not in scaler or "std" not in scaler:
-            raise ValueError("Invalid checkpoint: missing scaler")
-        self.scaler = {"mean": np.asarray(scaler["mean"], dtype=np.float32), "std": np.asarray(scaler["std"], dtype=np.float32)}
+        self.device = None
+        device = self._get_device()
 
-    def _build_loader(
-        self,
-        X: Optional[np.ndarray],
-        y: Optional[np.ndarray],
-        batch_size: int,
-        shuffle: bool,
-    ) -> DataLoader:
-        if X is None or y is None:
-            raise ValueError("X/y must not be None for DataLoader")
-        dataset = TensorDataset(
-            torch.from_numpy(X.astype(np.float32, copy=False)),
-            torch.from_numpy(y.astype(np.float32, copy=False).reshape(-1)),
-        )
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False)
+        input_dim = int(model_hparams["input_dim"])
+        hidden_dims = list(model_hparams["hidden_dims"])
+        dropout = float(model_hparams["dropout"])
 
-    def _predict_loader(self, model: nn.Module, loader: DataLoader) -> tuple[np.ndarray, np.ndarray]:
-        model.eval()
-        preds_list = []
-        targets_list = []
-        with torch.no_grad():
-            for xb, yb in loader:
-                xb = xb.to(self.device, non_blocking=True)
-                preds = model(xb).detach().cpu().numpy().reshape(-1)
-                preds_list.append(preds)
-                targets_list.append(yb.numpy().reshape(-1))
-        preds = np.concatenate(preds_list, axis=0) if preds_list else np.zeros((0,), dtype=np.float32)
-        targets = np.concatenate(targets_list, axis=0) if targets_list else np.zeros((0,), dtype=np.float32)
-        return preds, targets
+        self._model_hparams = {
+            "input_dim": input_dim,
+            "hidden_dims": hidden_dims,
+            "dropout": dropout,
+        }
 
-    def _evaluate_rmse(self, model: nn.Module, loader: DataLoader) -> float:
-        preds, targets = self._predict_loader(model, loader)
-        return _rmse(preds, targets)
-
-    def _evaluate_mae(self, model: nn.Module, loader: DataLoader) -> float:
-        preds, targets = self._predict_loader(model, loader)
-        return _mae(preds, targets)
+        self.model = _MLPRegressor(input_dim=input_dim, hidden_dims=hidden_dims, dropout=dropout).to(device)
+        state_dict = payload.get("state_dict", None)
+        if not isinstance(state_dict, dict):
+            raise ValueError("Invalid model file: missing state_dict")
+        self.model.load_state_dict(state_dict)
+        self.model.eval()
+        self._is_fitted = True

@@ -20,113 +20,136 @@ from workspace.model_loader import scan_and_register
 
 
 class MLStrategy_v2(IStrategy):
-    timeframe = "1h"
+    timeframe = "5m"
     can_short = False
     process_only_new_candles = True
+    startup_candle_count = 200
 
-    # Freqtrade requires stoploss to be defined either in config or strategy.
-    stoploss = -0.99
+    stoploss = -0.1
 
-    threshold: float = 0.003
+    buy_threshold: float = 0.0
 
     _MODEL_DIR = Path("/Users/shatianming/Downloads/Agent_market/workspace/results/model_auto_dl_v2")
     _REGISTRY_NAME = "auto_dl_v2"
+    _PRED_COL = "ml_pred"
 
-    _feature_cfg: dict | None = None
-    _training_summary: dict | None = None
-    _feature_cols: list[str] | None = None
-    _model = None
-    _model_loaded: bool = False
+    def __init__(self, config: dict) -> None:
+        super().__init__(config)
+        self._model = None
+        self._feature_columns: list[str] | None = None
+        self._model_ready: bool = False
 
     @staticmethod
     def _read_json(path: Path) -> dict:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
 
-    def _load_feature_cfg(self) -> dict:
-        if self._feature_cfg is not None:
-            return self._feature_cfg
-        cfg_path = _ROOT / "user_data" / "freqai_features_real.json"
-        self._feature_cfg = self._read_json(cfg_path)
-        return self._feature_cfg
+    @staticmethod
+    def _extract_feature_columns(training_summary: dict) -> list[str]:
+        for key in ("feature_columns", "feature_cols", "features", "feature_names", "columns"):
+            v = training_summary.get(key)
+            if isinstance(v, list) and all(isinstance(x, str) for x in v):
+                return v
 
-    def _load_training_summary(self) -> dict:
-        if self._training_summary is not None:
-            return self._training_summary
-        summary_path = self._MODEL_DIR / "training_summary.json"
-        self._training_summary = self._read_json(summary_path)
-        return self._training_summary
+        data = training_summary.get("data")
+        if isinstance(data, dict):
+            for key in ("feature_columns", "feature_cols", "features", "feature_names", "columns"):
+                v = data.get(key)
+                if isinstance(v, list) and all(isinstance(x, str) for x in v):
+                    return v
+
+        feats = training_summary.get("features")
+        if isinstance(feats, dict):
+            v = feats.get("columns") or feats.get("feature_columns") or feats.get("names")
+            if isinstance(v, list) and all(isinstance(x, str) for x in v):
+                return v
+
+        raise ValueError("Could not find feature column names in training_summary.json")
 
     def _ensure_model_loaded(self) -> None:
-        if self._model_loaded and self._model is not None and self._feature_cols is not None:
+        if self._model_ready:
             return
 
-        summary = self._load_training_summary()
-        cols = [str(c) for c in (summary.get("features") or []) if str(c).strip()]
-        if not cols:
-            raise ValueError(f"Model feature list missing in {self._MODEL_DIR / 'training_summary.json'}")
-        self._feature_cols = cols
+        model_dir = self._MODEL_DIR
+        training_summary_path = model_dir / "training_summary.json"
+        if not training_summary_path.exists():
+            raise FileNotFoundError(f"Missing training summary: {training_summary_path}")
+
+        training_summary = self._read_json(training_summary_path)
+        self._feature_columns = self._extract_feature_columns(training_summary)
 
         scan_and_register()
 
-        model_config = {"model_dir": str(self._MODEL_DIR)}
+        model_config = {}
+        cfg = training_summary.get("config")
+        if isinstance(cfg, dict):
+            model_config.update(cfg)
+        cfg2 = training_summary.get("model_config")
+        if isinstance(cfg2, dict):
+            model_config.update(cfg2)
+
+        model_config.setdefault("model_dir", str(model_dir))
+        model_config.setdefault("registry_name", self._REGISTRY_NAME)
+
         self._model = ModelRegistry.create(self._REGISTRY_NAME, model_config)
+        self._model.load(str(model_dir))
 
-        model_path_raw = summary.get("model_path") or ""
-        model_path = (
-            Path(str(model_path_raw))
-            if str(model_path_raw).strip()
-            else (self._MODEL_DIR / f"{self._REGISTRY_NAME}.pkl")
-        )
-        if model_path.is_dir():
-            model_path = model_path / f"{self._REGISTRY_NAME}.pkl"
-        if not model_path.exists():
-            model_path = self._MODEL_DIR / f"{self._REGISTRY_NAME}.pkl"
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
-
-        self._model.load(model_path)
-        self._model_loaded = True
+        self._model_ready = True
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         if dataframe is None or dataframe.empty:
             return dataframe
 
+        features_cfg_path = _ROOT / "user_data" / "freqai_features_real.json"
+        if not features_cfg_path.exists():
+            raise FileNotFoundError(f"Missing feature config: {features_cfg_path}")
+
+        features_cfg = self._read_json(features_cfg_path)
+        dataframe = apply_configured_features(dataframe, features_cfg)
+
         self._ensure_model_loaded()
+        assert self._feature_columns is not None
+        assert self._model is not None
 
-        cfg = self._load_feature_cfg()
-        df = apply_configured_features(dataframe, cfg)
+        missing = [c for c in self._feature_columns if c not in dataframe.columns]
+        if missing:
+            raise KeyError(
+                f"Missing feature columns in dataframe: {missing[:20]}{'...' if len(missing) > 20 else ''}"
+            )
 
-        cols = self._feature_cols or []
-        for c in cols:
-            if c not in df.columns:
-                df[c] = np.nan
+        X_df = dataframe[self._feature_columns].copy()
+        X_df = X_df.replace([np.inf, -np.inf], np.nan)
+        X = np.nan_to_num(X_df.to_numpy(dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
 
-        X_df = (
-            df[cols]
-            .astype(float)
-            .replace([np.inf, -np.inf], np.nan)
-            .ffill()
-            .bfill()
-            .fillna(0.0)
-        )
-        X = X_df.to_numpy(dtype=np.float32, copy=False)
+        preds = self._model.predict(X)
+        preds_arr = np.asarray(preds, dtype=np.float32).reshape(-1)
 
-        pred = self._model.predict(X)
-        pred = np.asarray(pred, dtype=np.float32).reshape(-1)
-        if pred.shape[0] != len(df):
-            pred = np.resize(pred, len(df)).astype(np.float32, copy=False)
+        if preds_arr.shape[0] != len(dataframe):
+            raise ValueError(f"Prediction length mismatch: preds={preds_arr.shape[0]} rows={len(dataframe)}")
 
-        df["prediction"] = pred
-        return df
+        dataframe[self._PRED_COL] = preds_arr
+        return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        if dataframe is None or dataframe.empty or "prediction" not in dataframe.columns:
+        if dataframe is None or dataframe.empty:
             return dataframe
-        dataframe.loc[dataframe["prediction"] > float(self.threshold), "enter_long"] = 1
+        if self._PRED_COL not in dataframe.columns:
+            dataframe[self._PRED_COL] = 0.0
+
+        dataframe.loc[
+            (dataframe[self._PRED_COL] > float(self.buy_threshold)),
+            "enter_long",
+        ] = 1
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        if dataframe is None or dataframe.empty or "prediction" not in dataframe.columns:
+        if dataframe is None or dataframe.empty:
             return dataframe
-        dataframe.loc[dataframe["prediction"] < 0.0, "exit_long"] = 1
+        if self._PRED_COL not in dataframe.columns:
+            dataframe[self._PRED_COL] = 0.0
+
+        dataframe.loc[
+            (dataframe[self._PRED_COL] < 0.0),
+            "exit_long",
+        ] = 1
         return dataframe
