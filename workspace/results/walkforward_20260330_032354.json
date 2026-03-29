@@ -1,0 +1,102 @@
+{
+  "timestamp": "2026-03-29T19:23:54.769084+00:00",
+  "strategy_path": "workspace/strategies/rsi_bb_mean_reversion.py",
+  "n_windows": 11,
+  "n_successful": 11,
+  "mean_sharpe": 12.80998981293189,
+  "std_sharpe": 142.8789528473581,
+  "mean_profit": -0.031111111111111114,
+  "pct_profitable": 0.4444444444444444,
+  "passed": true,
+  "verdict": "PASS: mean Sharpe 12.81 >= -2.0, 44% profitable >= 30%",
+  "windows": [
+    {
+      "id": 1,
+      "test_range": "20251208-20251212",
+      "sharpe": -0.9055817492922715,
+      "profit_pct": -0.0,
+      "trades": 2,
+      "ok": true
+    },
+    {
+      "id": 2,
+      "test_range": "20251212-20251216",
+      "sharpe": -9.064361565401411,
+      "profit_pct": -0.12,
+      "trades": 6,
+      "ok": true
+    },
+    {
+      "id": 3,
+      "test_range": "20251216-20251220",
+      "sharpe": -100.0,
+      "profit_pct": -0.07,
+      "trades": 1,
+      "ok": true
+    },
+    {
+      "id": 4,
+      "test_range": "20251221-20251225",
+      "sharpe": 39.5246479729993,
+      "profit_pct": 0.3,
+      "trades": 4,
+      "ok": true
+    },
+    {
+      "id": 5,
+      "test_range": "20251225-20251229",
+      "sharpe": -100.0,
+      "profit_pct": 0.02,
+      "trades": 1,
+      "ok": true
+    },
+    {
+      "id": 6,
+      "test_range": "20251229-20260102",
+      "sharpe": -100.0,
+      "profit_pct": 0.0,
+      "trades": 1,
+      "ok": true
+    },
+    {
+      "id": 7,
+      "test_range": "20260102-20260106",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": true
+    },
+    {
+      "id": 8,
+      "test_range": "20260106-20260110",
+      "sharpe": 16.784531972519005,
+      "profit_pct": 0.25,
+      "trades": 5,
+      "ok": true
+    },
+    {
+      "id": 9,
+      "test_range": "20260110-20260114",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": true
+    },
+    {
+      "id": 10,
+      "test_range": "20260115-20260119",
+      "sharpe": 390.893865708019,
+      "profit_pct": 0.12,
+      "trades": 2,
+      "ok": true
+    },
+    {
+      "id": 11,
+      "test_range": "20260119-20260123",
+      "sharpe": -21.943194022456606,
+      "profit_pct": -0.78,
+      "trades": 8,
+      "ok": true
+    }
+  ]
+}
