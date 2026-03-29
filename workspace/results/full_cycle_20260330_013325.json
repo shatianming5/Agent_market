@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-03-29T17:33:25.935646+00:00",
+  "iterations": 1,
+  "results": [
+    {
+      "iteration": 1,
+      "type": "ml",
+      "strategy": "MLStrategy_v1",
+      "sharpe": null,
+      "profit_pct": null,
+      "score": 0,
+      "model_rmse": null,
+      "error": null
+    }
+  ]
+}

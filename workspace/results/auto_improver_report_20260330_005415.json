@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-03-29T16:54:15.137923+00:00",
+  "iterations_run": 3,
+  "successful": 3,
+  "results": [
+    {
+      "iteration": 1,
+      "strategy": "AutoStrategy_v1",
+      "sharpe": -7.174136600517582,
+      "profit_pct": -1.6,
+      "score": 21.7,
+      "error": null
+    },
+    {
+      "iteration": 2,
+      "strategy": "AutoStrategy_v2",
+      "sharpe": -11.086735556264417,
+      "profit_pct": -1.8,
+      "score": 25.4,
+      "error": null
+    },
+    {
+      "iteration": 3,
+      "strategy": "AutoStrategy_v3",
+      "sharpe": -6.278710625148923,
+      "profit_pct": -0.94,
+      "score": 26.2,
+      "error": null
+    }
+  ],
+  "best_overall": {
+    "strategy": "AutoStrategy_v7",
+    "sharpe": 2.383651383776958
+  }
+}

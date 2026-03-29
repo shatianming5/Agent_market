@@ -138,14 +138,18 @@ def run_backtest(
     if extra_args:
         cmd.extend(extra_args)
 
-    # Run backtest — use user_data as cwd to avoid local freqtrade/ shadowing
+    # Run backtest — clean PYTHONPATH to avoid freqtrade/ submodule shadowing.
     import os
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
+    # Remove "." and project root from PYTHONPATH so site-packages freqtrade is used.
+    # The strategy .py file injects its own sys.path at import time.
+    old_pp = env.get("PYTHONPATH", "")
+    clean_parts = [p for p in old_pp.split(os.pathsep) if p and p != "." and str(ROOT) not in p]
+    env["PYTHONPATH"] = os.pathsep.join(clean_parts) if clean_parts else ""
     try:
         proc = subprocess.run(
             cmd,
-            cwd=str(ROOT / "user_data"),
+            cwd=str(ROOT),
             env=env,
             capture_output=True,
             text=True,

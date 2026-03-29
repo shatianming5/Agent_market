@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 import numpy as np
 from pandas import DataFrame
-
 _ROOT = Path(__file__).resolve().parents[2]
 if str(_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_ROOT / "src"))
@@ -15,107 +14,116 @@ class AutoStrategy_v3(IStrategy):
     timeframe = "1h"
     can_short = False
 
-    minimal_roi = {"0": 0.03}
-    stoploss = -0.12
-    trailing_stop = False
-
     process_only_new_candles = True
-    startup_candle_count = 80
+    startup_candle_count = 240
 
     use_exit_signal = True
     exit_profit_only = False
     ignore_roi_if_entry_signal = False
 
-    order_types = {"entry": "market", "exit": "market", "stoploss": "market", "stoploss_on_exchange": False}
-    order_time_in_force = {"entry": "gtc", "exit": "gtc"}
+    minimal_roi = {"0": 0.012, "48": 0.006, "120": 0}
+    stoploss = -0.08
 
-    def _ema(self, s, period: int) -> DataFrame:
-        return s.ewm(span=period, adjust=False, min_periods=period).mean()
+    @staticmethod
+    def _ema(s: DataFrame, span: int):
+        return s.ewm(span=span, adjust=False).mean()
 
-    def _rsi(self, close, period: int = 14):
-        d = close.diff()
-        up = d.clip(lower=0.0)
-        dn = (-d).clip(lower=0.0)
-        au = up.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-        ad = dn.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
-        rs = au / ad.replace(0, np.nan)
-        rsi = 100 - (100 / (1 + rs))
+    @staticmethod
+    def _rsi(close: DataFrame, period: int = 14):
+        delta = close.diff()
+        up = delta.clip(lower=0.0)
+        down = (-delta).clip(lower=0.0)
+        alpha = 1.0 / float(period)
+        roll_up = up.ewm(alpha=alpha, adjust=False).mean()
+        roll_down = down.ewm(alpha=alpha, adjust=False).mean()
+        rs = roll_up / (roll_down.replace(0.0, np.nan))
+        rsi = 100.0 - (100.0 / (1.0 + rs))
         return rsi.fillna(50.0)
 
-    def _atr(self, df: DataFrame, period: int = 14):
-        high, low, close = df["high"], df["low"], df["close"]
+    @staticmethod
+    def _atr(df: DataFrame, period: int = 14):
+        high = df["high"]
+        low = df["low"]
+        close = df["close"]
         prev_close = close.shift(1)
         tr = np.maximum(high - low, np.maximum((high - prev_close).abs(), (low - prev_close).abs()))
-        tr = DataFrame(tr, index=df.index)[0]
-        return tr.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+        return tr.ewm(alpha=1.0 / float(period), adjust=False).mean()
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        df = dataframe
+        close = dataframe["close"]
+        vol = dataframe["volume"]
 
-        df["ema50"] = self._ema(df["close"], 50)
-        df["rsi"] = self._rsi(df["close"], 14)
-        df["atr"] = self._atr(df, 14)
-        df["atr_pct"] = (df["atr"] / df["close"]).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        dataframe["ret_1h"] = close.pct_change().fillna(0.0)
+        dataframe["ema20"] = self._ema(close, 20)
+        dataframe["ema50"] = self._ema(close, 50)
+        dataframe["ema100"] = self._ema(close, 100)
+        dataframe["ema200"] = self._ema(close, 200)
 
-        bb_len = 20
-        bb_std = 2.0
-        mid = df["close"].rolling(bb_len, min_periods=bb_len).mean()
-        sd = df["close"].rolling(bb_len, min_periods=bb_len).std(ddof=0)
-        up = mid + bb_std * sd
-        lo = mid - bb_std * sd
-        df["bb_mid"], df["bb_up"], df["bb_low"] = mid, up, lo
-        bw = ((up - lo) / mid).replace([np.inf, -np.inf], np.nan)
-        df["bb_width"] = bw.fillna(0.0)
-        denom = (up - lo).replace(0, np.nan)
-        df["pctb"] = ((df["close"] - lo) / denom).replace([np.inf, -np.inf], np.nan).fillna(0.5)
+        ema200 = dataframe["ema200"]
+        dataframe["ema200_slope"] = (ema200 - ema200.shift(24)) / ema200.replace(0.0, np.nan)
+        dataframe["rsi14"] = self._rsi(close, 14)
+        dataframe["atr14"] = self._atr(dataframe, 14)
 
-        vol_ma = df["volume"].rolling(20, min_periods=20).mean()
-        df["vol_ratio"] = (df["volume"] / vol_ma).replace([np.inf, -np.inf], np.nan).fillna(1.0)
+        mid = close.rolling(20).mean()
+        std = close.rolling(20).std(ddof=0)
+        dataframe["bb_mid"] = mid
+        dataframe["bb_upper"] = mid + 2.0 * std
+        dataframe["bb_lower"] = mid - 2.0 * std
+        dataframe["bb_width"] = (dataframe["bb_upper"] - dataframe["bb_lower"]) / mid.replace(0.0, np.nan)
 
-        df["ret1"] = (df["close"] / df["close"].shift(1) - 1.0).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        vma = vol.rolling(20).mean()
+        dataframe["volume_ratio"] = (vol / vma.replace(0.0, np.nan)).fillna(1.0)
 
-        atrp_prev = df["atr_pct"].shift(1).fillna(df["atr_pct"])
-        df["shock_down"] = df["ret1"] <= (-0.8 * atrp_prev)
-
-        df["bull"] = df["close"] > df["open"]
-        df["higher_low"] = df["low"] >= df["low"].shift(1)
-        df["mom_turn"] = (df["rsi"] > df["rsi"].shift(1)) & (df["close"] > df["close"].shift(1))
-        df["stabilize"] = (df["bull"] & df["higher_low"]) | df["mom_turn"]
-
-        df["cooldown"] = (df["shock_down"]).rolling(3, min_periods=1).max().shift(1).fillna(0).astype(bool)
-
-        return df
+        return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        df = dataframe
+        dataframe["enter_long"] = 0
+        dataframe["enter_tag"] = ""
 
-        oversold = (df["rsi"] < 34) | (df["pctb"] < 0.12) | (df["close"] < df["bb_low"] * 1.01)
-        liquidity = df["vol_ratio"] > 0.75
-        soft_trend = df["close"] > (df["ema50"] * 0.965)
-        vol_ok = df["bb_width"] > 0.002
+        close = dataframe["close"]
+        rsi = dataframe["rsi14"]
+        atr = dataframe["atr14"]
+        ema20 = dataframe["ema20"]
+        ema200 = dataframe["ema200"]
+        slope = dataframe["ema200_slope"]
+        vr = dataframe["volume_ratio"]
 
-        recent_shock = df["shock_down"].rolling(2, min_periods=1).max().astype(bool)
-        entry = recent_shock & oversold & df["stabilize"] & liquidity & soft_trend & vol_ok & (~df["cooldown"])
+        volume_ok = vr > 0.55
+        regime_ok = (slope > -0.0045) & (close > ema200 * 0.93)
+        regime_soft = close > ema200 * 0.90
 
-        df["enter_long"] = 0
-        df.loc[entry, "enter_long"] = 1
-        return df
+        cond_bb = (rsi < 43.0) & (close <= dataframe["bb_lower"] * 1.002)
+        cond_kelt = (rsi < 48.0) & (close < (ema20 - 0.85 * atr))
+        cond_dump = (dataframe["ret_1h"] < -0.012) & (rsi < 50.0) & (vr > 1.2) & regime_soft
+
+        enter = volume_ok & ((regime_ok & (cond_bb | cond_kelt)) | cond_dump)
+        dataframe.loc[enter, "enter_long"] = 1
+        dataframe.loc[enter & cond_dump, "enter_tag"] = "dump_rebound"
+        dataframe.loc[enter & ~cond_dump & cond_bb, "enter_tag"] = "bb_oversold"
+        dataframe.loc[enter & ~cond_dump & ~cond_bb, "enter_tag"] = "atr_pullback"
+
+        return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        df = dataframe
+        dataframe["exit_long"] = 0
+        dataframe["exit_tag"] = ""
 
-        snapback = (df["pctb"] > 0.55) | (df["close"] > df["bb_mid"]) | (df["rsi"] > 52)
+        close = dataframe["close"]
+        rsi = dataframe["rsi14"]
+        atr = dataframe["atr14"]
+        ema20 = dataframe["ema20"]
+        ema50 = dataframe["ema50"]
+        bb_mid = dataframe["bb_mid"]
+        bb_upper = dataframe["bb_upper"]
 
-        atrp = df["atr_pct"].replace(0, np.nan).ffill().fillna(0.01)
-        renewed_flush = (df["ret1"] < (-0.9 * atrp.shift(1).fillna(atrp))) & (df["rsi"] < 30) & (
-            df["close"] < df["bb_low"] * 0.995
-        )
+        cross_mid_up = (close > bb_mid) & (close.shift(1) <= bb_mid.shift(1))
 
-        weak = (df["rsi"] < 45) & (df["close"] < df["ema50"])
-        stale = weak & (df["rsi"].rolling(18, min_periods=18).max() < 52)
+        take_profit = ((rsi > 55.0) & (close > ema20)) | (cross_mid_up & (rsi > 50.0)) | ((close > bb_upper * 0.998) & (rsi > 60.0))
+        stop_guard = ((close < ema50) & (rsi < 40.0)) | (close < (ema20 - 1.5 * atr))
 
-        exit_sig = (snapback & (df["bull"] | (df["rsi"] > df["rsi"].shift(1)))) | renewed_flush | stale
+        exit_sig = take_profit | stop_guard
+        dataframe.loc[exit_sig, "exit_long"] = 1
+        dataframe.loc[stop_guard, "exit_tag"] = "risk_off"
+        dataframe.loc[exit_sig & ~stop_guard, "exit_tag"] = "reversion_exit"
 
-        df["exit_long"] = 0
-        df.loc[exit_sig, "exit_long"] = 1
-        return df
+        return dataframe
