@@ -1,117 +1,92 @@
-# Ralph Loop: 自主量化策略研发迭代
+# Ralph Loop: 搭建 LLM 自主策略迭代优化器
 
-## 目标
-利用已搭建的 workspace 系统，自主研发出至少一个在回测中盈利（Sharpe > 0.5）的交易策略。
+## 总目标
+在 workspace 中实现 `auto_improver.py`——一个 LLM 驱动的自主策略优化器。它能：
+1. 读取历史实验结果和评估反馈
+2. 分析失败原因（LLM 推理）
+3. 自动生成改进版策略代码（LLM 写代码）
+4. 回测 → 评估 → 记录 → 对比
+5. 循环迭代直到达标
 
-## 已有工具（直接调用，不需要重新实现）
+## LLM 配置
+- endpoint: http://localhost:4141/v1
+- model: gpt-5.2
+- api_key: _
+
+## 实现计划（10 轮迭代，每轮有细颗粒度 CHECK）
+
+### 迭代 1-2: auto_improver 核心引擎
+实现 workspace/auto_improver.py，包含：
+
 ```python
-import sys; sys.path.insert(0, ".")
-from workspace.backtest_api import run_backtest        # 回测 API
-from workspace.evaluator import evaluate               # 多目标评估
-from workspace.tracker import record_experiment, query_best, compare  # 实验追踪
-from workspace.orchestrator import run_experiment      # 一键实验
-from workspace.model_loader import scan_and_register   # 动态模型加载
+class AutoImprover:
+    def analyze_history() -> str
+        # 读取 experiments.jsonl，用 LLM 分析失败原因
+
+    def generate_strategy(analysis: str, iteration: int) -> Path
+        # LLM 根据分析生成新策略代码，写入 workspace/strategies/
+
+    def validate_strategy(path: Path) -> bool
+        # 语法检查 + import 检查
+
+    def run_and_evaluate(path: Path) -> dict
+        # 回测 + 评估 + 记录（调用 orchestrator）
+
+    def run_cycle(max_iterations: int = 5) -> dict
+        # 完整自动循环：analyze → generate → validate → run → evaluate → repeat
 ```
 
-## 已有数据
-- user_data/data/kucoin/BTC_USDT-1h.feather (1448 行，~60天)
-- user_data/data/kucoin/ETH_USDT-1h.feather (1448 行，~60天)
-- 时间范围：20251126-20260125
-- 市场环境：BTC 期间约 -2.47%（震荡偏空）
+CHECK 清单（迭代 1）：
+- [ ] auto_improver.py 文件创建
+- [ ] LLM 连通性验证（localhost:4141 可调用）
+- [ ] analyze_history() 能读取 experiments.jsonl 并返回分析文本
+- [ ] generate_strategy() 能调用 LLM 生成合法的策略 .py 代码
+- [ ] validate_strategy() 能检查语法和 IStrategy 继承
+- [ ] python3 -c "from workspace.auto_improver import AutoImprover" 不报错
 
-## 每轮迭代必须执行的完整 checklist
+CHECK 清单（迭代 2）：
+- [ ] run_and_evaluate() 端到端跑通（策略→回测→评估→记录）
+- [ ] run_cycle(max_iterations=1) 完成一次完整循环
+- [ ] 生成的策略确实不同于已有策略（代码 SHA256 不同）
+- [ ] experiments.jsonl 有新记录
+- [ ] 结果保存到 workspace/results/
 
-### CHECK-1: 分析历史实验
-```python
-from workspace.tracker import list_experiments, query_best
-exps = list_experiments()
-best = query_best("sharpe", 3)
-# 打印历史最佳和最差，分析失败原因
-```
+### 迭代 3-4: 反馈闭环 + 错误恢复
+- [ ] LLM 分析能引用具体的历史指标数据（不是泛泛而谈）
+- [ ] LLM 生成的策略能引用已有最佳策略的代码作为参考
+- [ ] 策略代码有 bug 时：auto_improver 捕获错误 → 让 LLM 修复 → 重试（最多 3 次）
+- [ ] run_cycle(max_iterations=3) 能连续跑 3 轮不崩溃
+- [ ] 每轮生成的策略名称递增（auto_v1, auto_v2, ...）
 
-### CHECK-2: 设计新策略假设
-基于历史实验的反馈，提出一个新的策略假设：
-- 为什么之前的策略亏损？
-- 新策略解决了什么问题？
-- 预期在什么市场环境下有效？
+### 迭代 5-6: 运行 auto_improver，积累实验
+- [ ] 运行 run_cycle(max_iterations=5)，产出 5 个新策略
+- [ ] 所有策略都成功回测（没有因 bug 跳过的）
+- [ ] experiments.jsonl 有完整 5 条新记录
+- [ ] query_best() 能看到新策略的排名
+- [ ] 至少有 1 个新策略 Sharpe > 历史最佳
 
-### CHECK-3: 编写策略代码
-在 workspace/strategies/ 下创建新的 .py 文件：
-- 必须继承 IStrategy
-- 必须实现 populate_indicators / populate_entry_trend / populate_exit_trend
-- 策略名称必须唯一
-- 代码必须语法正确（先 python3 -c "import ast; ast.parse(open('file').read())" 验证）
+### 迭代 7-8: 策略组合 + 参数优化
+- [ ] auto_improver 能读取最佳策略代码，让 LLM 做微调（改参数/阈值）
+- [ ] 实现 parameter_sweep()：对最佳策略的关键参数做网格搜索
+- [ ] 网格搜索结果记录到 experiments.jsonl
+- [ ] 找到最优参数组合
 
-### CHECK-4: 语法验证
-```bash
-python3 -c "import ast; ast.parse(open('workspace/strategies/NEW.py').read()); print('SYNTAX OK')"
-```
+### 迭代 9: 最终验证 + 报告
+- [ ] 累计至少 15 个实验记录
+- [ ] query_best("sharpe", 1) 返回的策略 Sharpe > 0
+- [ ] evaluator 分数 > 40
+- [ ] 生成最终研究报告 workspace/results/final_report.json
+- [ ] 报告包含：策略进化历程、最佳策略代码、所有实验对比
 
-### CHECK-5: 回测执行
-```python
-result = run_backtest("workspace/strategies/NEW.py", "ClassName", timerange="20251126-20260125")
-assert result["ok"], f"Backtest failed: {result.get('error')}"
-```
-
-### CHECK-6: 多目标评估
-```python
-score = evaluate(result)
-print(f"Score: {score['total_score']}/100 ({score['grade']})")
-# 逐项检查每个目标
-for name, d in score["details"].items():
-    print(f"  {name}: {d['value']} | target={d['target']} | met={d['met']}")
-```
-
-### CHECK-7: 记录实验
-```python
-record = record_experiment(
-    backtest_result=result,
-    evaluation=score,
-    strategy_name="...",
-    notes="策略假设和设计理由",
-    tags=["iteration_N"],
-)
-```
-
-### CHECK-8: 对比历史最佳
-```python
-if len(list_experiments()) >= 2:
-    c = compare(record["id"], best_id)
-    print(f"vs best: winner=#{c['winner']}")
-```
-
-### CHECK-9: 分析改进方向
-根据 evaluator 的 suggestions 和当前弱项，确定下一轮改进方向：
-- Sharpe 低 → 改信号质量
-- DD 高 → 加止损/仓位管理
-- 胜率低 → 更严格的过滤条件
-- PF 低 → 让赢家跑更久/亏家砍更快
-
-### CHECK-10: 提交代码
-```bash
-git add workspace/strategies/NEW.py workspace/results/
-git commit -m "feat(workspace): iteration N — 策略名 (score=XX, sharpe=XX)"
-```
-
-## 策略设计思路池（按优先级尝试）
-1. **趋势跟踪 + 严格过滤**：只在强趋势中交易，用多重确认（EMA排列+ADX+成交量）
-2. **统计套利/配对**：BTC vs ETH 的价差回归
-3. **波动率收缩后突破**：Squeeze（BB收缩于KC内）后方向性突破
-4. **时间模式**：利用小时级别的周期性（亚洲/欧洲/美国时段）
-5. **反转信号组合**：RSI背离 + 吞没形态 + 支撑位
-6. **ML 预测驱动**：用 workspace 的 Ridge/LightGBM 模型预测信号
-7. **自适应参数**：根据最近 N 根 K 线的波动率动态调整所有参数
+### 迭代 10: 清理 + 文档 + 全量测试
+- [ ] pytest 全部通过（含新增测试）
+- [ ] workspace/toolbox.md 更新 auto_improver 使用说明
+- [ ] git commit 所有变更
+- [ ] 验证完整流程：auto_improver.run_cycle() 可一键启动
 
 ## 约束
-- 每轮只写 1 个新策略，做深做透
-- 必须执行全部 10 个 CHECK（CHECK-1 到 CHECK-10）
-- 策略代码不超过 200 行
-- 使用真实数据，禁止模拟
-- 每轮结尾必须有文字总结（含 checklist 完成状态表格）
-
-## 成功条件
-当满足以下全部条件时输出 completion promise：
-1. 至少 10 个不同策略已回测并记录
-2. 至少 1 个策略 Sharpe > 0（在震荡市中盈利）
-3. 最佳策略的 evaluator 分数 > 40
-4. experiments.jsonl 有完整的实验记录链
+- auto_improver 生成的策略代码必须在 workspace/strategies/ 下
+- LLM 生成的代码必须经过语法验证才能回测
+- 每次 LLM 调用必须有超时和重试
+- 每轮迭代结尾必须有文字总结（含 CHECK 状态表）
+- 每轮有代码改动必须 git commit
