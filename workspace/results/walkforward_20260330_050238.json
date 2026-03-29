@@ -1,0 +1,134 @@
+{
+  "timestamp": "2026-03-29T21:02:38.514907+00:00",
+  "strategy_path": "workspace/strategies/auto_v204.py",
+  "n_windows": 15,
+  "n_successful": 4,
+  "mean_sharpe": 9.298471605821298,
+  "std_sharpe": 15.331706359150244,
+  "mean_profit": -0.06000000000000001,
+  "pct_profitable": 0.5,
+  "passed": true,
+  "verdict": "PASS: mean Sharpe 9.30 >= 0.0, 50% profitable >= 40%",
+  "windows": [
+    {
+      "id": 1,
+      "test_range": "20250517-20250606",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 2,
+      "test_range": "20250606-20250627",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 3,
+      "test_range": "20250627-20250718",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 4,
+      "test_range": "20250718-20250808",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 5,
+      "test_range": "20250808-20250829",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 6,
+      "test_range": "20250829-20250919",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 7,
+      "test_range": "20250919-20251009",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 8,
+      "test_range": "20251009-20251030",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 9,
+      "test_range": "20251030-20251120",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 10,
+      "test_range": "20251120-20251211",
+      "sharpe": -4.4227074135118585,
+      "profit_pct": -0.84,
+      "trades": 9,
+      "ok": true
+    },
+    {
+      "id": 11,
+      "test_range": "20251211-20260101",
+      "sharpe": 11.870156602364187,
+      "profit_pct": 1.21,
+      "trades": 23,
+      "ok": true
+    },
+    {
+      "id": 12,
+      "test_range": "20260101-20260122",
+      "sharpe": -3.6092724709551263,
+      "profit_pct": -0.93,
+      "trades": 14,
+      "ok": true
+    },
+    {
+      "id": 13,
+      "test_range": "20260122-20260211",
+      "sharpe": 33.35570970538799,
+      "profit_pct": 0.32,
+      "trades": 6,
+      "ok": true
+    },
+    {
+      "id": 14,
+      "test_range": "20260211-20260304",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    },
+    {
+      "id": 15,
+      "test_range": "20260304-20260325",
+      "sharpe": 0.0,
+      "profit_pct": 0.0,
+      "trades": 0,
+      "ok": false
+    }
+  ]
+}
