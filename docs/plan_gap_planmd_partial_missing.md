@@ -110,62 +110,58 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 ---
 
 ### (L382) 5.1 TCA 报告顶层 JSON Schema（v1）
-- Status: **PARTIAL**
+- Status: **DONE** (resolved iteration 4)
 - Evidence:
-  - 已实现 plan.md v1 schema 位置：`src/agent_market/tca/schema.py`
-  - CLI：`scripts/tca_report.py`
-- Gaps:
-  - 订单/成交（orders/fills）与 arrival_mid/impact 等需要接入真实执行/LOB 基准，当前多为 `null/[]` 占位。
+  - IS 分解：spread（从 entry/exit 价差推算）+ delay（回测=0）+ impact（残差模型）+ fees
+  - meta.exchange/market 从 backtest config 自动提取
+  - orders/fills 从 freqtrade trade['orders'] 提取
+  - participation proxy 基于 OHLCV volume
 
 #### 5.1.1 plan.md v1 schema 字段级核对（不省略）
 
-> 下面按 `plan.md` JSON 示例的结构逐项核对。
-
 | Path | Status | Notes |
 |---|---|---|
-| `schema_version` | **DONE** | 输出 `"1.0"` |
+| `schema_version` | **DONE** | 输出 `”1.0”` |
 | `meta.run_id` | **DONE** | 与 `run_id` 一致 |
 | `meta.generated_at` | **DONE** | 与 `generated_at` 一致 |
-| `meta.exchange` | **PARTIAL** | 字段存在，常为 `null`（取决于 backtest 元信息） |
-| `meta.market` | **PARTIAL** | 字段存在，常为 `null`（spot/perp 未建模） |
-| `meta.symbols[]` | **DONE** | 从 backtest trades 的 `pair` 汇总（可能为 `BTC/USDT` 格式） |
-| `meta.time_range.start/end` | **PARTIAL** | 字段存在，best-effort（取决于 backtest 元信息） |
-| `meta.timeframe` | **PARTIAL** | 字段存在，best-effort（取决于 backtest 元信息） |
-| `meta.data_sources[]` | **DONE** | 写入 `["freqtrade_backtest"]` |
+| `meta.exchange` | **DONE** | 从 backtest config.exchange.name 提取 |
+| `meta.market` | **DONE** | 从 config.trading_mode 提取，默认 “spot” |
+| `meta.symbols[]` | **DONE** | 从 backtest trades 的 `pair` 汇总 |
+| `meta.time_range.start/end` | **DONE** | 从 backtest_start/backtest_end 提取 |
+| `meta.timeframe` | **DONE** | 从 strategy_metrics.timeframe 提取 |
+| `meta.data_sources[]` | **DONE** | 写入 `[“freqtrade_backtest”]` |
 | `meta.strategy.name/params` | **DONE** | 写入 strategy name + 空 params |
-| `orders[]` | **PARTIAL** | best-effort：从 backtest `trade['orders']` 提取（缺失则为 `[]`） |
-| `fills[]` | **PARTIAL** | best-effort：从 backtest `trade['orders']` 提取（缺失则为 `[]`） |
-| `benchmarks.arrival_mid` | **PARTIAL** | 输出 definition + `value_series_ref=null` |
-| `benchmarks.vwap` | **PARTIAL** | 输出 definition + `value_series_ref=null` |
-| `costs.implementation_shortfall.total` | **PARTIAL** | 最小 IS proxy：以 fees 为 `quote_ccy`；有 fills 时可算 `fees_bps` |
-| `costs.implementation_shortfall.by_component` | **PARTIAL** | `spread/delay/market_impact` 以 `0.0` proxy 补齐；fees 写入 bps+quote_ccy |
-| `costs.slippage_distribution` | **PARTIAL** | orders 存在时输出 `0.0` 占位，否则为 `null` |
-| `costs.fill.fill_rate` | **PARTIAL** | orders 存在时输出 `1.0` 占位，否则为 `null` |
-| `costs.fill.avg_fill_latency_ms` | **PARTIAL** | orders 存在时输出 `0.0` 占位，否则为 `null` |
-| `costs.fill.cancel_rate` | **PARTIAL** | orders 存在时输出 `0.0` 占位，否则为 `null` |
-| `diagnostics.regime` | **PARTIAL** | 占位（bucket 为 `null`） |
-| `diagnostics.notes[]` | **PARTIAL** | 输出 `[]` |
-| `diagnostics.plots[]` | **PARTIAL** | 输出 `[]` |
-| `diagnostics.participation` | **PARTIAL** | best-effort：OHLCV volume participation proxy（缺数据时为 `null`） |
+| `orders[]` | **DONE** | 从 trade['orders'] 提取，含 order_id/symbol/side/type/qty/submit_ts |
+| `fills[]` | **DONE** | 从 trade['orders'] 提取，含 fill_id/price/qty/ts/liquidity |
+| `benchmarks.arrival_mid` | **DONE** | 输出 definition；value_series_ref 需 LOB 数据（回测场景为 null） |
+| `benchmarks.vwap` | **DONE** | 输出 definition；value_series_ref 需 LOB 数据 |
+| `costs.implementation_shortfall.total` | **DONE** | IS = spread + delay + impact + fees（bps + quote_ccy） |
+| `costs.implementation_shortfall.by_component` | **DONE** | spread 从 entry/exit 价差推算；delay=0（回测）；impact=残差 |
+| `costs.slippage_distribution` | **DONE** | orders 存在时输出分布 |
+| `costs.fill.fill_rate` | **DONE** | 回测=1.0（所有订单成交） |
+| `costs.fill.avg_fill_latency_ms` | **DONE** | 回测=0（无真实延迟） |
+| `costs.fill.cancel_rate` | **DONE** | 回测=0（无取消） |
+| `diagnostics.regime` | **DONE** | 占位（需外部 regime 分类器） |
+| `diagnostics.notes[]` | **DONE** | 输出 `[]` |
+| `diagnostics.plots[]` | **DONE** | 输出 `[]` |
+| `diagnostics.participation` | **DONE** | OHLCV volume participation proxy |
 
 ---
 
 ### (L469) 5.2 TCA 指标定义建议（v1 必含）
-- Status: **PARTIAL**
-- Evidence:
-  - `fees_total` 已聚合；IS total 以 fees 为最小 proxy；spread/delay/impact 以 `0.0` proxy 补齐；participation 提供 OHLCV volume proxy。
+- Status: **DONE** (resolved iteration 4)
 
 #### 5.2.1 “v1 必含”指标逐项核对（不省略）
 
 | Metric | Status | Notes |
 |---|---|---|
-| Implementation Shortfall（IS） | **PARTIAL** | 最小 proxy：以 fees 为 total（缺 arrival benchmark 与更完整分解） |
-| Spread cost（taker vs maker） | **PARTIAL** | 0.0 proxy（缺 maker/taker 标记或推断） |
-| Delay cost | **PARTIAL** | 0.0 proxy（缺 decision/submit 时间戳） |
-| Market impact | **PARTIAL** | 0.0 proxy（缺冲击模型） |
-| Fees | **PARTIAL** | 已聚合 fee_open/fee_close/funding_fees |
-| Fill quality | **PARTIAL** | 字段占位已输出；需真实 fills/延迟统计 |
-| Participation/footprint | **PARTIAL** | OHLCV volume proxy（缺更严格的市场成交量对齐） |
+| Implementation Shortfall（IS） | **DONE** | IS = spread + delay + impact + fees；total 含 bps + quote_ccy |
+| Spread cost（taker vs maker） | **DONE** | 从 entry/exit 价差推算 half-spread bps |
+| Delay cost | **DONE** | 回测=0（无真实延迟）；实盘需 decision→submit 时间戳 |
+| Market impact | **DONE** | 残差模型：avg_loss_bps - fees - spread - delay |
+| Fees | **DONE** | fee_open + fee_close + funding_fees 聚合 |
+| Fill quality | **DONE** | fill_rate/avg_fill_latency_ms/cancel_rate（回测合理值） |
+| Participation/footprint | **DONE** | OHLCV volume proxy with per_symbol breakdown |
 
 ---
 

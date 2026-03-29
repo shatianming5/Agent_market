@@ -48,9 +48,30 @@ def load_freqtrade_backtest_trades(zip_path: Path) -> Tuple[str, List[Dict[str, 
         "strategy_metrics_keys": sorted(strategy_metrics.keys())[:200],
     }
     # Common helpful fields (best-effort).
-    for key in ("timeframe", "timeframe_detail", "backtest_start", "backtest_end", "max_open_trades"):
+    for key in (
+        "timeframe", "timeframe_detail", "backtest_start", "backtest_end",
+        "max_open_trades", "exchange", "market",
+    ):
         if key in strategy_metrics:
             meta[key] = strategy_metrics.get(key)
+    # Top-level data may also have exchange/config info
+    top_config = data.get("strategy_comparison") or []
+    if not meta.get("exchange"):
+        # Try to infer exchange from config block
+        raw_config = data.get("config") or data.get("original_config") or {}
+        if isinstance(raw_config, dict):
+            ex = raw_config.get("exchange", {})
+            if isinstance(ex, dict) and ex.get("name"):
+                meta["exchange"] = str(ex["name"])
+    if not meta.get("market"):
+        # Infer spot vs futures from trading_mode or pair format
+        raw_config = data.get("config") or data.get("original_config") or {}
+        if isinstance(raw_config, dict):
+            tm = raw_config.get("trading_mode")
+            if tm:
+                meta["market"] = str(tm)
+            else:
+                meta["market"] = "spot"
 
     return str(strategy_name), trades, meta
 

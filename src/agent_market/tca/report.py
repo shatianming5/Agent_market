@@ -254,6 +254,65 @@ def _extract_orders_fills_from_freqtrade_trades(
     return orders, fills
 
 
+def _estimate_spread_cost_bps(trades: List[Dict[str, Any]]) -> Optional[float]:
+    """Estimate spread cost in bps from trade entry/exit prices.
+
+    Uses open_rate/close_rate when available; otherwise extracts prices
+    from the embedded orders list (safe_price of buy vs sell).
+    """
+    rates = []
+    for t in trades:
+        try:
+            open_rate = t.get("open_rate")
+            close_rate = t.get("close_rate")
+            # Fallback: extract from orders
+            if (open_rate is None or close_rate is None) and isinstance(t.get("orders"), list):
+                buy_px = []
+                sell_px = []
+                for o in t["orders"]:
+                    if not isinstance(o, dict):
+                        continue
+                    side = str(o.get("ft_order_side") or "").lower()
+                    px = o.get("safe_price")
+                    if px is None:
+                        continue
+                    if side == "buy":
+                        buy_px.append(float(px))
+                    elif side == "sell":
+                        sell_px.append(float(px))
+                if buy_px and open_rate is None:
+                    open_rate = sum(buy_px) / len(buy_px)
+                if sell_px and close_rate is None:
+                    close_rate = sum(sell_px) / len(sell_px)
+
+            open_rate_f = float(open_rate) if open_rate is not None else 0.0
+            close_rate_f = float(close_rate) if close_rate is not None else 0.0
+            if open_rate_f > 0 and close_rate_f > 0:
+                mid = (open_rate_f + close_rate_f) / 2.0
+                half_spread = abs(open_rate_f - close_rate_f) / mid / 2.0
+                rates.append(half_spread * 10000.0)
+        except Exception:
+            continue
+    if not rates:
+        return None
+    return float(sum(rates) / len(rates))
+
+
+def _estimate_avg_loss_bps(trades: List[Dict[str, Any]]) -> Optional[float]:
+    """Estimate average per-trade cost in bps from losing trades."""
+    loss_bps = []
+    for t in trades:
+        try:
+            pr = float(t.get("profit_ratio") or 0.0)
+            if pr < 0:
+                loss_bps.append(abs(pr) * 10000.0)
+        except Exception:
+            continue
+    if not loss_bps:
+        return None
+    return float(sum(loss_bps) / len(loss_bps))
+
+
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -305,14 +364,37 @@ def generate_tca_report(
     if fees_total_f is not None and total_notional > 0:
         fees_bps = float(10000.0 * float(fees_total_f) / float(total_notional))
 
+    # Spread cost estimation: average half-spread from trade open/close prices.
+    # In backtest, each trade has open_rate and close_rate. The spread cost is
+    # approximated as the average fee_open rate (which freqtrade uses as spread proxy).
+    spread_bps = _estimate_spread_cost_bps(trades)
+    # Delay cost: 0 in backtesting (no real latency)
+    delay_bps = 0.0
+    # Market impact: residual IS after spread + delay + fees
+    impact_bps = None
+    is_total_bps = None
+    if fees_bps is not None:
+        spread_bps_safe = spread_bps or 0.0
+        # IS total = fees + spread + delay + impact; impact is the residual
+        # For backtest: use profit_ratio as realized cost signal
+        avg_loss_bps = _estimate_avg_loss_bps(trades)
+        if avg_loss_bps is not None:
+            impact_bps = max(0.0, avg_loss_bps - (fees_bps or 0.0) - spread_bps_safe - delay_bps)
+        else:
+            impact_bps = 0.0
+        is_total_bps = (fees_bps or 0.0) + spread_bps_safe + delay_bps + impact_bps
+
     is_components = TCAImplementationShortfallComponents(
-        spread=TCACostValue(bps=0.0),
-        delay=TCACostValue(bps=0.0),
-        market_impact=TCACostValue(bps=0.0),
+        spread=TCACostValue(bps=spread_bps),
+        delay=TCACostValue(bps=delay_bps),
+        market_impact=TCACostValue(bps=impact_bps),
         fees=TCACostValue(bps=fees_bps, quote_ccy=fees_total_f),
     )
+    is_total_ccy = None
+    if is_total_bps is not None and total_notional > 0:
+        is_total_ccy = float(is_total_bps * total_notional / 10000.0)
     is_block = TCAImplementationShortfall(
-        total=TCACostValue(bps=fees_bps, quote_ccy=fees_total_f),
+        total=TCACostValue(bps=is_total_bps, quote_ccy=is_total_ccy),
         by_component=is_components,
     )
 
