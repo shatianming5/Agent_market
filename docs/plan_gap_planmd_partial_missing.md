@@ -22,19 +22,20 @@ Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 ---
 
 #### (L180) 3.3.1 核心类型
-- Status: **PARTIAL**（已新增最小 `FactorType`/`infer_expr_type`；尚缺完整 Type System/规则与更细语义类型）
+- Status: **DONE** (resolved iteration 1)
+- Notes: Kind/Dtype/Semantic enums + domain presets + 语义标注的 _CALL_RETURNS
 
 ---
 
 #### (L190) 3.3.2 类型属性（必须携带）
-- Status: **PARTIAL**
-- Notes:
-  - 最小 `FactorType` 已携带 `freq/timezone/availability_delay_ms/lookback` 字段，但尚未形成“强制携带 + 强约束校验”的闭环。
+- Status: **DONE** (resolved iteration 1)
+- Notes: `FactorType.validate()` 强制校验闭环 + `typecheck()` 统一入口
 
 ---
 
 #### (L268) 3.5.2 类型检查（Typecheck）
-- Status: **PARTIAL**（已有最小 type inference + API preflight；尚缺完整 Type System + 规则库）
+- Status: **DONE** (resolved iteration 1)
+- Notes: `typecheck()` → `TypecheckResult(inferred_type, errors, ok)`，含 lookback 传播 + 语义传播
 
 ---
 

@@ -136,12 +136,17 @@ Generated: 2026-02-05
 ### (L176) 3.3 类型系统（Type System）草案
 
 #### (L180) 3.3.1 核心类型
-- Status: **PARTIAL**（已新增最小 `FactorType`/`infer_expr_type`；尚缺完整 Type System/规则与更细语义类型）
+- Status: **DONE**
+- Notes:
+  - `Kind` enum（scalar/series/frame/event_stream/lob_state/lob_series）、`Dtype` enum（float/int/bool/unknown）、`Semantic` enum（price/volume/return/ratio/count/duration/indicator/cost/probability/signal）均已定义于 `dsl/types.py`。
+  - `_CALL_RETURNS` 已增加微观结构操作符（mid/spread/microprice/vwap/depth_bid/depth_ask/imbalance/ofi/rv）的语义标注。
+  - 域特定预设常量：`SERIES_PRICE`、`SERIES_VOLUME`、`SERIES_RETURN`。
 
 #### (L190) 3.3.2 类型属性（必须携带）
-- Status: **PARTIAL**
+- Status: **DONE**
 - Notes:
-  - 最小 `FactorType` 已携带 `freq/timezone/availability_delay_ms/lookback` 字段，但尚未形成“强制携带 + 强约束校验”的闭环。
+  - `FactorType.validate()` 方法实现”强制携带 + 强约束校验”闭环：检查 kind/dtype/semantic 合法性、lookback 范围、availability_delay_ms 可交易性 gate。
+  - `typecheck()` 统一入口自动调用 `validate()`。
 
 ### (L199) 3.4 算子集合（Operator Library）草案
 
@@ -227,7 +232,11 @@ Generated: 2026-02-05
 | 参数范围合法（w>0, levels>0） | **DONE** | `check_literal_param_ranges()`（窗口/levels/p 等 best-effort） |
 
 #### (L268) 3.5.2 类型检查（Typecheck）
-- Status: **PARTIAL**（已有最小 type inference + API preflight；尚缺完整 Type System + 规则库）
+- Status: **DONE**
+- Notes:
+  - 统一入口 `typecheck(expr, var_types=, max_lookback=, min_delay_ms=)` → `TypecheckResult(inferred_type, errors, ok)`。
+  - 内部调用 `infer_expr_type()` + `FactorType.validate()`，覆盖 kind/dtype/semantic 合法性、lookback 上限、延迟 gate。
+  - `infer_expr_type()` 已增强 lookback 传播（rolling/ema 等窗口操作符自动提取窗口参数）和语义标签传播。
 
 #### (L274) 3.5.3 时间安全（Time-safety）
 - Status: **PARTIAL**
