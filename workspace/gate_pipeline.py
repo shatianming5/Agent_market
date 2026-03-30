@@ -113,7 +113,11 @@ class GatePipeline:
             return report
 
         report["final_gate_passed"] = "gate_3"
-        report["recommendation"] = "APPROVED for paper trading (Gate 4)"
+        report["recommendation"] = (
+            "PASSED Gates 1-3 (automated). "
+            "Gate 4 (paper trading) requires manual setup with paper_trader.py. "
+            "Gate 5 (live) requires human approval."
+        )
         self._save_report(report, strategy_path.stem)
         return report
 
@@ -210,18 +214,15 @@ class GatePipeline:
         lookback = None
         entry_z = None
         exit_z = None
+        # Use AST-safe config extraction instead of exec()
         try:
-            ns: Dict[str, Any] = {}
-            exec(path.read_text(encoding="utf-8"), ns)
-            if callable(ns.get("get_params")):
-                p = ns["get_params"]() or {}
-                pair_a = p.get("pair_a")
-                pair_b = p.get("pair_b")
-                lookback = p.get("lookback")
-                entry_z = p.get("entry_z")
-                exit_z = p.get("exit_z")
+            p = self._detect_pairs_config(path) or {}
+            pair_a = p.get("pair_a")
+            pair_b = p.get("pair_b")
+            lookback = p.get("lookback")
+            entry_z = p.get("entry_z")
+            exit_z = p.get("exit_z")
         except Exception:
-            # Fall back to defaults below
             pass
 
         # If strategy provides an explicit pair, use it first.
@@ -279,15 +280,13 @@ class GatePipeline:
             from workspace.pairs_engine import PairsEngine
             from workspace.cost_model import CostModel
 
-            # Load config from strategy (required for meaningful validation)
-            ns: Dict[str, Any] = {}
-            exec(path.read_text(encoding="utf-8"), ns)
-            if not callable(ns.get("get_params")):
+            # Load config via AST (no exec)
+            p = self._detect_pairs_config(path)
+            if not p:
                 return GateResult(
-                    "gate_3", False, {}, ["pairs strategy missing get_params()"]
+                    "gate_3", False, {}, ["pairs strategy missing PAIR_A/PAIR_B constants"]
                 )
 
-            p = ns["get_params"]() or {}
             pair_a = p.get("pair_a")
             pair_b = p.get("pair_b")
             lookback = int(p.get("lookback", 80))
@@ -428,26 +427,35 @@ class GatePipeline:
         return GateResult("gate_3", len(failures) == 0, metrics, failures)
 
     def _detect_pairs_config(self, path: Path) -> Optional[Dict[str, Any]]:
-        """Try to extract pairs config from a strategy file."""
+        """Extract pairs config via AST parsing only (no exec).
+
+        Security: never exec() untrusted strategy files. Parse constants
+        from the AST to extract PAIR_A, PAIR_B, LOOKBACK, ENTRY_Z, EXIT_Z.
+        """
+        import ast as _ast
         try:
             code = path.read_text(encoding="utf-8")
-            # Look for get_params() or PAIR_A/PAIR_B constants
-            ns = {}
-            exec(compile(code, str(path), "exec"), ns)
-            if "get_params" in ns:
-                return ns["get_params"]()
-            pair_a = ns.get("PAIR_A")
-            pair_b = ns.get("PAIR_B")
-            if pair_a and pair_b:
-                return {
-                    "pair_a": pair_a,
-                    "pair_b": pair_b,
-                    "lookback": ns.get("LOOKBACK", 80),
-                    "entry_z": ns.get("ENTRY_Z", 2.5),
-                    "exit_z": ns.get("EXIT_Z", 0.7),
-                }
+            tree = _ast.parse(code)
         except Exception:
-            pass
+            return None
+
+        constants: Dict[str, Any] = {}
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Assign) and len(node.targets) == 1:
+                target = node.targets[0]
+                if isinstance(target, _ast.Name) and isinstance(node.value, _ast.Constant):
+                    constants[target.id] = node.value.value
+
+        pair_a = constants.get("PAIR_A")
+        pair_b = constants.get("PAIR_B")
+        if pair_a and pair_b:
+            return {
+                "pair_a": str(pair_a),
+                "pair_b": str(pair_b),
+                "lookback": int(constants.get("LOOKBACK", 80)),
+                "entry_z": float(constants.get("ENTRY_Z", 2.5)),
+                "exit_z": float(constants.get("EXIT_Z", 0.7)),
+            }
         return None
 
     def _gate_1_pairs_signal(self, config: Dict[str, Any], exchange: str) -> GateResult:

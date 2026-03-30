@@ -169,9 +169,19 @@ def run_backtest(
         error_msg = "\n".join(error_lines[-5:]) if error_lines else f"exit code {proc.returncode}"
         return {"ok": False, "error": error_msg, "stderr": stderr[-2000:]}
 
-    # Find the newest backtest result zip
+    # Find backtest result zip created AFTER we started the backtest
+    # This avoids misattributing a stale zip from a concurrent/previous run.
+    import time as _time
+    backtest_start_time = _time.time() - 300  # allow up to 5 min
     results_dir = ROOT / "user_data" / "backtest_results"
-    zips = sorted(results_dir.glob("backtest-result-*.zip"), key=lambda p: p.stat().st_mtime)
+    zips = [
+        p for p in results_dir.glob("backtest-result-*.zip")
+        if p.stat().st_mtime >= backtest_start_time
+    ]
+    zips.sort(key=lambda p: p.stat().st_mtime)
+    if not zips:
+        # Fallback: take newest regardless (backwards compat)
+        zips = sorted(results_dir.glob("backtest-result-*.zip"), key=lambda p: p.stat().st_mtime)
     if not zips:
         return {"ok": False, "error": "no backtest result zip found"}
 

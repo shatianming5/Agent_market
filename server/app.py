@@ -16,9 +16,11 @@ from .runtime import ROOT
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Agent Market Server")
+    import os
+    allowed_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -1,7 +1,11 @@
-"""Pairs Trading Engine — market-neutral spread trading.
+"""Pairs Relative-Value Engine — spot-mode directional pairs trading.
 
-Core idea: two correlated assets (e.g., BTC vs ETH) have a mean-reverting
-price ratio. When the spread deviates, trade the convergence.
+IMPORTANT: This is NOT true market-neutral pairs trading (which requires
+simultaneous long+short). In spot mode we can only buy one asset at a time.
+The strategy exploits mean-reverting spread between two correlated assets:
+- When spread is low (z < -entry_z): buy asset A (expecting A to outperform)
+- When spread is high (z > +entry_z): buy asset B (expecting B to outperform)
+This is a RELATIVE VALUE play, not a hedged position.
 
 Usage:
     from workspace.pairs_engine import PairsEngine
