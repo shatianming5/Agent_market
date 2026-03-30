@@ -1,0 +1,57 @@
+{
+  "run_id": "pairs_ADA_AVAX_20260330_090445",
+  "rows": [
+    {
+      "pair_a": "ADA/USDT",
+      "pair_b": "AVAX/USDT",
+      "lookback": 80,
+      "entry_z": 2.5,
+      "exit_z": 0.7,
+      "taker_fee_bps_used": 10.0,
+      "profit_pct": -32.23782542604779,
+      "sharpe": -1.4314262482585094,
+      "max_dd_pct": 33.129370700292704,
+      "trades": 73,
+      "win_rate": 0.3972602739726027
+    },
+    {
+      "pair_a": "ADA/USDT",
+      "pair_b": "AVAX/USDT",
+      "lookback": 80,
+      "entry_z": 2.75,
+      "exit_z": 0.7,
+      "taker_fee_bps_used": 10.0,
+      "profit_pct": -31.46604912685079,
+      "sharpe": -1.733899316429268,
+      "max_dd_pct": 31.46604912685079,
+      "trades": 54,
+      "win_rate": 0.4074074074074074
+    },
+    {
+      "pair_a": "ADA/USDT",
+      "pair_b": "AVAX/USDT",
+      "lookback": 80,
+      "entry_z": 3.0,
+      "exit_z": 0.7,
+      "taker_fee_bps_used": 10.0,
+      "profit_pct": -24.933950457764965,
+      "sharpe": -1.4643841415991894,
+      "max_dd_pct": 31.176493359946853,
+      "trades": 40,
+      "win_rate": 0.425
+    }
+  ],
+  "best": {
+    "pair_a": "ADA/USDT",
+    "pair_b": "AVAX/USDT",
+    "lookback": 80,
+    "entry_z": 2.5,
+    "exit_z": 0.7,
+    "taker_fee_bps_used": 10.0,
+    "profit_pct": -32.23782542604779,
+    "sharpe": -1.4314262482585094,
+    "max_dd_pct": 33.129370700292704,
+    "trades": 73,
+    "win_rate": 0.3972602739726027
+  }
+}
