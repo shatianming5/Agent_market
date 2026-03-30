@@ -61,7 +61,9 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
         "feature_selector.py", "ensemble.py", "risk_manager.py",
         "paper_trader.py", "pairs_engine.py", "basket_engine.py",
         "deep_validate.py", "strategy_lifecycle.py", "performance_monitor.py",
-        "continuous_runner.py", "gate_pipeline.py", "sop.json", "objectives.json",
+        "continuous_runner.py", "gate_pipeline.py", "signal_validator.py",
+        "adaptive_params.py", "report_generator.py",
+        "sop.json", "objectives.json",
     ]
     src_ws = ROOT / "workspace"
     for tool in tools:
@@ -86,6 +88,20 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
     # Also copy from main configs
     for cfg in (ROOT / "user_data").glob("config_freqai*.json"):
         shutil.copy2(cfg, ws / "configs" / cfg.name)
+
+    # Copy strategy templates
+    for type_dir in (src_ws / "strategies").iterdir():
+        if type_dir.is_dir() and type_dir.name.startswith("type_"):
+            dest = ws / "strategies" / type_dir.name
+            dest.mkdir(parents=True, exist_ok=True)
+            for py_file in type_dir.glob("*.py"):
+                shutil.copy2(py_file, dest / py_file.name)
+
+    # Copy agent loop script
+    loop_script = src_ws / "run_agent_loop.sh"
+    if loop_script.exists():
+        shutil.copy2(loop_script, ws / "run_agent_loop.sh")
+        (ws / "run_agent_loop.sh").chmod(0o755)
 
     # Write GUIDE.md
     _write_guide(ws)
