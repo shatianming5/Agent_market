@@ -51,7 +51,7 @@ OPENAI_MODEL=gpt-4o-mini
 
 4) 启动后端
 ```
-uvicorn server.main:app --host 0.0.0.0 --port 8000
+uvicorn server.main:app --host 127.0.0.1 --port 8000
 ```
 打开前端：`http://127.0.0.1:8000/web/index.html`
 

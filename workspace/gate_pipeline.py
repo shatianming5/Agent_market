@@ -202,7 +202,7 @@ class GatePipeline:
     def _backtest_pairs(self, path: Path, exchange: str) -> Dict[str, Any]:
         """Quick pairs backtest using pairs_engine.
 
-        Prefer strategy-provided parameters via `get_params()` when present.
+        Use AST-extracted params from _detect_pairs_config(). when present.
         This keeps `run_gates()` strategy-specific (instead of hard-coded defaults).
         """
         from workspace.pairs_engine import PairsEngine

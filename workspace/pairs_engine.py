@@ -1,6 +1,6 @@
 """Pairs Relative-Value Engine — spot-mode directional pairs trading.
 
-IMPORTANT: This is NOT true market-neutral pairs trading (which requires
+IMPORTANT: This is NOT true relative-value pairs trading (which requires
 simultaneous long+short). In spot mode we can only buy one asset at a time.
 The strategy exploits mean-reverting spread between two correlated assets:
 - When spread is low (z < -entry_z): buy asset A (expecting A to outperform)
@@ -52,7 +52,7 @@ class PairsBacktestResult:
 
 
 class PairsEngine:
-    """Market-neutral pairs trading engine."""
+    """Spot relative-value pairs engine (NOT relative-value)."""
 
     def __init__(
         self,

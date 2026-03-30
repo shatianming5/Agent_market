@@ -84,7 +84,7 @@ print(result["recommendation"])  # "APPROVED" or "REJECTED at Gate N: reason"
 |------|------|---------|----------|---------|
 | A_trend | 趋势跟踪 | 1年+ | 4h/1d | freqtrade (L2) |
 | B_meanrev | 均值回归 | 6月+ | 1h/4h | freqtrade (L2) |
-| **C_pairs** | **配对/统计套利** | **1年+** | **1h** | **pairs_engine (L1)** |
+| **C_pairs** | **配对相对价值(spot)** | **1年+** | **1h** | **pairs_engine (L1)** |
 | D_momentum | 截面动量 | 1年+ | 1d | 信号模拟器 (L1) |
 | E_hft | 高频 | 1月+ | 1m/5m | 事件驱动 (L3) |
 | F_ml | ML预测 | 2年+ | 1h/4h | freqtrade (L2) |
@@ -121,7 +121,7 @@ data/kucoin/   — 2 品种 × 60天 × 1H
 strategies/
 ├── type_A_trend/       # 趋势跟踪策略
 ├── type_B_meanrev/     # 均值回归策略
-├── type_C_pairs/       # 配对/统计套利 ← 已验证最有效
+├── type_C_pairs/       # 配对相对价值(spot) ← 已验证最有效
 ├── type_D_momentum/    # 截面动量
 ├── type_E_hft/         # 高频
 ├── type_F_ml/          # ML 驱动

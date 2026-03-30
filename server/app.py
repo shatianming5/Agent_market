@@ -43,3 +43,17 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+# Simple API key auth middleware
+import os as _os
+_API_KEY = _os.environ.get("AGENT_MARKET_API_KEY", "")
+
+@app.middleware("http")
+async def auth_middleware(request, call_next):
+    if _API_KEY and request.url.path.startswith("/run"):
+        key = request.headers.get("X-API-Key", request.query_params.get("api_key", ""))
+        if key != _API_KEY:
+            from starlette.responses import JSONResponse
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return await call_next(request)
