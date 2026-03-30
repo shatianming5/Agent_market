@@ -195,11 +195,29 @@ class AutoImprover:
     # Step 2: Generate strategy
     # ------------------------------------------------------------------
 
-    def generate_strategy(self, analysis: str, iteration: int) -> Path:
-        """Have LLM write a new strategy based on analysis."""
+    def generate_strategy(self, analysis: str, iteration: int, *, strategy_type: str = "meanrev") -> Path:
+        """Have LLM write a new freqtrade IStrategy based on analysis.
+
+        strategy_type: "meanrev" | "pairs" | "basket" | "ml"
+        Each type uses a different template and prompt.
+        """
         strategy_name = f"AutoStrategy_v{iteration}"
         file_name = f"auto_v{iteration}.py"
-        out_path = self.strategies_dir / file_name
+
+        # Route to correct directory based on type
+        type_dirs = {
+            "meanrev": "type_B_meanrev", "pairs": "type_C_pairs",
+            "basket": "type_D_momentum", "ml": "type_F_ml",
+        }
+        sub_dir = self.strategies_dir / type_dirs.get(strategy_type, "type_B_meanrev")
+        sub_dir.mkdir(parents=True, exist_ok=True)
+        out_path = sub_dir / file_name
+
+        # Load reference template for the chosen type
+        templates_file = ROOT / "workspace" / "FREQTRADE_TEMPLATES.md"
+        templates_ref = ""
+        if templates_file.exists():
+            templates_ref = templates_file.read_text(encoding="utf-8")
 
         # Read existing best strategy as reference
         best = query_best("sharpe", 1)
@@ -209,21 +227,34 @@ class AutoImprover:
             if ref_path.exists():
                 reference_code = ref_path.read_text(encoding="utf-8")
 
+        # Strategy-type-specific instructions
+        type_instructions = {
+            "meanrev": "Write a MEAN REVERSION strategy using RSI, Bollinger Bands, or similar. Simple indicators only.",
+            "pairs": """Write a PAIRS TRADING strategy.
+CRITICAL: You MUST implement informative_pairs() to return [(pair_b, self.timeframe)].
+Use self.dp.get_pair_dataframe() in populate_indicators to get the reference pair data.
+Calculate spread z-score between the two assets. Buy when zscore < -entry_z.""",
+            "basket": """Write a BASKET MOMENTUM strategy.
+CRITICAL: You MUST implement informative_pairs() returning ALL universe pairs.
+Use self.dp.get_pair_dataframe() for each pair. Rank by momentum.
+Only enter_long on pairs ranked in top-N.""",
+            "ml": """Write an ML PREDICTION strategy.
+Load a pre-trained model in populate_indicators. Use it to predict returns.
+Enter when prediction > threshold. You can use lightgbm or pickle models.""",
+        }
+
+        parents_depth = {"meanrev": 2, "pairs": 3, "basket": 3, "ml": 3}
+        depth = parents_depth.get(strategy_type, 2)
+
         system = textwrap.dedent(f"""
             You are an expert Python developer writing freqtrade trading strategies.
             Output ONLY valid Python code, no markdown, no explanation.
 
-            DATA STATISTICS (BTC/USDT 1H, ~60 days):
-            - close: 84488-97656, mean=90276, std=2526
-            - hourly_return: mean~0%, std=0.43%, range [-3.7%, +2.6%]
-            - RSI(14): range 8-91, mean=50
-            - BB_width(20): range 0.001-0.056, mean=0.013
-            - volume_ratio (vs 20-bar avg): range 0.08-6.4, mean=1.04
-            - Market is CHOPPY/BEARISH (-2.47% total). Trend strategies fail.
+            STRATEGY TYPE: {strategy_type.upper()}
+            {type_instructions.get(strategy_type, type_instructions["meanrev"])}
 
-            CRITICAL: entry conditions must NOT be too strict! With ~1448 bars,
-            your strategy should generate 20-100 trades. If conditions are too
-            narrow you get 0 trades. Use relaxed thresholds.
+            DATA: 9 crypto pairs on Gate.io, 1H timeframe, 400 days.
+            CRITICAL: entry conditions must NOT be too strict! Target 20-100 trades.
 
             Requirements:
             - Class name must be: {strategy_name}
@@ -231,8 +262,8 @@ class AutoImprover:
             - Must implement: populate_indicators, populate_entry_trend, populate_exit_trend
             - timeframe = "1h"
             - can_short = False (long only)
-            - Use numpy and pandas only (no ta-lib, no external indicators)
-            - Max 150 lines
+            - Use numpy and pandas only (no ta-lib)
+            - Max 200 lines
             - Include this exact import block at the top:
 
             from __future__ import annotations
@@ -240,7 +271,7 @@ class AutoImprover:
             from pathlib import Path
             import numpy as np
             from pandas import DataFrame
-            _ROOT = Path(__file__).resolve().parents[2]
+            _ROOT = Path(__file__).resolve().parents[{depth}]
             if str(_ROOT / "src") not in sys.path:
                 sys.path.insert(0, str(_ROOT / "src"))
                 sys.path.insert(0, str(_ROOT))
@@ -709,13 +740,32 @@ class AutoImprover:
     # Step 4: Run and evaluate
     # ------------------------------------------------------------------
 
-    def run_and_evaluate(self, path: Path, iteration: int, *, timerange: str = "20260107-20260125") -> Dict[str, Any]:
-        """Backtest + evaluate + record. Uses out-of-sample period by default."""
+    def run_and_evaluate(self, path: Path, iteration: int, *, timerange: str = "20260107-20260125",
+                         strategy_type: str = "meanrev") -> Dict[str, Any]:
+        """Backtest via freqtrade L2 + evaluate + record.
+
+        Generates the correct freqtrade config for the strategy type.
+        """
         from workspace.backtest_api import _detect_strategy_name
 
         strategy_name = _detect_strategy_name(path) or f"AutoStrategy_v{iteration}"
 
-        bt_result = run_backtest(str(path), strategy_name, timerange=timerange)
+        # Generate correct config for strategy type
+        try:
+            from workspace.freqtrade_config_gen import generate_config
+            type_to_config = {
+                "meanrev": {"pairs": ["BTC/USDT", "ETH/USDT"]},
+                "pairs": {"pairs": ["DOGE/USDT"]},  # single trading pair
+                "basket": {"pairs": ["BTC/USDT","ETH/USDT","SOL/USDT","DOGE/USDT","XRP/USDT"], "max_open_trades": 3},
+                "ml": {"pairs": ["BTC/USDT", "ETH/USDT"]},
+            }
+            cfg = type_to_config.get(strategy_type, {"pairs": ["BTC/USDT", "ETH/USDT"]})
+            config_path = generate_config(f"auto_{strategy_type}_{iteration}", exchange="gate", **cfg)
+        except Exception:
+            config_path = None
+
+        bt_result = run_backtest(str(path), strategy_name, timerange=timerange,
+                                 config_path=str(config_path) if config_path else None)
         evaluation = evaluate(bt_result)
 
         if bt_result.get("ok"):

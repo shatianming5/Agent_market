@@ -98,6 +98,11 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
             for py_file in type_dir.glob("*.py"):
                 shutil.copy2(py_file, dest / py_file.name)
 
+    # Copy freqtrade templates reference
+    ft_templates = src_ws / "FREQTRADE_TEMPLATES.md"
+    if ft_templates.exists():
+        shutil.copy2(ft_templates, ws / "FREQTRADE_TEMPLATES.md")
+
     # Copy agent loop script
     loop_script = src_ws / "run_agent_loop.sh"
     if loop_script.exists():
