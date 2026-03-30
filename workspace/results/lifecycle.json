@@ -1,0 +1,277 @@
+{
+  "pairs_AVAX_DOGE": {
+    "name": "pairs_AVAX_DOGE",
+    "state": "retired",
+    "type": "pairs",
+    "config": {
+      "pair_a": "AVAX/USDT",
+      "pair_b": "DOGE/USDT",
+      "exchange": "gate",
+      "correlation": 0.9788299242882631,
+      "half_life": 186.5957888669684,
+      "mean_profit": 3.3949773333597113
+    },
+    "source": "auto_discovery",
+    "created_at": "2026-03-30T06:48:44.703798+00:00",
+    "updated_at": "2026-03-30T06:49:13.026545+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T06:48:44.703798+00:00",
+        "reason": "registered"
+      },
+      {
+        "state": "validated",
+        "at": "2026-03-30T06:48:44.704797+00:00",
+        "reason": "WF passed: mean=+3.39%, 2/4 profitable"
+      },
+      {
+        "state": "paper",
+        "at": "2026-03-30T06:48:44.704936+00:00",
+        "reason": "auto-promote to paper"
+      },
+      {
+        "state": "retired",
+        "at": "2026-03-30T06:49:13.026545+00:00",
+        "reason": "paper unprofitable 7 days"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 11,
+    "paper_pnl": [
+      0.0,
+      -0.4899956979109332,
+      -0.459001929531397,
+      -0.48808111222477185,
+      -0.2755019748245548,
+      -0.3887237167077349,
+      -0.43780820007528737,
+      -0.35640824780614866,
+      -0.20810728532247286,
+      -0.3827286874371628,
+      -0.47217794047050365
+    ],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "pairs_ADA_AVAX": {
+    "name": "pairs_ADA_AVAX",
+    "state": "active",
+    "type": "pairs",
+    "config": {
+      "pair_a": "ADA/USDT",
+      "pair_b": "AVAX/USDT",
+      "exchange": "gate",
+      "correlation": 0.9733614183454433,
+      "half_life": 274.9147455164005,
+      "mean_profit": 0.9464135196664307
+    },
+    "source": "auto_discovery",
+    "created_at": "2026-03-30T06:48:45.937586+00:00",
+    "updated_at": "2026-03-30T06:49:13.026953+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T06:48:45.937586+00:00",
+        "reason": "registered"
+      },
+      {
+        "state": "validated",
+        "at": "2026-03-30T06:48:45.940510+00:00",
+        "reason": "WF passed: mean=+0.95%, 2/4 profitable"
+      },
+      {
+        "state": "paper",
+        "at": "2026-03-30T06:48:45.940777+00:00",
+        "reason": "auto-promote to paper"
+      },
+      {
+        "state": "active",
+        "at": "2026-03-30T06:49:13.026953+00:00",
+        "reason": "paper profitable 7 days"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 11,
+    "paper_pnl": [
+      0.0,
+      0.05,
+      0.08,
+      -0.15,
+      0.08,
+      0.1,
+      0.05,
+      0.05,
+      0.08,
+      0.08,
+      -0.15
+    ],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "pairs_LINK_SOL": {
+    "name": "pairs_LINK_SOL",
+    "state": "active",
+    "type": "pairs",
+    "config": {
+      "pair_a": "LINK/USDT",
+      "pair_b": "SOL/USDT",
+      "exchange": "gate",
+      "correlation": 0.9586294465715585,
+      "half_life": 304.8057162034073,
+      "mean_profit": 7.508797882607019
+    },
+    "source": "auto_discovery",
+    "created_at": "2026-03-30T06:48:47.960212+00:00",
+    "updated_at": "2026-03-30T06:49:13.027124+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T06:48:47.960212+00:00",
+        "reason": "registered"
+      },
+      {
+        "state": "validated",
+        "at": "2026-03-30T06:48:47.961706+00:00",
+        "reason": "WF passed: mean=+7.51%, 3/4 profitable"
+      },
+      {
+        "state": "paper",
+        "at": "2026-03-30T06:48:47.962240+00:00",
+        "reason": "auto-promote to paper"
+      },
+      {
+        "state": "active",
+        "at": "2026-03-30T06:49:13.027124+00:00",
+        "reason": "paper profitable 7 days"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 11,
+    "paper_pnl": [
+      0.0,
+      0.20985669961447095,
+      0.08488448213128598,
+      0.15548045492131762,
+      0.20050468226249507,
+      0.1623022615709634,
+      0.13506262912949796,
+      0.14498182515933433,
+      0.25178206831859506,
+      0.06970004951961455,
+      0.09807214756416498
+    ],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "pairs_DOGE_XRP": {
+    "name": "pairs_DOGE_XRP",
+    "state": "retired",
+    "type": "pairs",
+    "config": {
+      "pair_a": "DOGE/USDT",
+      "pair_b": "XRP/USDT",
+      "exchange": "gate",
+      "correlation": 0.9487546463294513,
+      "half_life": 311.0900094880296,
+      "mean_profit": 0.616176197899434
+    },
+    "source": "auto_discovery",
+    "created_at": "2026-03-30T06:48:49.011634+00:00",
+    "updated_at": "2026-03-30T06:49:13.027259+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T06:48:49.011634+00:00",
+        "reason": "registered"
+      },
+      {
+        "state": "validated",
+        "at": "2026-03-30T06:48:49.012910+00:00",
+        "reason": "WF passed: mean=+0.62%, 3/4 profitable"
+      },
+      {
+        "state": "paper",
+        "at": "2026-03-30T06:48:49.013079+00:00",
+        "reason": "auto-promote to paper"
+      },
+      {
+        "state": "retired",
+        "at": "2026-03-30T06:49:13.027259+00:00",
+        "reason": "paper unprofitable 7 days"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 11,
+    "paper_pnl": [
+      0.0,
+      0.05,
+      -0.1,
+      0.05,
+      0.02,
+      0.05,
+      -0.1,
+      -0.15,
+      -0.1,
+      -0.3,
+      -0.3
+    ],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "pairs_DOGE_SOL": {
+    "name": "pairs_DOGE_SOL",
+    "state": "retired",
+    "type": "pairs",
+    "config": {
+      "pair_a": "DOGE/USDT",
+      "pair_b": "SOL/USDT",
+      "exchange": "gate",
+      "correlation": 0.9395365120973947,
+      "half_life": 419.9592604695208,
+      "mean_profit": 1.9095144337320038
+    },
+    "source": "auto_discovery",
+    "created_at": "2026-03-30T06:48:50.645759+00:00",
+    "updated_at": "2026-03-30T06:49:13.027394+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T06:48:50.645759+00:00",
+        "reason": "registered"
+      },
+      {
+        "state": "validated",
+        "at": "2026-03-30T06:48:50.646369+00:00",
+        "reason": "WF passed: mean=+1.91%, 3/4 profitable"
+      },
+      {
+        "state": "paper",
+        "at": "2026-03-30T06:48:50.646543+00:00",
+        "reason": "auto-promote to paper"
+      },
+      {
+        "state": "retired",
+        "at": "2026-03-30T06:49:13.027394+00:00",
+        "reason": "paper unprofitable 7 days"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 11,
+    "paper_pnl": [
+      0.0,
+      -0.05,
+      0.02,
+      0.02,
+      -0.05,
+      -0.1,
+      0.05,
+      0.1,
+      -0.1,
+      0.02,
+      0.05
+    ],
+    "active_days": 0,
+    "rolling_sharpe": []
+  }
+}

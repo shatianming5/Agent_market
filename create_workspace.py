@@ -54,7 +54,8 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
         "walk_forward.py", "cost_model.py", "universe_selector.py",
         "feature_selector.py", "ensemble.py", "risk_manager.py",
         "paper_trader.py", "pairs_engine.py", "basket_engine.py",
-        "deep_validate.py", "objectives.json",
+        "deep_validate.py", "strategy_lifecycle.py", "performance_monitor.py",
+        "continuous_runner.py", "objectives.json",
     ]
     src_ws = ROOT / "workspace"
     for tool in tools:
