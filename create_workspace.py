@@ -43,8 +43,14 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
 
     print(f"Creating workspace: {ws}")
 
-    # Directory structure
-    for d in ["strategies", "models", "configs", "results", "data"]:
+    # SOP directory structure
+    for d in [
+        "strategies/type_A_trend", "strategies/type_B_meanrev",
+        "strategies/type_C_pairs", "strategies/type_D_momentum",
+        "strategies/type_E_hft", "strategies/type_F_ml", "strategies/type_G_event",
+        "signals", "backtests/level1", "backtests/level2",
+        "validation", "paper", "models", "configs", "results", "reports", "data",
+    ]:
         (ws / d).mkdir(parents=True)
 
     # Copy core tools from workspace/
@@ -55,7 +61,7 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
         "feature_selector.py", "ensemble.py", "risk_manager.py",
         "paper_trader.py", "pairs_engine.py", "basket_engine.py",
         "deep_validate.py", "strategy_lifecycle.py", "performance_monitor.py",
-        "continuous_runner.py", "objectives.json",
+        "continuous_runner.py", "gate_pipeline.py", "sop.json", "objectives.json",
     ]
     src_ws = ROOT / "workspace"
     for tool in tools:
@@ -125,6 +131,11 @@ def _download_data(ws: Path):
 
 
 def _write_guide(ws: Path):
+    # Copy GUIDE_v2.md as the workspace guide
+    guide_v2 = ROOT / "workspace" / "GUIDE_v2.md"
+    if guide_v2.exists():
+        (ws / "GUIDE.md").write_text(guide_v2.read_text(encoding="utf-8"), encoding="utf-8")
+        return
     guide = f"""# Workspace Research Guide
 
 ## 你是什么
