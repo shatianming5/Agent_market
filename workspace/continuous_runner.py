@@ -99,6 +99,17 @@ class ContinuousRunner:
         cycle_report["summary"] = summary
         print(f"  {summary.get('status', 'done')}")
 
+        # Phase 6: Cleanup
+        print(f"\n{'='*60}")
+        print("PHASE 6: Cleanup")
+        print(f"{'='*60}")
+        cleanup_result = self._phase_cleanup()
+        cycle_report["phases"]["cleanup"] = cleanup_result
+        if cleanup_result.get("files_removed", 0) > 0:
+            print(f"  Removed {cleanup_result['files_removed']} files, freed {cleanup_result.get('bytes_freed_mb', 0)} MB")
+        else:
+            print(f"  Nothing to clean")
+
         # Save cycle report
         report_path = self.results_dir / f"cycle_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         report_path.write_text(json.dumps(cycle_report, indent=2, ensure_ascii=False, default=str))
@@ -235,6 +246,20 @@ class ContinuousRunner:
             "by_state": summary["by_state"],
             "cycle_phases_completed": len(cycle_report.get("phases", {})),
         }
+
+
+    def _phase_cleanup(self) -> Dict[str, Any]:
+        """Clean up old files to prevent disk bloat."""
+        try:
+            from workspace.cleanup import auto_cleanup, disk_usage
+            before = disk_usage()
+            result = auto_cleanup(max_run_files=100, max_model_files=3, max_age_days=30)
+            after = disk_usage()
+            result["disk_before_mb"] = before.get("total_mb", 0)
+            result["disk_after_mb"] = after.get("total_mb", 0)
+            return result
+        except Exception as e:
+            return {"error": str(e)[:200]}
 
 
 __all__ = ["ContinuousRunner"]
