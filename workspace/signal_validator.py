@@ -98,10 +98,12 @@ def validate_pairs_signal(
     exit_z: float = 0.7,
     forward_bars: int = 24,
 ) -> Dict[str, Any]:
-    """Gate 1 check for a pairs trading signal.
+    """Gate 1 check for a relative-value pairs signal (spot, long-only).
 
-    Computes the z-score spread signal, then checks if extreme z-scores
-    predict spread convergence over the next N bars.
+    Computes the log-spread z-score between two correlated assets.
+    Checks if extreme z-scores predict spread convergence over the
+    next N bars. NOTE: this validates the SIGNAL, not execution.
+    In spot mode, we can only go long one asset at a time (no hedge).
     """
     from workspace.pairs_engine import PairsEngine
 

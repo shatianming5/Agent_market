@@ -134,12 +134,15 @@ class ContinuousRunner:
             return {"status": "error", "error": str(e)[:200]}
 
     def _phase_discovery(self) -> Dict[str, Any]:
-        """Scan for new pairs and validate."""
-        from workspace.pairs_engine import scan_pairs, PairsEngine
+        """Scan for new pairs and validate through the central GatePipeline."""
+        from workspace.pairs_engine import scan_pairs
         from workspace.strategy_lifecycle import LifecycleManager, StrategyState
-        import numpy as np
+        from workspace.gate_pipeline import GatePipeline
+        from pathlib import Path
+        import tempfile
 
         lm = LifecycleManager()
+        gp = GatePipeline()
         pairs = scan_pairs(exchange=self.exchange, min_correlation=0.8)
         cointegrated = [p for p in pairs if p["cointegrated"]]
 
@@ -150,31 +153,39 @@ class ContinuousRunner:
             if existing and existing["state"] != StrategyState.RETIRED.value:
                 continue
 
-            # Walk-forward validate
-            pe = PairsEngine(p["pair_a"], p["pair_b"], exchange=self.exchange)
-            df = pe.load_data()
-            n = len(df)
-            window_size = n // 5
-            profits = []
-            for i in range(4):
-                test_start = (i + 1) * window_size
-                test_end = min(test_start + window_size, n)
-                pe_w = PairsEngine(p["pair_a"], p["pair_b"], exchange=self.exchange)
-                pe_w._df = df.iloc[test_start:test_end].reset_index(drop=True)
-                signals = pe_w.generate_signals(lookback=80, entry_z=2.0, exit_z=0.5)
-                bt = pe_w.backtest(signals, maker_fee_bps=self.maker_fee_bps)
-                profits.append(bt.profit_pct)
+            # Create a temporary strategy file with the pair config
+            strategy_dir = ROOT / "workspace" / "strategies" / "type_C_pairs"
+            strategy_dir.mkdir(parents=True, exist_ok=True)
+            strategy_file = strategy_dir / f"{name}.py"
+            strategy_file.write_text(
+                f'"""Auto-discovered pairs strategy: {name}"""\n'
+                f'PAIR_A = "{p["pair_a"]}"\n'
+                f'PAIR_B = "{p["pair_b"]}"\n'
+                f'LOOKBACK = 80\n'
+                f'ENTRY_Z = 2.0\n'
+                f'EXIT_Z = 0.5\n',
+                encoding="utf-8",
+            )
 
-            mean_p = np.mean(profits)
-            profitable = sum(1 for x in profits if x > 0)
+            # Route through the CENTRAL gate pipeline (Gate 1→2→3)
+            try:
+                result = gp.run_gates(
+                    strategy_file,
+                    strategy_type="C_pairs",
+                    exchange=self.exchange,
+                    stop_on_fail=True,
+                )
+            except Exception as exc:
+                continue
 
-            if mean_p > 0 and profitable >= 2:
+            passed_gate3 = result.get("final_gate_passed") == "gate_3"
+            if passed_gate3:
                 lm.register(name, strategy_type="pairs", config={
                     "pair_a": p["pair_a"], "pair_b": p["pair_b"],
                     "exchange": self.exchange, "correlation": p["correlation"],
-                    "half_life": p["half_life"], "mean_profit": mean_p,
+                    "half_life": p["half_life"],
                 }, source="auto_discovery")
-                lm.promote(name, f"WF passed: mean={mean_p:+.2f}%, {profitable}/4 profitable")
+                lm.promote(name, "Gate 1-3 passed via GatePipeline")
                 lm.promote(name, "auto-promote to paper")
                 new_validated += 1
 
