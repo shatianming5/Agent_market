@@ -1,0 +1,280 @@
+{
+  "timestamp": "2026-03-30T06:41:10.339650+00:00",
+  "exchange": "gate",
+  "timeframe": "1h",
+  "scan": {
+    "min_correlation": 0.8,
+    "n_scanned": 25,
+    "n_cointegrated": 9,
+    "top3": [
+      {
+        "pair_a": "AVAX/USDT",
+        "pair_b": "DOGE/USDT",
+        "correlation": 0.9788299242882631,
+        "cointegrated": true,
+        "half_life": 186.5957888669684,
+        "hedge_ratio": 1.154317957962539,
+        "t_stat": -4.244896971019505
+      },
+      {
+        "pair_a": "ADA/USDT",
+        "pair_b": "AVAX/USDT",
+        "correlation": 0.9733614183454433,
+        "cointegrated": true,
+        "half_life": 274.9147455164005,
+        "hedge_ratio": 1.0922870753192384,
+        "t_stat": -3.5008786859999113
+      },
+      {
+        "pair_a": "ADA/USDT",
+        "pair_b": "DOT/USDT",
+        "correlation": 0.965494136055918,
+        "cointegrated": true,
+        "half_life": 394.0959592814939,
+        "hedge_ratio": 0.9349746390363298,
+        "t_stat": -3.012808228977541
+      }
+    ]
+  },
+  "walk_forward": {
+    "params": {
+      "n_windows": 4,
+      "lookback": 80,
+      "entry_z": 2.0,
+      "exit_z": 0.5,
+      "maker_fee_bps": 1.0
+    },
+    "validated_pairs": [
+      {
+        "pair_a": "AVAX/USDT",
+        "pair_b": "DOGE/USDT",
+        "correlation": 0.9788299242882631,
+        "cointegrated": true,
+        "half_life": 186.5957888669684,
+        "hedge_ratio": 1.154317957962539,
+        "t_stat": -4.244896971019505,
+        "walk_forward": {
+          "n_windows": 4,
+          "profits": [
+            2.4492611743939685,
+            18.284301119986466,
+            -3.216527015854198,
+            -6.163865408272184
+          ],
+          "sharpes": [
+            0.5081208564451934,
+            3.3879872921570726,
+            -0.5166337600746224,
+            -1.21976151445177
+          ],
+          "trades": [
+            18,
+            20,
+            20,
+            17
+          ],
+          "win_rates": [
+            0.4444444444444444,
+            0.6,
+            0.5,
+            0.4117647058823529
+          ],
+          "max_dd_pcts": [
+            16.628198228425926,
+            3.9908970127033023,
+            10.53218885348426,
+            14.896482175381129
+          ],
+          "mean_profit": 2.8382924675635133,
+          "mean_sharpe": 0.5399282185189684,
+          "std_profit": 9.439679735510566,
+          "std_sharpe": 1.7553691467998023,
+          "pct_profitable_windows": 0.5,
+          "total_trades": 75,
+          "passed": true,
+          "verdict": "PASS: mean_sharpe=0.540, profitable_windows=50%, total_trades=75"
+        },
+        "walk_forward_windows": [
+          {
+            "window": 1,
+            "warm_start": 1790,
+            "test_range_idx": [
+              1920,
+              3840
+            ],
+            "profit_pct": 2.4492611743939685,
+            "sharpe": 0.5081208564451934,
+            "trades": 18,
+            "win_rate": 0.4444444444444444,
+            "max_dd_pct": 16.628198228425926
+          },
+          {
+            "window": 2,
+            "warm_start": 3710,
+            "test_range_idx": [
+              3840,
+              5760
+            ],
+            "profit_pct": 18.284301119986466,
+            "sharpe": 3.3879872921570726,
+            "trades": 20,
+            "win_rate": 0.6,
+            "max_dd_pct": 3.9908970127033023
+          },
+          {
+            "window": 3,
+            "warm_start": 5630,
+            "test_range_idx": [
+              5760,
+              7680
+            ],
+            "profit_pct": -3.216527015854198,
+            "sharpe": -0.5166337600746224,
+            "trades": 20,
+            "win_rate": 0.5,
+            "max_dd_pct": 10.53218885348426
+          },
+          {
+            "window": 4,
+            "warm_start": 7550,
+            "test_range_idx": [
+              7680,
+              9600
+            ],
+            "profit_pct": -6.163865408272184,
+            "sharpe": -1.21976151445177,
+            "trades": 17,
+            "win_rate": 0.4117647058823529,
+            "max_dd_pct": 14.896482175381129
+          }
+        ]
+      },
+      {
+        "pair_a": "ADA/USDT",
+        "pair_b": "AVAX/USDT",
+        "correlation": 0.9733614183454433,
+        "cointegrated": true,
+        "half_life": 274.9147455164005,
+        "hedge_ratio": 1.0922870753192384,
+        "t_stat": -3.5008786859999113,
+        "walk_forward": {
+          "n_windows": 4,
+          "profits": [
+            3.5937079936276373,
+            9.6414750823409,
+            0.8190756787807674,
+            -7.931970761781293
+          ],
+          "sharpes": [
+            0.6367031065033193,
+            1.6747111216086068,
+            0.2763736943730881,
+            -1.6169936689603417
+          ],
+          "trades": [
+            18,
+            20,
+            24,
+            23
+          ],
+          "win_rates": [
+            0.4444444444444444,
+            0.5,
+            0.5,
+            0.391304347826087
+          ],
+          "max_dd_pcts": [
+            8.328234562700274,
+            6.749465322092512,
+            9.564306362500249,
+            12.8835523241356
+          ],
+          "mean_profit": 1.5305719982420032,
+          "mean_sharpe": 0.24269856338116813,
+          "std_profit": 6.326318468765564,
+          "std_sharpe": 1.1901143600932496,
+          "pct_profitable_windows": 0.75,
+          "total_trades": 85,
+          "passed": true,
+          "verdict": "PASS: mean_sharpe=0.243, profitable_windows=75%, total_trades=85"
+        },
+        "walk_forward_windows": [
+          {
+            "window": 1,
+            "warm_start": 1790,
+            "test_range_idx": [
+              1920,
+              3840
+            ],
+            "profit_pct": 3.5937079936276373,
+            "sharpe": 0.6367031065033193,
+            "trades": 18,
+            "win_rate": 0.4444444444444444,
+            "max_dd_pct": 8.328234562700274
+          },
+          {
+            "window": 2,
+            "warm_start": 3710,
+            "test_range_idx": [
+              3840,
+              5760
+            ],
+            "profit_pct": 9.6414750823409,
+            "sharpe": 1.6747111216086068,
+            "trades": 20,
+            "win_rate": 0.5,
+            "max_dd_pct": 6.749465322092512
+          },
+          {
+            "window": 3,
+            "warm_start": 5630,
+            "test_range_idx": [
+              5760,
+              7680
+            ],
+            "profit_pct": 0.8190756787807674,
+            "sharpe": 0.2763736943730881,
+            "trades": 24,
+            "win_rate": 0.5,
+            "max_dd_pct": 9.564306362500249
+          },
+          {
+            "window": 4,
+            "warm_start": 7550,
+            "test_range_idx": [
+              7680,
+              9600
+            ],
+            "profit_pct": -7.931970761781293,
+            "sharpe": -1.6169936689603417,
+            "trades": 23,
+            "win_rate": 0.391304347826087,
+            "max_dd_pct": 12.8835523241356
+          }
+        ]
+      }
+    ]
+  },
+  "portfolio": {
+    "ok": true,
+    "objective": "maximize window-profit sharpe (mean/std)",
+    "w_step": 0.05,
+    "portfolio_window_profits": [
+      2.4492611743939685,
+      18.284301119986466,
+      -3.216527015854198,
+      -6.163865408272184
+    ],
+    "portfolio_mean_profit": 2.8382924675635133,
+    "portfolio_std_profit": 9.439679735511566,
+    "portfolio_sharpe": 0.30067677581115493,
+    "weights": {
+      "AVAX/USDT|DOGE/USDT": 1.0,
+      "ADA/USDT|AVAX/USDT": 0.0
+    }
+  },
+  "notes": [
+    "PairsEngine is spot-mode (no shorts). 'Pairs' are relative-value directional allocations, not a fully hedged long/short spread.",
+    "Portfolio optimization uses per-window profit series; this is a coarse grid over non-negative weights summing to 1."
+  ]
+}
