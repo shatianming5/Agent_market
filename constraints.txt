@@ -1,0 +1,13 @@
+# Constraints file — pin major.minor, allow patch updates
+numpy==2.4.*
+pandas==2.3.*
+requests==2.32.*
+pydantic==2.12.*
+fastapi==0.133.*
+uvicorn==0.41.*
+ccxt==4.5.*
+lightgbm==4.6.*
+xgboost==3.2.*
+scikit-learn==1.8.*
+torch==2.10.*
+starlette==0.52.*

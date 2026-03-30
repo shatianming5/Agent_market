@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -16,8 +17,8 @@ def _load_settings() -> dict:
     try:
         if SETTINGS_PATH.exists():
             return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        pass
+    except Exception as _exc:
+        logging.getLogger(__name__).debug("Suppressed: %s", _exc)
     return {
         "llm_base_url": os.environ.get("LLM_BASE_URL"),
         "llm_model": os.environ.get("LLM_MODEL"),

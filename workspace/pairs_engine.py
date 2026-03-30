@@ -371,7 +371,8 @@ def scan_pairs(
                         "hedge_ratio": coint["hedge_ratio"],
                         "t_stat": coint["t_stat"],
                     })
-            except Exception:
+            except Exception as _exc:
+                import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
                 continue
 
     results.sort(key=lambda x: x["correlation"], reverse=True)

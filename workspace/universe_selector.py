@@ -55,7 +55,8 @@ def scan_available_pairs(
                 "hourly_volatility": volatility,
                 "annual_volatility": annual_vol,
             })
-        except Exception:
+        except Exception as _exc:
+            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
             continue
 
     return results

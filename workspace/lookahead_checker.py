@@ -280,8 +280,8 @@ def check_train_test_overlap(
                         "Or use walk-forward validation."
                     ),
                 )
-    except Exception:
-        pass
+    except Exception as _exc:
+        import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
     return None
 
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 import json
 import os
@@ -44,8 +45,8 @@ def _resolve_executable(name: str) -> Optional[str]:
         sibling = Path(sys.executable).with_name(name)
         if sibling.exists():
             return str(sibling)
-    except Exception:
-        pass
+    except Exception as _exc:
+        logging.getLogger(__name__).debug("Suppressed: %s", _exc)
     for cand in [
         ROOT / ".venv" / "bin" / name,
         ROOT / ".venv" / "Scripts" / (name + ".exe"),
@@ -263,8 +264,8 @@ def run_backtest(req: BacktestReq = Body(...)):
     try:
         if (ROOT / "scripts" / "backtest_wrapper.py").exists():
             cmd = [py, str(ROOT / "scripts" / "backtest_wrapper.py"), "--"] + cmd
-    except Exception:
-        pass
+    except Exception as _exc:
+        logging.getLogger(__name__).debug("Suppressed: %s", _exc)
 
     env = os.environ.copy()
     job_id = jobs.start(

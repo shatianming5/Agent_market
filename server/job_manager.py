@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 
 import subprocess
 import threading
@@ -64,13 +65,13 @@ class JobManager:
                     if f:
                         try:
                             f.write(text + "\n")
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            logging.getLogger(__name__).debug("Suppressed: %s", _exc)
             finally:
                 try:
                     f and f.close()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    logging.getLogger(__name__).debug("Suppressed: %s", _exc)
                 proc.wait()
                 with self._lock:
                     job.returncode = proc.returncode
@@ -90,8 +91,8 @@ class JobManager:
                             try:
                                 job.logs.append('[job] timeout reached, terminating')
                                 job.process.terminate()
-                            except Exception:
-                                pass
+                            except Exception as _exc:
+                                logging.getLogger(__name__).debug("Suppressed: %s", _exc)
             threading.Thread(target=_guard, daemon=True).start()
 
     def status(self, job_id: str) -> dict:
