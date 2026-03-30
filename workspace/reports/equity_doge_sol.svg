@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" style="background:#1a1a2e;font-family:monospace">
+  <!-- Title -->
+  <text x="400" y="25" text-anchor="middle" fill="#e0e0e0" font-size="14" font-weight="bold">DOGE/SOL Pairs (z=3.0, taker)</text>
+  <text x="400" y="38" text-anchor="middle" fill="#888" font-size="10">Return: +24.57% | Sharpe: 11.58 | Max DD: -20.3%</text>
+
+  <!-- Grid -->
+  <rect x="60" y="40" width="720" height="320" fill="none" stroke="#333" stroke-width="0.5"/>
+  <line x1="60" y1="40.0" x2="780" y2="40.0" stroke="#333" stroke-width="0.3"/>
+  <text x="55" y="40.0" text-anchor="end" fill="#888" font-size="9">1440</text>
+  <line x1="60" y1="120.0" x2="780" y2="120.0" stroke="#333" stroke-width="0.3"/>
+  <text x="55" y="120.0" text-anchor="end" fill="#888" font-size="9">1291</text>
+  <line x1="60" y1="200.0" x2="780" y2="200.0" stroke="#333" stroke-width="0.3"/>
+  <text x="55" y="200.0" text-anchor="end" fill="#888" font-size="9">1143</text>
+  <line x1="60" y1="280.0" x2="780" y2="280.0" stroke="#333" stroke-width="0.3"/>
+  <text x="55" y="280.0" text-anchor="end" fill="#888" font-size="9">994</text>
+  <line x1="60" y1="360.0" x2="780" y2="360.0" stroke="#333" stroke-width="0.3"/>
+  <text x="55" y="360.0" text-anchor="end" fill="#888" font-size="9">846</text>
+
+  <!-- Fill -->
+  <polygon points="60.0,360.0 60.0,276.8 81.2,240.9 102.4,268.9 123.5,298.6 144.7,325.7 165.9,344.7 187.1,345.4 208.2,310.9 229.4,322.3 250.6,320.2 271.8,357.7 292.9,351.7 314.1,311.4 335.3,330.8 356.5,326.0 377.6,307.2 398.8,299.8 420.0,295.5 441.2,268.3 462.4,236.9 483.5,270.9 504.7,277.5 525.9,270.1 547.1,205.9 568.2,173.1 589.4,177.1 610.6,169.6 631.8,162.5 652.9,157.4 674.1,151.1 695.3,43.9 716.5,64.1 737.6,111.7 758.8,124.6 780.0,144.6 780.0,360.0" fill="#22c55e" fill-opacity="0.1"/>
+  <!-- Line -->
+  <polyline points="60.0,276.8 81.2,240.9 102.4,268.9 123.5,298.6 144.7,325.7 165.9,344.7 187.1,345.4 208.2,310.9 229.4,322.3 250.6,320.2 271.8,357.7 292.9,351.7 314.1,311.4 335.3,330.8 356.5,326.0 377.6,307.2 398.8,299.8 420.0,295.5 441.2,268.3 462.4,236.9 483.5,270.9 504.7,277.5 525.9,270.1 547.1,205.9 568.2,173.1 589.4,177.1 610.6,169.6 631.8,162.5 652.9,157.4 674.1,151.1 695.3,43.9 716.5,64.1 737.6,111.7 758.8,124.6 780.0,144.6" fill="none" stroke="#22c55e" stroke-width="1.5"/>
+  <!-- Max DD marker -->
+  <circle cx="271.8" cy="357.7" r="3" fill="#ef4444" stroke="white" stroke-width="0.5"/>
+  <text x="271.8" y="349.7" text-anchor="middle" fill="#ef4444" font-size="8">DD -20.3%</text>
+
+  <!-- Start/End markers -->
+  <circle cx="60.0" cy="276.8" r="3" fill="white"/>
+  <circle cx="780.0" cy="144.6" r="3" fill="#22c55e"/>
+</svg>

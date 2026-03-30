@@ -1,0 +1,52 @@
+{
+  "doge_sol_pairs": [
+    {
+      "version": 1,
+      "timestamp": "2026-03-30T10:16:42.761046+00:00",
+      "params": {
+        "lookback": 80,
+        "entry_z": 3.0,
+        "exit_z": 0.5
+      },
+      "param_hash": "2f8f6567ca6e",
+      "metrics": {
+        "sharpe": 0.72,
+        "profit": 10.98
+      },
+      "notes": "initial best params",
+      "source": "manual"
+    },
+    {
+      "version": 2,
+      "timestamp": "2026-03-30T10:16:42.761510+00:00",
+      "params": {
+        "lookback": 80,
+        "entry_z": 3.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "4335d3c496af",
+      "metrics": {
+        "sharpe": 0.85,
+        "profit": 8.5
+      },
+      "notes": "tighter entry, less trades",
+      "source": "manual"
+    },
+    {
+      "version": 3,
+      "timestamp": "2026-03-30T10:16:42.761613+00:00",
+      "params": {
+        "lookback": 60,
+        "entry_z": 3.0,
+        "exit_z": 0.5
+      },
+      "param_hash": "9bc848f34499",
+      "metrics": {
+        "sharpe": 0.65,
+        "profit": 7.2
+      },
+      "notes": "shorter lookback test",
+      "source": "manual"
+    }
+  ]
+}

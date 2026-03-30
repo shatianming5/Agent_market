@@ -63,6 +63,7 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
         "deep_validate.py", "strategy_lifecycle.py", "performance_monitor.py",
         "continuous_runner.py", "gate_pipeline.py", "signal_validator.py",
         "adaptive_params.py", "report_generator.py",
+        "research_report.py", "strategy_versioning.py", "visualizer.py",
         "sop.json", "objectives.json",
     ]
     src_ws = ROOT / "workspace"

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" style="background:#1a1a2e;font-family:monospace">
+  <text x="400" y="25" text-anchor="middle" fill="#e0e0e0" font-size="14" font-weight="bold">Strategy Profit (taker)</text>
+  <!-- Zero line -->
+  <line x1="440.0" y1="40" x2="440.0" y2="280" stroke="#555" stroke-width="1"/>
+  <text x="195" y="66.5" text-anchor="end" fill="#ccc" font-size="10">DOGE/SOL (z=3.0)</text>
+  <rect x="440.0" y="50" width="230.0" height="25" fill="#22c55e" rx="2"/>
+  <text x="675.0" y="66.5" fill="#22c55e" font-size="10">+10.98%</text>
+  <text x="195" y="96.5" text-anchor="end" fill="#ccc" font-size="10">ADA/AVAX (z=2.5)</text>
+  <rect x="440.0" y="80" width="105.6" height="25" fill="#22c55e" rx="2"/>
+  <text x="550.6" y="96.5" fill="#22c55e" font-size="10">+5.04%</text>
+  <text x="195" y="126.5" text-anchor="end" fill="#ccc" font-size="10">Portfolio</text>
+  <rect x="440.0" y="110" width="59.9" height="25" fill="#22c55e" rx="2"/>
+  <text x="504.9" y="126.5" fill="#22c55e" font-size="10">+2.86%</text>
+  <text x="195" y="156.5" text-anchor="end" fill="#ccc" font-size="10">RSI+BB</text>
+  <rect x="438.7" y="140" width="1.3" height="25" fill="#ef4444" rx="2"/>
+  <text x="445.0" y="156.5" fill="#ef4444" font-size="10">-0.06%</text>
+</svg>
