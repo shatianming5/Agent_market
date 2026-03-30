@@ -1,20 +1,7 @@
 {
   "model": "lightgbm",
   "features": [
-    "rsi_14",
-    "mfi_14",
-    "adx_14",
-    "cci_20",
-    "ema_pct_12",
-    "ema_pct_48",
-    "kama_pct_20",
-    "macd_diff",
-    "stoch_k_14",
-    "stoch_d_14",
-    "psar_ratio",
     "donchian_width_20",
-    "ema_spread",
-    "stoch_diff",
     "f001",
     "f002",
     "f003",
@@ -24,10 +11,11 @@
     "f007",
     "f008",
     "f009",
-    "f010"
+    "f010",
+    "f011"
   ],
   "data": {
-    "data_dir": "user_data/data",
+    "data_dir": "/Users/shatianming/Downloads/Agent_market/user_data/data",
     "exchange": "kucoin",
     "pairs": [
       "BTC/USDT",
@@ -36,17 +24,17 @@
     "timeframe": "1h",
     "label_period": 12
   },
-  "train_size": 2222,
-  "valid_size": 556,
+  "train_size": 2132,
+  "valid_size": 522,
   "metrics": {
-    "rmse_train": 0.009028157407818569,
-    "rmse_valid": 0.019117073760064586
+    "rmse_train": 0.0032685142319018585,
+    "rmse_valid": 0.02013843748912507
   },
-  "model_path": "artifacts/models/lightgbm_real/lightgbm_model.txt",
-  "feature_file": "user_data/freqai_features_real.json",
-  "feature_snapshot": "artifacts/models/lightgbm_real/feature_snapshot.json",
-  "feature_sha256": "8333715e4e6ebf0407c0fbec37c479d6c14efb3a62866a519f531f386ae93310",
-  "expressions_file": "user_data/freqai_expressions_selected.json",
-  "expressions_snapshot": "artifacts/models/lightgbm_real/expressions_snapshot.json",
-  "expressions_sha256": "7186561c886e787859362176cac92d38868697e6f2ea634aae0fd8fb58d26a12"
+  "model_path": "/Users/shatianming/Downloads/Agent_market/artifacts/models/lightgbm_real/lightgbm_model.txt",
+  "feature_file": "/Users/shatianming/Downloads/Agent_market/user_data/freqai_features_real.json",
+  "feature_snapshot": "/Users/shatianming/Downloads/Agent_market/artifacts/models/lightgbm_real/feature_snapshot.json",
+  "feature_sha256": "0c95b62078c9da0da8ee27abe49a5a1f85e6a9f556129f2cc4919e996226d9c9",
+  "expressions_file": "/Users/shatianming/Downloads/Agent_market/user_data/freqai_expressions_selected.json",
+  "expressions_snapshot": "/Users/shatianming/Downloads/Agent_market/artifacts/models/lightgbm_real/expressions_snapshot.json",
+  "expressions_sha256": "1d4fedf2699c6e6fb79c3f73fd9a51d521ef17b0591414680edc4136b04e661a"
 }

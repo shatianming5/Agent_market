@@ -1,38 +1,36 @@
 {
-  "run_id": "75e405653dc7",
-  "status": "success",
-  "started_at": "2026-02-05T06:33:21.319054+00:00",
-  "ended_at": "2026-02-05T06:33:21.899267+00:00",
+  "run_id": "9a381f2502e1",
+  "status": "failed",
+  "started_at": "2026-03-29T17:34:46.655414+00:00",
+  "ended_at": "2026-03-29T17:34:48.554482+00:00",
   "requested_steps": [
-    "factor_compile",
-    "factor_eval",
-    "report"
+    "backtest"
   ],
   "config": {
-    "path": "configs/agent_flow_bundle_smoke.json",
-    "sha256": "34e61858671de36a6f408864a5df074afbe3965aeefe4deff940881d6691c5d6",
+    "path": "configs/agent_flow_kucoin_llm_full.json",
+    "sha256": "2eccff299fc33e11cc3b20e013370bd5397b41d2f88201363bc0e97abb5044db",
     "source": "file"
   },
   "python": {
-    "version": "3.14.2 (main, Dec  5 2025, 16:49:16) [Clang 17.0.0 (clang-1700.4.4.1)]",
-    "executable": "/Users/shatianming/Downloads/Agent_market/.venv/bin/python",
+    "version": "3.14.3 (main, Feb  3 2026, 15:32:20) [Clang 17.0.0 (clang-1700.6.3.2)]",
+    "executable": "/opt/homebrew/opt/python@3.14/bin/python3.14",
     "platform": "macOS-26.2-arm64-arm-64bit-Mach-O"
   },
   "freqtrade": {
     "ok": true,
     "cmd": [
-      "/Users/shatianming/Downloads/Agent_market/.venv/bin/python",
+      "/opt/homebrew/opt/python@3.14/bin/python3.14",
       "/Users/shatianming/Downloads/Agent_market/scripts/freqtrade_cli.py",
       "--version"
     ],
     "cwd": "/Users/shatianming/Downloads/Agent_market",
     "returncode": 0,
-    "stdout": "Operating System:\tmacOS-26.2-arm64-arm-64bit-Mach-O\nPython Version:\t\tPython 3.14.2\nCCXT Version:\t\t4.5.34\n\nFreqtrade Version:\tfreqtrade 2026.1-dev-9a48fee",
+    "stdout": "Operating System:\tmacOS-26.2-arm64-arm-64bit-Mach-O\nPython Version:\t\tPython 3.14.3\nCCXT Version:\t\t4.5.45\n\nFreqtrade Version:\tfreqtrade 2026.1-dev-9a48fee",
     "stderr": "",
     "version": "Operating System:\tmacOS-26.2-arm64-arm-64bit-Mach-O"
   },
   "artifacts": {
-    "feature_output": null,
+    "feature_output": "user_data/freqai_features_real.json",
     "micro_feature_parquet": null,
     "micro_feature_manifest": null,
     "capture_manifest": null,
@@ -43,21 +41,25 @@
     "portfolio_weights": null,
     "portfolio_report": null,
     "portfolio_returns": null,
-    "expression_output": null,
-    "factor_spec_json": "artifacts/runs/75e405653dc7/factor_compile/factor_spec.json",
-    "factor_ast_json": "artifacts/runs/75e405653dc7/factor_compile/factor_ast.json",
-    "factor_expression_txt": "artifacts/runs/75e405653dc7/factor_compile/compiled_expression.txt",
-    "factor_expression_json": "artifacts/runs/75e405653dc7/factor_compile/compiled_expression.json",
-    "factor_eval_meta": "artifacts/runs/75e405653dc7/factor_eval/factor_eval_meta.json",
-    "factor_scores_json": "artifacts/runs/75e405653dc7/factor_eval/factor_scores.json",
-    "factor_pareto_csv": "artifacts/runs/75e405653dc7/factor_eval/pareto.csv",
+    "expression_output": "user_data/freqai_expressions_selected.json",
+    "factor_spec_json": null,
+    "factor_ast_json": null,
+    "factor_expression_txt": null,
+    "factor_expression_json": null,
+    "factor_eval_meta": null,
+    "factor_scores_json": null,
+    "factor_pareto_csv": null,
     "feedback_summary": "user_data/llm_feedback/latest_backtest_summary.json",
-    "model_dirs": [],
+    "model_dirs": [
+      "artifacts/models/lightgbm_llm"
+    ],
     "training_summaries": [
+      "artifacts/models/lightgbm_llm/training_summary.json",
+      "artifacts/models/lightgbm_optimized/training_summary.json",
       "artifacts/models/lightgbm_real/training_summary.json",
       "artifacts/models/rl_real/training_summary.json"
     ],
-    "backtest_results_dir": null,
+    "backtest_results_dir": "user_data/backtest_results",
     "backtest_zips": [
       "user_data/backtest_results/backtest-result-2026-01-25_02-42-15.zip",
       "user_data/backtest_results/backtest-result-2026-01-25_02-51-57.zip",
@@ -123,36 +125,69 @@
       "user_data/backtest_results/backtest-result-2026-02-05_14-09-15.zip",
       "user_data/backtest_results/backtest-result-2026-02-05_14-09-55.zip",
       "user_data/backtest_results/backtest-result-2026-02-05_14-10-11.zip",
-      "user_data/backtest_results/backtest-result-2026-02-05_14-33-05.zip"
+      "user_data/backtest_results/backtest-result-2026-02-05_14-33-05.zip",
+      "user_data/backtest_results/backtest-result-2026-02-05_17-20-09.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-07-32.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-08-46.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-13-44.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-20-48.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-22-08.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-23-01.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-25-03.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-26-31.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-29-42.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-50-33.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-51-02.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-55-00.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-55-17.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-57-35.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-57-38.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-57-41.zip",
+      "user_data/backtest_results/backtest-result-2026-03-29_23-57-45.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-02-23.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-08-37.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-09-21.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-10-02.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-11-58.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-12-40.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-13-33.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-15-33.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-16-21.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-17-15.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-17-59.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-19-05.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-19-48.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-51-20.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-52-47.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_00-54-13.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_01-14-04.zip",
+      "user_data/backtest_results/backtest-result-2026-03-30_01-21-54.zip"
     ],
     "tca_report": null,
     "tca_html": null,
-    "bundle_zip": "artifacts/runs/75e405653dc7/bundle/bundle.zip",
-    "bundle_manifest": "artifacts/runs/75e405653dc7/bundle/bundle_manifest.json"
+    "bundle_zip": null,
+    "bundle_manifest": null
   },
   "steps": [
     {
-      "name": "factor_compile",
-      "status": "ok",
-      "started_at": "2026-02-05T06:33:21.319348+00:00",
-      "ended_at": "2026-02-05T06:33:21.430681+00:00"
-    },
-    {
-      "name": "factor_eval",
-      "status": "ok",
-      "started_at": "2026-02-05T06:33:21.430696+00:00",
-      "ended_at": "2026-02-05T06:33:21.896333+00:00"
-    },
-    {
-      "name": "report",
-      "status": "ok",
-      "started_at": "2026-02-05T06:33:21.896363+00:00",
-      "ended_at": "2026-02-05T06:33:21.898503+00:00"
+      "name": "backtest",
+      "status": "failed",
+      "started_at": "2026-03-29T17:34:46.656925+00:00",
+      "ended_at": "2026-03-29T17:34:48.550522+00:00",
+      "error": {
+        "type": "CalledProcessError",
+        "message": "Command '['/opt/homebrew/opt/python@3.14/bin/python3.14', '/Users/shatianming/Downloads/Agent_market/scripts/freqtrade_cli.py', 'backtesting', '--userdir', '/Users/shatianming/Downloads/Agent_market/user_data', '--config', '/Users/shatianming/Downloads/Agent_market/user_data/config_freqai_kucoin.json', '--strategy', 'ExpressionLongStrategy', '--strategy-path', '/Users/shatianming/Downloads/Agent_market/user_data/strategies', '--timerange', '20251126-20260125', '--cache', 'none']' returned non-zero exit status 120."
+      }
     }
   ],
-  "error": null,
+  "error": {
+    "step": "backtest",
+    "type": "CalledProcessError",
+    "message": "Command '['/opt/homebrew/opt/python@3.14/bin/python3.14', '/Users/shatianming/Downloads/Agent_market/scripts/freqtrade_cli.py', 'backtesting', '--userdir', '/Users/shatianming/Downloads/Agent_market/user_data', '--config', '/Users/shatianming/Downloads/Agent_market/user_data/config_freqai_kucoin.json', '--strategy', 'ExpressionLongStrategy', '--strategy-path', '/Users/shatianming/Downloads/Agent_market/user_data/strategies', '--timerange', '20251126-20260125', '--cache', 'none']' returned non-zero exit status 120.",
+    "traceback": "Traceback (most recent call last):\n  File \"/Users/shatianming/Downloads/Agent_market/src/agent_market/agent_flow.py\", line 410, in run\n    flow_steps.run_backtest(cfg, self.feedback_path)\n    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/shatianming/Downloads/Agent_market/src/agent_market/flow_steps.py\", line 285, in run_backtest\n    run_command(cmd, cwd=cwd)\n    ~~~~~~~~~~~^^^^^^^^^^^^^^\n  File \"/Users/shatianming/Downloads/Agent_market/src/agent_market/flow_steps.py\", line 22, in run_command\n    subprocess.run(cmd, cwd=cwd, check=True)  # noqa: S603,S607\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py\", line 577, in run\n    raise CalledProcessError(retcode, process.args,\n                             output=stdout, stderr=stderr)\nsubprocess.CalledProcessError: Command '['/opt/homebrew/opt/python@3.14/bin/python3.14', '/Users/shatianming/Downloads/Agent_market/scripts/freqtrade_cli.py', 'backtesting', '--userdir', '/Users/shatianming/Downloads/Agent_market/user_data', '--config', '/Users/shatianming/Downloads/Agent_market/user_data/config_freqai_kucoin.json', '--strategy', 'ExpressionLongStrategy', '--strategy-path', '/Users/shatianming/Downloads/Agent_market/user_data/strategies', '--timerange', '20251126-20260125', '--cache', 'none']' returned non-zero exit status 120.\n"
+  },
   "paths": {
     "run_meta_latest": "artifacts/run_meta.json",
-    "run_meta": "artifacts/runs/75e405653dc7/run_meta.json"
+    "run_meta": "artifacts/runs/9a381f2502e1/run_meta.json"
   }
 }

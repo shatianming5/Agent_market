@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-02-05T14:33:01",
+  "generated_at": "2026-03-29T23:05:57",
   "exchange": "kucoin",
   "pairs": [
     "BTC/USDT",
@@ -12,146 +12,160 @@
   "llm_used": false,
   "mine_enabled": true,
   "score_method": "correlation",
-  "top_n": 10,
+  "top_n": 30,
   "expressions": [
     {
       "name": "f001",
-      "expression": "ema(z(ema_spread) - z(mfi_14), 12)",
-      "description": "smoothed spread: ema_spread vs mfi_14",
-      "category": "trend",
-      "origin": "classic",
-      "metric_abs_ic": 0.1352427197791367,
-      "score": 0.1292427197791367,
+      "expression": "roll_mean(roll_mean(donchian_width_20, 12), 24)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.11883954129217111,
+      "score": 0.11283954129217111,
       "complexity": 3,
       "per_pair": {
-        "BTC/USDT": -0.1826651646082485,
-        "ETH/USDT": -0.08782027495002492
+        "BTC/USDT": 0.17032013812351038,
+        "ETH/USDT": 0.06735894446083186
       }
     },
     {
       "name": "f002",
-      "expression": "z(ema_spread) - z(psar_ratio)",
-      "description": "spread between signals: ema_spread vs psar_ratio",
-      "category": "momentum",
-      "origin": "classic",
-      "metric_abs_ic": 0.1266901579310532,
-      "score": 0.1226901579310532,
-      "complexity": 2,
+      "expression": "roll_mean(roll_mean(donchian_width_20, 6), 24)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.1173072353193993,
+      "score": 0.11130723531939929,
+      "complexity": 3,
       "per_pair": {
-        "BTC/USDT": -0.14819539528668857,
-        "ETH/USDT": -0.10518492057541783
+        "BTC/USDT": 0.16519409809306893,
+        "ETH/USDT": 0.06942037254572968
       }
     },
     {
       "name": "f003",
-      "expression": "ema(z(ema_spread) - z(donchian_width_20), 12)",
-      "description": "smoothed spread: ema_spread vs donchian_width_20",
-      "category": "trend",
-      "origin": "classic",
-      "metric_abs_ic": 0.12204948183811806,
-      "score": 0.11404948183811806,
-      "complexity": 4,
+      "expression": "roll_mean(roll_mean(donchian_width_20, 24), 6)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.11730723531939924,
+      "score": 0.11130723531939923,
+      "complexity": 3,
       "per_pair": {
-        "BTC/USDT": -0.1714433640120546,
-        "ETH/USDT": -0.07265559966418154
+        "BTC/USDT": 0.16519409809306887,
+        "ETH/USDT": 0.06942037254572962
       }
     },
     {
       "name": "f004",
-      "expression": "z(ema_spread) / (1 + abs(z(mfi_14)))",
-      "description": "risk-adjusted spread: ema_spread vs mfi_14",
-      "category": "other",
-      "origin": "classic",
-      "metric_abs_ic": 0.11107382446220115,
-      "score": 0.10507382446220115,
-      "complexity": 3,
+      "expression": "roll_mean(donchian_width_20, 24)",
+      "description": "evolved composite of donchian_width_20 (depth=2, complexity=2)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.11462480961854031,
+      "score": 0.1106248096185403,
+      "complexity": 2,
       "per_pair": {
-        "BTC/USDT": -0.13703368193584783,
-        "ETH/USDT": -0.08511396698855446
+        "BTC/USDT": 0.15919287854502284,
+        "ETH/USDT": 0.07005674069205778
       }
     },
     {
       "name": "f005",
-      "expression": "ema(z(ema_spread) - z(rsi_14), 12)",
-      "description": "smoothed spread: ema_spread vs rsi_14",
-      "category": "trend",
-      "origin": "classic",
-      "metric_abs_ic": 0.11055807581097161,
-      "score": 0.10455807581097161,
+      "expression": "roll_mean(roll_mean(donchian_width_20, 3), 24)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.11591206477123127,
+      "score": 0.10991206477123126,
       "complexity": 3,
       "per_pair": {
-        "BTC/USDT": -0.12690773488567222,
-        "ETH/USDT": -0.094208416736271
+        "BTC/USDT": 0.1618710570350686,
+        "ETH/USDT": 0.06995307250739394
       }
     },
     {
       "name": "f006",
-      "expression": "ema(z(ema_spread) - z(psar_ratio), 12)",
-      "description": "smoothed spread: ema_spread vs psar_ratio",
-      "category": "trend",
-      "origin": "classic",
-      "metric_abs_ic": 0.10853016742858977,
-      "score": 0.10253016742858977,
+      "expression": "roll_mean(roll_mean(donchian_width_20, 24), 24)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.11104332245739201,
+      "score": 0.10504332245739201,
       "complexity": 3,
       "per_pair": {
-        "BTC/USDT": -0.13055301962686713,
-        "ETH/USDT": -0.08650731523031241
+        "BTC/USDT": 0.15690351351637777,
+        "ETH/USDT": 0.06518313139840626
       }
     },
     {
       "name": "f007",
-      "expression": "z(ema_spread) / (1 + abs(z(adx_14)))",
-      "description": "risk-adjusted spread: ema_spread vs adx_14",
-      "category": "other",
-      "origin": "classic",
-      "metric_abs_ic": 0.09975465395731348,
-      "score": 0.09375465395731347,
+      "expression": "roll_mean(roll_mean(donchian_width_20, 12), 6)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.1042987021615345,
+      "score": 0.0982987021615345,
       "complexity": 3,
       "per_pair": {
-        "BTC/USDT": -0.12927298490351805,
-        "ETH/USDT": -0.0702363230111089
+        "BTC/USDT": 0.13480533725495794,
+        "ETH/USDT": 0.07379206706811108
       }
     },
     {
       "name": "f008",
-      "expression": "z(ema_spread) / (1 + abs(z(rsi_14)))",
-      "description": "risk-adjusted spread: ema_spread vs rsi_14",
-      "category": "other",
-      "origin": "classic",
-      "metric_abs_ic": 0.09820790166582298,
-      "score": 0.09220790166582297,
-      "complexity": 3,
+      "expression": "donchian_width_20",
+      "description": "evolved composite of donchian_width_20 (depth=1, complexity=1)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.06066667978955788,
+      "score": 0.05866667978955788,
+      "complexity": 1,
       "per_pair": {
-        "BTC/USDT": -0.1313269455152264,
-        "ETH/USDT": -0.06508885781641957
+        "BTC/USDT": 0.10090101459376723,
+        "ETH/USDT": 0.020432344985348534
       }
     },
     {
       "name": "f009",
-      "expression": "z(ema_spread) - z(donchian_width_20)",
-      "description": "spread between signals: ema_spread vs donchian_width_20",
-      "category": "momentum",
-      "origin": "classic",
-      "metric_abs_ic": 0.0967594960585951,
-      "score": 0.0907594960585951,
-      "complexity": 3,
+      "expression": "roll_mean(donchian_width_20, 72)",
+      "description": "evolved composite of donchian_width_20 (depth=2, complexity=2)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.023452036519467215,
+      "score": 0.019452036519467215,
+      "complexity": 2,
       "per_pair": {
-        "BTC/USDT": -0.1479346551476996,
-        "ETH/USDT": -0.045584336969490595
+        "BTC/USDT": 0.03172366216857204,
+        "ETH/USDT": 0.015180410870362388
       }
     },
     {
       "name": "f010",
-      "expression": "z(ema_spread) - z(kama_pct_20)",
-      "description": "spread between signals: ema_spread vs kama_pct_20",
-      "category": "momentum",
-      "origin": "classic",
-      "metric_abs_ic": 0.09636345307975888,
-      "score": 0.09036345307975888,
+      "expression": "roll_mean(roll_mean(donchian_width_20, 24), 72)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.01795598563650368,
+      "score": 0.01195598563650368,
       "complexity": 3,
       "per_pair": {
-        "BTC/USDT": -0.12204530815926538,
-        "ETH/USDT": -0.0706815980002524
+        "BTC/USDT": -0.02074158774284301,
+        "ETH/USDT": 0.015170383530164349
+      }
+    },
+    {
+      "name": "f011",
+      "expression": "roll_mean(roll_mean(donchian_width_20, 72), 24)",
+      "description": "evolved composite of donchian_width_20 (depth=3, complexity=3)",
+      "category": "volatility",
+      "origin": "evolve",
+      "metric_abs_ic": 0.017955985636503677,
+      "score": 0.011955985636503677,
+      "complexity": 3,
+      "per_pair": {
+        "BTC/USDT": -0.020741587742843008,
+        "ETH/USDT": 0.015170383530164342
       }
     }
   ]
