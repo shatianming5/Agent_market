@@ -75,7 +75,7 @@ pt = PaperTrader(initial_equity=1000)
 from workspace.gate_pipeline import GatePipeline
 gp = GatePipeline()
 result = gp.run_gates("strategies/type_C_pairs/my.py", strategy_type="C_pairs")
-print(result["recommendation"])  # "APPROVED" or "REJECTED at Gate N: reason"
+print(result["recommendation"])  # "PASSED" or "REJECTED at Gate N: reason"
 ```
 
 ## 策略类型及其标准

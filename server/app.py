@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from .api.routes.features import router as features_router
 from .api.routes.flow import router as flow_router
@@ -13,11 +17,17 @@ from .api.routes.run import router as run_router
 from .api.routes.settings import router as settings_router
 from .runtime import ROOT
 
+_API_KEY = os.environ.get("AGENT_MARKET_API_KEY", "")
+_PROTECTED_PREFIXES = ("/run", "/flow/run")
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Agent Market Server")
-    import os
-    allowed_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+
+    # CORS — restricted to configured origins (default: localhost only)
+    allowed_origins = os.environ.get(
+        "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    ).split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
@@ -26,7 +36,19 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Serve static web UI (optional): http://host:8000/web/index.html
+    # API key auth middleware — inside factory so every instance is protected
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        # Skip auth for OPTIONS (CORS preflight) and non-protected paths
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        if _API_KEY and any(request.url.path.startswith(p) for p in _PROTECTED_PREFIXES):
+            key = request.headers.get("X-API-Key", "")
+            if key != _API_KEY:
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+    # Static web UI (optional)
     try:
         app.mount("/web", StaticFiles(directory=str(ROOT / "web")), name="web")
     except Exception:
@@ -43,17 +65,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
-
-# Simple API key auth middleware
-import os as _os
-_API_KEY = _os.environ.get("AGENT_MARKET_API_KEY", "")
-
-@app.middleware("http")
-async def auth_middleware(request, call_next):
-    if _API_KEY and (request.url.path.startswith("/run") or request.url.path.startswith("/flow/run")):
-        key = request.headers.get("X-API-Key", "")
-        if key != _API_KEY:
-            from starlette.responses import JSONResponse
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return await call_next(request)
