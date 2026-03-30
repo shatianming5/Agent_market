@@ -367,7 +367,8 @@ def flow_runs_list(limit: int = 20):
 def run_flow(req: FlowReq = Body(...)):
     py = sys.executable
     script = str(ROOT / "scripts" / "agent_flow.py")
-    cmd = [py, script, "--config", req.config]
+    validated_config = _validate_config_path(req.config, ROOT)
+    cmd = [py, script, "--config", validated_config]
     if req.steps:
         parts: list[str] = []
         if isinstance(req.steps, str):
