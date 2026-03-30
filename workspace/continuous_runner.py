@@ -130,7 +130,7 @@ class ContinuousRunner:
                 cwd=str(ROOT), capture_output=True, text=True, timeout=300,
             )
             return {"status": "ok" if proc.returncode == 0 else "error", "returncode": proc.returncode}
-        except Exception as e:
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             return {"status": "error", "error": str(e)[:200]}
 
     def _phase_discovery(self) -> Dict[str, Any]:

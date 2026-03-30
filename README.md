@@ -27,7 +27,7 @@ web/                       # 前端静态资源（/web/index.html）
 python -m venv venv
 ./venv/Scripts/Activate.ps1   # Windows PowerShell
 # 推荐（黄金路径：feature + expression + ml + backtest）
-pip install -r requirements-full.txt
+pip install -c constraints.txt -r requirements-full.txt
 
 # 或最小依赖（仅后端 + 测试；不含 backtest/ml 相关依赖）
 # pip install -r server/requirements.txt
