@@ -13,7 +13,7 @@
     },
     "source": "auto_discovery",
     "created_at": "2026-03-30T06:51:56.417668+00:00",
-    "updated_at": "2026-03-30T06:53:40.363792+00:00",
+    "updated_at": "2026-03-30T07:15:34.047162+00:00",
     "history": [
       {
         "state": "discovered",
@@ -32,8 +32,32 @@
       }
     ],
     "metrics": {},
-    "paper_days": 2,
+    "paper_days": 26,
     "paper_pnl": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
       0.0,
       0.0
     ],
@@ -54,7 +78,7 @@
     },
     "source": "auto_discovery",
     "created_at": "2026-03-30T06:48:45.937586+00:00",
-    "updated_at": "2026-03-30T06:49:13.026953+00:00",
+    "updated_at": "2026-03-30T07:07:25.698920+00:00",
     "history": [
       {
         "state": "discovered",
@@ -92,8 +116,19 @@
       0.08,
       -0.15
     ],
-    "active_days": 0,
-    "rolling_sharpe": []
+    "active_days": 10,
+    "rolling_sharpe": [
+      0.6100062631124069,
+      0.8182932594155162,
+      0.3085066600027142,
+      0.4940351917849073,
+      1.1756551118174419,
+      1.2692848058382422,
+      1.2732726182188308,
+      -0.2171857070373382,
+      1.089765187569447,
+      0.7175938192734366
+    ]
   },
   "pairs_LINK_SOL": {
     "name": "pairs_LINK_SOL",
@@ -109,7 +144,7 @@
     },
     "source": "auto_discovery",
     "created_at": "2026-03-30T06:48:47.960212+00:00",
-    "updated_at": "2026-03-30T06:49:13.027124+00:00",
+    "updated_at": "2026-03-30T07:07:25.699338+00:00",
     "history": [
       {
         "state": "discovered",
@@ -147,8 +182,19 @@
       0.06970004951961455,
       0.09807214756416498
     ],
-    "active_days": 0,
-    "rolling_sharpe": []
+    "active_days": 10,
+    "rolling_sharpe": [
+      4.559434488535188,
+      3.8197721451866515,
+      2.9947454284809143,
+      3.7012372944181173,
+      4.794748707975179,
+      4.308056430628262,
+      4.552718960411297,
+      3.389675720473923,
+      2.962804704147275,
+      4.1540704757618245
+    ]
   },
   "pairs_DOGE_XRP": {
     "name": "pairs_DOGE_XRP",
@@ -164,7 +210,7 @@
     },
     "source": "auto_discovery",
     "created_at": "2026-03-30T06:51:57.722990+00:00",
-    "updated_at": "2026-03-30T06:53:40.376538+00:00",
+    "updated_at": "2026-03-30T07:15:34.061415+00:00",
     "history": [
       {
         "state": "discovered",
@@ -183,8 +229,32 @@
       }
     ],
     "metrics": {},
-    "paper_days": 2,
+    "paper_days": 26,
     "paper_pnl": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
       0.0,
       0.0
     ],
@@ -205,7 +275,7 @@
     },
     "source": "auto_discovery",
     "created_at": "2026-03-30T06:51:59.091375+00:00",
-    "updated_at": "2026-03-30T06:53:40.391521+00:00",
+    "updated_at": "2026-03-30T07:15:34.075311+00:00",
     "history": [
       {
         "state": "discovered",
@@ -224,11 +294,268 @@
       }
     ],
     "metrics": {},
-    "paper_days": 2,
+    "paper_days": 26,
     "paper_pnl": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
       0.0,
       0.0
     ],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "test_strat": {
+    "name": "test_strat",
+    "state": "validated",
+    "type": "pairs",
+    "config": {},
+    "source": "manual",
+    "created_at": "2026-03-30T07:00:36.127377+00:00",
+    "updated_at": "2026-03-30T07:00:36.127565+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T07:00:36.127377+00:00",
+        "reason": "registered"
+      },
+      {
+        "state": "validated",
+        "at": "2026-03-30T07:00:36.127565+00:00",
+        "reason": "test"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 0,
+    "paper_pnl": [],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "pairs_ADA_DOGE": {
+    "name": "pairs_ADA_DOGE",
+    "state": "paper",
+    "type": "pairs",
+    "config": {
+      "pair_a": "ADA/USDT",
+      "pair_b": "DOGE/USDT",
+      "exchange": "gate",
+      "mean_profit": 1.106964301527535
+    },
+    "source": "manual",
+    "created_at": "2026-03-30T07:07:22.911351+00:00",
+    "updated_at": "2026-03-30T07:15:34.089635+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T07:07:22.911351+00:00",
+        "reason": "registered"
+      },
+      {
+        "state": "validated",
+        "at": "2026-03-30T07:07:22.914271+00:00",
+        "reason": "WF passed: mean=+1.11%"
+      },
+      {
+        "state": "paper",
+        "at": "2026-03-30T07:07:22.914567+00:00",
+        "reason": "auto-promote to paper"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 20,
+    "paper_pnl": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "iter_01_pairs_lb60_ez1.5_xz0.4": {
+    "name": "iter_01_pairs_lb60_ez1.5_xz0.4",
+    "state": "discovered",
+    "type": "pairs",
+    "config": {
+      "pair_a": "AVAX/USDT",
+      "pair_b": "DOGE/USDT",
+      "exchange": "gate",
+      "timeframe": "1h",
+      "lookback": 60,
+      "entry_z": 1.5,
+      "exit_z": 0.4,
+      "strategy_file": "strategies/iter_01_pairs_lb60_ez1.5_xz0.4.py"
+    },
+    "source": "multi_iteration_runner",
+    "created_at": "2026-03-30T07:15:23.029756+00:00",
+    "updated_at": "2026-03-30T07:15:23.029756+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T07:15:23.029756+00:00",
+        "reason": "registered"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 0,
+    "paper_pnl": [],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "iter_02_pairs_lb80_ez1.8_xz0.5": {
+    "name": "iter_02_pairs_lb80_ez1.8_xz0.5",
+    "state": "discovered",
+    "type": "pairs",
+    "config": {
+      "pair_a": "AVAX/USDT",
+      "pair_b": "DOGE/USDT",
+      "exchange": "gate",
+      "timeframe": "1h",
+      "lookback": 80,
+      "entry_z": 1.8,
+      "exit_z": 0.5,
+      "strategy_file": "strategies/iter_02_pairs_lb80_ez1.8_xz0.5.py"
+    },
+    "source": "multi_iteration_runner",
+    "created_at": "2026-03-30T07:15:25.409099+00:00",
+    "updated_at": "2026-03-30T07:15:25.409099+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T07:15:25.409099+00:00",
+        "reason": "registered"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 0,
+    "paper_pnl": [],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "iter_03_pairs_lb120_ez2.5_xz0.7": {
+    "name": "iter_03_pairs_lb120_ez2.5_xz0.7",
+    "state": "discovered",
+    "type": "pairs",
+    "config": {
+      "pair_a": "AVAX/USDT",
+      "pair_b": "DOGE/USDT",
+      "exchange": "gate",
+      "timeframe": "1h",
+      "lookback": 120,
+      "entry_z": 2.5,
+      "exit_z": 0.7,
+      "strategy_file": "strategies/iter_03_pairs_lb120_ez2.5_xz0.7.py"
+    },
+    "source": "multi_iteration_runner",
+    "created_at": "2026-03-30T07:15:27.746555+00:00",
+    "updated_at": "2026-03-30T07:15:27.746555+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T07:15:27.746555+00:00",
+        "reason": "registered"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 0,
+    "paper_pnl": [],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "iter_04_pairs_lb100_ez1.5_xz0.3": {
+    "name": "iter_04_pairs_lb100_ez1.5_xz0.3",
+    "state": "discovered",
+    "type": "pairs",
+    "config": {
+      "pair_a": "AVAX/USDT",
+      "pair_b": "DOGE/USDT",
+      "exchange": "gate",
+      "timeframe": "1h",
+      "lookback": 100,
+      "entry_z": 1.5,
+      "exit_z": 0.3,
+      "strategy_file": "strategies/iter_04_pairs_lb100_ez1.5_xz0.3.py"
+    },
+    "source": "multi_iteration_runner",
+    "created_at": "2026-03-30T07:15:30.047828+00:00",
+    "updated_at": "2026-03-30T07:15:30.047828+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T07:15:30.047828+00:00",
+        "reason": "registered"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 0,
+    "paper_pnl": [],
+    "active_days": 0,
+    "rolling_sharpe": []
+  },
+  "iter_05_pairs_lb90_ez2.5_xz0.5": {
+    "name": "iter_05_pairs_lb90_ez2.5_xz0.5",
+    "state": "discovered",
+    "type": "pairs",
+    "config": {
+      "pair_a": "AVAX/USDT",
+      "pair_b": "DOGE/USDT",
+      "exchange": "gate",
+      "timeframe": "1h",
+      "lookback": 90,
+      "entry_z": 2.5,
+      "exit_z": 0.5,
+      "strategy_file": "strategies/iter_05_pairs_lb90_ez2.5_xz0.5.py"
+    },
+    "source": "multi_iteration_runner",
+    "created_at": "2026-03-30T07:15:32.331316+00:00",
+    "updated_at": "2026-03-30T07:15:32.331316+00:00",
+    "history": [
+      {
+        "state": "discovered",
+        "at": "2026-03-30T07:15:32.331316+00:00",
+        "reason": "registered"
+      }
+    ],
+    "metrics": {},
+    "paper_days": 0,
+    "paper_pnl": [],
     "active_days": 0,
     "rolling_sharpe": []
   }
