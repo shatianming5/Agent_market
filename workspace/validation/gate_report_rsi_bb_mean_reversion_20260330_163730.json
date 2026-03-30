@@ -1,0 +1,25 @@
+{
+  "strategy": "workspace/strategies/rsi_bb_mean_reversion.py",
+  "strategy_type": "B_meanrev",
+  "timestamp": "2026-03-30T08:37:27.328871+00:00",
+  "gates": {
+    "gate_2": {
+      "gate": "gate_2",
+      "passed": false,
+      "metrics": {
+        "sharpe": -2.129715651540299,
+        "max_drawdown_pct": 1.1689947579315538,
+        "trades": 39,
+        "win_rate": 0.5897435897435898,
+        "profit_factor": 0.6178357147183335,
+        "profit_pct": -0.93
+      },
+      "failures": [
+        "sharpe=-2.1297 < 0.5",
+        "profit_factor=0.6178 < 1.1"
+      ]
+    }
+  },
+  "final_gate_passed": "gate_1",
+  "recommendation": "REJECTED at Gate 2: sharpe=-2.1297 < 0.5; profit_factor=0.6178 < 1.1"
+}
