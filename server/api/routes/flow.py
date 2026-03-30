@@ -19,11 +19,13 @@ from ...runtime import ROOT, jobs
 from agent_market import paths  # type: ignore
 
 def _validate_config_path(config_path: str, repo_root) -> str:
-    """Ensure config path is within the repo root."""
+    """Ensure config path is within the repo root (safe containment check)."""
     from pathlib import Path
     p = Path(config_path).resolve()
     root = Path(repo_root).resolve()
-    if not str(p).startswith(str(root)):
+    try:
+        p.relative_to(root)  # raises ValueError if not a sub-path
+    except ValueError:
         raise ValueError(f"Config path {p} is outside repo root {root}")
     return str(p)
 
