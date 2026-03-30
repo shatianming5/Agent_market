@@ -50,8 +50,14 @@ OPENAI_MODEL=gpt-4o-mini
 （兼容：也支持 `LLM_BASE_URL/LLM_API_KEY/LLM_MODEL`）
 
 4) 启动后端
-```
+```bash
+# 开发模式（无认证）
 uvicorn server.main:app --host 127.0.0.1 --port 8000
+
+# 生产模式（启用 API key 认证）
+AGENT_MARKET_API_KEY=your-secret-key uvicorn server.main:app --host 127.0.0.1 --port 8000
+# 请求时需要 header: X-API-Key: your-secret-key
+# /run/* 和 /flow/run 端点受保护，其他端点不受影响
 ```
 打开前端：`http://127.0.0.1:8000/web/index.html`
 

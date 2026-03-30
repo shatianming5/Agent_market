@@ -17,7 +17,6 @@ from .api.routes.run import router as run_router
 from .api.routes.settings import router as settings_router
 from .runtime import ROOT
 
-_API_KEY = os.environ.get("AGENT_MARKET_API_KEY", "")
 _PROTECTED_PREFIXES = ("/run", "/flow/run")
 
 
@@ -42,9 +41,11 @@ def create_app() -> FastAPI:
         # Skip auth for OPTIONS (CORS preflight) and non-protected paths
         if request.method == "OPTIONS":
             return await call_next(request)
-        if _API_KEY and any(request.url.path.startswith(p) for p in _PROTECTED_PREFIXES):
+        # Read API key at request time (not import time) so env changes take effect
+        api_key = os.environ.get("AGENT_MARKET_API_KEY", "")
+        if api_key and any(request.url.path.startswith(p) for p in _PROTECTED_PREFIXES):
             key = request.headers.get("X-API-Key", "")
-            if key != _API_KEY:
+            if key != api_key:
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
 
