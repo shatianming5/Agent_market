@@ -13,11 +13,8 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from _lib import resolve_path  # noqa: E402
 from agent_market import paths  # noqa: E402
-
-
-def _resolve(path: str) -> Path:
-    return paths.resolve_repo_path(path)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -33,15 +30,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     from agent_market.tca import generate_tca_report  # noqa: WPS433
 
     if args.backtest_zip:
-        zip_path = _resolve(str(args.backtest_zip))
+        zip_path = resolve_path(str(args.backtest_zip))
     else:
-        results_dir = _resolve(str(args.results_dir))
+        results_dir = resolve_path(str(args.results_dir))
         zip_path = find_latest_backtest_zip(results_dir)
         if zip_path is None:
             raise FileNotFoundError(f"No backtest-result-*.zip found in {results_dir}")
 
     if args.out:
-        out_path = _resolve(str(args.out))
+        out_path = resolve_path(str(args.out))
     else:
         out_path = (paths.run_dir(str(args.run_id)) / "tca" / "tca_report.json").resolve()
 

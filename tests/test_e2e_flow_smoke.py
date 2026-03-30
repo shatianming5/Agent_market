@@ -4,9 +4,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+_MISSING_DEPS: list[str] = []
+for _mod in ("lightgbm",):
+    try:
+        __import__(_mod)
+    except ModuleNotFoundError:
+        _MISSING_DEPS.append(_mod)
 
+
+@pytest.mark.skipif(bool(_MISSING_DEPS), reason=f"missing optional deps: {_MISSING_DEPS}")
 def test_e2e_flow_produces_required_artifacts():
     root = Path(__file__).resolve().parents[1]
     cfg = root / "configs" / "agent_flow_kucoin_cpu_nollm_smoke.json"

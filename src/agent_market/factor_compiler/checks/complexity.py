@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 from ..api_models import ComplexityBudget, ExprArg, ExprNode
+from ..dsl.ast_utils import literal_int
 from .types import CheckResult, fail, ok
 
 
@@ -22,19 +23,6 @@ _EXPENSIVE_OPS: set[str] = {
     # other heavier transforms
     "winsorize",
 }
-
-
-def _literal_int(arg: ExprArg) -> Optional[int]:
-    try:
-        if isinstance(arg, bool) or arg is None:
-            return None
-        if isinstance(arg, int):
-            return int(arg)
-        if isinstance(arg, float) and float(arg).is_integer():
-            return int(arg)
-    except Exception:
-        return None
-    return None
 
 
 def _stats(arg: ExprArg) -> Tuple[int, int, int]:
@@ -80,21 +68,21 @@ def estimate_compute_budget(expr: ExprNode) -> Dict[str, Any]:
             # windowed calls (x, w)
             if op in {"roll_mean", "roll_std", "rolling_sum", "rolling_min", "rolling_max", "ema", "ts_z", "robust_z", "decay_linear"}:
                 if len(args) >= 2:
-                    w = _literal_int(args[1])
+                    w = literal_int(args[1])
                     if w is not None and w > 0:
                         windows.append(int(w))
 
             # differencing / percent change (x, n)
             if op in {"diff", "pct_change", "shift"}:
                 if len(args) >= 2:
-                    n = _literal_int(args[1])
+                    n = literal_int(args[1])
                     if n is not None and n > 0:
                         windows.append(int(n))
 
             # microstructure rolling proxies (w)
             if op in {"vwap", "ofi", "arrival_intensity", "impact_proxy"}:
                 if args:
-                    w = _literal_int(args[0])
+                    w = literal_int(args[0])
                     if w is not None and w > 0:
                         windows.append(int(w))
 

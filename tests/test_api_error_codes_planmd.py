@@ -85,27 +85,37 @@ def test_lob_rebuild_returns_data_not_found_and_sequence_gap(tmp_path: Path) -> 
     assert body.get("code") == "DATA_NOT_FOUND"
 
     # Sequence gap -> LOB_SEQUENCE_GAP
-    cap_dir = tmp_path / "cap"
+    # Use a directory inside artifacts/ so safe_resolve allows the path.
+    import uuid, shutil
+    tag = f"_test_lob_{uuid.uuid4().hex[:8]}"
+    from agent_market.paths import artifacts_root  # type: ignore
+    art = artifacts_root()
+    cap_dir = art / tag / "cap"
     cap_dir.mkdir(parents=True, exist_ok=True)
-    level2_path = cap_dir / "level2.ndjson.gz"
-    with gzip.open(level2_path, "wt", encoding="utf-8") as fh:
-        fh.write(json.dumps({"type": "message", "data": {"sequenceStart": 200, "sequenceEnd": 200}}) + "\n")
+    try:
+        level2_path = cap_dir / "level2.ndjson.gz"
+        with gzip.open(level2_path, "wt", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "message", "data": {"sequenceStart": 200, "sequenceEnd": 200}}) + "\n")
 
-    snap_path = tmp_path / "snapshot.json"
-    snap_path.write_text(json.dumps({"symbol": "BTC-USDT", "sequence": 99, "bids": [], "asks": []}), encoding="utf-8")
+        snap_path = art / tag / "snapshot.json"
+        snap_path.write_text(json.dumps({"symbol": "BTC-USDT", "sequence": 99, "bids": [], "asks": []}), encoding="utf-8")
 
-    res = client.post(
-        "/run/lob_rebuild",
-        json={
-            "exchange": "kucoin",
-            "capture_dir": str(cap_dir),
-            "snapshot": str(snap_path),
-            "symbol": "BTC-USDT",
-            "depth": 20,
-            "out_dir": str(tmp_path / "out"),
-        },
-    )
-    body = res.json()
-    assert body.get("status") == "error"
-    assert body.get("code") == "LOB_SEQUENCE_GAP"
+        out_dir = art / tag / "out"
+
+        res = client.post(
+            "/run/lob_rebuild",
+            json={
+                "exchange": "kucoin",
+                "capture_dir": str(cap_dir),
+                "snapshot": str(snap_path),
+                "symbol": "BTC-USDT",
+                "depth": 20,
+                "out_dir": str(out_dir),
+            },
+        )
+        body = res.json()
+        assert body.get("status") == "error"
+        assert body.get("code") == "LOB_SEQUENCE_GAP"
+    finally:
+        shutil.rmtree(art / tag, ignore_errors=True)
 

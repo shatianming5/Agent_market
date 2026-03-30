@@ -1,25 +1,14 @@
 from __future__ import annotations
 
-import gzip
 import json
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _as_float(value: Any) -> Optional[float]:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except Exception:
-        return None
+from agent_market.utils import as_float
+from ..ms_utils import utc_now_iso, iter_ndjson_gz, topic_symbol
 
 
 def _parse_ts_from_msg(msg: Dict[str, Any]) -> Optional["datetime"]:
@@ -39,27 +28,6 @@ def _parse_ts_from_msg(msg: Dict[str, Any]) -> Optional["datetime"]:
     return None
 
 
-def _iter_ndjson_gz(path: Path) -> Iterator[Dict[str, Any]]:
-    with gzip.open(path, "rt", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except Exception:
-                continue
-            if isinstance(obj, dict):
-                yield obj
-
-
-def _topic_symbol(topic: str) -> Optional[str]:
-    t = str(topic or "")
-    if ":" not in t:
-        return None
-    return t.split(":", 1)[1].strip() or None
-
-
 @dataclass
 class OrderBook:
     bids: Dict[float, float]
@@ -72,16 +40,16 @@ class OrderBook:
         bids: Dict[float, float] = {}
         asks: Dict[float, float] = {}
         for px, sz in bids_in:
-            p = _as_float(px)
-            s = _as_float(sz)
+            p = as_float(px)
+            s = as_float(sz)
             if p is None or s is None:
                 continue
             if s <= 0:
                 continue
             bids[float(p)] = float(s)
         for px, sz in asks_in:
-            p = _as_float(px)
-            s = _as_float(sz)
+            p = as_float(px)
+            s = as_float(sz)
             if p is None or s is None:
                 continue
             if s <= 0:
@@ -91,8 +59,8 @@ class OrderBook:
 
     def apply_changes(self, *, bids: Iterable[Iterable[Any]], asks: Iterable[Iterable[Any]]) -> None:
         for px, sz in bids:
-            p = _as_float(px)
-            s = _as_float(sz)
+            p = as_float(px)
+            s = as_float(sz)
             if p is None or s is None:
                 continue
             if s <= 0:
@@ -100,8 +68,8 @@ class OrderBook:
             else:
                 self.bids[float(p)] = float(s)
         for px, sz in asks:
-            p = _as_float(px)
-            s = _as_float(sz)
+            p = as_float(px)
+            s = as_float(sz)
             if p is None or s is None:
                 continue
             if s <= 0:
@@ -171,7 +139,7 @@ def _parse_level2_update(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if msg.get("type") != "message":
         return None
     topic = str(msg.get("topic") or "")
-    sym = _topic_symbol(topic)
+    sym = topic_symbol(topic)
     data = msg.get("data")
     if not sym or not isinstance(data, dict):
         return None
@@ -235,7 +203,7 @@ def rebuild_kucoin_lob(
     )
 
     updates = 0
-    for msg in _iter_ndjson_gz(level2_path):
+    for msg in iter_ndjson_gz(level2_path):
         upd = _parse_level2_update(msg)
         if not upd:
             continue
@@ -283,7 +251,7 @@ def rebuild_kucoin_lob(
         "exchange": "kucoin",
         "symbol": str(symbol),
         "depth": int(depth),
-        "started_at": _utc_now_iso(),
+        "started_at": utc_now_iso(),
         "snapshot": {
             "path": str(Path(snapshot_path).resolve()),
             "sequence": int(snap_seq) if snap_seq else None,

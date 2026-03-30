@@ -16,12 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
+from _lib import read_json  # noqa: E402
 from agent_market.freqai.expression_engine import ExpressionSpec, apply_expressions, load_expression_file
 from agent_market.freqai.features import apply_configured_features
-
-
-def _read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def _utcnow() -> str:
@@ -147,9 +144,9 @@ def main() -> None:
     feature_path = (ROOT / args.feature_file).resolve() if not Path(args.feature_file).is_absolute() else Path(args.feature_file)
     expr_path = (ROOT / args.expressions_file).resolve() if not Path(args.expressions_file).is_absolute() else Path(args.expressions_file)
 
-    cfg = _read_json(cfg_path)
-    feature_cfg = _read_json(feature_path)
-    expr_payload = _read_json(expr_path)
+    cfg = read_json(cfg_path)
+    feature_cfg = read_json(feature_path)
+    expr_payload = read_json(expr_path)
 
     exchange = str(expr_payload.get("exchange") or cfg.get("exchange", {}).get("name") or "unknown")
     timeframe = str(expr_payload.get("timeframe") or cfg.get("timeframe") or "1h")

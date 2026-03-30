@@ -8,6 +8,8 @@ from typing import List, Optional
 import pandas as pd
 import yaml
 
+from _lib import load_yaml_config
+
 CLEAN_DIR = Path("data/clean")
 
 
@@ -54,11 +56,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--output', type=Path, default=CLEAN_DIR / 'dq_report.parquet')
     parser.add_argument('--news-path', type=Path, default=None, help='Override news parquet path when mode=news')
     return parser.parse_args()
-
-
-def load_config(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
 
 
 def load_clean_frame(spec: SeriesSpec) -> pd.DataFrame:
@@ -131,7 +128,7 @@ def main() -> None:
         news_path = args.news_path or Path('data/clean/news/all.parquet')
         generate_news_report(news_path)
         return
-    cfg = load_config(args.conf)
+    cfg = load_yaml_config(args.conf)
     exchange = cfg["exchange"]
     symbols = cfg["symbols"]
     timeframes = cfg["timeframes"]

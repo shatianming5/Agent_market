@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agent_market import flow_steps as _legacy
+from agent_market import paths
 
 STEP_ORDER: list[str] = [
     "capture",
@@ -28,6 +29,7 @@ STEP_ORDER: list[str] = [
     "backtest",
     "tca",
     "report",
+    "strategy_miner",
 ]
 
 # Legacy step runners (canonical behavior lives in agent_market.flow_steps).
@@ -45,10 +47,11 @@ run_factor_eval = _legacy.run_factor_eval
 run_capture = _legacy.run_capture
 run_lob_rebuild = _legacy.run_lob_rebuild
 run_report_bundle = _legacy.run_report_bundle
+run_strategy_miner_step = _legacy.run_strategy_miner_step
 
 
 def run_dir_for_run_id(run_id: str) -> Path:
-    return (Path("artifacts") / "runs" / str(run_id)).resolve()
+    return (paths.runs_root() / str(run_id)).resolve()
 
 
 def step_out_dir(run_id: str, step_id: str) -> Path:
@@ -82,5 +85,6 @@ __all__ = [
     "run_report_bundle",
     "run_rl_training",
     "run_tca",
+    "run_strategy_miner_step",
     "step_out_dir",
 ]

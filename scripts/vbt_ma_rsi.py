@@ -11,6 +11,8 @@ import pandas_ta as ta
 import vectorbt as vbt
 import yaml
 
+from _lib import load_yaml_config
+
 CLEAN_DIR = Path("data/clean")
 RESULTS_DIR = Path("data/backtests")
 
@@ -61,11 +63,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-ratio", type=float, default=0.7, help="Fraction of data used for training")
     parser.add_argument("--cash", type=float, default=10_000.0, help="Initial cash for portfolio")
     return parser.parse_args()
-
-
-def load_config(path: Path) -> Dict:
-    with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
 
 
 def load_close_series(spec: SeriesSpec) -> pd.Series:
@@ -177,7 +174,7 @@ def run_backtest(close: pd.Series, entries: pd.Series, exits: pd.Series, fees: f
 
 def main() -> None:
     args = parse_args()
-    cfg = load_config(args.conf)
+    cfg = load_yaml_config(args.conf)
 
     exchange = cfg["exchange"]
     symbols: Iterable[str] = cfg["symbols"]

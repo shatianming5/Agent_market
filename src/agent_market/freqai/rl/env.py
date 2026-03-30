@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
 try:  # pragma: no cover - optional dependency
     from gymnasium import Env, spaces  # type: ignore
     _HAS_GYMNASIUM = True
 except Exception:  # pragma: no cover
+    logger.debug("gymnasium not available, TradingEnv will be disabled", exc_info=True)
     Env = object  # type: ignore
     spaces = None  # type: ignore
     _HAS_GYMNASIUM = False

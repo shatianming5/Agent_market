@@ -1,0 +1,47 @@
+{
+  "budget": {
+    "provider": "auto",
+    "model": "opencode/gpt-5-nano",
+    "base_url": null,
+    "max_iterations": 5,
+    "max_turns": 30,
+    "max_retries": 2,
+    "stale_timeout": 180.0,
+    "repair_attempts": 3,
+    "multiagent_enabled": true,
+    "multiagent_refine_rounds": 1,
+    "candidates_per_iteration": 3,
+    "max_parallel_candidates": 2,
+    "max_parallel_roles": 1
+  },
+  "backtest": {
+    "freqtrade_config": "user_data/config_freqai.json",
+    "timerange": "20251229-20260202",
+    "backtest_timeout": 300
+  },
+  "tools": {
+    "tool_allowlist": [
+      "file",
+      "bash"
+    ],
+    "bash_allow": true,
+    "bash_timeout": 60,
+    "bash_allowlist": [
+      "ls ",
+      "find ",
+      "cat ",
+      "head ",
+      "tail ",
+      "sed ",
+      "grep ",
+      "python ",
+      "python3 ",
+      "freqtrade "
+    ]
+  },
+  "evaluation": {
+    "min_trades": 10,
+    "max_abs_drawdown": 50.0,
+    "min_winrate": 0.0
+  }
+}

@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+.venv*/
 venv/
 .env
 node_modules/
@@ -32,8 +33,12 @@ user_data/hyperopts/
 user_data/hyperopt_results/
 user_data/_pytest/
 artifacts/
+analysis/
 tmp_*
 *.tmp
+
+.coverage
+htmlcov/
 
 # local artifacts (not part of repo)
 Archive.zip

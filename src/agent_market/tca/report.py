@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from agent_market.utils import write_json
+
+logger = logging.getLogger(__name__)
 from agent_market.tca.adapters.freqtrade import load_freqtrade_backtest_trades
 from agent_market.tca.metrics import summarize_trades
 from agent_market.tca.schema import (
@@ -33,7 +37,8 @@ def _ms_to_iso(ms: Any) -> Optional[str]:
             return None
         value = float(ms) / 1000.0
         return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
-    except Exception:
+    except (ValueError, TypeError, OverflowError, OSError):
+        logger.debug("Failed to convert ms timestamp: %r", ms)
         return None
 
 
@@ -88,7 +93,8 @@ def _compute_participation_proxy(
 
     try:
         import pandas as pd  # noqa: PLC0415
-    except Exception:
+    except ImportError:
+        logger.warning("pandas not available; skipping participation proxy")
         return out
 
     symbols = sorted({str(f.get("symbol") or "").strip() for f in fills if str(f.get("symbol") or "").strip()})
@@ -109,7 +115,8 @@ def _compute_participation_proxy(
         for r in rows:
             try:
                 qty_f = float(r.get("qty") or 0.0)
-            except Exception:
+            except (ValueError, TypeError):
+                logger.debug("Skipping fill with invalid qty: %r", r.get("qty"))
                 continue
             ts = r.get("ts")
             dt = pd.to_datetime(ts, errors="coerce")
@@ -127,7 +134,7 @@ def _compute_participation_proxy(
             if getattr(tcol.dt, "tz", None) is not None:
                 tcol = tcol.dt.tz_convert(None)
         except Exception:
-            pass
+            logger.debug("tz_convert failed for fill timestamps of %s", symbol)
         fills_df["fill_ts"] = tcol
         fills_df = fills_df.dropna(subset=["fill_ts"]).sort_values("fill_ts").reset_index(drop=True)
         if fills_df.empty:
@@ -141,6 +148,7 @@ def _compute_participation_proxy(
         try:
             ohlcv = pd.read_feather(fp)
         except Exception:
+            logger.warning("Failed to read OHLCV feather: %s", fp)
             continue
         if "date" not in ohlcv.columns or "volume" not in ohlcv.columns:
             continue
@@ -150,7 +158,7 @@ def _compute_participation_proxy(
             if getattr(dcol.dt, "tz", None) is not None:
                 dcol = dcol.dt.tz_convert(None)
         except Exception:
-            pass
+            logger.debug("tz_convert failed for OHLCV dates of %s", symbol)
         ohlcv["date"] = dcol
         ohlcv["volume"] = pd.to_numeric(ohlcv["volume"], errors="coerce")
         ohlcv = ohlcv.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
@@ -175,6 +183,7 @@ def _compute_participation_proxy(
         try:
             market_qty = float(pd.to_numeric(window["volume"], errors="coerce").fillna(0.0).sum())
         except Exception:
+            logger.debug("Failed to compute market volume for %s", symbol)
             market_qty = 0.0
         executed_qty = float(pd.to_numeric(merged["qty"], errors="coerce").abs().fillna(0.0).sum())
         if market_qty <= 0:
@@ -218,7 +227,8 @@ def _extract_orders_fills_from_freqtrade_trades(
             try:
                 qty = float(raw.get("amount") or 0.0)
                 price = float(raw.get("safe_price") or 0.0)
-            except Exception:
+            except (ValueError, TypeError):
+                logger.debug("Skipping order with invalid amount/price in trade %d", ti)
                 continue
             if qty <= 0 or price <= 0:
                 continue
@@ -254,70 +264,6 @@ def _extract_orders_fills_from_freqtrade_trades(
     return orders, fills
 
 
-def _estimate_spread_cost_bps(trades: List[Dict[str, Any]]) -> Optional[float]:
-    """Estimate spread cost in bps from trade entry/exit prices.
-
-    Uses open_rate/close_rate when available; otherwise extracts prices
-    from the embedded orders list (safe_price of buy vs sell).
-    """
-    rates = []
-    for t in trades:
-        try:
-            open_rate = t.get("open_rate")
-            close_rate = t.get("close_rate")
-            # Fallback: extract from orders
-            if (open_rate is None or close_rate is None) and isinstance(t.get("orders"), list):
-                buy_px = []
-                sell_px = []
-                for o in t["orders"]:
-                    if not isinstance(o, dict):
-                        continue
-                    side = str(o.get("ft_order_side") or "").lower()
-                    px = o.get("safe_price")
-                    if px is None:
-                        continue
-                    if side == "buy":
-                        buy_px.append(float(px))
-                    elif side == "sell":
-                        sell_px.append(float(px))
-                if buy_px and open_rate is None:
-                    open_rate = sum(buy_px) / len(buy_px)
-                if sell_px and close_rate is None:
-                    close_rate = sum(sell_px) / len(sell_px)
-
-            open_rate_f = float(open_rate) if open_rate is not None else 0.0
-            close_rate_f = float(close_rate) if close_rate is not None else 0.0
-            if open_rate_f > 0 and close_rate_f > 0:
-                mid = (open_rate_f + close_rate_f) / 2.0
-                half_spread = abs(open_rate_f - close_rate_f) / mid / 2.0
-                rates.append(half_spread * 10000.0)
-        except Exception:
-            continue
-    if not rates:
-        return None
-    return float(sum(rates) / len(rates))
-
-
-def _estimate_avg_loss_bps(trades: List[Dict[str, Any]]) -> Optional[float]:
-    """Estimate average per-trade cost in bps from losing trades."""
-    loss_bps = []
-    for t in trades:
-        try:
-            pr = float(t.get("profit_ratio") or 0.0)
-            if pr < 0:
-                loss_bps.append(abs(pr) * 10000.0)
-        except Exception:
-            continue
-    if not loss_bps:
-        return None
-    return float(sum(loss_bps) / len(loss_bps))
-
-
-def _write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 def generate_tca_report(
     backtest_zip: Path,
     *,
@@ -351,50 +297,28 @@ def generate_tca_report(
     fees_total = summary.get("fees_total")
     try:
         fees_total_f = float(fees_total) if fees_total is not None else None
-    except Exception:
+    except (ValueError, TypeError):
+        logger.debug("Non-numeric fees_total: %r", fees_total)
         fees_total_f = None
 
     total_notional = 0.0
     for f in fills:
         try:
             total_notional += abs(float(f.get("qty") or 0.0) * float(f.get("price") or 0.0))
-        except Exception:
+        except (ValueError, TypeError):
             continue
     fees_bps = None
     if fees_total_f is not None and total_notional > 0:
         fees_bps = float(10000.0 * float(fees_total_f) / float(total_notional))
 
-    # Spread cost estimation: average half-spread from trade open/close prices.
-    # In backtest, each trade has open_rate and close_rate. The spread cost is
-    # approximated as the average fee_open rate (which freqtrade uses as spread proxy).
-    spread_bps = _estimate_spread_cost_bps(trades)
-    # Delay cost: 0 in backtesting (no real latency)
-    delay_bps = 0.0
-    # Market impact: residual IS after spread + delay + fees
-    impact_bps = None
-    is_total_bps = None
-    if fees_bps is not None:
-        spread_bps_safe = spread_bps or 0.0
-        # IS total = fees + spread + delay + impact; impact is the residual
-        # For backtest: use profit_ratio as realized cost signal
-        avg_loss_bps = _estimate_avg_loss_bps(trades)
-        if avg_loss_bps is not None:
-            impact_bps = max(0.0, avg_loss_bps - (fees_bps or 0.0) - spread_bps_safe - delay_bps)
-        else:
-            impact_bps = 0.0
-        is_total_bps = (fees_bps or 0.0) + spread_bps_safe + delay_bps + impact_bps
-
     is_components = TCAImplementationShortfallComponents(
-        spread=TCACostValue(bps=spread_bps),
-        delay=TCACostValue(bps=delay_bps),
-        market_impact=TCACostValue(bps=impact_bps),
+        spread=TCACostValue(bps=0.0),
+        delay=TCACostValue(bps=0.0),
+        market_impact=TCACostValue(bps=0.0),
         fees=TCACostValue(bps=fees_bps, quote_ccy=fees_total_f),
     )
-    is_total_ccy = None
-    if is_total_bps is not None and total_notional > 0:
-        is_total_ccy = float(is_total_bps * total_notional / 10000.0)
     is_block = TCAImplementationShortfall(
-        total=TCACostValue(bps=is_total_bps, quote_ccy=is_total_ccy),
+        total=TCACostValue(bps=fees_bps, quote_ccy=fees_total_f),
         by_component=is_components,
     )
 
@@ -457,17 +381,16 @@ def generate_tca_report(
             def _rel(p: Path) -> str:
                 try:
                     return str(p.resolve().relative_to(root_resolved))
-                except Exception:
+                except ValueError:
                     return str(p.resolve())
 
             payload["source"]["backtest_zip"] = _rel(Path(payload["source"]["backtest_zip"]))
             for a in payload.get("artifacts") or []:
                 a["path"] = _rel(Path(a["path"]))
-            # Keep the plan.md `meta` block intact; do not overwrite it with debug fields.
         except Exception:
-            pass
+            logger.warning("Failed to relativize paths in TCA report", exc_info=True)
 
-    _write_json(out_path, payload)
+    write_json(out_path, payload)
 
     if html_path is not None:
         html_path.parent.mkdir(parents=True, exist_ok=True)

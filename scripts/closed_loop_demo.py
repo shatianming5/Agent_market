@@ -17,20 +17,8 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
+from _lib import read_json, utc_now_compact, write_json  # noqa: E402
 from agent_market import paths  # noqa: E402
-
-
-def _utc_now_compact() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-
-
-def _read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
-
-
-def _write_json(path: Path, payload: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _copytree(src: Path, dst: Path) -> None:
@@ -54,9 +42,9 @@ def _prepare_isolated_user_data(user_root: Path) -> None:
 
     # Ensure datadir points at the isolated workspace (avoid writing into tracked `user_data/`).
     cfg_path = (user_root / "config_freqai_kucoin.json").resolve()
-    cfg = _read_json(cfg_path)
+    cfg = read_json(cfg_path)
     cfg["datadir"] = str((user_root / "data").resolve())
-    _write_json(cfg_path, cfg)
+    write_json(cfg_path, cfg)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -78,7 +66,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    run_tag = f"{_utc_now_compact()}-{uuid.uuid4().hex[:8]}"
+    run_tag = f"{utc_now_compact()}-{uuid.uuid4().hex[:8]}"
     artifacts_root = paths.resolve_repo_path(str(args.out_prefix)) / run_tag
     user_root = paths.resolve_repo_path("user_data/_closed_loop_demo") / run_tag
 
@@ -104,7 +92,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     latest_meta = (artifacts_root / "run_meta.json").resolve()
     if latest_meta.exists():
         try:
-            meta = _read_json(latest_meta)
+            meta = read_json(latest_meta)
             rid = meta.get("run_id")
             print(f"[closed_loop_demo] run_id={rid}")
             print(f"[closed_loop_demo] artifacts_root={artifacts_root}")

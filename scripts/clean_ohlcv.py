@@ -8,8 +8,9 @@ from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
 import yaml
-
 from dateutil.parser import isoparse
+
+from _lib import load_yaml_config
 
 RAW_DIR = Path("data/raw")
 CLEAN_DIR = Path("data/clean")
@@ -59,11 +60,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conf", type=Path, required=True, help="Path to symbols.yaml")
     parser.add_argument("--min-date", type=str, default=None, help="Optional minimum ISO date for filtering")
     return parser.parse_args()
-
-
-def load_config(path: Path) -> Dict:
-    with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
 
 
 def find_raw_files(spec: SeriesSpec) -> List[Path]:
@@ -162,7 +158,7 @@ def process_series(spec: SeriesSpec, min_ts: Optional[int]) -> CleanResult:
 
 def main() -> None:
     args = parse_args()
-    cfg = load_config(args.conf)
+    cfg = load_yaml_config(args.conf)
     exchange = cfg["exchange"]
     symbols = cfg["symbols"]
     timeframes = cfg["timeframes"]

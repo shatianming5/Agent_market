@@ -9,10 +9,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from agent_market.freqai.model.base import BaseModelAdapter, ModelRegistry, TrainResult
-
-
-def _rmse(preds: np.ndarray, target: np.ndarray) -> float:
-    return float(np.sqrt(np.mean((preds - target) ** 2)))
+from agent_market.freqai.model.metrics import rmse
 
 
 class FeedForwardNet(nn.Module):
@@ -130,7 +127,7 @@ class PyTorchMLPAdapter(BaseModelAdapter):
                 targets_list.append(yb.numpy())
         preds = np.concatenate(preds_list)
         targets = np.concatenate(targets_list)
-        return _rmse(preds, targets)
+        return rmse(preds, targets)
 
 
 ModelRegistry.register(PyTorchMLPAdapter.registry_name, PyTorchMLPAdapter)

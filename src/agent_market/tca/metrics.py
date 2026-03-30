@@ -1,16 +1,12 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from agent_market.utils import as_float
 
-def _as_float(value: Any) -> Optional[float]:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except Exception:
-        return None
+logger = logging.getLogger(__name__)
 
 
 def _safe_add(a: Optional[float], b: Optional[float]) -> Optional[float]:
@@ -38,6 +34,7 @@ def _quantiles(values: Iterable[float]) -> Dict[str, Optional[float]]:
             "p100": float(qs[6]),
         }
     except Exception:
+        logger.debug("numpy percentile failed, using manual fallback", exc_info=True)
         vals.sort()
         n = len(vals)
         return {
@@ -71,12 +68,12 @@ def summarize_trades(trades: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], Dict
 
     for t in trades:
         pair = str(t.get("pair") or "").strip() or "UNKNOWN"
-        pa = _as_float(t.get("profit_abs"))
-        pr = _as_float(t.get("profit_ratio"))
-        dur = _as_float(t.get("trade_duration"))
-        fee_open = _as_float(t.get("fee_open"))
-        fee_close = _as_float(t.get("fee_close"))
-        funding_fees = _as_float(t.get("funding_fees"))
+        pa = as_float(t.get("profit_abs"))
+        pr = as_float(t.get("profit_ratio"))
+        dur = as_float(t.get("trade_duration"))
+        fee_open = as_float(t.get("fee_open"))
+        fee_close = as_float(t.get("fee_close"))
+        funding_fees = as_float(t.get("funding_fees"))
         fees = (fee_open or 0.0) + (fee_close or 0.0) + (funding_fees or 0.0)
 
         if pa is not None:

@@ -14,15 +14,11 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_market import paths  # noqa: E402
+from _lib import resolve_path  # noqa: E402
 
 
 def _ensure_imports() -> None:
     return
-
-
-def _resolve(path: str | Path) -> Path:
-    return paths.resolve_repo_path(path)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -38,11 +34,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     from agent_market.microstructure.lob.rebuild import rebuild_kucoin_lob  # noqa: WPS433
 
     out = rebuild_kucoin_lob(
-        capture_dir=_resolve(args.capture_dir),
-        snapshot_path=_resolve(args.snapshot),
+        capture_dir=resolve_path(args.capture_dir),
+        snapshot_path=resolve_path(args.snapshot),
         symbol=str(args.symbol),
         depth=int(args.depth),
-        out_dir=_resolve(args.out_dir),
+        out_dir=resolve_path(args.out_dir),
     )
     print(f"[lob_rebuild] wrote: {out['lob_state']}")
     print(f"[lob_rebuild] report: {out['report']}")

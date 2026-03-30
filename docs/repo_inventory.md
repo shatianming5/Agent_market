@@ -2,168 +2,79 @@
 
 ## Tree
 
-```
-Agent_market/
-  artifacts/                 # 模型与运行产物（run_meta.json / models / runs/<run_id>）
-  configs/                   # Flow/训练/回测 JSON 配置
-  docs/                      # 文档（plan/experiment/mohu/verify/inventory）
-  freqtrade/                 # Freqtrade 源码（可选本地目录）
-  scripts/                   # CLI（Flow/特征/表达式/训练/回测/TCA/捕获）
-  server/                    # FastAPI 后端（API + Jobs + 结果聚合）
-  src/agent_market/          # 核心业务模块（Flow/FreqAI/FactorCompiler/Microstructure/TCA）
-  tests/                     # pytest（fixture 离线可验收）
-  user_data/                 # 工作区（配置/数据/策略/回测结果/日志/反馈）
-  web/                       # 静态前端（Flow 画布 + 产物检查 + Run History）
-  plan.md                    # Proposal（更大范围的产品/研究计划）
-  README.md
-  requirements*.txt
+```text
+Agent_market-1/
+  analysis/                  # Security/architecture notes (audit only, not runtime)
+  artifacts/                 # Unified output root (models/ + runs/<run_id>/)
+  configs/                   # Agent flow, miner, freqtrade, RL/ML templates
+  data/                      # Supplemental offline data and download scripts
+  docs/                      # Plan/experiment/mohu/verify/real_backtest_material
+  scripts/                   # Flow wrappers, backtest helpers, smoke tests, strategy miner CLIs
+  server/                    # FastAPI job manager + aggregator that wires scripts to HTTP jobs
+  src/                       # `agent_market` package (flow, backtest, runner_fsm) + strategy miner internals
+  tests/                     # pytest suites and fixtures that hit the API and sandboxed flows
+  user_data/                 # Live workspace (data/<exchange>, strategies/, backtest_results/, logs, feedback)
+  web/                       # Frontend static bundle (served by `server/`)
+  Makefile/README+/plan.md/requirements*.txt  # common entry docs/config
 ```
 
 ## Entry Points
 
+- `python scripts/agent_flow.py --config <file> --steps ...`
+  - Orchestrates the capture → expression → ML → backtest → report pipeline described in `plan.md`; every step emits artifacts via `RunArtifacts` and the `flow_ext` handlers before writing `artifacts/runs/<run_id>/run_meta.json`.
+- `python scripts/strategy_miner.py --config configs/strategy_miner_default.json`
+  - Kicks off the full mining state machine (`strategy_miner.runner.run_strategy_miner`) that loops through generation/backtest/evaluation/analysis (planner/coder/reviewer/backtester roles by default).
+- `python scripts/strategy_miner_backtest.py --run-id <run_id> [--candidate <name>]`
+  - Job-manager helper that replays `phase_backtest`/`phase_evaluation` against a saved checkpoint to validate or rank a spot candidate without regenerating others.
 - `uvicorn server.main:app --host 0.0.0.0 --port 8000`
-  - FastAPI 服务入口（会挂载 `web/` 到 `/web`）。
-- `scripts/agent_flow.py`
-  - 端到端编排器（feature → expression → ml → rl → backtest）。
-- `scripts/micro_features.py`
-  - micro_feature 生成（OHLCV mode / microstructure mode）。
-- `scripts/micro_capture.py`
-  - KuCoin 微观结构采集器（fixture 离线回放 / live capture）。
-- `scripts/lob_rebuild.py`
-  - `level2` 增量 + snapshot → 重建 `lob_state.parquet`。
-- `scripts/smoke_test.py`
-  - API 冒烟测试（不跑重任务）。
-- `scripts/e2e_smoke_flow.py`
-  - 端到端冒烟（跑 Flow 并检查关键产物是否落盘）。
-- `scripts/freqtrade_cli.py`
-  - freqtrade CLI wrapper（注入离线 markets，避免 optimize 模式下访问交易所 API）。
-- `scripts/freqai_feature_agent.py`
-  - 生成稳定的特征配置 JSON（供表达式/训练使用）。
-- `scripts/freqai_expression_agent.py`
-  - 表达式生成与因子挖掘（支持 `--mine --top-n`；LLM 可选）。
-- `scripts/train_pipeline.py`
-  - 机器学习训练（LightGBM/XGBoost/CatBoost 等；读取特征/表达式 + feather 数据）。
-- `scripts/factor_compile.py`
-  - FactorSpec → ExpressionEngine 表达式（最小离线编译）。
-- `scripts/factor_eval.py`
-  - 编译表达式的最小离线评测（落盘 `factor_scores.json` + `pareto.csv`）。
-- `scripts/eval_protocol.py`
-  - 最小评测协议（成本入账 + evidence 落盘）。
-- `scripts/tca_report.py`
-  - 从 freqtrade backtest zip 生成 TCA v1 报告（json/html）。
+  - FastAPI service that exposes job submission endpoints, surfaces artifacts, and can enqueue the miner/backtest scripts via `server.jobs`.
+- `pytest -q` / `python scripts/smoke_test.py`
+  - Exercise API fixtures, agent flow endpoints, and the lightweight smoke path described in `scripts/smoke_test.py`.
 
 ## Core Modules
 
 - `src/agent_market/agent_flow.py`
-  - Flow 配置加载与步骤编排；输出统一的 `[FLOW]` 标记日志（服务端可据此估算进度）。
-- `src/agent_market/flow_steps.py`
-  - Flow 的每一步实际执行逻辑（执行脚本/训练/回测；并写回测摘要到 feedback）。
+  - Driver for the configurable pipeline. It hydrates `AgentFlowConfig`, selects requested steps (capture → backtest → report), writes run metadata (`artifacts/runs/<run_id>/run_meta.json`), and resolves artifact paths via `paths.py` and `RunArtifacts`.
+- `src/agent_market/flow_ext/step_dispatch.py` + `src/agent_market/flow_ext/steps.py`
+  - Each pipeline phase (feature/expression/ml/rl/backtest/tca/report/strategy_miner) delegates to `flow_steps` helpers that run freqtrade commands, RL signal prep, TCA, and the miner step; `step_dispatch` wires outputs back into `RunArtifacts` for metadata and feedback writes.
 - `src/agent_market/backtest_results.py`
-  - 解析 `backtest-result-*.zip` 并生成摘要、trades 等结构化结果。
-- `src/agent_market/factor_compiler/`
-  - FactorSpec/DSL（Formula ↔ ExprNode）+ checks + scoring + 编译到 ExpressionEngine。
-- `src/agent_market/freqai/`
-  - 特征、表达式执行引擎、安全 eval、训练管线、RL 环境/训练器。
-- `src/agent_market/microstructure/`
-  - capture / lob_rebuild / features registry（离线 fixture 可验收）。
-- `src/agent_market/tca/`
-  - TCA v1 schema + backtest adapter + report 生成。
-- `server/`
-  - 任务调度与 API 统一入口：
-    - `/run/*`：启动 feature/expression/train/backtest 等任务
-    - `/flow/*`：Flow 启动与进度流（SSE/WS）
-    - `/jobs/*`：任务状态/日志/取消
-    - `/results/*`：结果列表/摘要/聚合/反馈准备
-    - `/settings`：LLM 与默认 timeframe 设置
+  - Reads `backtest-result-*.zip` archives, computes a sanitized summary (profit%, winrate, sharpe/sortino/calmar/profit factor/cagr/max drawdown) and writes `feedback.json` for downstream loops (`write_latest_backtest_summary`).
+- `src/agent_market/strategy_miner/runner.py`
+  - Maintains `MinerState` checkpoints, writes proposals, stitches in the `KnowledgeBase`, and advances the phases defined in `phases.py` until `state.phase == Phase.COMPLETE`.
+- `src/agent_market/strategy_miner/phases.py`
+  - Implements the core feedback loop: `phase_strategy_gen` spins up sandboxed planner/coder/reviewer/backtester agents (parallel when `max_parallel_roles` > 1) and appends candidates; `phase_backtest` runs freqtrade backtesting + repair loops; `phase_evaluation` scores candidates (Sharpe primary, risk gating via min trades/winrate/max drawdown); `phase_analysis` produces LLM explanations, updates history, and increments `state.iteration`/`state.phase` for the next generation.
+- `src/agent_market/strategy_miner/knowledge_base.py`
+  - Persists elite candidates and failure buckets (`KnowledgeBase.add_elite`/`add_failure`) so subsequent iterations can reuse proven code or avoid bad patterns.
+- `src/agent_market/run_artifacts.py` and `src/agent_market/paths.py`
+  - Centralize path resolution for `artifacts/`, `runs/`, `user_data/`, and ensure flow steps and miner share the same roots.
 
 ## Config & Data
 
-- Flow 配置：`configs/agent_flow_kucoin_cpu_nollm.json`（推荐黄金路径）
-- Flow（Factor/Bundle/Capture+LOB）示例：
-  - `configs/agent_flow_factor_smoke.json`
-  - `configs/agent_flow_bundle_smoke.json`
-  - `configs/agent_flow_capture_lob_smoke.json`
-- Freqtrade 配置示例：
-  - `user_data/config_freqai_kucoin.json`
-- 数据目录（feather）：
-  - `user_data/data/<exchange>/<PAIR>-<timeframe>.feather`
-  - 示例：`user_data/data/kucoin/BTC_USDT-1h.feather`
-- 产物与日志（默认落在仓库根目录下）：
-  - Flow 日志：`user_data/agent_logs/agent_flow_*.log`
-  - Job 日志：`user_data/job_logs/<job_id>.log`
-  - 模型摘要：`artifacts/models/**/training_summary.json`
-  - 回测结果：`user_data/backtest_results/backtest-result-*.zip`
-  - 回测摘要（用于下一轮反馈）：`user_data/llm_feedback/latest_backtest_summary.json`
-  - Flow 元信息：`artifacts/run_meta.json`（latest）与 `artifacts/runs/<run_id>/run_meta.json`
-- LLM 环境变量（可选）：
-  - `OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL`
-  - `LLM_BASE_URL / LLM_API_KEY / LLM_MODEL`（优先级更高）
+- Flow configs under `configs/agent_flow_*.json` define which steps run, the freqtrade config to use, and artifact paths; `configs/agent_flow_kucoin_cpu_nollm*.json` are the gold paths referenced in `plan.md`.
+- Strategy miner configs (`configs/strategy_miner_default.json`, `_maxpower.json`, `_recovery.json`) map to `MinerConfig` fields (budget/tool policy/backtest settings) and point to `user_data/config_freqai.json` for freqtrade.
+- Freqtrade/LLM configs: `configs/config_freqai*.json`, `configs/rl_config_real.json`, `configs/ml_config_real.json`, plus `configs/feeds.yaml`/`symbols.yaml` control data sources.
+- `user_data/` stores workspace artifacts:
+  - `data/<exchange>/<pair>-<timeframe>.feather` (OHLCV) used by `scripts` and flow steps.
+  - `strategies/` contains generated/candidate strategy files loaded by freqtrade.
+  - `backtest_results/` holds `backtest-result-*.zip` that `backtest_results.build_backtest_summary` ingests.
+  - `job_logs/`, `logs/`, `llm_feedback/`, `freqai_*` JSONs, and `reports/` accumulate run telemetry and feedback for expression/backtest loops.
+- Environment overrides: `AGENT_MARKET_ARTIFACTS_ROOT`, `AGENT_MARKET_RUNS_ROOT`, `AGENT_MARKET_USER_DATA_ROOT`, and LLM endpoints (`OPENAI_MODEL`/`LLM_MODEL`, `OPENCODE_URL`/`OPENCODE_MODEL`) influence where artifacts land and which providers the miner uses.
 
 ## How To Run
 
-### 安装依赖（本地/CPU）
-
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt -r server/requirements.txt
-```
-
-### 启动服务
-
-```bash
+python scripts/agent_flow.py --config configs/agent_flow_example.json --steps capture expression backtest report
+python scripts/strategy_miner.py --config configs/strategy_miner_default.json
+python scripts/strategy_miner_backtest.py --run-id <run_id> --candidate <name>
 uvicorn server.main:app --host 0.0.0.0 --port 8000
-```
-
-打开前端：`http://127.0.0.1:8000/web/index.html`
-
-### Tests
-
-```bash
 pytest -q
 python scripts/smoke_test.py
 ```
 
-### API 冒烟
-
-```bash
-python scripts/smoke_test.py
-```
-
-### 端到端冒烟（黄金路径）
-
-```bash
-python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
-```
-
 ## Risks / Unknowns
 
-- Full-scale datasets（真实历史 LOB/trades）不在仓库内；部分微观结构/TCA 指标只能以 proxy 或 fixture 方式验收。
-
-或手工分步：
-
-```bash
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps feature
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps expression
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps ml
-python scripts/agent_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json --steps backtest
-```
-
-### Factor / Bundle（最小离线）
-
-```bash
-python scripts/agent_flow.py --config configs/agent_flow_bundle_smoke.json --steps factor_compile factor_eval report
-```
-
-### Capture + LOB（fixture）
-
-```bash
-python scripts/agent_flow.py --config configs/agent_flow_capture_lob_smoke.json --steps capture lob_rebuild
-```
-
-## Risks / Unknowns
-
-- `freqtrade/` 目录会遮蔽 `python -m freqtrade` 的模块导入；回测建议优先使用 `freqtrade` 可执行文件（通常在虚拟环境的 `bin/` 内）。
-- 为保证“离线可复现回测”，本仓库通过 `scripts/freqtrade_cli.py` 注入离线 markets monkeypatch：在 optimize 模式下从 config pairs 合成最小 markets 元数据，避免访问交易所 API。
-- 回测与训练对数据依赖强：`user_data/data/<exchange>` 缺失会导致表达式挖掘与训练失败。
-- LLM 能力完全可选；默认黄金路径不依赖外部 API。
+- `freqtrade` dependencies (ccxt, talib/pandas_ta, pandas) must match `requirements-full.txt`; missing packages break `phase_backtest` before the summary layer can run.
+- Historical OHLCV (`user_data/data/…`) and `user_data/config_freqai.json` need to cover the miner timerange (`configs/.../timerange`), otherwise `phase_backtest` will bail with `backtest.data_missing`.
+- LLM/backtester agents rely on external OpenCode/OpenAI endpoints plus tool allowlists from `configs`; outages or rate limits stall candidate generation/repair.
+- RL signal generation (in `_maybe_generate_rl_signals_for_backtest`/`scripts/rl_generate_signals.py`) adds run-time when enabled and relies on `user_data/freqaimodels/*/training_summary.json` existing.
+- Repair loops in `phase_backtest` (validation/backtest failure → `_repair_candidate`) can replay freqtrade dozens of times per candidate, so candidate count × repairs × RL make iteration latency the main bottleneck.

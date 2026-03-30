@@ -23,9 +23,7 @@ def _ensure_import_paths() -> Path:
 
 ROOT = _ensure_import_paths()
 
-
-def _read_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+from _lib import read_json  # noqa: E402
 
 
 def _infer_feature_file(config_path: Path) -> Path:
@@ -86,12 +84,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     feature_path = Path(args.feature_file) if args.feature_file else _infer_feature_file(cfg_path)
     if not feature_path.is_absolute():
         feature_path = (ROOT / feature_path).resolve()
-    feature_cfg = _read_json(feature_path)
+    feature_cfg = read_json(feature_path)
 
     rl_summary_path = Path(args.rl_summary)
     if not rl_summary_path.is_absolute():
         rl_summary_path = (ROOT / rl_summary_path).resolve()
-    summary = _read_json(rl_summary_path)
+    summary = read_json(rl_summary_path)
     model_path = Path(summary.get("model_path") or "")
     if not model_path.is_absolute():
         model_path = (ROOT / model_path).resolve()

@@ -6,26 +6,9 @@ import numpy as np
 import pandas as pd
 
 from ..api_models import ExprArg, ExprNode
+from ..dsl.ast_utils import literal_int
+from ..fc_utils import safe_float
 from .types import CheckResult, fail, ok
-
-
-def _literal_int(arg: ExprArg) -> Optional[int]:
-    if isinstance(arg, bool) or arg is None:
-        return None
-    if isinstance(arg, int):
-        return int(arg)
-    if isinstance(arg, float) and float(arg).is_integer():
-        return int(arg)
-    if isinstance(arg, ExprNode) and str(arg.op) in {"pos", "neg", "const"}:
-        if not arg.args:
-            return None
-        inner = _literal_int(arg.args[0])
-        if inner is None:
-            return None
-        if str(arg.op) == "neg":
-            return -inner
-        return inner
-    return None
 
 
 def _walk(expr: ExprNode) -> list[ExprNode]:
@@ -48,7 +31,7 @@ def check_no_negative_shift(expr: ExprNode) -> CheckResult:
         args = list(node.args or [])
         if len(args) < 2:
             continue
-        n = _literal_int(args[1])
+        n = literal_int(args[1])
         if n is not None and n < 0:
             return fail(
                 "leakage_shift_test",
@@ -140,7 +123,7 @@ def check_shift_test(
 
     base = _corr_abs(factor, target)
     shifted = _corr_abs(factor.shift(s), target)
-    details = {"shift": int(s), "corr_abs": _safe_float(base), "corr_abs_shifted": _safe_float(shifted), "corr_threshold": float(corr_threshold)}
+    details = {"shift": int(s), "corr_abs": safe_float(base), "corr_abs_shifted": safe_float(shifted), "corr_threshold": float(corr_threshold)}
 
     if np.isfinite(base) and np.isfinite(shifted) and float(base) >= float(corr_threshold) and float(shifted) >= float(corr_threshold):
         return fail(
@@ -150,14 +133,6 @@ def check_shift_test(
             details=details,
         )
     return ok("leakage_shift_test", message="ok", details=details)
-
-
-def _safe_float(value: Any) -> Optional[float]:
-    try:
-        v = float(value)
-    except Exception:
-        return None
-    return v if np.isfinite(v) else None
 
 
 def check_label_leakage_signature(
@@ -181,7 +156,7 @@ def check_label_leakage_signature(
     corrs: list[dict[str, Any]] = []
     for lag in range(-k, k + 1):
         c = _corr_abs(factor.shift(lag), target)
-        corrs.append({"lag": int(lag), "corr_abs": _safe_float(c)})
+        corrs.append({"lag": int(lag), "corr_abs": safe_float(c)})
 
     valid = [(row["lag"], float(row["corr_abs"])) for row in corrs if row.get("corr_abs") is not None]
     if not valid:

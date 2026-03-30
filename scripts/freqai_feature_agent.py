@@ -13,35 +13,7 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 sys.path.insert(0, str(ROOT))
 
-from agent_market import paths  # noqa: E402
-
-
-def _load_json(path: Path) -> Dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
-
-
-def _resolve_path(path: str) -> Path:
-    return paths.resolve_repo_path(path)
-
-
-def _resolve_timeframe(cfg: Dict[str, Any], cli_timeframe: Optional[str]) -> str:
-    if cli_timeframe:
-        return cli_timeframe
-    freqai = cfg.get("freqai") or {}
-    fp = freqai.get("feature_parameters") or {}
-    tfs = fp.get("include_timeframes") or []
-    if isinstance(tfs, list) and tfs and isinstance(tfs[0], str) and tfs[0]:
-        return tfs[0]
-    tf = cfg.get("timeframe")
-    return str(tf) if tf else "1h"
-
-
-def _resolve_label_period(cfg: Dict[str, Any], override: Optional[int]) -> int:
-    if override is not None:
-        return int(override)
-    freqai = cfg.get("freqai") or {}
-    fp = freqai.get("feature_parameters") or {}
-    return int(fp.get("label_period_candles") or 12)
+from _lib import read_json, resolve_label_period, resolve_path, resolve_timeframe  # noqa: E402
 
 
 def _resolve_pairs(cfg: Dict[str, Any], override: Optional[List[str]]) -> List[str]:
@@ -104,15 +76,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--label-period", type=int, default=None, help="Override label horizon in candles.")
     args = parser.parse_args(argv)
 
-    cfg_path = _resolve_path(args.config)
-    cfg = _load_json(cfg_path)
+    cfg_path = resolve_path(args.config)
+    cfg = read_json(cfg_path)
 
     exchange = str((cfg.get("exchange") or {}).get("name") or "unknown")
-    timeframe = _resolve_timeframe(cfg, args.timeframe)
-    label_period = _resolve_label_period(cfg, args.label_period)
+    timeframe = resolve_timeframe(cfg, args.timeframe)
+    label_period = resolve_label_period(cfg, args.label_period)
     pairs = _resolve_pairs(cfg, args.pairs)
 
-    output_path = _resolve_path(args.output)
+    output_path = resolve_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload: Dict[str, Any] = {

@@ -107,8 +107,8 @@ def _resolve_executable(name_or_path: str) -> Optional[str]:
         sibling = Path(sys.executable).with_name(name_or_path)
         if sibling.exists():
             return str(sibling)
-    except Exception:
-        pass
+    except (ValueError, OSError):
+        logger.debug("Failed to check venv sibling for %s", name_or_path)
 
     # Repo-local venv convention (best-effort).
     for cand in [
@@ -212,7 +212,7 @@ def run_rl_training(cfg: Dict[str, Any]) -> None:
         raise ValueError("rl_training.config must be provided as a JSON object")
     logger.info("Starting RL training")
 
-    model_dir = paths.resolve_repo_path((config.get("output") or {}).get("model_dir") or "artifacts/models/rl_real")
+    model_dir = paths.resolve_repo_path((config.get("output") or {}).get("model_dir") or str(paths.models_root() / "rl_real"))
     model_dir.mkdir(parents=True, exist_ok=True)
     config_path = model_dir / "rl_training_config.json"
     config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -227,7 +227,7 @@ def _maybe_generate_rl_signals_for_backtest(cfg: Dict[str, Any]) -> None:
         logger.info("Skipping RL signal generation (generate_rl_signals=false)")
         return
 
-    rl_summary = cfg.get("rl_summary", "artifacts/models/rl_real/training_summary.json")
+    rl_summary = cfg.get("rl_summary", str(paths.models_root() / "rl_real" / "training_summary.json"))
     rl_summary_path = paths.resolve_repo_path(str(rl_summary))
     if not rl_summary_path.exists():
         logger.info("RL summary not found (%s); skipping RL signal generation", rl_summary_path)
@@ -375,7 +375,7 @@ def run_tca(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) -> dict[str, str
     from agent_market.backtest_results import find_latest_backtest_zip  # noqa: WPS433
     from agent_market.tca.report import generate_tca_report  # noqa: WPS433
 
-    results_dir = cfg.get("results_dir") or "user_data/backtest_results"
+    results_dir = cfg.get("results_dir") or str(paths.user_data_root() / "backtest_results")
     zp_override = cfg.get("backtest_zip") or cfg.get("zip")
     if zp_override:
         zip_path = _resolve_path(str(zp_override), cwd=cfg.get("cwd"))
@@ -601,14 +601,15 @@ def run_report_bundle(
             continue
         try:
             p = _resolve_path(str(raw), cwd=cfg.get("cwd"))
-        except Exception:
+        except (ValueError, OSError):
+            logger.debug("Could not resolve artifact path %r, using as-is", raw)
             p = Path(str(raw))
         if not p.exists():
             missing.append({"key": str(key), "path": str(raw)})
             continue
         try:
             arc = str(p.resolve().relative_to(REPO_ROOT.resolve()))
-        except Exception:
+        except ValueError:
             arc = p.name
         included.append({"key": str(key), "path": str(p), "arcname": arc})
 
@@ -647,6 +648,34 @@ def run_report_bundle(
     return {"bundle_zip": str(bundle_zip), "bundle_manifest": str(manifest_path)}
 
 
+def run_strategy_miner_step(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) -> dict[str, str]:
+    """Run strategy miner as a flow step."""
+    from agent_market.strategy_miner.dtypes import MinerConfig  # noqa: WPS433
+    from agent_market.strategy_miner.runner import run_strategy_miner  # noqa: WPS433
+
+    miner_cfg = MinerConfig.from_dict(cfg)
+
+    resume_path = cfg.get("resume")
+    resume = Path(resume_path) if resume_path else None
+
+    state = run_strategy_miner(miner_cfg, run_id=run_id, resume=resume)
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = out_dir / "strategy_miner_summary.json"
+    summary_path.write_text(
+        json.dumps(state.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    return {
+        "strategy_miner_summary": str(summary_path),
+        "run_id": state.run_id,
+        "best_score": str(state.best_score),
+        "best_strategy": state.best_candidate.name if state.best_candidate else "",
+    }
+
+
 __all__ = [
     "run_backtest",
     "run_command",
@@ -662,4 +691,5 @@ __all__ = [
     "run_capture",
     "run_lob_rebuild",
     "run_report_bundle",
+    "run_strategy_miner_step",
 ]

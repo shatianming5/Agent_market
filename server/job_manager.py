@@ -4,9 +4,13 @@ import logging
 import subprocess
 import threading
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Deque, Dict, List, Optional
+
+# Maximum number of log lines kept in memory per job.
+LOG_RING_SIZE = 5000
 
 
 @dataclass
@@ -16,7 +20,8 @@ class Job:
     cwd: Optional[Path] = None
     env: Optional[dict] = None
     process: Optional[subprocess.Popen] = None
-    logs: List[str] = field(default_factory=list)
+    logs: Deque[str] = field(default_factory=lambda: deque(maxlen=LOG_RING_SIZE))
+    total_lines: int = 0  # monotonic counter — survives ring eviction
     returncode: Optional[int] = None
     running: bool = False
     logfile: Optional[Path] = None
@@ -62,6 +67,7 @@ class JobManager:
                     text = line.rstrip("\n")
                     with self._lock:
                         job.logs.append(text)
+                        job.total_lines += 1
                     if f:
                         try:
                             f.write(text + "\n")
@@ -90,6 +96,7 @@ class JobManager:
                         if job.running and job.process and job.process.poll() is None:
                             try:
                                 job.logs.append('[job] timeout reached, terminating')
+                                job.total_lines += 1
                                 job.process.terminate()
                             except Exception as _exc:
                                 logging.getLogger(__name__).debug("Suppressed: %s", _exc)
@@ -105,25 +112,48 @@ class JobManager:
                 "cmd": job.cmd,
                 "running": job.running,
                 "returncode": job.returncode,
-                "lines": len(job.logs),
+                "lines": job.total_lines,
                 "status": ("running" if job.running else ("completed" if job.returncode is not None else "pending")),
                 "code": (None if job.returncode is None else ("OK" if job.returncode == 0 else "SCRIPT_FAILED")),
                 "kind": job.kind,
                 "meta": job.meta,
             }
 
-    def logs(self, job_id: str, offset: int = 0) -> dict:
+    def logs(self, job_id: str, offset: int = 0, limit: int = 0) -> dict:
+        """Return log lines starting from *offset* (global line number).
+
+        *limit* caps the number of returned lines (0 = unlimited).
+        When the ring buffer has evicted old lines, the earliest available
+        offset is ``total_lines - len(logs)``; if the caller's offset is
+        below that, a ``truncated`` flag is set and reading starts from the
+        earliest available line.
+        """
         job = self._jobs.get(job_id)
         if not job:
             return {"error": "job not found"}
         with self._lock:
-            total = len(job.logs)
-            start = max(0, min(offset, total))
-            chunk = job.logs[start:]
-            return {
+            buf = job.logs  # deque
+            buf_len = len(buf)
+            total = job.total_lines
+            earliest = total - buf_len  # first global index still in buffer
+
+            truncated = False
+            if offset < earliest:
+                offset = earliest
+                truncated = True
+
+            # Convert global offset to local index within deque.
+            local_start = offset - earliest
+            if limit > 0:
+                chunk = list(buf)[local_start : local_start + limit]
+            else:
+                chunk = list(buf)[local_start:]
+
+            result: dict = {
                 "id": job.id,
-                "offset": start,
-                "next": start + len(chunk),
+                "offset": offset,
+                "next": offset + len(chunk),
+                "total_lines": total,
                 "running": job.running,
                 "returncode": job.returncode,
                 "status": ("running" if job.running else ("completed" if job.returncode is not None else "pending")),
@@ -132,6 +162,9 @@ class JobManager:
                 "meta": job.meta,
                 "logs": chunk,
             }
+            if truncated:
+                result["truncated"] = True
+            return result
 
     def cancel(self, job_id: str) -> dict:
         job = self._jobs.get(job_id)
@@ -142,6 +175,7 @@ class JobManager:
                 try:
                     job.process.terminate()
                     job.logs.append('[job] cancelled by user')
+                    job.total_lines += 1
                     job.running = False
                     return {"status": "terminated"}
                 except Exception as exc:

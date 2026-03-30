@@ -6,15 +6,9 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-logger = logging.getLogger(__name__)
+from agent_market.utils import as_float
 
-def _as_float(value: Any) -> Optional[float]:
-    try:
-        if value is None:
-            return None
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+logger = logging.getLogger(__name__)
 
 
 def _as_int(value: Any) -> Optional[int]:
@@ -82,14 +76,14 @@ def build_backtest_summary(zip_path: Path) -> Dict[str, Any]:
     if profit_total_pct is None and comparison_row is not None:
         profit_total_pct = comparison_row.get("profit_total_pct")
     if profit_total_pct is None:
-        profit_total_pct = _as_float(strategy_metrics.get("profit_total"))
+        profit_total_pct = as_float(strategy_metrics.get("profit_total"))
         profit_total_pct = profit_total_pct * 100.0 if profit_total_pct is not None else None
 
     avg_profit_pct = strategy_metrics.get("profit_mean_pct")
     if avg_profit_pct is None and comparison_row is not None:
         avg_profit_pct = comparison_row.get("profit_mean_pct")
     if avg_profit_pct is None:
-        avg_profit_pct = _as_float(strategy_metrics.get("profit_mean"))
+        avg_profit_pct = as_float(strategy_metrics.get("profit_mean"))
         avg_profit_pct = avg_profit_pct * 100.0 if avg_profit_pct is not None else None
 
     trades_count = _trades_count(strategy_metrics)
@@ -102,15 +96,42 @@ def build_backtest_summary(zip_path: Path) -> Dict[str, Any]:
     max_drawdown_abs = strategy_metrics.get("max_drawdown_abs")
     if max_drawdown_abs is None and comparison_row is not None:
         max_drawdown_abs = comparison_row.get("max_drawdown_abs")
+    # Backtest duration in days (for trades_per_day)
+    _trades_per_day = None
+    if trades_count is not None:
+        _dur = as_float(strategy_metrics.get("backtest_days"))
+        if _dur and _dur > 0:
+            _trades_per_day = round(trades_count / _dur, 4)
+
     return {
         "source": zip_path.name,
         "strategy": strategy_name,
-        "profit_total_pct": _as_float(profit_total_pct),
-        "profit_total_abs": _as_float(strategy_metrics.get("profit_total_abs")),
+        "profit_total_pct": as_float(profit_total_pct),
+        "profit_total_abs": as_float(strategy_metrics.get("profit_total_abs")),
         "trades": trades_count,
-        "avg_profit_pct": _as_float(avg_profit_pct),
-        "winrate": _as_float(winrate),
-        "max_drawdown_abs": _as_float(max_drawdown_abs),
+        "avg_profit_pct": as_float(avg_profit_pct),
+        "winrate": as_float(winrate),
+        "max_drawdown_abs": as_float(max_drawdown_abs),
+        # Professional quant metrics (freqtrade native)
+        "sharpe": as_float(strategy_metrics.get("sharpe")),
+        "sortino": as_float(strategy_metrics.get("sortino")),
+        "calmar": as_float(strategy_metrics.get("calmar")),
+        "profit_factor": as_float(strategy_metrics.get("profit_factor")),
+        "expectancy": as_float(strategy_metrics.get("expectancy")),
+        "expectancy_ratio": as_float(strategy_metrics.get("expectancy_ratio")),
+        "sqn": as_float(strategy_metrics.get("sqn")),
+        "cagr": as_float(strategy_metrics.get("cagr")),
+        "max_drawdown_account": as_float(strategy_metrics.get("max_drawdown_account")),
+        "trades_per_day": _trades_per_day,
+        "max_consecutive_wins": _as_int(strategy_metrics.get("max_consecutive_wins")),
+        "max_consecutive_losses": _as_int(strategy_metrics.get("max_consecutive_losses")),
+        "holding_avg_s": as_float(strategy_metrics.get("holding_avg_s")),
+        "draw_days": _as_int(strategy_metrics.get("draw_days")),
+        "winning_days": _as_int(strategy_metrics.get("winning_days")),
+        "losing_days": _as_int(strategy_metrics.get("losing_days")),
+        "profit_median": as_float(strategy_metrics.get("profit_median")),
+        "market_change": as_float(strategy_metrics.get("market_change")),
+        # Context
         "best_pair": strategy_metrics.get("best_pair", {}).get("key"),
         "worst_pair": strategy_metrics.get("worst_pair", {}).get("key"),
         "backtest_timerange": f"{strategy_metrics.get('backtest_start')} -> {strategy_metrics.get('backtest_end')}",
@@ -130,6 +151,7 @@ def read_backtest_trades(zip_path: Path) -> Optional[Any]:
                 return None
             return json.loads(zf.read(trade_members[0]))
     except Exception:
+        logger.warning("Failed to read backtest trades from %s", zip_path, exc_info=True)
         return None
 
 

@@ -17,8 +17,8 @@ def job_status(job_id: str):
 
 
 @router.get("/jobs/{job_id}/logs")
-def job_logs(job_id: str, offset: int = 0):
-    res = jobs.logs(job_id, offset)
+def job_logs(job_id: str, offset: int = 0, limit: int = 0):
+    res = jobs.logs(job_id, offset, limit=limit)
     if isinstance(res, dict) and res.get("error"):
         return error("JOB_NOT_FOUND", str(res.get("error")))
     return res
