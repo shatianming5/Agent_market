@@ -222,8 +222,9 @@ class GatePipeline:
             lookback = p.get("lookback")
             entry_z = p.get("entry_z")
             exit_z = p.get("exit_z")
-        except Exception:
-            pass
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).debug("Could not extract pairs config from %s: %s", path, exc)
 
         # If strategy provides an explicit pair, use it first.
         candidates = []

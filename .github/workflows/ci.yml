@@ -15,6 +15,9 @@ jobs:
     name: smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +25,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install deps (minimal)
@@ -35,8 +38,8 @@ jobs:
       - name: Run API smoke script
         run: python scripts/smoke_test.py
 
-      - name: Run pytest (API smoke)
-        run: pytest -q tests/test_api_smoke.py tests/test_no_bom.py
+      - name: Run pytest (API smoke + security + gates)
+        run: pytest -q tests/test_api_smoke.py tests/test_no_bom.py tests/test_security_and_gates.py
 
   e2e-flow:
     name: e2e-flow-smoke

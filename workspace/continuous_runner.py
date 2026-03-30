@@ -176,6 +176,8 @@ class ContinuousRunner:
                     stop_on_fail=True,
                 )
             except Exception as exc:
+                import logging
+                logging.getLogger(__name__).warning("Gate validation failed for %s: %s", name, exc)
                 continue
 
             passed_gate3 = result.get("final_gate_passed") == "gate_3"

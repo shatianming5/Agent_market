@@ -52,8 +52,8 @@ def create_app() -> FastAPI:
     # Static web UI (optional)
     try:
         app.mount("/web", StaticFiles(directory=str(ROOT / "web")), name="web")
-    except Exception:
-        pass
+    except (FileNotFoundError, RuntimeError):
+        pass  # web/ dir may not exist in headless/workspace mode
 
     app.include_router(root_router)
     app.include_router(settings_router)

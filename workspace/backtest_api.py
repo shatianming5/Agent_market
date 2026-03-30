@@ -208,8 +208,9 @@ def run_backtest(
     if effective_config != config_path and effective_config.exists():
         try:
             effective_config.unlink()
-        except Exception:
-            pass
+        except OSError as exc:
+            import logging
+            logging.getLogger(__name__).debug("Failed to clean temp config: %s", exc)
 
     return result
 
