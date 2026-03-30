@@ -1,56 +1,45 @@
-# Auto Review Log
+# Auto Review Log — Final Score: 8/10
+
+## Reviewer: gpt-5.4 via Codex MCP (reasoning: xhigh)
 
 ## Score Progression
+| Round | Score | Key Fix |
+|-------|-------|---------|
+| 1 | 5/10 | Initial review |
+| 2 | 5/10 | exec() removed, CORS fixed |
+| 3 | 6/10 | Auth extended, ws cleanup |
+| 4 | 6/10 | Auth factory, OPTIONS |
+| 5 | 7/10 | All critical fixed |
+| 6 | 7/10 | Gate centralization, 6 tests, deps |
+| 7 | 7/10 | Request-time auth, README |
+| 8 | 7.5/10 | Types, 12 more exceptions, CI |
+| 9 | 7.5/10 | evaluator BacktestResult, run_id |
+| **10** | **8/10** | **path relative_to containment** |
 
-| Round | Score | Verdict | Key Changes |
-|-------|-------|---------|-------------|
-| 1 | 5/10 | not ready | Initial: exec(), no auth, wrong terminology |
-| 2 | 5/10 | not ready | Removed exec(), CORS fix, terminology |
-| 3 | 6/10 | almost (local) | Auth extended, ws cleanup (-18K lines) |
-| 4 | 6/10 | almost | Auth factory, OPTIONS bypass |
-| 5 | 7/10 | almost ready | All critical fixed |
-| 6 | 7/10 | almost ready | Architecture: gate centralization, 6 new tests, deps pinned |
-| 7 | **7/10** | **ready (local)** | Request-time auth, README docs |
+## Final Scores
+| Dimension | Score |
+|-----------|-------|
+| Testing | 8 |
+| Documentation | 8 |
+| Code Quality | 7 |
+| Architecture | 7 |
+| Security | 7 |
+| API Design | 7 |
+| Domain Quality | 7 |
+| DevOps/CI | 7 |
+| Error Handling | 6 |
+| Performance | 6 |
+| Type Safety | 6 |
+| Dependencies | 6 |
 
-## Dimension Scores (Final — Round 7)
-
-| Dimension | Score | Trend |
-|-----------|-------|-------|
-| Code Quality | 7 | ✅ stable |
-| Architecture | 7 | ✅ ↑↑ (was 5) |
-| Security | 7 | ✅ ↑↑ (was 3) |
-| Testing | 6 | ⬆ (was 5, +6 tests) |
-| Error Handling | 5 | — |
-| Performance | 5 | — |
-| Type Safety | 6 | — |
-| API Design | 7 | ✅ |
-| Documentation | 8 | ✅ best |
-| Dependencies | 5 | ⬆ (was 4) |
-| DevOps/CI | 5 | — |
-| Domain Quality | 7 | ✅ ↑↑ (was 4) |
-
-## Critical Issues Fixed (4/4)
-- [x] exec() in gate_pipeline.py → AST-only
-- [x] CORS allow_origins=["*"] → env-configured
-- [x] "market-neutral" → "relative-value (spot)"
-- [x] Server bind 0.0.0.0 → 127.0.0.1
-
-## Important Issues Fixed (12/15)
-- [x] API key auth for /run + /flow/run
-- [x] Auth inside create_app() factory
-- [x] OPTIONS preflight bypass
-- [x] Request-time auth (not import-time)
-- [x] Gate 4/5 not auto-claimed
-- [x] Backtest zip time-filtered
-- [x] Stale ws copies removed
-- [x] continuous_runner routes through gate_pipeline
-- [x] 6 regression tests added
-- [x] Major deps pinned
-- [x] README auth docs
-- [x] signal_validator domain clarification
-- [ ] Error handling: broad catches remain
-- [ ] CI: version mismatch + new tests not in CI
-- [ ] paths.py: absolute path sandboxing
-
-## Reviewer
-gpt-5.4 via Codex MCP, 7 rounds, model_reasoning_effort: xhigh
+## Fixed: 4 Critical + 20 Important
+- exec() injection → AST-only parsing
+- CORS wildcard → env-configured origins
+- No auth → API key middleware (request-time, header-only)
+- Path traversal → relative_to containment
+- Gate centralization (continuous_runner → gate_pipeline)
+- 28 → 3 silent exceptions (typed: SyntaxError, JSONDecodeError)
+- 0 → 18 regression tests in CI (Python 3.11+3.13 matrix)
+- constraints.txt consumed by CI + README
+- Typed models (BacktestResult) adopted in evaluator
+- Run-scoped artifact IDs
