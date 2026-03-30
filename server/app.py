@@ -51,8 +51,8 @@ _API_KEY = _os.environ.get("AGENT_MARKET_API_KEY", "")
 
 @app.middleware("http")
 async def auth_middleware(request, call_next):
-    if _API_KEY and request.url.path.startswith("/run"):
-        key = request.headers.get("X-API-Key", request.query_params.get("api_key", ""))
+    if _API_KEY and (request.url.path.startswith("/run") or request.url.path.startswith("/flow/run")):
+        key = request.headers.get("X-API-Key", "")
         if key != _API_KEY:
             from starlette.responses import JSONResponse
             return JSONResponse({"error": "unauthorized"}, status_code=401)

@@ -1,0 +1,91 @@
+{
+  "strategy": "/Users/shatianming/Downloads/Agent_market/strategies/type_C_pairs/ada_avax_z30_pairs.py",
+  "strategy_type": "C_pairs",
+  "timestamp": "2026-03-30T09:10:06.638195+00:00",
+  "gates": {
+    "gate_1": {
+      "gate": "gate_1",
+      "passed": true,
+      "metrics": {
+        "ic": 0.0434,
+        "hit_rate": 0.546,
+        "ic_stability": 0.4022,
+        "n_signals": 9478,
+        "n_samples": 9478,
+        "pair": "DOGE/USDT/SOL/USDT",
+        "params": {
+          "lookback": 80,
+          "entry_z": 3.0,
+          "forward_bars": 24
+        }
+      },
+      "failures": []
+    },
+    "gate_2": {
+      "gate": "gate_2",
+      "passed": true,
+      "metrics": {
+        "sharpe": 0.7150270686727145,
+        "max_drawdown_pct": 10.955532003773326,
+        "trades": 34,
+        "win_rate": 0.5588235294117647,
+        "profit_factor": 1.109815808206727,
+        "profit_pct": 10.98158082067271,
+        "pair": "DOGE/USDT/SOL/USDT",
+        "cost_model": "taker_10bps"
+      },
+      "failures": []
+    },
+    "gate_3": {
+      "gate": "gate_3",
+      "passed": true,
+      "metrics": {
+        "n_windows": 4,
+        "n_successful": 4,
+        "mean_sharpe": 0.9031617815767647,
+        "pct_profitable": 0.75,
+        "mean_profit": 5.298450951642397,
+        "pair": "DOGE/USDT/SOL/USDT",
+        "params": {
+          "lookback": 80,
+          "entry_z": 3.0,
+          "exit_z": 0.5,
+          "taker_bps": 10.0
+        },
+        "windows": [
+          {
+            "window_id": 1,
+            "profit_pct": 5.95977652137214,
+            "sharpe": 2.334898444357205,
+            "max_dd_pct": 2.024670065789489,
+            "trades": 6
+          },
+          {
+            "window_id": 2,
+            "profit_pct": 2.6389649972810236,
+            "sharpe": 1.1504155558374847,
+            "max_dd_pct": 3.0373156280381157,
+            "trades": 4
+          },
+          {
+            "window_id": 3,
+            "profit_pct": 18.18269105027572,
+            "sharpe": 3.3891809293854522,
+            "max_dd_pct": 1.3652651817456345,
+            "trades": 10
+          },
+          {
+            "window_id": 4,
+            "profit_pct": -5.587628762359298,
+            "sharpe": -3.261847803273083,
+            "max_dd_pct": 5.5876287623592935,
+            "trades": 3
+          }
+        ]
+      },
+      "failures": []
+    }
+  },
+  "final_gate_passed": "gate_3",
+  "recommendation": "APPROVED for paper trading (Gate 4)"
+}

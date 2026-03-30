@@ -1,6 +1,6 @@
 """Gate Pipeline — automated stage-gate validation for strategies.
 
-Runs a strategy through Gate 1 → Gate 2 → Gate 3 → Gate 4 automatically.
+Runs a strategy through Gate 1 → Gate 2 → Gate 3 automatically (Gate 4-5 are manual).
 Each gate has quantitative pass/fail criteria defined in sop.json.
 
 Usage:

@@ -52,7 +52,7 @@ class PairsBacktestResult:
 
 
 class PairsEngine:
-    """Spot relative-value pairs engine (NOT relative-value)."""
+    """Spot relative-value pairs engine (NOT market-neutral hedged)."""
 
     def __init__(
         self,

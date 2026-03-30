@@ -48,5 +48,186 @@
       "notes": "shorter lookback test",
       "source": "manual"
     }
+  ],
+  "doge_sol": [
+    {
+      "version": 1,
+      "timestamp": "2026-03-30T10:21:23.787537+00:00",
+      "params": {
+        "lookback": 80,
+        "entry_z": 3.0,
+        "exit_z": 0.5
+      },
+      "param_hash": "2f8f6567ca6e",
+      "metrics": {
+        "sharpe": 0.72,
+        "profit": 10.98
+      },
+      "notes": "original best",
+      "source": "manual"
+    },
+    {
+      "version": 2,
+      "timestamp": "2026-03-30T10:21:23.788054+00:00",
+      "params": {
+        "lookback": 80,
+        "entry_z": 3.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "4335d3c496af",
+      "metrics": {
+        "sharpe": -4.221166937207106,
+        "profit_pct": -0.5030775716694857,
+        "trades": 1,
+        "win_rate": 0.0
+      },
+      "notes": "adaptive recalibration",
+      "source": "manual"
+    },
+    {
+      "version": 3,
+      "timestamp": "2026-03-30T10:21:23.788177+00:00",
+      "params": {
+        "lookback": 60,
+        "entry_z": 2.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "5799bb52ce6c",
+      "metrics": {
+        "sharpe": 0.5,
+        "profit": 5.0
+      },
+      "notes": "manual test",
+      "source": "manual"
+    },
+    {
+      "version": 4,
+      "timestamp": "2026-03-30T10:21:23.788345+00:00",
+      "params": {
+        "lookback": 80,
+        "entry_z": 3.0,
+        "exit_z": 0.5
+      },
+      "param_hash": "2f8f6567ca6e",
+      "metrics": {},
+      "notes": "rollback to v1",
+      "source": "rollback"
+    }
+  ],
+  "pairs_DOGE_SOL": [
+    {
+      "version": 1,
+      "timestamp": "2026-03-30T10:23:40.195419+00:00",
+      "params": {
+        "lookback": 120,
+        "entry_z": 2.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "10087da01c89",
+      "metrics": {
+        "sharpe": -4.851400188926187,
+        "profit_pct": -1.4397356309536535,
+        "trades": 1,
+        "win_rate": 0.0
+      },
+      "notes": "cycle_1 recalibration",
+      "source": "adaptive"
+    }
+  ],
+  "pairs_ADA_AVAX": [
+    {
+      "version": 1,
+      "timestamp": "2026-03-30T10:23:41.319065+00:00",
+      "params": {
+        "lookback": 60,
+        "entry_z": 2.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "5799bb52ce6c",
+      "metrics": {
+        "sharpe": -8.346486879276846,
+        "profit_pct": -5.522936127689915,
+        "trades": 3,
+        "win_rate": 0.0
+      },
+      "notes": "cycle_1 recalibration",
+      "source": "adaptive"
+    }
+  ],
+  "DOGE_SOL": [
+    {
+      "version": 1,
+      "timestamp": "2026-03-30T10:25:57.674814+00:00",
+      "params": {
+        "lookback": 120,
+        "entry_z": 2.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "10087da01c89",
+      "metrics": {
+        "sharpe": -4.59005305296482,
+        "profit_pct": -1.843026218023569,
+        "trades": 1,
+        "win_rate": 0.0
+      },
+      "notes": "cycle 1",
+      "source": "adaptive"
+    },
+    {
+      "version": 2,
+      "timestamp": "2026-03-30T10:26:03.750395+00:00",
+      "params": {
+        "lookback": 80,
+        "entry_z": 3.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "4335d3c496af",
+      "metrics": {
+        "sharpe": -4.720608502958562,
+        "profit_pct": -0.5030775716694857,
+        "trades": 1,
+        "win_rate": 0.0
+      },
+      "notes": "cycle 2",
+      "source": "adaptive"
+    }
+  ],
+  "ADA_AVAX": [
+    {
+      "version": 1,
+      "timestamp": "2026-03-30T10:25:58.763477+00:00",
+      "params": {
+        "lookback": 60,
+        "entry_z": 2.5,
+        "exit_z": 0.7
+      },
+      "param_hash": "5799bb52ce6c",
+      "metrics": {
+        "sharpe": -7.394219136646619,
+        "profit_pct": -5.19065573816725,
+        "trades": 4,
+        "win_rate": 0.25
+      },
+      "notes": "cycle 1",
+      "source": "adaptive"
+    },
+    {
+      "version": 2,
+      "timestamp": "2026-03-30T10:26:11.592253+00:00",
+      "params": {
+        "lookback": 80,
+        "entry_z": 3.0,
+        "exit_z": 0.5
+      },
+      "param_hash": "2f8f6567ca6e",
+      "metrics": {
+        "sharpe": 3.849547518399175,
+        "profit_pct": 0.7674311926605615,
+        "trades": 1,
+        "win_rate": 1.0
+      },
+      "notes": "cycle 3",
+      "source": "adaptive"
+    }
   ]
 }
