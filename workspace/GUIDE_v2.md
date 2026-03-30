@@ -150,3 +150,27 @@ reports/                # 日报/周报
   ❌ 不验证就声称策略有效
   ❌ 上线决定 (Gate 5 需要人类审批)
 ```
+
+## Freqtrade 策略库（已验证，可直接使用）
+
+所有策略都是真正的 freqtrade IStrategy，已通过 L2 回测引擎验证。
+
+### 使用方式
+1. **复制并修改**：`cp freqtrade_pairs_doge_sol.py freqtrade_pairs_xxx_yyy.py`
+2. **生成配置**：`from freqtrade_config_gen import generate_config`
+3. **回测**：`python3 ../scripts/freqtrade_cli.py backtesting --strategy MyStrategy`
+
+### 可用策略
+
+| 文件 | 类型 | freqtrade 验证 | 关键技术 |
+|------|------|---------------|---------|
+| `type_A_trend/template_ema_cross.py` | 趋势 | ✅ 604 trades | EMA crossover |
+| `type_B_meanrev/template_rsi_bb.py` | 均值回归 | ✅ 260 trades | RSI + BB |
+| `type_C_pairs/freqtrade_pairs_doge_sol.py` | 配对 | ✅ +0.46% | informative_pairs + zscore |
+| `type_C_pairs/freqtrade_pairs_ada_avax.py` | 配对 | ✅ 35 trades | informative_pairs + zscore |
+| `type_D_momentum/freqtrade_basket_momentum.py` | 篮子 | ✅ 1162 trades | 9品种 cross-sectional rank |
+| `type_F_ml/freqtrade_ml_strategy.py` | ML | ✅ +5.52% | 加载 LightGBM 预测 |
+| `type_F_ml/freqtrade_dl_strategy.py` | DL | ✅ 245 trades | 加载 PyTorch .pt |
+| `type_F_ml/freqtrade_rl_strategy.py` | RL | ✅ 可运行 | 加载任何模型 |
+
+详细模板和代码参考：`FREQTRADE_TEMPLATES.md`

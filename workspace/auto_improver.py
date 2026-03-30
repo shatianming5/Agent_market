@@ -278,10 +278,12 @@ Enter when prediction > threshold. You can use lightgbm or pickle models.""",
             from freqtrade.strategy import IStrategy
         """).strip()
 
-        user = f"Analysis of previous strategies:\n{analysis}\n\n"
+        user = f"Analysis:\n{analysis[:1500]}\n\n"
+        # Only include short reference (first 50 lines max) to avoid timeout
         if reference_code:
-            user += f"Current best strategy for reference:\n```python\n{reference_code}\n```\n\n"
-        user += f"Write a NEW and IMPROVED strategy class named {strategy_name}. Focus on the weaknesses identified in the analysis."
+            short_ref = "\n".join(reference_code.split("\n")[:50])
+            user += f"Reference (truncated):\n```python\n{short_ref}\n```\n\n"
+        user += f"Write strategy class named {strategy_name}."
 
         code = self._llm_call(system, user, temperature=0.4)
 
