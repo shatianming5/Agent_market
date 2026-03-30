@@ -98,7 +98,8 @@ def run_backtest(
         Each run is tagged with a unique run_id for artifact attribution.
     """
     import time as _time
-    run_id = f"bt_{int(_time.time())}_{id(strategy_path) % 10000:04d}"
+    _backtest_launch_time = _time.time()
+    run_id = f"bt_{int(_backtest_launch_time)}_{id(strategy_path) % 10000:04d}"
 
     strategy_path = Path(strategy_path).resolve()
     if not strategy_path.exists():
@@ -173,10 +174,10 @@ def run_backtest(
         error_msg = "\n".join(error_lines[-5:]) if error_lines else f"exit code {proc.returncode}"
         return {"ok": False, "error": error_msg, "stderr": stderr[-2000:]}
 
-    # Find backtest result zip created AFTER we started the backtest
-    # This avoids misattributing a stale zip from a concurrent/previous run.
+    # Find backtest result zip created AFTER we started the backtest.
+    # Use precise start time recorded before subprocess launch.
     import time as _time
-    backtest_start_time = _time.time() - 300  # allow up to 5 min
+    backtest_start_time = _backtest_launch_time - 5  # 5s buffer before launch
     results_dir = ROOT / "user_data" / "backtest_results"
     zips = [
         p for p in results_dir.glob("backtest-result-*.zip")

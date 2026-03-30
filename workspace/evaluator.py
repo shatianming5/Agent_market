@@ -100,6 +100,9 @@ def evaluate(
             "suggestions": [str],
         }
     """
+    # Support both Dict and BacktestResult
+    if hasattr(result, "to_dict"):
+        result = result.to_dict()
     if not result.get("ok"):
         return {
             "total_score": 0,
