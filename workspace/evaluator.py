@@ -4,10 +4,16 @@ Usage:
     from workspace.evaluator import evaluate
     score = evaluate(backtest_result)
     # score = {"total_score": 72.5, "grade": "B", "details": {...}, "suggestions": [...]}
+
+Accepts both Dict[str, Any] and workspace.types.BacktestResult.
 """
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from workspace.types import BacktestResult
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -76,7 +82,7 @@ def _metric_key_map() -> Dict[str, str]:
 
 
 def evaluate(
-    result: Dict[str, Any],
+    result: "Dict[str, Any] | BacktestResult",
     objectives_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Evaluate a backtest result against multi-objective targets.

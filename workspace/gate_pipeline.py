@@ -260,7 +260,8 @@ class GatePipeline:
                     "profit_pct": bt.profit_pct,
                     "pair": f"{a}/{b}",
                 }
-            except Exception:
+            except Exception as _exc:
+                import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
                 continue
         return {"error": "no valid pair found"}
 

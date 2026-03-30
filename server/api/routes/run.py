@@ -105,7 +105,8 @@ def _detect_kucoin_level2_sequence_gaps(
                 continue
             try:
                 msg = json.loads(s)
-            except Exception:
+            except Exception as _exc:
+                import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
                 continue
             if not isinstance(msg, dict) or msg.get("type") != "message":
                 continue
@@ -117,7 +118,8 @@ def _detect_kucoin_level2_sequence_gaps(
             try:
                 seq_start_i = int(seq_start)
                 seq_end_i = int(seq_end)
-            except Exception:
+            except Exception as _exc:
+                import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
                 continue
             if last_seq is not None and seq_start_i != last_seq + 1:
                 gaps.append({"expected_start": last_seq + 1, "got_start": seq_start_i, "got_end": seq_end_i})

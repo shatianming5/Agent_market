@@ -95,7 +95,11 @@ def run_backtest(
 
     Returns:
         Dict with "ok": True and metrics, or "ok": False and "error" string.
+        Each run is tagged with a unique run_id for artifact attribution.
     """
+    import time as _time
+    run_id = f"bt_{int(_time.time())}_{id(strategy_path) % 10000:04d}"
+
     strategy_path = Path(strategy_path).resolve()
     if not strategy_path.exists():
         return {"ok": False, "error": f"strategy file not found: {strategy_path}"}
@@ -198,10 +202,11 @@ def run_backtest(
     result["config_path"] = str(config_path.relative_to(ROOT))
     result["timerange"] = timerange
     result["timestamp"] = datetime.now(timezone.utc).isoformat()
+    result["run_id"] = run_id
 
-    # Auto-save to results/
+    # Auto-save to results/ with run_id for unambiguous attribution
     _RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    result_file = _RESULTS_DIR / f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    result_file = _RESULTS_DIR / f"run_{run_id}.json"
     result_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Clean up temp config

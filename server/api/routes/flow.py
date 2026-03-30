@@ -299,7 +299,8 @@ def flow_runs_list(limit: int = 20):
     for meta_path in meta_paths:
         try:
             payload = _jsonmod.loads(meta_path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as _exc:
+            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
             continue
 
         run_id = str(payload.get("run_id") or meta_path.parent.name).strip().lower()
@@ -322,8 +323,8 @@ def flow_runs_list(limit: int = 20):
         ts = _iso_to_epoch(ended_at) or _iso_to_epoch(started_at)
         try:
             ts = ts or meta_path.stat().st_mtime
-        except Exception:
-            pass
+        except Exception as _exc:
+            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
 
         try:
             rel_meta_path = str(meta_path.relative_to(root_resolved))
@@ -533,8 +534,8 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                             cur_i = min(max(0, int(cur)), tot_i)
                             epoch_ratio = cur_i / tot_i
                             break
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
                 pct_token = None
                 for raw in raw_lines[max(0, total_lines - 30) :]:
                     m2 = r_pct.search(str(raw))
@@ -543,8 +544,8 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                             v = int(m2.group(1))
                             if 0 <= v <= 100:
                                 pct_token = v / 100.0
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
                 dyn = (
                     epoch_ratio
                     if epoch_ratio is not None
@@ -622,5 +623,5 @@ async def flow_ws(websocket: WebSocket, job_id: str):
     except Exception:
         try:
             await websocket.close()
-        except Exception:
-            pass
+        except Exception as _exc:
+            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)

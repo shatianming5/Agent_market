@@ -30,8 +30,8 @@ def load_dotenv_into_environ(env_path: Path) -> None:
             value = value.strip().strip('"').strip("'")
             if not os.environ.get(key):
                 os.environ[key] = value
-    except Exception:
-        pass
+    except Exception as _exc:
+        import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
 
 
 # Load .env from project root into process env

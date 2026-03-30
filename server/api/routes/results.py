@@ -133,7 +133,8 @@ def results_gallery(results_dir: str = "user_data/backtest_results", limit: int 
             summary["name"] = zp.name
             summary["mtime"] = zp.stat().st_mtime
             items.append(summary)
-        except Exception:
+        except Exception as _exc:
+            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
             continue
     return {"dir": str(rd), "items": items}
 
@@ -169,7 +170,8 @@ def results_bundles_list(limit: int = 20):
                     "size": stat.st_size,
                 }
             )
-        except Exception:
+        except Exception as _exc:
+            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
             continue
     items.sort(key=lambda x: x.get("mtime") or 0, reverse=True)
     return {"items": items[:lim], "count": len(items), "limit": lim}
@@ -205,7 +207,8 @@ def results_aggregate(names: str, results_dir: str = "user_data/backtest_results
                     "trades": s.get("trades"),
                 }
             )
-        except Exception:
+        except Exception as _exc:
+            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
             continue
     if not metrics:
         return error("NO_VALID_INPUTS", "no valid inputs")
