@@ -294,6 +294,12 @@ class MinerConfig:
                 "quick_min_profit_factor",
                 "quick_min_profit_pct",
                 "quick_max_drawdown_pct",
+                "hyperopt_enabled",
+                "hyperopt_epochs",
+                "hyperopt_spaces",
+                "hyperopt_loss",
+                "hyperopt_jobs",
+                "hyperopt_min_trades",
             ):
                 if k in evaluation and k not in d2:
                     d2[k] = evaluation[k]
