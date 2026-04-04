@@ -16,6 +16,7 @@ from .phases import (
     phase_backtest,
     phase_evaluation,
     phase_strategy_gen,
+    phase_train_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,18 +36,71 @@ def _checkpoint_path(miner_dir: Path) -> Path:
 
 
 def _save_checkpoint(state: MinerState, miner_dir: Path) -> None:
-    """Atomic checkpoint write."""
+    """Atomic checkpoint write with fsync for durability."""
+    import os as _os
 
     cp_path = _checkpoint_path(miner_dir)
     cp_path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(state.to_dict(), ensure_ascii=False, indent=2)
     tmp = cp_path.with_suffix(".tmp")
-    tmp.write_text(data, encoding="utf-8")
+    fd = _os.open(str(tmp), _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC)
+    try:
+        _os.write(fd, data.encode("utf-8"))
+        _os.fsync(fd)
+    finally:
+        _os.close(fd)
     tmp.rename(cp_path)
+    # Fsync parent directory to ensure rename is durable
+    try:
+        dir_fd = _os.open(str(cp_path.parent), _os.O_RDONLY)
+        try:
+            _os.fsync(dir_fd)
+        finally:
+            _os.close(dir_fd)
+    except OSError:
+        pass  # Best-effort on platforms that don't support dir fsync
     logger.debug("Checkpoint saved: %s", cp_path)
 
 
 def _load_checkpoint(cp_path: Path) -> MinerState:
+    tmp_path = cp_path.with_suffix(".tmp")
+
+    # Try loading the main checkpoint first
+    if cp_path.exists():
+        try:
+            data = json.loads(cp_path.read_text(encoding="utf-8"))
+            # Clean up orphan .tmp if main checkpoint loads fine
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception:
+                    pass
+            return MinerState.from_dict(data)
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.warning("Main checkpoint corrupt (%s), attempting .tmp recovery", exc)
+
+    # Recover from .tmp if main checkpoint is missing/corrupt
+    if tmp_path.exists():
+        try:
+            data = json.loads(tmp_path.read_text(encoding="utf-8"))
+            logger.info("Recovered checkpoint from orphan .tmp file: %s", tmp_path)
+            # Promote .tmp to main checkpoint
+            tmp_path.rename(cp_path)
+            # Fsync parent directory to ensure promotion is durable
+            try:
+                import os as _os
+                dir_fd = _os.open(str(cp_path.parent), _os.O_RDONLY)
+                try:
+                    _os.fsync(dir_fd)
+                finally:
+                    _os.close(dir_fd)
+            except OSError:
+                pass
+            return MinerState.from_dict(data)
+        except Exception as exc:
+            logger.warning("Failed to recover from .tmp: %s", exc)
+
+    # Fallback: re-raise if we can't load anything
     data = json.loads(cp_path.read_text(encoding="utf-8"))
     return MinerState.from_dict(data)
 
@@ -133,6 +187,30 @@ def run_strategy_miner(
 
     kb = KnowledgeBase(miner_dir / "knowledge_base.json")
 
+    # --- Deep research: run once for new runs, load from file on resume ---
+    _deep_research_result = None
+    dr_path = miner_dir / "deep_research.json"
+    if resume and dr_path.exists():
+        try:
+            import json as _json
+            _deep_research_result = _json.loads(dr_path.read_text(encoding="utf-8"))
+            logger.info("Loaded deep research from %s", dr_path)
+        except Exception as e:
+            logger.warning("Failed to load deep_research.json: %s", e)
+    elif not resume and state.iteration == 0:
+        try:
+            from .deep_research import run_deep_research
+            _deep_research_result = run_deep_research()
+            import json as _json
+            dr_path.write_text(_json.dumps(_deep_research_result, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            logger.info("Deep research saved to %s", dr_path)
+        except Exception as e:
+            logger.warning("Deep research failed (non-fatal): %s", e)
+
+    # Adaptive exploration tracking (P2-1)
+    _stagnation_count = 0
+    _last_best_score = state.best_score
+
     try:
         while state.phase != Phase.COMPLETE:
             logger.info(
@@ -142,10 +220,46 @@ def run_strategy_miner(
             )
 
             if state.phase == Phase.STRATEGY_GEN:
-                phase_strategy_gen(state, config, miner_dir, kb=kb)
+                # Track stagnation
+                if state.best_score <= _last_best_score:
+                    _stagnation_count += 1
+                else:
+                    _stagnation_count = 0
+                    _last_best_score = state.best_score
+
+                # Inject deep research into strategy generation
+                _extra_kw = {}
+
+                if _stagnation_count >= 5:
+                    logger.info("Stagnation detected (%d rounds). Forcing full exploration.", _stagnation_count)
+                    # Force all candidates into explore mode by clearing best code
+                    _extra_kw["strategy_blueprints"] = (
+                        "\n## EXPLORATION MODE (stagnation detected)\n"
+                        "Best score has NOT improved for 5+ rounds. You MUST try a fundamentally "
+                        "different approach. Do NOT reuse EMA/RSI/Keltner patterns from elite archive.\n"
+                    )
+                if _deep_research_result and not _deep_research_result.get("skipped"):
+                    try:
+                        from .deep_research import format_blueprints_for_prompt
+                        from .research import format_paper_insights
+                        bp_str = format_blueprints_for_prompt(
+                            _deep_research_result.get("blueprints", []),
+                            _deep_research_result.get("regime"),
+                        )
+                        paper_str = format_paper_insights(
+                            _deep_research_result.get("literature", {}).get("papers_by_topic", {})
+                        )
+                        _extra_kw["research_insights"] = paper_str
+                        _extra_kw["strategy_blueprints"] = bp_str
+                    except Exception as e:
+                        logger.debug("Research formatting failed: %s", e)
+                phase_strategy_gen(state, config, miner_dir, kb=kb, **_extra_kw)
 
             elif state.phase == Phase.BACKTEST:
                 phase_backtest(state, config, miner_dir, kb=kb)
+
+            elif state.phase == Phase.TRAIN_MODEL:
+                phase_train_model(state, config, miner_dir, kb=kb)
 
             elif state.phase == Phase.EVALUATION:
                 phase_evaluation(state, config, run_dir=miner_dir, kb=kb)

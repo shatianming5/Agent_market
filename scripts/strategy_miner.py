@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/strategy_miner_default.json",
+        default=None,
         help="Path to miner config JSON",
     )
     parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint.json for resuming")
@@ -37,15 +37,42 @@ def main() -> None:
     from agent_market.strategy_miner.dtypes import MinerConfig
     from agent_market.strategy_miner.runner import run_strategy_miner
 
-    # Load config
-    config_path = Path(args.config)
-    if not config_path.is_absolute():
-        config_path = _REPO / config_path
-    if config_path.exists():
+    resume_path = Path(args.resume) if args.resume else None
+    config = None
+
+    def _load_config_from_path(path_like: str | Path | None) -> MinerConfig | None:
+        if not path_like:
+            return None
+        config_path = Path(path_like)
+        if not config_path.is_absolute():
+            config_path = _REPO / config_path
+        if not config_path.exists():
+            logging.warning("Config not found: %s", config_path)
+            return None
         raw = json.loads(config_path.read_text(encoding="utf-8"))
-        config = MinerConfig.from_dict(raw)
-    else:
-        logging.warning("Config not found: %s, using defaults", config_path)
+        logging.info("Loaded config from %s", config_path)
+        return MinerConfig.from_dict(raw)
+
+    if args.config:
+        config = _load_config_from_path(args.config)
+
+    if config is None and resume_path is not None:
+        proposal = resume_path.parent / "proposal.json"
+        if proposal.exists():
+            try:
+                payload = json.loads(proposal.read_text(encoding="utf-8"))
+                proposal_cfg = payload.get("config")
+                if isinstance(proposal_cfg, dict):
+                    config = MinerConfig.from_dict(proposal_cfg)
+                    logging.info("Loaded config from proposal: %s", proposal)
+            except Exception:
+                logging.exception("Failed to load config from proposal: %s", proposal)
+
+    if config is None:
+        config = _load_config_from_path("configs/strategy_miner_default.json")
+
+    if config is None:
+        logging.warning("No valid config found, using MinerConfig defaults")
         config = MinerConfig()
 
     # CLI overrides
@@ -54,12 +81,11 @@ def main() -> None:
     if args.model is not None:
         config.model = args.model
 
-    resume_path = Path(args.resume) if args.resume else None
     state = run_strategy_miner(config, run_id=args.run_id, resume=resume_path)
 
     print(f"\nMining complete: run_id={state.run_id}")
     print(f"  Iterations: {state.iteration}")
-    print(f"  Best reward: {state.best_reward:.4f}")
+    print(f"  Best reward: {state.best_score:.4f}")
     if state.best_candidate:
         print(f"  Best strategy: {state.best_candidate.name}")
 

@@ -15,8 +15,8 @@
     "max_parallel_roles": 1
   },
   "backtest": {
-    "freqtrade_config": "user_data/config_freqai.json",
-    "timerange": "20250601-20260101",
+    "freqtrade_config": "user_data/config_freqai_kucoin.json",
+    "timerange": "20251226-20260125",
     "backtest_timeout": 300
   },
   "tools": {

@@ -1,179 +1,526 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent Market Flow (MVP)</title>
-    <link rel="stylesheet" href="vendor/reactflow.css" />
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <div class="header">
-      <div class="brand">
-        <i class="ri-flow-chart"></i>
-        <span>Agent Market Flow</span>
-      </div>
-      <div class="toolbar">
-        <button id="btnLayout" title="自动布局"><i class="ri-mind-map"></i> 自动布局</button>
-        <button id="btnAlignX" title="对齐 X"><i class="ri-align-center"></i> 对齐 X</button>
-        <button id="btnAlignY" title="对齐 Y"><i class="ri-align-left"></i> 对齐 Y</button>
-        <button id="btnSnap" title="网格吸附"><i class="ri-grid-line"></i> 吸附</button>
-        <input id="gridSize" type="number" value="16" title="网格尺寸(px)" style="width:70px"/>
-        <select id="snapStrength" title="吸附强度">
-          <option value="medium">中</option>
-          <option value="strong">强</option>
-          <option value="weak">弱</option>
-        </select>
-        <button id="btnFit" title="适配画布"><i class="ri-focus-2-line"></i> 适配</button>
-        <button id="btnClear" title="清空画布"><i class="ri-eraser-line"></i> 清空</button>
-        <select id="brandSelect" title="主题风格">
-          <option value="ocean">Ocean</option>
-          <option value="forest">Forest</option>
-          <option value="sunset">Sunset</option>
-        </select>
-        <button id="btnTheme" title="切换主题"><i class="ri-contrast-2-line"></i> 主题</button>
-        <button id="btnExport" title="导出为图片"><i class="ri-image-2-line"></i> 导出</button>
-        <button id="btnDistX" title="平均分布 X"><i class="ri-swap-line"></i> 分布 X</button>
-        <button id="btnDistY" title="平均分布 Y"><i class="ri-swap-column-line"></i> 分布 Y</button>
-        <button id="btnTrainBt" title="训练 + 回测"><i class="ri-play-circle-line"></i> 训练 + 回测</button>
-      </div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Market Pro</title>
+  <link rel="stylesheet" href="vendor/reactflow.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ============ Top Navigation ============ -->
+<nav class="top-nav">
+  <div class="nav-brand">
+    <div class="logo">AM</div>
+    <span class="name">Agent Market</span>
+  </div>
+
+  <div class="nav-tabs">
+    <button class="nav-tab active" data-tab="flow">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Flow 编排
+    </button>
+    <button class="nav-tab" data-tab="miner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      策略挖掘
+    </button>
+    <button class="nav-tab" data-tab="results">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+      回测结果
+    </button>
+    <button class="nav-tab" data-tab="settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2m-9-11h2m18 0h2m-3.64-6.36l-1.42 1.42M6.34 17.66l-1.42 1.42m0-14.14l1.42 1.42m11.32 11.32l1.42 1.42"/></svg>
+      设置
+    </button>
+  </div>
+
+  <div class="nav-right">
+    <div class="nav-status" id="navStatus">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">就绪</span>
     </div>
-    <div id="app">
-      <div class="sidebar">
-        <h3>节点库</h3>
-        <div class="node-palette">
-          <div class="palette-title">可拖拽的节点</div>
-          <div class="palette-list">
-            <div class="palette-item" draggable="true" data-nodetype="data"><i class="ri-database-2-line"></i> 数据 Data</div>
-            <div class="palette-item" draggable="true" data-nodetype="expr"><i class="ri-function-line"></i> 表达式 LLM</div>
-            <div class="palette-item" draggable="true" data-nodetype="bt"><i class="ri-line-chart-line"></i> 回测 Backtest</div>
-            <div class="palette-item" draggable="true" data-nodetype="ml"><i class="ri-cpu-line"></i> 机器学习 ML</div>
-            <div class="palette-item" draggable="true" data-nodetype="rl"><i class="ri-brain-line"></i> 强化学习 RL</div>
-            <div class="palette-item" draggable="true" data-nodetype="fb"><i class="ri-feedback-line"></i> 反馈 Feedback</div>
-            <div class="palette-item" draggable="true" data-nodetype="ho"><i class="ri-sliders-2-line"></i> 超参优化 Hyperopt</div>
-            <div class="palette-item" draggable="true" data-nodetype="mv"><i class="ri-shuffle-line"></i> 结果对比</div>
+  </div>
+</nav>
+
+<!-- ============ Tab Content ============ -->
+<div class="tab-content">
+
+  <!-- ===== TAB: Flow Editor ===== -->
+  <div id="tab-flow" class="tab-pane active">
+    <!-- Left: Node Palette -->
+    <div class="flow-sidebar">
+      <div class="palette-section">
+        <div class="palette-title">节点</div>
+        <div class="palette-grid">
+          <div class="palette-item" draggable="true" data-nodetype="data">
+            <div class="icon data">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+            </div>
+            数据 Data
+          </div>
+          <div class="palette-item" draggable="true" data-nodetype="expr">
+            <div class="icon expr">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><circle cx="17" cy="17" r="3"/></svg>
+            </div>
+            表达式 LLM
+          </div>
+          <div class="palette-item" draggable="true" data-nodetype="bt">
+            <div class="icon bt">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            </div>
+            回测 Backtest
+          </div>
+          <div class="palette-item" draggable="true" data-nodetype="ml">
+            <div class="icon ml">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg>
+            </div>
+            机器学习 ML
+          </div>
+          <div class="palette-item" draggable="true" data-nodetype="rl">
+            <div class="icon rl">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 110 20 10 10 0 010-20z"/><path d="M12 8v4l3 3"/></svg>
+            </div>
+            强化学习 RL
+          </div>
+          <div class="palette-item" draggable="true" data-nodetype="fb">
+            <div class="icon fb">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            </div>
+            反馈 Feedback
+          </div>
+          <div class="palette-item" draggable="true" data-nodetype="ho">
+            <div class="icon ho">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7m8 7V8m8 13v-4"/></svg>
+            </div>
+            超参优化
+          </div>
+          <div class="palette-item" draggable="true" data-nodetype="mv">
+            <div class="icon mv">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M8 3H3v5m18 8v5h-5M3 16v5h5"/></svg>
+            </div>
+            结果对比
           </div>
         </div>
+      </div>
 
-        <h4>节点属性</h4>
-        <div id="nodeForm" class="panel"></div>
+      <div class="flow-toolbar">
+        <button class="btn btn-sm" id="btnLayout" title="自动布局">布局</button>
+        <button class="btn btn-sm" id="btnAlignX" title="对齐 X">X</button>
+        <button class="btn btn-sm" id="btnAlignY" title="对齐 Y">Y</button>
+        <button class="btn btn-sm" id="btnFit" title="适配">适配</button>
+        <button class="btn btn-sm" id="btnClear" title="清空">清空</button>
+        <button class="btn btn-sm" id="btnSnap" title="吸附">吸附</button>
+      </div>
 
-        <h3 style="margin-top:14px">服务设置</h3>
-        <div>
-          <label>API</label>
+      <div class="palette-title">快捷操作</div>
+      <div class="flex-col gap-2">
+        <button class="btn btn-primary btn-sm w-full" id="btnTrainBt">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          训练 + 回测
+        </button>
+      </div>
+    </div>
+
+    <!-- Center: Canvas -->
+    <div class="flow-canvas">
+      <div id="root" style="width:100%;height:100%"></div>
+    </div>
+
+    <!-- Right: Props + Logs -->
+    <div class="flow-props">
+      <div class="section-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2m-9-11h2m18 0h2"/></svg>
+        节点属性
+      </div>
+      <div id="nodeForm" class="card" style="min-height:60px;">
+        <div class="text-sm text-muted">选中节点查看属性</div>
+      </div>
+
+      <div class="section-title mt-4">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        Agent Flow
+      </div>
+      <div class="flex-col gap-2">
+        <label>Flow Config</label>
+        <input id="flowCfg" value="configs/agent_flow_kucoin_cpu_nollm.json" />
+        <label>Steps</label>
+        <input id="flowSteps" value="feature expression ml backtest" placeholder="留空则全流程" />
+        <button class="btn btn-primary w-full mt-2" id="btnRunAgentFlow">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          运行 Flow
+        </button>
+        <div id="flowStatus"></div>
+        <div id="flowArtifacts"></div>
+      </div>
+
+      <div class="section-title mt-4">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        日志
+      </div>
+      <div class="log-panel" id="logs" style="height:240px;"></div>
+    </div>
+  </div>
+
+  <!-- ===== TAB: Strategy Miner ===== -->
+  <div id="tab-miner" class="tab-pane">
+    <!-- Left: Controls -->
+    <div class="miner-control">
+      <div class="section-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2m-9-11h2m18 0h2"/></svg>
+        策略挖掘控制
+      </div>
+
+      <div class="card">
+        <label>Config</label>
+        <input id="minerConfig" value="configs/strategy_miner_default.json" />
+        <label>Max Iterations</label>
+        <input id="minerIters" type="number" value="5" />
+        <label>LLM Model</label>
+        <input id="minerModel" value="" placeholder="留空使用默认" />
+        <label>Resume (checkpoint)</label>
+        <input id="minerResume" value="" placeholder="可选，留空新建" />
+        <div class="btn-group mt-3">
+          <button class="btn btn-primary flex-1" id="btnStartMiner">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            启动
+          </button>
+          <button class="btn btn-danger" id="btnStopMiner">停止</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">运行状态</span>
+          <span class="tag tag-running" id="minerStatusTag">未运行</span>
+        </div>
+        <div id="minerProgress">
+          <div class="flex items-center justify-between text-sm">
+            <span class="text-muted">迭代</span>
+            <span class="text-mono" id="minerIterCurrent">0 / --</span>
+          </div>
+          <div class="progress-bar">
+            <div class="fill" id="minerProgressBar" style="width:0%"></div>
+          </div>
+          <div class="flex items-center justify-between text-sm mt-2">
+            <span class="text-muted">最佳奖励</span>
+            <span class="text-mono text-green" id="minerBestReward">--</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">运行日志</span>
+        </div>
+        <div class="log-panel" id="minerLogs" style="height:200px;font-size:11px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">历史运行</span>
+          <button class="btn btn-sm" id="btnLoadMinerRuns">刷新</button>
+        </div>
+        <div id="minerRunsList"></div>
+      </div>
+    </div>
+
+    <!-- Right: Leaderboard & Details -->
+    <div class="miner-main">
+      <div class="section-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/></svg>
+        候选排行榜
+      </div>
+
+      <div class="card" id="minerLeaderboard">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>
+          <span>启动策略挖掘后显示排行榜</span>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+        候选详情
+      </div>
+      <div class="card" id="minerCandidateDetail">
+        <div class="empty-state">
+          <span class="text-muted text-sm">点击排行榜中的候选查看详情</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TAB: Results ===== -->
+  <div id="tab-results" class="tab-pane">
+    <!-- Top Metrics Row -->
+    <div class="metrics-row" id="metricsRow">
+      <div class="metric-card">
+        <span class="label">Sharpe</span>
+        <span class="value" id="metricSharpe">--</span>
+      </div>
+      <div class="metric-card">
+        <span class="label">总收益</span>
+        <span class="value" id="metricProfit">--</span>
+      </div>
+      <div class="metric-card">
+        <span class="label">最大回撤</span>
+        <span class="value" id="metricDrawdown">--</span>
+      </div>
+      <div class="metric-card">
+        <span class="label">胜率</span>
+        <span class="value" id="metricWinrate">--</span>
+      </div>
+      <div class="metric-card">
+        <span class="label">交易数</span>
+        <span class="value" id="metricTrades">--</span>
+      </div>
+      <div class="metric-card">
+        <span class="label">训练模型</span>
+        <span class="value" id="metricModel" style="font-size:16px;">--</span>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-container">
+      <div class="card-header">
+        <span class="card-title">收益曲线</span>
+        <div class="btn-group">
+          <button class="btn btn-sm" id="btnSummary">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/></svg>
+            加载最新
+          </button>
+          <button class="btn btn-sm" id="btnFeatTop">TopN 特征</button>
+        </div>
+      </div>
+      <div id="chart" style="height:280px;"></div>
+    </div>
+
+    <!-- Results Grid -->
+    <div class="results-grid">
+      <!-- Left: Result List & Compare -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">结果对比</span>
+          <button class="btn btn-sm" id="btnList">列出结果</button>
+        </div>
+        <div class="flex-col gap-2">
+          <input id="resA" placeholder="结果 A" />
+          <input id="resB" placeholder="结果 B" />
+          <button class="btn btn-sm w-full" id="btnCompare">对比</button>
+        </div>
+        <div id="comparePanel" class="mt-3"></div>
+      </div>
+
+      <!-- Right: Gallery -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">图集</span>
+          <button class="btn btn-sm" id="btnGallery">加载图集</button>
+        </div>
+        <div id="galleryPanel"></div>
+      </div>
+    </div>
+
+    <!-- Aggregation -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">聚合分析</span>
+        <button class="btn btn-sm" id="btnAgg">聚合</button>
+      </div>
+      <div class="flex gap-2 items-center">
+        <input id="aggNames" placeholder="以逗号分隔的结果名，如 a.zip,b.zip" style="flex:1" />
+      </div>
+      <div id="aggPanel" class="mt-3"></div>
+    </div>
+
+    <!-- Feature Chart -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">特征重要性</span>
+        <button class="btn btn-sm" id="btnFeatPlot">绘制柱状图</button>
+      </div>
+      <div id="featTop" class="text-sm text-muted mt-2"></div>
+      <div id="featChart" style="height:220px;"></div>
+    </div>
+
+    <!-- Run History -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">运行历史</span>
+        <div class="flex gap-2 items-center">
+          <input id="runHistoryLimit" type="number" value="10" min="1" max="200" style="width:70px" />
+          <button class="btn btn-sm" id="btnLoadRunHistory">刷新</button>
+        </div>
+      </div>
+      <div id="runHistory" style="max-height:300px;overflow-y:auto;"></div>
+    </div>
+
+    <!-- Summary raw -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">摘要 (JSON)</span>
+      </div>
+      <div class="log-panel" id="summary" style="max-height:200px;font-size:11px;"></div>
+    </div>
+  </div>
+
+  <!-- ===== TAB: Settings ===== -->
+  <div id="tab-settings" class="tab-pane">
+    <div class="settings-nav">
+      <div class="settings-nav-item active" data-section="connection">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+        服务连接
+      </div>
+      <div class="settings-nav-item" data-section="llm">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 110 20 10 10 0 010-20z"/><path d="M12 8v4l3 3"/></svg>
+        LLM 配置
+      </div>
+      <div class="settings-nav-item" data-section="params">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7m8 7V8m8 13v-4"/></svg>
+        常用参数
+      </div>
+      <div class="settings-nav-item" data-section="agentflow">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Agent Flow
+      </div>
+    </div>
+    <div class="settings-content">
+      <!-- Section: Connection -->
+      <div class="settings-section active" id="section-connection">
+        <h2>服务连接</h2>
+        <p>配置 API 服务器地址和连接状态</p>
+        <div class="settings-card">
+          <h3>API 地址</h3>
+          <label>Server URL</label>
           <input id="apiUrl" value="http://127.0.0.1:8000" />
-          <button id="applyApi">应用</button>
+          <button class="btn btn-primary mt-3" id="applyApi">测试连接</button>
+          <div id="connectionResult" class="text-sm text-muted mt-2"></div>
         </div>
-        <div class="panel" style="margin-top:8px;">
-          <div style="font-weight:600;margin-bottom:6px">后端服务设置</div>
-          <label>LLM Base URL</label>
-          <input id="llmBaseUrl" placeholder="https://..." />
-          <label>LLM Model</label>
-          <input id="llmModelSet" placeholder="gpt-3.5-turbo" />
-          <label>Default TF</label>
-          <input id="defaultTf" placeholder="4h" />
-          <div class="buttons" style="gap:6px; margin-top:6px;">
-            <button id="btnLoadSettings">加载设置</button>
-            <button id="btnSaveSettings">保存设置</button>
-            <button id="btnApplySettings">应用到表单</button>
-          </div>
-        </div>
+      </div>
 
-        <h3 style="margin-top:14px">常用参数</h3>
-        <div>
-          <label>Config</label>
-          <input id="cfg" value="user_data/config_freqai_kucoin.json" />
-        </div>
-        <div>
-          <label>Feature File</label>
-          <input id="featureFile" value="user_data/freqai_features_real.json" />
-        </div>
-        <div>
-          <label>Timeframe</label>
-          <input id="timeframe" value="1h" />
-        </div>
-        <div>
+      <!-- Section: LLM -->
+      <div class="settings-section" id="section-llm">
+        <h2>LLM 配置</h2>
+        <p>配置大语言模型的连接和参数</p>
+        <div class="settings-card">
+          <h3>后端 LLM 设置</h3>
+          <label>LLM Base URL</label>
+          <input id="llmBaseUrl" placeholder="https://api.openai.com/v1" />
           <label>LLM Model</label>
-          <input id="llmModel" value="gpt-3.5-turbo" />
-        </div>
-        <div>
-          <label>LLM Count</label>
-          <input id="llmCount" type="number" value="3" />
-        </div>
-        <div>
-          <label>Timerange</label>
-          <input id="timerange" value="20251126-20260125" />
-        </div>
-        <div class="buttons">
-          <button id="btnExpr" class="btn btn-primary"><i class="ri-function-line"></i> 生成表达式</button>
-          <button id="btnBacktest" class="btn btn-primary"><i class="ri-line-chart-line"></i> 回测</button>
-          <button id="btnSummary" class="btn"><i class="ri-bar-chart-2-line"></i> 加载最新摘要</button>
-        </div>
-        <div class="summary" id="summary"></div>
-        <div id="chart" style="height:240px;margin-top:8px;"></div>
-        <h4>特征 TopN</h4>
-        <div class="buttons" style="margin-bottom:6px; gap:6px">
-          <button id="btnFeatTop" class="btn"><i class="ri-list-check-2"></i> 加载 TopN</button>
-          <button id="btnFeatPlot" class="btn"><i class="ri-bar-chart-horizontal-line"></i> 绘制柱状图</button>
-        </div>
-        <div id="featTop" class="panel"></div>
-        <div id="featChart" style="height:220px;margin:6px 0 12px 0;"></div>
-        <h4>Agent Flow</h4>
-        <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
-          <input id="flowCfg" value="configs/agent_flow_kucoin_cpu_nollm.json" />
-          <input id="flowSteps" value="feature expression ml backtest" placeholder="可选步骤: capture lob_rebuild feature micro_feature portfolio expression factor_compile factor_eval ml rl backtest tca report（留空则全流程）" />
-          <button id="btnRunAgentFlow" class="btn btn-primary"><i class="ri-play-circle-line"></i> 运行 Flow</button>
-          <div id="flowStatus" class="panel"></div>
-          <div id="flowArtifacts" class="panel"></div>
-        </div>
-        <h4>运行历史</h4>
-        <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
-          <div style="display:flex; gap:6px; align-items:center;">
-            <input id="runHistoryLimit" type="number" value="10" min="1" max="200" style="width:90px;" />
-            <button id="btnLoadRunHistory" class="btn"><i class="ri-history-line"></i> 加载运行历史</button>
+          <input id="llmModelSet" placeholder="gpt-4o-mini" />
+          <label>Default Timeframe</label>
+          <input id="defaultTf" placeholder="4h" />
+          <div class="btn-group mt-3">
+            <button class="btn" id="btnLoadSettings">加载</button>
+            <button class="btn btn-primary" id="btnSaveSettings">保存</button>
+            <button class="btn" id="btnApplySettings">应用到表单</button>
           </div>
-          <div id="runHistory" class="panel"></div>
         </div>
-        <h4>结果</h4>
-        <div class="buttons" style="gap:4px; display:flex; flex-direction:column; align-items:stretch;">
-          <button id="btnList" class="btn"><i class="ri-list-unordered"></i> 列出结果</button>
-          <input id="resA" placeholder="请输入结果 A" />
-          <input id="resB" placeholder="请输入结果 B" />
-          <button id="btnCompare">对比</button>
-        </div>
-        <div id="comparePanel" class="panel"></div>
-        <h4>图集 / 聚合</h4>
-        <div class="buttons" style="gap:6px; display:flex; flex-direction:column; align-items:stretch;">
-          <button id="btnGallery">图集</button>
-          <div id="galleryPanel" class="panel"></div>
-          <input id="aggNames" placeholder="以逗号分隔的结果名，如 a.zip,b.zip" />
-          <button id="btnAgg">聚合</button>
-          <div id="aggPanel" class="panel"></div>
-        </div>
-        <h4>对比/移动</h4>
-        <div id="mvPanel" class="panel"></div>
       </div>
-      <div class="canvas">
-        <div id="root" style="width:100%;height:100%"></div>
-      </div>
-      <div class="logs">
-        <h3>日志</h3>
-        <div style="display:flex; gap:6px; align-items:center;">
-          <div id="statusBar" class="status" style="flex:1 1 auto;">就绪</div>
-          <button id="btnCancelJob" title="取消运行中的任务">取消任务</button>
+
+      <!-- Section: Params -->
+      <div class="settings-section" id="section-params">
+        <h2>常用参数</h2>
+        <p>回测和表达式生成的默认参数</p>
+        <div class="settings-card">
+          <h3>参数设置</h3>
+          <div class="form-row">
+            <div>
+              <label>Config</label>
+              <input id="cfg" value="user_data/config_freqai_kucoin.json" />
+            </div>
+            <div>
+              <label>Feature File</label>
+              <input id="featureFile" value="user_data/freqai_features_real.json" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Timeframe</label>
+              <input id="timeframe" value="1h" />
+            </div>
+            <div>
+              <label>LLM Model</label>
+              <input id="llmModel" value="gpt-3.5-turbo" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>LLM Count</label>
+              <input id="llmCount" type="number" value="3" />
+            </div>
+            <div>
+              <label>Timerange</label>
+              <input id="timerange" value="20251126-20260125" />
+            </div>
+          </div>
+          <div class="btn-group mt-3">
+            <button class="btn btn-primary" id="btnExpr">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v6H4zM14 4h6v6h-6z"/></svg>
+              生成表达式
+            </button>
+            <button class="btn btn-primary" id="btnBacktest">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              回测
+            </button>
+          </div>
         </div>
-        <div class="cards" id="cards"></div>
-        <pre id="logs"></pre>
+      </div>
+
+      <!-- Section: Agent Flow -->
+      <div class="settings-section" id="section-agentflow">
+        <h2>Agent Flow</h2>
+        <p>配置和运行自动化流水线</p>
+        <div class="settings-card">
+          <h3>Flow 配置</h3>
+          <label>Flow Config</label>
+          <input id="flowCfg2" value="configs/agent_flow_kucoin_cpu_nollm.json" />
+          <label>Steps</label>
+          <input id="flowSteps2" value="feature expression ml backtest" placeholder="留空则全流程" />
+          <button class="btn btn-primary mt-3 w-full" id="btnRunAgentFlow2">运行 Flow</button>
+        </div>
       </div>
     </div>
-    <div id="ctxMenu" class="ctx-menu" style="display:none"></div>
-    <script src="vendor/react.development.js"></script>
-    <script src="vendor/react-dom.development.js"></script>
-    <script src="vendor/reactflow.min.js"></script>
-    <script src="vendor/echarts.min.js"></script>
-    <script src="vendor/dagre.min.js"></script>
-    <script src="vendor/html2canvas.min.js"></script>
-    <script src="app.js"></script>
-    <script src='app.extra.js'></script>
-  </body>
-  </html>
+  </div>
+
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- Vendor Scripts -->
+<script src="vendor/react.development.js"></script>
+<script src="vendor/react-dom.development.js"></script>
+<script>
+// Shim process.env for CJS bundles
+window.process = window.process || { env: { NODE_ENV: 'development' } };
+// Shim require() + module/exports for ReactFlow UMD/CJS bundle
+window.require = function(mod) {
+  if (mod === 'react') return window.React;
+  if (mod === 'react-dom') return window.ReactDOM;
+  if (mod === 'react-dom/client') return window.ReactDOM;
+  if (mod === 'react/jsx-runtime') return { jsx: window.React.createElement, jsxs: window.React.createElement, Fragment: window.React.Fragment };
+  console.warn('[require shim] unknown module:', mod);
+  return {};
+};
+window.module = { exports: {} };
+window.exports = window.module.exports;
+</script>
+<script>
+// Load ReactFlow in function scope to prevent "var ReactFlow=..." from overwriting window.ReactFlow
+(function() {
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', 'vendor/reactflow.min.js', false);
+  xhr.send();
+  (new Function(xhr.responseText))();
+})();
+</script>
+<script src="vendor/echarts.min.js"></script>
+<script src="vendor/dagre.min.js"></script>
+<script src="vendor/html2canvas.min.js"></script>
+
+<!-- App Scripts -->
+<script src="app.js"></script>
+</body>
+</html>

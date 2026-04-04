@@ -1,45 +1,50 @@
-# Auto Review Log — Final Score: 8/10
+# Auto Review Log — Final Score: 6.5/10
 
 ## Reviewer: gpt-5.4 via Codex MCP (reasoning: xhigh)
 
 ## Score Progression
-| Round | Score | Key Fix |
-|-------|-------|---------|
-| 1 | 5/10 | Initial review |
-| 2 | 5/10 | exec() removed, CORS fixed |
-| 3 | 6/10 | Auth extended, ws cleanup |
-| 4 | 6/10 | Auth factory, OPTIONS |
-| 5 | 7/10 | All critical fixed |
-| 6 | 7/10 | Gate centralization, 6 tests, deps |
-| 7 | 7/10 | Request-time auth, README |
-| 8 | 7.5/10 | Types, 12 more exceptions, CI |
-| 9 | 7.5/10 | evaluator BacktestResult, run_id |
-| **10** | **8/10** | **path relative_to containment** |
+| Round | Score | Verdict | Key Fix |
+|-------|-------|---------|---------|
+| 1 | 4.7/10 | not ready | Initial review — 4 critical found |
+| 2 | 5.5/10 | not ready | Scaler leakage, merge conflicts, best_score |
+| 3 | 5.6/10 | not ready | Timestamp-group split, stale ZIP, checkpoint recovery |
+| 4 | 6.1/10 | not ready | Stale-ZIP correct fix, rolling CV date-group, dir fsync |
+| 5 | 6.3/10 | not ready | Rolling CV purge/embargo, directory fsync |
+| **6** | **6.5/10** | **not ready** | **Preflight skip, cleanup logging, CV test** |
 
-## Final Scores
-| Dimension | Score |
-|-----------|-------|
-| Testing | 8 |
-| Documentation | 8 |
-| Code Quality | 7 |
-| Architecture | 7 |
-| Security | 7 |
-| API Design | 7 |
-| Domain Quality | 7 |
-| DevOps/CI | 7 |
-| Error Handling | 6 |
-| Performance | 6 |
-| Type Safety | 6 |
-| Dependencies | 6 |
+## Final Dimension Scores
+| Dimension | R1 | R6 | Delta |
+|-----------|----|----|-------|
+| Code Quality | 5 | 6 | +1 |
+| Architecture | 5 | 6 | +1 |
+| Security | 4 | 4 | 0 |
+| Testing | 6 | 7 | +1 |
+| Error Handling | 6 | 8 | +2 |
+| Performance | 5 | 7 | +2 |
+| Type Safety | 5 | 6 | +1 |
+| Domain Quality | 4 | 7 | +3 |
+| Dependencies | 4 | 4 | 0 |
+| DevOps/CI | 3 | 4 | +1 |
+| API Design | 4 | 5 | +1 |
 
-## Fixed: 4 Critical + 20 Important
-- exec() injection → AST-only parsing
-- CORS wildcard → env-configured origins
-- No auth → API key middleware (request-time, header-only)
-- Path traversal → relative_to containment
-- Gate centralization (continuous_runner → gate_pipeline)
-- 28 → 3 silent exceptions (typed: SyntaxError, JSONDecodeError)
-- 0 → 18 regression tests in CI (Python 3.11+3.13 matrix)
-- constraints.txt consumed by CI + README
-- Typed models (BacktestResult) adopted in evaluator
-- Run-scoped artifact IDs
+## Fixed: 3 Critical + 15 Important (code-level)
+- Scaler data leakage → fit on train only
+- Multi-pair date ordering → global sort + timestamp-group split
+- Server merge conflicts → resolved app.py, run.py
+- best_reward → best_score (backward compat)
+- Stale backtest ZIP → clear before each attempt
+- History row matching → by iteration + candidate name
+- Checkpoint fsync + .tmp recovery
+- gen_retries persistence
+- Rolling CV date-group + purge/embargo
+- Preflight skip on repairs
+- _split fail-fast on bad dates
+- 8 new regression tests
+
+## Remaining (infrastructure/architecture — deferred)
+- Sandbox containerization (Docker/nsjail)
+- phases.py split into submodules (refactor PR)
+- Walk-forward as primary evaluation (architecture)
+- Dependency lockfile (pip-tools/uv)
+- CI compile smoke (workflow change)
+- API error semantics (typed responses + status codes)

@@ -1,0 +1,71 @@
+{
+  "budget": {
+    "provider": "openai_compatible",
+    "model": "gpt-5.2",
+    "base_url": null,
+    "multiagent_enabled": true,
+    "multiagent_refine_rounds": 1,
+    "candidates_per_iteration": 3,
+    "max_iterations": 200,
+    "max_turns": 30,
+    "max_retries": 3,
+    "stale_timeout": 180.0,
+    "repair_attempts": 5,
+    "max_parallel_candidates": 3,
+    "max_parallel_roles": 1
+  },
+  "backtest": {
+    "freqtrade_config": "user_data/config_freqai_gate_5m.json",
+    "timerange": "20260301-20260329",
+    "backtest_timeout": 300,
+    "max_strategy_timeframe": "15m",
+    "allowed_informative_timeframes": [
+      "15m"
+    ]
+  },
+  "tools": {
+    "tool_allowlist": [
+      "file",
+      "bash"
+    ],
+    "bash_allow": true,
+    "bash_timeout": 60,
+    "bash_allowlist": [
+      "ls ",
+      "find ",
+      "cat ",
+      "head ",
+      "tail ",
+      "sed ",
+      "grep ",
+      "python ",
+      "python3 ",
+      "freqtrade "
+    ]
+  },
+  "evaluation": {
+    "min_trades": 150,
+    "max_abs_drawdown": 80.0,
+    "min_winrate": 0.55,
+    "min_profit_factor": 1.15,
+    "target_trades": 300,
+    "min_acceptable_trades": 100
+  },
+  "strategy_profile": {
+    "roi_target_min_pct": 0.3,
+    "roi_target_max_pct": 1.0,
+    "stoploss_min_pct": 0.8,
+    "stoploss_max_pct": 1.5,
+    "preferred_patterns": [
+      "5m VWAP/Bollinger/CCI/Williams %R mean-reversion",
+      "5m entries with 15m trend filter for pullback continuation",
+      "5m Donchian retest breakout with tight exits",
+      "small take-profit intraday structures that prioritize repeatable fills and high win rate"
+    ],
+    "avoid_patterns": [
+      "1h swing breakout strategies",
+      "slow EMA-only trend followers with many filters",
+      "setups that need multi-day holds to realize ROI"
+    ]
+  }
+}

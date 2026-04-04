@@ -56,7 +56,7 @@ def test_phase_strategy_gen_multi_candidate_parallel(monkeypatch):
             return
 
     monkeypatch.setattr(
-        "agent_market.strategy_miner.phases.build_strategy_agent",
+        "agent_market.strategy_miner._generation.build_strategy_agent",
         lambda _cfg, sandbox: FakeAgent(sandbox),
     )
 
@@ -100,7 +100,7 @@ def test_phase_strategy_gen_multi_candidate_partial_failure(monkeypatch):
             return
 
     monkeypatch.setattr(
-        "agent_market.strategy_miner.phases.build_strategy_agent",
+        "agent_market.strategy_miner._generation.build_strategy_agent",
         lambda _cfg, sandbox: FakeAgent(sandbox),
     )
 
@@ -182,7 +182,7 @@ def test_phase_strategy_gen_renames_duplicate_class_safely(monkeypatch):
             return
 
     monkeypatch.setattr(
-        "agent_market.strategy_miner.phases.build_strategy_agent",
+        "agent_market.strategy_miner._generation.build_strategy_agent",
         lambda _cfg, sandbox: FakeAgent(sandbox),
     )
 

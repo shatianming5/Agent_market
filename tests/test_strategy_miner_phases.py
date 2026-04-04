@@ -142,8 +142,8 @@ def test_phase_backtest_no_candidates():
 # ---------------------------------------------------------------------------
 
 
-def test_phase_evaluation_uses_sharpe():
-    """Evaluation uses Sharpe ratio as primary score."""
+def test_phase_evaluation_prefers_realistic_sharpe():
+    """Evaluation should prefer audited realistic Sharpe over inflated native Sharpe."""
     from agent_market.strategy_miner.phases import phase_evaluation
 
     state = MinerState()
@@ -154,8 +154,21 @@ def test_phase_evaluation_uses_sharpe():
     candidate.backtest_summary = {
         "profit_total_pct": 15.0, "trades": 60,
         "winrate": 0.65, "max_drawdown_abs": -3.0, "avg_profit_pct": 0.8,
-        "sharpe": 1.5, "sortino": 2.0, "calmar": 0.8,
+        "realistic_sharpe": 1.5,
+        "realistic_sortino": 2.0,
+        "realistic_calmar": 0.8,
+        "sharpe": 99.0,
+        "native_sharpe": 99.0,
+        "sortino": 88.0,
+        "native_sortino": 88.0,
+        "calmar": 77.0,
+        "native_calmar": 77.0,
         "profit_factor": 1.8, "sqn": 2.1,
+        "max_drawdown_pct": 3.0,
+        "positive_days_ratio": 0.7,
+        "return_over_drawdown": 5.0,
+        "observation_days": 29,
+        "metric_flags": ["native_sharpe_inflated"],
     }
     state.candidates.append(candidate)
 
@@ -163,13 +176,14 @@ def test_phase_evaluation_uses_sharpe():
     phase_evaluation(state, config)
 
     assert state.phase == Phase.ANALYSIS
-    assert candidate.reward == 1.5  # Sharpe
+    assert candidate.reward < 99.0
     assert state.best_candidate is not None
     assert state.best_candidate.name == "Good"
-    assert state.best_score == 1.5
+    assert state.best_score == candidate.reward
     assert len(state.history) == 1
     assert state.history[0]["sharpe"] == 1.5
     assert state.history[0]["sortino"] == 2.0
+    assert state.history[0]["native_sharpe"] == 99.0
 
 
 def test_phase_evaluation_no_summary():
@@ -280,15 +294,15 @@ class Bad(IStrategy):
                 return strat_path
 
         monkeypatch.setattr(
-            "agent_market.strategy_miner.phases.subprocess.run",
+            "agent_market.strategy_miner._backtest.subprocess.run",
             lambda *a, **kw: SimpleNamespace(returncode=0, stdout="", stderr=""),
         )
         monkeypatch.setattr(
-            "agent_market.strategy_miner.phases.find_latest_backtest_zip",
+            "agent_market.strategy_miner._backtest.find_latest_backtest_zip",
             lambda *_a, **_kw: Path(td) / "bt.zip",
         )
         monkeypatch.setattr(
-            "agent_market.strategy_miner.phases.build_backtest_summary",
+            "agent_market.strategy_miner._backtest.build_backtest_summary",
             lambda *_a, **_kw: {"profit_total_pct": 1.0, "trades": 20, "winrate": 0.6, "max_drawdown_abs": -1.0},
         )
 
@@ -330,33 +344,56 @@ def test_phase_evaluation_applies_risk_constraints():
 
 
 def test_phase_evaluation_trade_count_penalty():
-    """Effective sharpe should be penalized when trades < 30."""
+    """Lower-trade candidate should get a lower effective score than a similar higher-trade candidate."""
     from agent_market.strategy_miner.phases import phase_evaluation
 
-    state = MinerState()
-    state.phase = Phase.EVALUATION
-    candidate = StrategyCandidate(
+    state_a = MinerState()
+    state_a.phase = Phase.EVALUATION
+    candidate_a = StrategyCandidate(
         name="FewTrades",
         code=_VALID_STRATEGY,
         strategy_path=Path("/tmp/x.py"),
     )
-    candidate.backtest_summary = {
+    candidate_a.backtest_summary = {
         "profit_total_pct": 10.0, "trades": 15,
         "winrate": 0.6, "max_drawdown_abs": -2.0,
-        "sharpe": 2.0,
+        "realistic_sharpe": 1.0,
+        "profit_factor": 1.4,
+        "max_drawdown_pct": 4.0,
+        "positive_days_ratio": 0.6,
+        "return_over_drawdown": 2.5,
+        "observation_days": 29,
     }
-    state.candidates.append(candidate)
+    state_a.candidates.append(candidate_a)
 
-    config = MinerConfig(min_trades=0)
-    phase_evaluation(state, config)
+    state_b = MinerState()
+    state_b.phase = Phase.EVALUATION
+    candidate_b = StrategyCandidate(
+        name="ManyTrades",
+        code=_VALID_STRATEGY,
+        strategy_path=Path("/tmp/y.py"),
+    )
+    candidate_b.backtest_summary = {
+        "profit_total_pct": 10.0, "trades": 60,
+        "winrate": 0.6, "max_drawdown_abs": -2.0,
+        "realistic_sharpe": 1.0,
+        "profit_factor": 1.4,
+        "max_drawdown_pct": 4.0,
+        "positive_days_ratio": 0.6,
+        "return_over_drawdown": 2.5,
+        "observation_days": 29,
+    }
+    state_b.candidates.append(candidate_b)
 
-    # effective_sharpe = 2.0 * min(1.0, 15/30) = 2.0 * 0.5 = 1.0
-    assert candidate.reward == pytest.approx(1.0)
-    assert state.best_score == pytest.approx(1.0)
+    config = MinerConfig(min_trades=0, target_trades=60, min_acceptable_trades=30)
+    phase_evaluation(state_a, config)
+    phase_evaluation(state_b, config)
+
+    assert candidate_b.reward > candidate_a.reward
 
 
 def test_phase_evaluation_no_penalty_above_30_trades():
-    """No penalty when trades >= 30."""
+    """Positive return and PF should contribute to the effective score."""
     from agent_market.strategy_miner.phases import phase_evaluation
 
     state = MinerState()
@@ -369,14 +406,19 @@ def test_phase_evaluation_no_penalty_above_30_trades():
     candidate.backtest_summary = {
         "profit_total_pct": 10.0, "trades": 60,
         "winrate": 0.6, "max_drawdown_abs": -2.0,
-        "sharpe": 1.5,
+        "realistic_sharpe": 1.5,
+        "profit_factor": 1.4,
+        "max_drawdown_pct": 4.0,
+        "positive_days_ratio": 0.6,
+        "return_over_drawdown": 2.5,
+        "observation_days": 29,
     }
     state.candidates.append(candidate)
 
     config = MinerConfig(min_trades=0)
     phase_evaluation(state, config)
 
-    assert candidate.reward == pytest.approx(1.5)
+    assert candidate.reward > 1.0
 
 
 def test_phase_evaluation_kb_not_called_for_constraint_violated():
@@ -416,8 +458,12 @@ def test_phase_evaluation_drawdown_pct_constraint():
     candidate.backtest_summary = {
         "profit_total_pct": 10.0, "trades": 50,
         "winrate": 0.6, "max_drawdown_abs": -20.0,
-        "max_drawdown_account": 35.0,
-        "sharpe": 1.5,
+        "max_drawdown_pct": 35.0,
+        "realistic_sharpe": 1.5,
+        "profit_factor": 1.4,
+        "positive_days_ratio": 0.6,
+        "return_over_drawdown": 0.2,
+        "observation_days": 29,
     }
     state.candidates.append(candidate)
 
@@ -426,6 +472,84 @@ def test_phase_evaluation_drawdown_pct_constraint():
 
     assert candidate.constraints_ok is False
     assert any("max_drawdown_pct" in v for v in candidate.constraint_violations)
+
+
+def test_phase_evaluation_enforces_realistic_profit_robustness_gates():
+    from agent_market.strategy_miner.phases import phase_evaluation
+
+    state = MinerState()
+    state.phase = Phase.EVALUATION
+    candidate = StrategyCandidate(
+        name="Weak",
+        code=_VALID_STRATEGY,
+        strategy_path=Path("/tmp/weak.py"),
+    )
+    candidate.backtest_summary = {
+        "profit_total_pct": 0.5,
+        "trades": 200,
+        "winrate": 0.58,
+        "profit_factor": 1.2,
+        "realistic_sharpe": 0.8,
+        "max_drawdown_pct": 8.0,
+        "positive_days_ratio": 0.48,
+        "return_over_drawdown": 0.06,
+        "observation_days": 29,
+    }
+    state.candidates.append(candidate)
+
+    config = MinerConfig(
+        min_trades=150,
+        min_profit_pct=2.0,
+        min_positive_days_ratio=0.55,
+        min_return_over_drawdown=1.25,
+    )
+    phase_evaluation(state, config)
+
+    assert candidate.constraints_ok is False
+    assert any("min_profit_pct" in v for v in candidate.constraint_violations)
+    assert any("min_positive_days_ratio" in v for v in candidate.constraint_violations)
+    assert any("min_return_over_drawdown" in v for v in candidate.constraint_violations)
+
+
+def test_phase_evaluation_uses_configurable_pair_loss_floor():
+    from agent_market.strategy_miner.phases import phase_evaluation
+
+    state = MinerState()
+    state.phase = Phase.EVALUATION
+    candidate = StrategyCandidate(
+        name="PairFloor",
+        code=_VALID_STRATEGY,
+        strategy_path=Path("/tmp/pairfloor.py"),
+    )
+    candidate.backtest_summary = {
+        "profit_total_pct": 8.0,
+        "trades": 220,
+        "winrate": 0.6,
+        "profit_factor": 1.4,
+        "realistic_sharpe": 0.9,
+        "max_drawdown_pct": 6.0,
+        "positive_days_ratio": 0.62,
+        "return_over_drawdown": 1.33,
+        "observation_days": 29,
+        "results_per_pair": [
+            {"key": "BTC/USDT", "profit_total_pct": 3.0},
+            {"key": "XRP/USDT", "profit_total_pct": -0.75},
+        ],
+    }
+    state.candidates.append(candidate)
+
+    config = MinerConfig(
+        min_trades=150,
+        min_winrate=0.55,
+        min_profit_factor=1.15,
+        min_profit_pct=2.0,
+        min_positive_days_ratio=0.55,
+        min_return_over_drawdown=1.25,
+        min_pair_profit_pct=-1.0,
+    )
+    phase_evaluation(state, config)
+
+    assert candidate.constraints_ok is True
 
 
 def test_phase_analysis_no_increment_on_infra_failure():

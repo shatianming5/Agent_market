@@ -52,6 +52,55 @@ def test_checkpoint_atomic_write():
         assert (run_dir / "checkpoint.json").exists()
 
 
+def test_checkpoint_recovery_from_tmp():
+    """When main checkpoint is corrupt, recover from .tmp file."""
+    from agent_market.strategy_miner.runner import _load_checkpoint, _save_checkpoint
+
+    with tempfile.TemporaryDirectory() as td:
+        run_dir = Path(td)
+
+        # Save a valid checkpoint
+        state = MinerState()
+        state.phase = Phase.EVALUATION
+        state.iteration = 5
+        state.best_score = 1.23
+        _save_checkpoint(state, run_dir)
+
+        cp = run_dir / "checkpoint.json"
+        tmp = cp.with_suffix(".tmp")
+
+        # Simulate crash: write newer state to .tmp, corrupt main
+        state2 = MinerState(run_id=state.run_id)
+        state2.phase = Phase.ANALYSIS
+        state2.iteration = 6
+        state2.best_score = 2.0
+        tmp.write_text(json.dumps(state2.to_dict(), ensure_ascii=False, indent=2))
+        cp.write_text("CORRUPTED")
+
+        # Should recover from .tmp
+        loaded = _load_checkpoint(cp)
+        assert loaded.iteration == 6
+        assert loaded.best_score == 2.0
+        assert loaded.phase == Phase.ANALYSIS
+        # .tmp should have been promoted
+        assert cp.exists()
+        assert not tmp.exists()
+
+
+def test_checkpoint_gen_retries_persisted():
+    """gen_retries field should survive checkpoint roundtrip."""
+    from agent_market.strategy_miner.runner import _load_checkpoint, _save_checkpoint
+
+    with tempfile.TemporaryDirectory() as td:
+        run_dir = Path(td)
+        state = MinerState()
+        state.gen_retries = 2
+        _save_checkpoint(state, run_dir)
+
+        loaded = _load_checkpoint(run_dir / "checkpoint.json")
+        assert loaded.gen_retries == 2
+
+
 # ---------------------------------------------------------------------------
 # _update_knowledge_base
 # ---------------------------------------------------------------------------

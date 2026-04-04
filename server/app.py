@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import os
 
-<<<<<<< HEAD
-from fastapi import FastAPI
-=======
 from fastapi import Depends, FastAPI
->>>>>>> d5634104ccdaa242d0ecbeb4aa3731be56daec55
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
@@ -38,18 +34,10 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Agent Market Server")
 
     # CORS — restricted to configured origins (default: localhost only)
-    allowed_origins = os.environ.get(
-        "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
-    ).split(",")
     app.add_middleware(
         CORSMiddleware,
-<<<<<<< HEAD
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-=======
         allow_origins=_cors_origins(),
         allow_credentials=False,
->>>>>>> d5634104ccdaa242d0ecbeb4aa3731be56daec55
         allow_methods=["*"],
         allow_headers=["*"],
     )

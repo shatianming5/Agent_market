@@ -11,3 +11,5 @@ xgboost==3.2.*
 scikit-learn==1.8.*
 torch==2.10.*
 starlette==0.52.*
+stable-baselines3==2.6.*
+gymnasium==1.1.*

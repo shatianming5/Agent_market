@@ -99,7 +99,7 @@ def test_status_running(client):
         data = resp.json()
         assert data["running"] is True
         assert data["iteration"] == 2
-        assert data["best_reward"] == pytest.approx(0.5432)
+        assert data["best_score"] == pytest.approx(0.5432)
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ def test_results_with_checkpoint(client):
                         "run_id": run_id,
                         "phase": "complete",
                         "iteration": 3,
-                        "best_reward": 0.75,
+                        "best_score": 0.75,
                         "best_candidate": {
                             "name": "TopStrat",
                             "code": "...",
@@ -147,7 +147,7 @@ def test_results_with_checkpoint(client):
             data = resp.json()
             found = [i for i in data["items"] if i["run_id"] == run_id]
             assert len(found) == 1
-            assert found[0]["best_reward"] == 0.75
+            assert found[0]["best_score"] == 0.75
             assert found[0]["best_candidate"] == "TopStrat"
 
 
@@ -164,7 +164,7 @@ def test_result_detail_found(client):
                         "run_id": run_id,
                         "phase": "complete",
                         "iteration": 2,
-                        "best_reward": 0.6,
+                        "best_score": 0.6,
                         "best_candidate": None,
                         "candidates": [],
                         "history": [{"iteration": 0, "reward": 0.3}],
@@ -178,7 +178,7 @@ def test_result_detail_found(client):
             assert data["run_id"] == run_id
             assert data["phase"] == "complete"
             assert data["iteration"] == 2
-            assert data["best_reward"] == 0.6
+            assert data["best_score"] == 0.6
             assert len(data["history"]) == 1
 
 
@@ -194,7 +194,7 @@ def test_run_status_checkpoint_based(client):
                         "run_id": run_id,
                         "phase": "analysis",
                         "iteration": 1,
-                        "best_reward": 0.1,
+                        "best_score": 0.1,
                         "best_candidate": None,
                         "candidates": [],
                         "history": [],
@@ -222,7 +222,7 @@ def test_candidates_endpoint(client):
                         "run_id": run_id,
                         "phase": "analysis",
                         "iteration": 1,
-                        "best_reward": 0.1,
+                        "best_score": 0.1,
                         "best_candidate": None,
                         "candidates": [
                             {
@@ -269,7 +269,7 @@ def test_approve_endpoint_copies_strategy(client):
                             "run_id": run_id,
                             "phase": "complete",
                             "iteration": 0,
-                            "best_reward": 0.0,
+                            "best_score": 0.0,
                             "best_candidate": {"name": "S1", "code": "", "strategy_path": str(strat_path)},
                             "candidates": [],
                             "history": [],
@@ -298,7 +298,7 @@ def test_backtest_endpoint_starts_job(client):
                         "run_id": run_id,
                         "phase": "analysis",
                         "iteration": 1,
-                        "best_reward": 0.1,
+                        "best_score": 0.1,
                         "best_candidate": None,
                         "candidates": [],
                         "history": [],
@@ -336,7 +336,7 @@ def test_proposal_and_leaderboard_endpoints(client):
                         "run_id": run_id,
                         "phase": "analysis",
                         "iteration": 1,
-                        "best_reward": 0.1,
+                        "best_score": 0.1,
                         "best_candidate": None,
                         "candidates": [],
                         "history": [],

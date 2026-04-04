@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Body, WebSocket
 from starlette.responses import StreamingResponse
 
-from ..errors import error
+from ..errors import error, error_dict
 from ..models import FlowReq
 from ...runtime import ROOT, jobs
 from agent_market import paths  # type: ignore
@@ -579,7 +579,7 @@ def flow_stream(job_id: str, steps: Optional[str] = None):
         last_next = 0
         init_logs = jobs.logs(job_id, last_next)
         if isinstance(init_logs, dict) and init_logs.get("error"):
-            err = error("JOB_NOT_FOUND", str(init_logs.get("error")))
+            err = error_dict("JOB_NOT_FOUND", str(init_logs.get("error")))
             yield f"event: progress\\ndata: {_jsonmod.dumps(err, ensure_ascii=False)}\\n\\n"
             return
         last_next = int(init_logs.get("next") or last_next)
@@ -590,7 +590,7 @@ def flow_stream(job_id: str, steps: Optional[str] = None):
         while True:
             data = jobs.logs(job_id, last_next)
             if isinstance(data, dict) and data.get("error"):
-                err = error("JOB_NOT_FOUND", str(data.get("error")))
+                err = error_dict("JOB_NOT_FOUND", str(data.get("error")))
                 yield f"event: progress\\ndata: {_jsonmod.dumps(err, ensure_ascii=False)}\\n\\n"
                 break
             last_next = int(data.get("next") or last_next)
@@ -613,7 +613,7 @@ async def flow_ws(websocket: WebSocket, job_id: str):
         while True:
             data = jobs.logs(job_id, last_next)
             if isinstance(data, dict) and data.get("error"):
-                await websocket.send_json(error("JOB_NOT_FOUND", str(data.get("error"))))
+                await websocket.send_json(error_dict("JOB_NOT_FOUND", str(data.get("error"))))
                 break
             last_next = int(data.get("next") or last_next)
             payload = flow_progress(job_id)

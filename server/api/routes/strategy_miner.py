@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error
+from ..errors import error, not_found, bad_request
 from ...runtime import ROOT, jobs
 
 router = APIRouter(prefix="/strategy-miner", tags=["strategy-miner"])
@@ -91,20 +91,42 @@ class StrategyMinerStartReq(BaseModel):
     run_id: Optional[str] = Field(None, description="Optional run id (hex)")
 
 
+def _safe_resolve(user_path: str, allowed_root: Path) -> Path | None:
+    """Resolve a user-supplied path and ensure it stays under allowed_root."""
+    try:
+        resolved = Path(user_path).resolve()
+        allowed = allowed_root.resolve()
+        if resolved == allowed or str(resolved).startswith(str(allowed) + os.sep):
+            return resolved
+    except (ValueError, OSError):
+        pass
+    return None
+
+
 @router.post("/start")
 def start_miner(req: StrategyMinerStartReq = Body(...)):
     """Start a strategy miner job in the background."""
     py = sys.executable
     script = str(ROOT / "scripts" / "strategy_miner.py")
 
+    # Validate config path stays inside project root
+    config_path = _safe_resolve(req.config, ROOT)
+    if config_path is None or not config_path.exists():
+        return bad_request("INVALID_CONFIG", f"Config path invalid or not found: {req.config}")
+
+    # Validate resume path if provided
+    if req.resume:
+        resume_path = _safe_resolve(req.resume, ROOT)
+        if resume_path is None or not resume_path.exists():
+            return bad_request("INVALID_RESUME_PATH", f"Resume path invalid or not found: {req.resume}")
+
     run_id: Optional[str] = None
     if req.resume:
-        # Resume mode: script will load checkpoint.
         run_id = None
     else:
         run_id = _validate_run_id(req.run_id or "") or uuid.uuid4().hex[:12]
 
-    cmd = [py, script, "--config", req.config]
+    cmd = [py, script, "--config", str(config_path)]
     if run_id:
         cmd += ["--run-id", run_id]
     if req.max_iterations is not None:
@@ -130,7 +152,7 @@ def miner_status(job_id: str):
     """Get status of a running strategy miner job (log-based best-effort parsing)."""
     res = jobs.logs(job_id, 0)
     if isinstance(res, dict) and res.get("error"):
-        return error("JOB_NOT_FOUND", str(res.get("error")))
+        return not_found("JOB_NOT_FOUND", str(res.get("error")))
     running = bool(res.get("running"))
     code = res.get("code")
     raw_lines = [str(x) for x in (res.get("logs") or [])]
@@ -138,7 +160,7 @@ def miner_status(job_id: str):
     # Extract progress from log lines
     current_iteration = 0
     current_phase = "unknown"
-    best_reward = None
+    best_score = None
     for line in raw_lines:
         ll = line.lower()
         if "=== iteration" in ll and "| phase" in ll:
@@ -152,12 +174,14 @@ def miner_status(job_id: str):
                     current_phase = phase_part.strip().split()[0].lower()
             except (IndexError, ValueError):
                 pass
-        if "best_reward=" in ll:
-            try:
-                val = line.split("best_reward=")[1].split()[0].rstrip(",)")
-                best_reward = float(val)
-            except (IndexError, ValueError):
-                pass
+        for marker in ("best_score=", "best_sharpe=", "best_reward="):
+            if marker in ll:
+                try:
+                    val = line.split(marker)[1].split()[0].rstrip(",)")
+                    best_score = float(val)
+                except (IndexError, ValueError):
+                    pass
+                break
 
     return {
         "job_id": job_id,
@@ -165,7 +189,7 @@ def miner_status(job_id: str):
         "code": code,
         "iteration": current_iteration,
         "phase": current_phase,
-        "best_reward": best_reward,
+        "best_score": best_score,
         "log_lines": len(raw_lines),
         "last_lines": raw_lines[-20:] if raw_lines else [],
     }
@@ -204,7 +228,7 @@ def miner_runs(limit: int = 10):
                 "run_id": run_id,
                 "phase": data.get("phase"),
                 "iteration": data.get("iteration", 0),
-                "best_reward": data.get("best_reward"),
+                "best_score": data.get("best_score", data.get("best_reward")),
                 "best_candidate": (
                     data["best_candidate"].get("name") if data.get("best_candidate") else None
                 ),
@@ -223,15 +247,15 @@ def miner_run_detail(run_id: str):
     """Get detailed results for a specific strategy miner run."""
     run_id_norm = _validate_run_id(run_id)
     if not run_id_norm:
-        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+        return bad_request("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
 
     cp = _checkpoint_path(run_id_norm)
     if not cp.exists():
-        return error("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
+        return not_found("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
 
     data = _load_json(cp)
     if not isinstance(data, dict):
-        return error("PARSE_ERROR", "Failed to parse checkpoint")
+        return error("PARSE_ERROR", "Failed to parse checkpoint", status_code=500)
 
     miner_dir = _miner_dir(run_id_norm)
 
@@ -246,7 +270,7 @@ def miner_run_detail(run_id: str):
         "run_id": data.get("run_id"),
         "phase": data.get("phase"),
         "iteration": data.get("iteration"),
-        "best_reward": data.get("best_reward"),
+        "best_score": data.get("best_score", data.get("best_reward")),
         "best_candidate": data.get("best_candidate"),
         "candidates": data.get("candidates", []),
         "history": data.get("history", []),
@@ -261,12 +285,12 @@ def miner_run_detail(run_id: str):
 def miner_run_proposal(run_id: str):
     run_id_norm = _validate_run_id(run_id)
     if not run_id_norm:
-        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+        return bad_request("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
 
     path = _miner_dir(run_id_norm) / "proposal.json"
     data = _load_json(path)
     if data is None:
-        return error("NOT_FOUND", f"proposal not found for run_id={run_id_norm}")
+        return not_found("NOT_FOUND", f"proposal not found for run_id={run_id_norm}")
     return data
 
 
@@ -274,12 +298,12 @@ def miner_run_proposal(run_id: str):
 def miner_run_leaderboard(run_id: str):
     run_id_norm = _validate_run_id(run_id)
     if not run_id_norm:
-        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+        return bad_request("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
 
     path = _miner_dir(run_id_norm) / "leaderboard.json"
     data = _load_json(path)
     if data is None:
-        return error("NOT_FOUND", f"leaderboard not found for run_id={run_id_norm}")
+        return not_found("NOT_FOUND", f"leaderboard not found for run_id={run_id_norm}")
     return data
 
 
@@ -288,17 +312,17 @@ def miner_run_status(run_id: str):
     """Checkpoint-based run status (preferred over log parsing)."""
     run_id_norm = _validate_run_id(run_id)
     if not run_id_norm:
-        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+        return bad_request("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
 
     data = _load_checkpoint(run_id_norm)
     if data is None:
-        return error("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
+        return not_found("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
 
     return {
         "run_id": data.get("run_id"),
         "phase": data.get("phase"),
         "iteration": data.get("iteration"),
-        "best_reward": data.get("best_reward"),
+        "best_score": data.get("best_score", data.get("best_reward")),
         "candidates_count": len(data.get("candidates", [])),
     }
 
@@ -307,11 +331,11 @@ def miner_run_status(run_id: str):
 def miner_candidates(run_id: str):
     run_id_norm = _validate_run_id(run_id)
     if not run_id_norm:
-        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+        return bad_request("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
 
     data = _load_checkpoint(run_id_norm)
     if data is None:
-        return error("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
+        return not_found("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
 
     candidates = data.get("candidates") or []
     items = []
@@ -341,11 +365,11 @@ def approve_strategy(run_id: str, req: StrategyMinerApproveReq = Body(...)):
     """Approve a candidate strategy and copy it into user_data/strategies/."""
     run_id_norm = _validate_run_id(run_id)
     if not run_id_norm:
-        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+        return bad_request("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
 
     data = _load_checkpoint(run_id_norm)
     if data is None:
-        return error("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
+        return not_found("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
 
     target_name = (req.candidate or "").strip() or None
     chosen = None
@@ -366,8 +390,12 @@ def approve_strategy(run_id: str, req: StrategyMinerApproveReq = Body(...)):
         return error("NO_STRATEGY_PATH", "Candidate has no strategy_path")
 
     strat_path = Path(strat_path_raw)
+    # Validate source path stays under runs root (prevent arbitrary file access)
+    runs_root = paths.runs_root()
+    if _safe_resolve(strat_path_raw, runs_root) is None and _safe_resolve(strat_path_raw, ROOT / "artifacts") is None:
+        return bad_request("INVALID_PATH", f"Strategy path not under artifacts/: {strat_path}")
     if not strat_path.exists():
-        return error("STRATEGY_NOT_FOUND", f"Strategy file not found: {strat_path}")
+        return not_found("STRATEGY_NOT_FOUND", f"Strategy file not found: {strat_path}")
 
     dest_dir = paths.user_data_root() / "strategies"
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -398,11 +426,11 @@ def backtest_candidate(run_id: str, req: StrategyMinerBacktestReq = Body(...)):
     """Trigger a backtest+summary job for a candidate strategy."""
     run_id_norm = _validate_run_id(run_id)
     if not run_id_norm:
-        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+        return bad_request("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
 
     # Validate checkpoint exists early.
     if _load_checkpoint(run_id_norm) is None:
-        return error("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
+        return not_found("NOT_FOUND", f"No checkpoint found for run_id={run_id_norm}")
 
     py = sys.executable
     script = str(ROOT / "scripts" / "strategy_miner_backtest.py")

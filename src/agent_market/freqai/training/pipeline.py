@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -43,6 +44,21 @@ class Dataset:
     features: np.ndarray
     labels: np.ndarray
     columns: List[str]
+    prices: np.ndarray
+    pair_ids: np.ndarray
+    dates: np.ndarray
+
+
+def _parse_timerange_bounds(timerange: str) -> tuple:
+    raw = str(timerange or "").strip()
+    if not raw:
+        return None, None
+    parts = raw.split("-", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid timerange: {timerange!r}")
+    start_dt = datetime.strptime(parts[0], "%Y%m%d").replace(tzinfo=timezone.utc)
+    end_dt = (datetime.strptime(parts[1], "%Y%m%d") + timedelta(days=1)).replace(tzinfo=timezone.utc)
+    return pd.Timestamp(start_dt), pd.Timestamp(end_dt)
 
 
 class FeatureDatasetBuilder:
@@ -64,31 +80,63 @@ class FeatureDatasetBuilder:
             if self.expressions_file is not None
             else []
         )
+        self.train_timerange = str(config.get("train_timerange") or "").strip()
+        self.test_timerange = str(config.get("test_timerange") or "").strip()
 
     def build(self) -> Dataset:
         feature_cfg = json.loads(self.feature_file.read_text(encoding="utf-8-sig"))
-        datasets: List[Tuple[np.ndarray, np.ndarray]] = []
+        datasets: List[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
         feature_cols: List[str] = []
         for pair in self.pairs:
             df = self._load_pair_dataframe(pair)
             df = apply_configured_features(df, feature_cfg)
             if self._expression_specs:
                 df, _added = apply_expressions(df, self._expression_specs, on_error='raise')
+            # Filter to train_timerange if specified (strict training/backtest separation)
+            if self.train_timerange:
+                start_ts, end_ts = _parse_timerange_bounds(self.train_timerange)
+                if start_ts is not None and end_ts is not None:
+                    date_col = pd.to_datetime(df["date"], utc=True)
+                    mask = (date_col >= start_ts) & (date_col < end_ts)
+                    df = df.loc[mask].reset_index(drop=True)
+                    if df.empty:
+                        continue
             columns = self._select_feature_columns(df)
             if not columns:
                 continue
             labels = future_return(df["close"], self.label_period)
             features = df[columns]
-            features, labels = self._align(features, labels)
+            prices = df["close"]
+            dates = df["date"]
+            features, labels, extras = self._align(
+                features,
+                labels,
+                extras={
+                    "__price__": prices,
+                    "__date__": dates,
+                },
+            )
             if features.empty:
                 continue
-            datasets.append((features.to_numpy(dtype=np.float32), labels.to_numpy(dtype=np.float32)))
+            pair_ids = np.asarray([pair] * len(features), dtype=object)
+            datasets.append(
+                (
+                    features.to_numpy(dtype=np.float32),
+                    labels.to_numpy(dtype=np.float32),
+                    extras["__price__"].to_numpy(dtype=np.float32),
+                    pair_ids,
+                    extras["__date__"].to_numpy(dtype="datetime64[ns]"),
+                )
+            )
             feature_cols = columns
         if not datasets:
             raise ValueError('No training data available; check feature configuration and data paths.')
         X = np.vstack([item[0] for item in datasets])
         y = np.concatenate([item[1] for item in datasets])
-        return Dataset(X, y, feature_cols)
+        prices = np.concatenate([item[2] for item in datasets])
+        pair_ids = np.concatenate([item[3] for item in datasets])
+        dates = np.concatenate([item[4] for item in datasets])
+        return Dataset(X, y, feature_cols, prices, pair_ids, dates)
 
     def _load_pair_dataframe(self, pair: str) -> pd.DataFrame:
         sanitized = pair.replace('/', '_')
@@ -96,7 +144,7 @@ class FeatureDatasetBuilder:
         if not file_path.exists():
             raise FileNotFoundError(f"Data file not found: {file_path}")
         df = pd.read_feather(file_path)
-        df['date'] = pd.to_datetime(df['date'])
+        df['date'] = pd.to_datetime(df['date'], utc=True)
         return df.sort_values('date').reset_index(drop=True)
 
     @staticmethod
@@ -104,17 +152,32 @@ class FeatureDatasetBuilder:
         exclude = {'date', 'open', 'high', 'low', 'close', 'volume'}
         return [col for col in df.columns if col not in exclude]
 
-    def _align(self, features: pd.DataFrame, labels: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
+    def _align(
+        self,
+        features: pd.DataFrame,
+        labels: pd.Series,
+        *,
+        extras: dict[str, pd.Series] | None = None,
+    ) -> Tuple[pd.DataFrame, pd.Series, dict[str, pd.Series]]:
         drop_count = self.label_period
         if drop_count > 0 and drop_count < len(features):
             features = features.iloc[:-drop_count]
             labels = labels.iloc[:-drop_count]
-        combined = pd.concat([features, labels.rename('__target__')], axis=1)
+            if extras:
+                extras = {key: series.iloc[:-drop_count] for key, series in extras.items()}
+        extra_names = list((extras or {}).keys())
+        combined = pd.concat(
+            [features, labels.rename('__target__'), *[(extras or {})[name].rename(name) for name in extra_names]],
+            axis=1,
+        )
         combined = combined.replace([np.inf, -np.inf], np.nan).dropna()
         if combined.empty:
-            return pd.DataFrame(columns=features.columns), pd.Series(dtype=float)
+            return pd.DataFrame(columns=features.columns), pd.Series(dtype=float), {
+                key: pd.Series(dtype=float) for key in extra_names
+            }
         target = combined.pop('__target__')
-        return combined, target
+        extra_out = {key: combined.pop(key) for key in extra_names}
+        return combined, target, extra_out
 
 
 class TrainingPipeline:
@@ -129,13 +192,14 @@ class TrainingPipeline:
         builder = FeatureDatasetBuilder(self.data_cfg)
         dataset = builder.build()
 
-        # Standardization (optional)
-        scaler_name = str(self.training_cfg.get('scaler', 'none')).lower()
-        X = dataset.features
-        scaler_obj = None
-        if _HAS_SKLEARN and scaler_name in ('standard', 'robust'):
-            scaler_obj = StandardScaler() if scaler_name == 'standard' else RobustScaler()
-            X = scaler_obj.fit_transform(X)
+        # Sort globally by date before splitting to ensure valid temporal ordering
+        # across multi-pair datasets (fixes invalid purge/embargo for concatenated pairs).
+        sort_idx = np.argsort(dataset.dates)
+        X = dataset.features[sort_idx]
+        y = dataset.labels[sort_idx]
+        dataset.prices = dataset.prices[sort_idx]
+        dataset.pair_ids = dataset.pair_ids[sort_idx]
+        dataset.dates = dataset.dates[sort_idx]
 
         # Primary time split with purge/embargo (plan.md §3.5.3 mandatory gate).
         # purge defaults to label_period to prevent label leakage at boundary.
@@ -144,11 +208,20 @@ class TrainingPipeline:
         embargo = int(self.training_cfg.get('embargo', 0))
         X_train, y_train, X_valid, y_valid = self._split(
             X,
-            dataset.labels,
+            y,
             float(self.training_cfg.get('validation_ratio', 0.2)),
             purge=purge,
             embargo=embargo,
+            dates=dataset.dates,
         )
+
+        # Standardization: fit on TRAIN ONLY to prevent data leakage.
+        scaler_name = str(self.training_cfg.get('scaler', 'none')).lower()
+        scaler_obj = None
+        if _HAS_SKLEARN and scaler_name in ('standard', 'robust'):
+            scaler_obj = StandardScaler() if scaler_name == 'standard' else RobustScaler()
+            X_train = scaler_obj.fit_transform(X_train)
+            X_valid = scaler_obj.transform(X_valid)
 
         raw_model_dir = (
             self.output_cfg.get("model_dir")
@@ -183,24 +256,45 @@ class TrainingPipeline:
 
         result = _fit_with_hint(adapter, X_train, y_train, X_valid, y_valid)
 
-        # Rolling validation (optional)
+        # Rolling validation (optional) — date-group aware, scaler fit per fold
         rolling_splits = int(self.training_cfg.get('rolling_splits', 0) or 0)
         rolling_metrics = None
         if _HAS_SKLEARN and rolling_splits >= 2:
-            tscv = TimeSeriesSplit(n_splits=rolling_splits)
+            unique_dates = np.unique(dataset.dates)
+            n_dates = len(unique_dates)
             rmses = []
-            for tr_idx, va_idx in tscv.split(X):
-                Xt, Xv = X[tr_idx], X[va_idx]
-                yt, yv = dataset.labels[tr_idx], dataset.labels[va_idx]
-                ad = ModelRegistry.create(model_name, params)
-                r = _fit_with_hint(ad, Xt, yt, Xv, yv)
-                rmse_v = float(r.metrics.get('rmse_valid') or r.metrics.get('rmse_train') or 0.0)
-                rmses.append(rmse_v)
+            if n_dates >= rolling_splits + 1:
+                # Date-group aware CV with purge/embargo at fold boundaries
+                fold_size = max(1, n_dates // (rolling_splits + 1))
+                for fold_i in range(rolling_splits):
+                    train_end_date_idx = fold_size * (fold_i + 1)
+                    # Apply purge + embargo gap between train and valid folds
+                    valid_start_date_idx = min(train_end_date_idx + purge + embargo, n_dates)
+                    valid_end_date_idx = min(train_end_date_idx + fold_size + purge + embargo, n_dates)
+                    if valid_start_date_idx >= n_dates or valid_end_date_idx <= valid_start_date_idx:
+                        continue
+                    train_cutoff = unique_dates[train_end_date_idx - 1]
+                    valid_start = unique_dates[valid_start_date_idx]
+                    valid_end = unique_dates[valid_end_date_idx - 1]
+                    tr_mask = dataset.dates <= train_cutoff
+                    va_mask = (dataset.dates >= valid_start) & (dataset.dates <= valid_end)
+                    Xt, Xv = X[tr_mask], X[va_mask]
+                    yt, yv = y[tr_mask], y[va_mask]
+                    if len(Xt) == 0 or len(Xv) == 0:
+                        continue
+                    if scaler_obj is not None:
+                        fold_scaler = StandardScaler() if scaler_name == 'standard' else RobustScaler()
+                        Xt = fold_scaler.fit_transform(Xt)
+                        Xv = fold_scaler.transform(Xv)
+                    ad = ModelRegistry.create(model_name, params)
+                    r = _fit_with_hint(ad, Xt, yt, Xv, yv)
+                    rmse_v = float(r.metrics.get('rmse_valid') or r.metrics.get('rmse_train') or 0.0)
+                    rmses.append(rmse_v)
             if rmses:
                 rolling_metrics = {
                     'rmse_valid_mean': float(np.mean(rmses)),
                     'rmse_valid_std': float(np.std(rmses)),
-                    'splits': int(rolling_splits),
+                    'splits': int(len(rmses)),
                 }
 
         # Persist scaler
@@ -256,8 +350,13 @@ class TrainingPipeline:
         *,
         purge: int = 0,
         embargo: int = 0,
+        dates: np.ndarray | None = None,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Time-series split with mandatory purge/embargo gap.
+
+        When ``dates`` is provided, the split is done on unique timestamp
+        boundaries so that no timestamp straddles train/valid sets (important
+        for multi-pair datasets where the same candle time appears for each pair).
 
         The purge gap (rows dropped between train and valid) prevents
         label leakage when the label horizon overlaps the boundary.
@@ -271,19 +370,44 @@ class TrainingPipeline:
         validation_ratio = max(0.0, min(0.9, validation_ratio))
         purge = max(0, int(purge))
         embargo = max(0, int(embargo))
-        split_index = int(features.shape[0] * (1.0 - validation_ratio))
-        split_index = max(1, min(split_index, features.shape[0] - 1))
 
-        # Apply purge: remove rows between train end and valid start
-        train_end = split_index
-        valid_start = min(split_index + purge + embargo, features.shape[0])
-        if valid_start >= features.shape[0]:
-            valid_start = split_index  # fallback: no gap if dataset too small
+        if dates is not None:
+            if len(dates) != features.shape[0]:
+                raise ValueError(
+                    f"dates length ({len(dates)}) must match features rows ({features.shape[0]})"
+                )
+            # Split on unique timestamp groups to prevent same-timestamp leakage
+            unique_dates = np.unique(dates)
+            n_dates = len(unique_dates)
+            split_date_idx = int(n_dates * (1.0 - validation_ratio))
+            split_date_idx = max(1, min(split_date_idx, n_dates - 1))
 
-        X_train = features[:train_end]
-        y_train = labels[:train_end]
-        X_valid = features[valid_start:]
-        y_valid = labels[valid_start:]
+            train_cutoff = unique_dates[split_date_idx - 1]
+            # purge/embargo: skip timestamps after train cutoff
+            valid_date_idx = min(split_date_idx + purge + embargo, n_dates)
+            if valid_date_idx >= n_dates:
+                valid_date_idx = split_date_idx
+            valid_start_date = unique_dates[valid_date_idx]
+
+            train_mask = dates <= train_cutoff
+            valid_mask = dates >= valid_start_date
+        else:
+            # Fallback: row-based split
+            split_index = int(features.shape[0] * (1.0 - validation_ratio))
+            split_index = max(1, min(split_index, features.shape[0] - 1))
+            train_end = split_index
+            valid_start = min(split_index + purge + embargo, features.shape[0])
+            if valid_start >= features.shape[0]:
+                valid_start = split_index
+            train_mask = np.zeros(features.shape[0], dtype=bool)
+            train_mask[:train_end] = True
+            valid_mask = np.zeros(features.shape[0], dtype=bool)
+            valid_mask[valid_start:] = True
+
+        X_train = features[train_mask]
+        y_train = labels[train_mask]
+        X_valid = features[valid_mask]
+        y_valid = labels[valid_mask]
         return X_train, y_train, X_valid, y_valid
 
 

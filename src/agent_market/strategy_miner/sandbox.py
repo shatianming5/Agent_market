@@ -33,6 +33,17 @@ _FORBIDDEN_IMPORTS = frozenset(
         "subprocess",
         "socket",
         "requests",
+        "importlib",
+        "ctypes",
+        "multiprocessing",
+        "signal",
+        "pty",
+        "webbrowser",
+        "http",
+        "urllib",
+        "ftplib",
+        "smtplib",
+        "xmlrpc",
         "urllib",
         "http",
         "ftplib",
@@ -573,6 +584,16 @@ def validate_strategy_code(code: str) -> Tuple[bool, str]:
                 if root_mod in _FORBIDDEN_IMPORTS:
                     return False, f"Forbidden import: {node.module}"
 
+        # Check forbidden attribute access patterns (__builtins__, sys.modules, etc.)
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            if node.value.id in ("__builtins__", "__loader__"):
+                return False, f"Forbidden access: {node.value.id}[...]"
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id == "sys" and node.attr == "modules":
+                return False, "Forbidden access: sys.modules"
+            if node.attr in ("__builtins__", "__loader__", "__subclasses__"):
+                return False, f"Forbidden attribute: .{node.attr}"
+
         # Check forbidden calls + basic anti-lookahead constraints
         if isinstance(node, ast.Call):
             func = node.func
@@ -583,6 +604,9 @@ def validate_strategy_code(code: str) -> Tuple[bool, str]:
                 name = func.attr
             if name and name in _FORBIDDEN_CALLS:
                 return False, f"Forbidden call: {name}()"
+            # Block breakpoint()
+            if isinstance(func, ast.Name) and func.id == "breakpoint":
+                return False, "Forbidden call: breakpoint()"
 
             # Anti look-ahead checks (common future leakage patterns).
             if isinstance(func, ast.Attribute) and func.attr in {"shift", "pct_change", "diff"}:

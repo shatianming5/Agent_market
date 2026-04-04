@@ -110,8 +110,13 @@ class FreqAISettings:
         tf = timeframe or self.timeframe
         missing: List[Path] = []
         for pair in self.pairs:
-            sanitized = pair.replace("/", "_")
+            sanitized = pair.replace("/", "_").replace(":", "_")
             file = self.data_dir / f"{sanitized}-{tf}.feather"
+            # Also check futures subdirectory
+            if not file.exists():
+                futures_file = self.data_dir / "futures" / f"{sanitized}-{tf}-futures.feather"
+                if futures_file.exists():
+                    continue
             if not file.exists():
                 missing.append(file)
         if missing:

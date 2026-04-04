@@ -61,6 +61,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Optional freqai_features*.json. If omitted, inferred from config directory.",
     )
     parser.add_argument(
+        "--expressions-file",
+        default=None,
+        help="Optional freqai_expressions*.json. When provided, applies the same expressions used during training.",
+    )
+    parser.add_argument(
         "--rl-summary",
         default="artifacts/models/rl_real/training_summary.json",
         help="RL training_summary.json (contains model_path + feature list).",
@@ -74,6 +79,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     from agent_market.config import FreqAISettings  # noqa: WPS433
     from agent_market.freqai.features import apply_configured_features  # noqa: WPS433
+    from agent_market.freqai.training.pipeline import Dataset  # noqa: WPS433
+    from agent_market.freqai.rl.env import TradingEnv, TradingEnvConfig  # noqa: WPS433
+    from agent_market.freqai.expression_engine import apply_expressions, load_expression_file  # noqa: WPS433
 
     cfg_path = Path(args.config)
     if not cfg_path.is_absolute():
@@ -85,6 +93,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not feature_path.is_absolute():
         feature_path = (ROOT / feature_path).resolve()
     feature_cfg = read_json(feature_path)
+    expressions_path = None
+    if args.expressions_file:
+        expressions_path = Path(args.expressions_file)
+        if not expressions_path.is_absolute():
+            expressions_path = (ROOT / expressions_path).resolve()
+    expression_specs = load_expression_file(expressions_path) if expressions_path and expressions_path.exists() else []
 
     rl_summary_path = Path(args.rl_summary)
     if not rl_summary_path.is_absolute():
@@ -110,14 +124,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_exchange = out_base / settings.exchange
     out_exchange.mkdir(parents=True, exist_ok=True)
 
+    reward_cfg = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
+
     for pair in settings.pairs:
-        sanitized = pair.replace("/", "_")
+        sanitized = pair.replace("/", "_").replace(":", "_")
         data_file = settings.data_dir / f"{sanitized}-{settings.timeframe}.feather"
+        # Also check spot data (without :USDT suffix) and futures subdirectory
+        if not data_file.exists():
+            spot_sanitized = pair.split(":")[0].replace("/", "_")
+            spot_file = settings.data_dir / f"{spot_sanitized}-{settings.timeframe}.feather"
+            if spot_file.exists():
+                data_file = spot_file
+            else:
+                futures_file = settings.data_dir / "futures" / f"{sanitized}-{settings.timeframe}-futures.feather"
+                if futures_file.exists():
+                    data_file = futures_file
         df = pd.read_feather(data_file)
         df["date"] = pd.to_datetime(df["date"], utc=True)
         df = df.sort_values("date").reset_index(drop=True)
 
         df_feat = apply_configured_features(df.copy(), feature_cfg)
+        if expression_specs:
+            df_feat, _ = apply_expressions(df_feat, expression_specs, on_error="raise")
         missing = [col for col in features if col not in df_feat.columns]
         if missing:
             raise SystemExit(
@@ -125,15 +153,44 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
 
         matrix = _matrix_from_df(df_feat, features)
-        obs = torch.as_tensor(matrix, dtype=torch.float32, device=model.policy.device)
-        dist = model.policy.get_distribution(obs)
-        if hasattr(dist.distribution, "probs"):
-            probs = dist.distribution.probs.detach().cpu().numpy()
-            action = np.argmax(probs, axis=1).astype(int)
-        else:  # pragma: no cover
-            action, _ = model.predict(matrix, deterministic=False)
-            probs = np.zeros((matrix.shape[0], model.action_space.n), dtype=np.float32)
-            probs[np.arange(matrix.shape[0]), action] = 1.0
+        dataset = Dataset(
+            features=matrix,
+            labels=np.zeros(matrix.shape[0], dtype=np.float32),
+            columns=features,
+            prices=df["close"].to_numpy(dtype=np.float32),
+            pair_ids=np.asarray([pair] * matrix.shape[0], dtype=object),
+            dates=df["date"].to_numpy(dtype="datetime64[ns]"),
+        )
+        env = TradingEnv(
+            dataset,
+            TradingEnvConfig(
+                data={"pair": pair},
+                fee_bps=float(reward_cfg.get("fee_bps", 10.0)),
+                holding_penalty_bps=float(reward_cfg.get("holding_penalty_bps", 0.2)),
+                drawdown_penalty=float(reward_cfg.get("drawdown_penalty", 0.05)),
+                invalid_action_penalty=float(reward_cfg.get("invalid_action_penalty", 0.0005)),
+            ),
+        )
+        probs = np.zeros((matrix.shape[0], model.action_space.n), dtype=np.float32)
+        action = np.zeros(matrix.shape[0], dtype=np.int8)
+        obs, _ = env.reset()
+        row_idx = 0
+        while True:
+            obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=model.policy.device).unsqueeze(0)
+            dist = model.policy.get_distribution(obs_tensor)
+            if hasattr(dist.distribution, "probs"):
+                p = dist.distribution.probs.detach().cpu().numpy()[0]
+                act = int(np.argmax(p))
+            else:  # pragma: no cover
+                act, _ = model.predict(obs, deterministic=True)
+                p = np.zeros((model.action_space.n,), dtype=np.float32)
+                p[int(act)] = 1.0
+            probs[row_idx, : len(p)] = p
+            action[row_idx] = int(act)
+            obs, _reward, terminated, truncated, _info = env.step(act)
+            if terminated or truncated:
+                break
+            row_idx += 1
 
         out_df = pd.DataFrame(
             {
@@ -153,4 +210,3 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
