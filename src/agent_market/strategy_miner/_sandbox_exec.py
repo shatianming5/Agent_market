@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _IS_LINUX = platform.system() == "Linux"
 
 
-def _preexec_sandbox(*, cpu_seconds: int = 600, mem_mb: int = 4096, nproc: int = 64) -> None:
+def _preexec_sandbox(*, cpu_seconds: int = 600, mem_mb: int = 4096, nproc: int = 256) -> None:
     """Applied as preexec_fn to restrict the child process."""
     try:
         import resource
@@ -69,6 +69,10 @@ def run_sandboxed(
     safe_env = dict(env or os.environ)
     for sensitive_key in ("AGENT_MARKET_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"):
         safe_env.pop(sensitive_key, None)
+    # Prevent OpenBLAS thread explosion in sandboxed subprocesses
+    safe_env.setdefault("OPENBLAS_NUM_THREADS", "4")
+    safe_env.setdefault("MKL_NUM_THREADS", "4")
+    safe_env.setdefault("OMP_NUM_THREADS", "4")
 
     return subprocess.run(
         cmd,
