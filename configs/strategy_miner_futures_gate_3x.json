@@ -16,8 +16,8 @@
   },
   "backtest": {
     "freqtrade_config": "user_data/config_freqai_gate_5m_futures_3x.json",
-    "timerange": "20260310-20260329",
-    "train_timerange": "20260303-20260309",
+    "timerange": "20260312-20260329",
+    "train_timerange": "20260228-20260311",
     "backtest_timeout": 420,
     "enable_quick_funnel": true,
     "quick_backtest_pairs": ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"],
