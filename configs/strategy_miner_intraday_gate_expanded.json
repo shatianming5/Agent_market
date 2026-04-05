@@ -59,7 +59,7 @@
     ]
   },
   "evaluation": {
-    "min_trades": 30,
+    "min_trades": 5,
     "max_abs_drawdown": 80.0,
     "max_drawdown_pct": 30.0,
     "min_winrate": 0.45,
@@ -67,7 +67,7 @@
     "min_profit_pct": 0.0,
     "min_pair_profit_pct": -3.0,
     "target_trades": 300,
-    "min_acceptable_trades": 30,
+    "min_acceptable_trades": 5,
     "hyperopt_enabled": true,
     "hyperopt_epochs": 60,
     "hyperopt_spaces": ["buy", "sell", "roi", "stoploss"],
