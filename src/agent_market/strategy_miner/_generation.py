@@ -248,7 +248,7 @@ def phase_strategy_gen(
             names_seen.add(name)
         return name
 
-    def _gen_model_candidate(candidate_idx: int, candidate_type: str) -> Optional[StrategyCandidate]:
+    def _gen_model_candidate(candidate_idx: int, candidate_type: str, selected_family: str | None = None) -> Optional[StrategyCandidate]:
         cand_label = f"cand_{candidate_idx:02d}"
         sandbox = prepare_sandbox(
             config,
@@ -403,6 +403,8 @@ def phase_strategy_gen(
         cand.candidate_slot = int(candidate_idx)
         cand.candidate_type = candidate_type
         cand.model_family = str(payload.get("model_family") or "")
+        if selected_family:
+            cand.candidate_family = selected_family  # e.g. "ml/lightgbm"
         cand.candidate_payload = payload
         cand.training_config = payload.get("training_config")
         cand.planner_notes = planner_notes
@@ -424,9 +426,10 @@ def phase_strategy_gen(
     def _gen_one(candidate_idx: int) -> Optional[StrategyCandidate]:
         cand_label = f"cand_{candidate_idx:02d}"
         # Use bandit-selected family when available, fall back to fixed rotation
+        selected_family: str | None = None
         if candidate_idx < len(selected_families):
-            _family = selected_families[candidate_idx]
-            candidate_type = _family.split("/")[0]
+            selected_family = selected_families[candidate_idx]
+            candidate_type = selected_family.split("/")[0]
         else:
             candidate_type = _candidate_type_for_slot(
                 config,
@@ -436,7 +439,7 @@ def phase_strategy_gen(
             )
 
         if candidate_type != "rule":
-            return _gen_model_candidate(candidate_idx, candidate_type)
+            return _gen_model_candidate(candidate_idx, candidate_type, selected_family=selected_family)
 
         if not bool(getattr(config, "multiagent_enabled", False)):
             variant = None if n == 1 else cand_label
@@ -533,6 +536,8 @@ def phase_strategy_gen(
                     iteration=state.iteration,
                 )
                 cand.candidate_type = "rule"
+                if selected_family:
+                    cand.candidate_family = selected_family  # e.g. "rule/mean-reversion"
                 if gen_provider:
                     cand.source_provider = gen_provider
                     cand.generation_provider = gen_provider
@@ -954,6 +959,8 @@ def phase_strategy_gen(
 
         cand.candidate_slot = int(candidate_idx)
         cand.candidate_type = "rule"
+        if selected_family:
+            cand.candidate_family = selected_family  # e.g. "rule/mean-reversion"
 
         cand.generation_provider = generation_provider
         cand.generation_model = generation_model

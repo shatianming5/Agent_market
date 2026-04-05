@@ -34,13 +34,19 @@ def run_sealed_holdout(
         strategies_dir = candidate.strategy_path.parent
 
     ft_config = paths.resolve_repo_path(config.freqtrade_config)
-    results_dir = sandbox / "user_data" / "backtest_results" / "holdout"
+    results_dir = sandbox / "user_data" / "backtest_results"
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    # Clear any stale results
+    # Clear stale results so we pick up the holdout run only
     for stale in results_dir.glob("backtest-result-*.zip"):
         try:
             stale.unlink()
+        except Exception:
+            pass
+    stale_last = results_dir / ".last_result.json"
+    if stale_last.exists():
+        try:
+            stale_last.unlink()
         except Exception:
             pass
 
@@ -56,13 +62,13 @@ def run_sealed_holdout(
     logger.info("Running sealed holdout for %s on %s", candidate.name, holdout_timerange)
 
     try:
-        proc = subprocess.run(
+        from ._sandbox_exec import run_sandboxed
+        proc = run_sandboxed(
             cmd,
-            cwd=str(paths.REPO_ROOT),
-            capture_output=True,
-            text=True,
+            cwd=paths.REPO_ROOT,
             timeout=config.backtest_timeout,
-            check=False,
+            cpu_seconds=config.backtest_timeout + 60,
+            mem_mb=4096,
         )
         if proc.returncode != 0:
             logger.warning("Sealed holdout failed (rc=%d): %s", proc.returncode, (proc.stderr or "")[-300:])
@@ -86,7 +92,7 @@ def run_sealed_holdout(
             "selection_profit_pct": selection_profit,
             "holdout_profit_pct": holdout_profit,
             "delta_pct": delta,
-            "overfitting_flag": delta > abs(selection_profit) * 0.5 if selection_profit else False,
+            "overfitting_flag": holdout_profit < selection_profit * 0.5 if selection_profit > 0 else holdout_profit < 0,
         }
 
         logger.info(

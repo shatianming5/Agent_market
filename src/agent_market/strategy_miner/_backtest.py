@@ -577,7 +577,6 @@ def _run_hyperopt(
         "--hyperopt-loss", loss_fn,
         "-j", str(jobs),
         "--min-trades", str(min_trades),
-        "--disable-param-export",
     ]
 
     logger.info("Running hyperopt for %s: %d epochs, spaces=%s", candidate.name, epochs, spaces)
@@ -603,9 +602,8 @@ def _run_hyperopt(
             logger.info("Hyperopt params exported to %s", param_file)
             return True
 
-        # Hyperopt with --disable-param-export means params are in stdout
-        # The strategy will auto-load params from the .json file on next backtest
-        logger.info("Hyperopt completed for %s", candidate.name)
+        # Hyperopt auto-exports params to <strategy_name>.json; next backtest will pick them up
+        logger.info("Hyperopt completed for %s (no params file yet — will be created on next run)", candidate.name)
         return True
     except subprocess.TimeoutExpired:
         logger.warning("Hyperopt timed out for %s", candidate.name)

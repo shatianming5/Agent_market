@@ -299,7 +299,7 @@ def phase_evaluation(
     # Update bandit scheduler with evaluation feedback
     _bandit = getattr(state, "_bandit", None)
     if _bandit is not None:
-        family_key = (
+        family_key = getattr(candidate, "candidate_family", None) or (
             str(getattr(candidate, "candidate_type", "rule"))
             + "/"
             + str(getattr(candidate, "model_family", "") or "unknown")
