@@ -5,13 +5,13 @@
     "base_url": "http://127.0.0.1:4141/v1",
     "multiagent_enabled": true,
     "multiagent_refine_rounds": 1,
-    "candidates_per_iteration": 3,
+    "candidates_per_iteration": 5,
     "max_iterations": 200,
     "max_turns": 30,
     "max_retries": 3,
     "stale_timeout": 180.0,
     "repair_attempts": 5,
-    "max_parallel_candidates": 3,
+    "max_parallel_candidates": 5,
     "max_parallel_roles": 1
   },
   "backtest": {
