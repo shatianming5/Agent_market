@@ -4,7 +4,7 @@ Provides OS-level restrictions beyond AST validation:
 - CPU time limit (prevents infinite loops)
 - Memory limit (prevents OOM)
 - No new network sockets (on Linux via seccomp-like resource limits)
-- Process count limit
+- Optional process count limit (disabled by default on shared servers)
 
 These restrictions are applied via preexec_fn in subprocess.run().
 On macOS/Windows, only basic resource limits are available.
@@ -22,9 +22,31 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 _IS_LINUX = platform.system() == "Linux"
+_NPROC_ENV_KEY = "AGENT_MARKET_SANDBOX_NPROC_LIMIT"
 
 
-def _preexec_sandbox(*, cpu_seconds: int = 600, mem_mb: int = 4096, nproc: int = 256) -> None:
+def _resolve_nproc_limit(env: Optional[dict[str, str]] = None) -> int | None:
+    """Return an explicit RLIMIT_NPROC override, or None to leave it unset.
+
+    RLIMIT_NPROC is per-real-UID and counts threads on Linux. In shared research
+    environments, a low fixed value can break numpy/OpenBLAS and aiodns imports,
+    masking real backtest failures behind SIGINT/KeyboardInterrupt noise.
+    """
+    raw = (env or os.environ).get(_NPROC_ENV_KEY, "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r", _NPROC_ENV_KEY, raw)
+        return None
+    if value <= 0:
+        logger.warning("Ignoring non-positive %s=%r", _NPROC_ENV_KEY, raw)
+        return None
+    return value
+
+
+def _preexec_sandbox(*, cpu_seconds: int = 600, mem_mb: int = 4096, nproc: int | None = None) -> None:
     """Applied as preexec_fn to restrict the child process."""
     try:
         import resource
@@ -36,11 +58,14 @@ def _preexec_sandbox(*, cpu_seconds: int = 600, mem_mb: int = 4096, nproc: int =
         mem_bytes = mem_mb * 1024 * 1024
         resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
 
-        # Process/thread limit (prevents fork bombs)
-        try:
-            resource.setrlimit(resource.RLIMIT_NPROC, (nproc, nproc))
-        except (ValueError, AttributeError):
-            pass  # Not available on macOS
+        # Process/thread limit is opt-in only. A low RLIMIT_NPROC breaks common
+        # scientific/runtime imports on shared Linux servers because threads are
+        # counted against the per-UID limit.
+        if nproc is not None:
+            try:
+                resource.setrlimit(resource.RLIMIT_NPROC, (nproc, nproc))
+            except (ValueError, AttributeError):
+                pass  # Not available on macOS
 
         # File size limit (prevent filling disk)
         resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024 * 512, 1024 * 1024 * 512))  # 512MB
@@ -81,6 +106,7 @@ def run_sandboxed(
     safe_env.setdefault("OPENBLAS_NUM_THREADS", "4")
     safe_env.setdefault("MKL_NUM_THREADS", "4")
     safe_env.setdefault("OMP_NUM_THREADS", "4")
+    nproc_limit = _resolve_nproc_limit(safe_env)
 
     result = subprocess.run(
         cmd,
@@ -90,7 +116,7 @@ def run_sandboxed(
         timeout=timeout,
         check=False,
         preexec_fn=lambda: _preexec_sandbox(
-            cpu_seconds=cpu_seconds, mem_mb=mem_mb,
+            cpu_seconds=cpu_seconds, mem_mb=mem_mb, nproc=nproc_limit,
         ),
         env=safe_env,
     )
