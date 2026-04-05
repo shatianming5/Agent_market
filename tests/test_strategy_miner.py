@@ -265,6 +265,54 @@ class LeakyRolling(IStrategy):
     assert "look-ahead" in msg
 
 
+def test_validate_strategy_code_rejects_date_set_index_before_informative_merge():
+    from agent_market.strategy_miner.sandbox import validate_strategy_code
+
+    code = """
+import pandas as pd
+from freqtrade.strategy import IStrategy, merge_informative_pair
+class BadMerge(IStrategy):
+    def populate_indicators(self, dataframe, metadata):
+        if not isinstance(dataframe.index, pd.DatetimeIndex):
+            dataframe.set_index("date", inplace=True)
+        inf = dataframe.copy()
+        dataframe = merge_informative_pair(dataframe, inf, "5m", "15m", ffill=True)
+        return dataframe
+    def populate_entry_trend(self, dataframe, metadata): return dataframe
+    def populate_exit_trend(self, dataframe, metadata): return dataframe
+"""
+    ok, msg = validate_strategy_code(code)
+    assert not ok
+    assert "merge_informative_pair requires a preserved 'date' column" in msg
+
+
+def test_auto_fix_strategy_code_preserves_date_column_for_informative_merge():
+    from agent_market.strategy_miner.sandbox import auto_fix_strategy_code, validate_strategy_code
+
+    code = """
+import pandas as pd
+from freqtrade.strategy import IStrategy, merge_informative_pair
+class FixedMerge(IStrategy):
+    def populate_indicators(self, dataframe, metadata):
+        if not isinstance(dataframe.index, pd.DatetimeIndex):
+            dataframe.set_index("date", inplace=True)
+        inf = dataframe.copy()
+        if not isinstance(inf.index, pd.DatetimeIndex):
+            inf.set_index("date", inplace=True)
+        dataframe = merge_informative_pair(dataframe, inf, "5m", "15m", ffill=True)
+        return dataframe
+    def populate_entry_trend(self, dataframe, metadata): return dataframe
+    def populate_exit_trend(self, dataframe, metadata): return dataframe
+"""
+    fixed, fixes = auto_fix_strategy_code(code)
+    assert "preserve_date_column_for_informative_merge" in fixes
+    assert '.set_index("date", inplace=True)' not in fixed
+    assert 'dataframe.index = pd.DatetimeIndex(dataframe["date"])' in fixed
+    assert 'inf.index = pd.DatetimeIndex(inf["date"])' in fixed
+    ok, msg = validate_strategy_code(fixed)
+    assert ok, msg
+
+
 # ---------------------------------------------------------------------------
 # knowledge base
 # ---------------------------------------------------------------------------

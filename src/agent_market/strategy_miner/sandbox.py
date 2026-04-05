@@ -165,6 +165,10 @@ def _strip_tool_lines(text: str) -> str:
 
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*$")
+_DATE_SETINDEX_RE = re.compile(
+    r"^(?P<indent>\s*)(?P<obj>[A-Za-z_][A-Za-z0-9_]*)\s*\.set_index\(\s*['\"]date['\"]\s*,\s*inplace\s*=\s*True\s*\)\s*$",
+    re.MULTILINE,
+)
 
 
 def auto_fix_strategy_code(code: str) -> tuple[str, list[str]]:
@@ -267,6 +271,23 @@ def auto_fix_strategy_code(code: str) -> tuple[str, list[str]]:
             flags=re.MULTILINE,
         )
         fixes.append("replace_talib_with_pandas_ta")
+
+    # 7) Preserve the `date` column for merge_informative_pair while still
+    # allowing strategies to work with a DatetimeIndex for VWAP/session logic.
+    if "merge_informative_pair" in out and re.search(r"^\s*import\s+pandas\s+as\s+pd\s*$", out, re.MULTILINE):
+        def _rewrite_set_index(match: re.Match[str]) -> str:
+            indent = match.group("indent")
+            obj = match.group("obj")
+            return (
+                f'{indent}if "date" in {obj}.columns:\n'
+                f'{indent}    {obj}["date"] = pd.to_datetime({obj}["date"], utc=True, errors="coerce")\n'
+                f'{indent}    {obj}.index = pd.DatetimeIndex({obj}["date"])'
+            )
+
+        rewritten = _DATE_SETINDEX_RE.sub(_rewrite_set_index, out)
+        if rewritten != out:
+            out = rewritten
+            fixes.append("preserve_date_column_for_informative_merge")
 
     return out, fixes
 
@@ -669,6 +690,12 @@ def validate_strategy_code(code: str) -> Tuple[bool, str]:
     missing = _REQUIRED_METHODS - found_methods
     if missing:
         return False, f"Missing required methods: {', '.join(sorted(missing))}"
+
+    if "merge_informative_pair" in code and _DATE_SETINDEX_RE.search(code):
+        return False, (
+            "merge_informative_pair requires a preserved 'date' column; "
+            "do not use set_index('date', inplace=True) before merging"
+        )
 
     return True, "Validation passed"
 
