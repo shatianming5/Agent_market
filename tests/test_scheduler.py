@@ -40,3 +40,38 @@ def test_untried_families_get_explored():
             seen_untried = True
             break
     assert seen_untried
+
+
+def test_candidate_family_serialization():
+    """candidate_family survives checkpoint roundtrip."""
+    from agent_market.strategy_miner.dtypes import StrategyCandidate
+    from pathlib import Path
+
+    c = StrategyCandidate("Test", "code", Path("/tmp/x.py"))
+    c.candidate_family = "rule/mean-reversion"
+    d = c.to_dict()
+    assert d["candidate_family"] == "rule/mean-reversion"
+    restored = StrategyCandidate.from_dict(d)
+    assert restored.candidate_family == "rule/mean-reversion"
+
+
+def test_bandit_state_in_miner_state():
+    """bandit_state persists in MinerState checkpoint."""
+    from agent_market.strategy_miner.dtypes import MinerState
+    from agent_market.strategy_miner._scheduler import BanditScheduler
+
+    state = MinerState()
+    sched = BanditScheduler(["rule/mr", "ml/lgbm"])
+    sched.update("rule/mr", 1.0, True)
+    state.bandit_state = sched.to_dict()
+
+    d = state.to_dict()
+    assert "bandit_state" in d
+    assert d["bandit_state"]["stats"]["rule/mr"]["successes"] == 1
+
+    restored = MinerState.from_dict(d)
+    assert restored.bandit_state["stats"]["rule/mr"]["successes"] == 1
+
+    # Can restore scheduler from state
+    restored_sched = BanditScheduler.from_dict(restored.bandit_state)
+    assert restored_sched.stats["rule/mr"].successes == 1

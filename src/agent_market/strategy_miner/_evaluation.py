@@ -305,6 +305,8 @@ def phase_evaluation(
             + str(getattr(candidate, "model_family", "") or "unknown")
         )
         _bandit.update(family_key, effective_sharpe, bool(candidate.constraints_ok))
+        # Persist bandit learning immediately after update
+        state.bandit_state = _bandit.to_dict()
 
     logger.info(
         "Phase EVALUATION: %s sharpe=%.4f native_sharpe=%.4f sortino=%.4f "
