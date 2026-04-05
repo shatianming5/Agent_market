@@ -142,10 +142,14 @@ def build_strategy_gen_prompt(
     ]
     slot_directive = _slot_families[slot_idx % len(_slot_families)]
 
+    # If diversity_instructions override the archetype, use that instead of slot_directive
+    if diversity_instructions and diversity_instructions != slot_directive:
+        slot_directive = diversity_instructions.split(".")[0].strip() if "." in diversity_instructions else diversity_instructions
+
     multi_header = ""
     multi_rules = ""
     if candidate_idx is not None and candidates_per_iteration:
-        multi_header = f"\n## Candidate {int(candidate_idx) + 1}/{int(candidates_per_iteration)} — forced archetype: {slot_directive}\n"
+        multi_header = f"\n## Candidate {int(candidate_idx) + 1}/{int(candidates_per_iteration)} — archetype: {slot_directive}\n"
         multi_rules = (
             "\n## Multi-candidate rules\n"
             "- This is one of several candidates generated in parallel for the same iteration.\n"
