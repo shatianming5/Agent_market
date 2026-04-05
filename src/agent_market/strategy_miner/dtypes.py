@@ -164,6 +164,10 @@ class MinerConfig:
         ]
     )
 
+    # Sealed holdout (final validation, touched only once at run completion)
+    selection_timerange: str = ""   # used for iteration scoring (replaces timerange if set)
+    holdout_timerange: str = ""     # sealed final validation window
+
     # Walk-forward OOS validation (optional — default off for backward compat)
     walkforward_enabled: bool = False
     walkforward_folds: int = 3
@@ -249,6 +253,8 @@ class MinerConfig:
             for k in (
                 "freqtrade_config",
                 "timerange",
+                "selection_timerange",
+                "holdout_timerange",
                 "backtest_timeout",
                 "max_strategy_timeframe",
                 "allowed_informative_timeframes",
@@ -287,6 +293,8 @@ class MinerConfig:
                 "min_pair_profit_pct",
                 "target_trades",
                 "min_acceptable_trades",
+                "selection_timerange",
+                "holdout_timerange",
                 "walkforward_enabled",
                 "walkforward_folds",
                 "walkforward_train_ratio",

@@ -296,6 +296,16 @@ def phase_evaluation(
     if violations:
         logger.info("Risk constraints violated for %s: %s", candidate.name, violations)
 
+    # Update bandit scheduler with evaluation feedback
+    _bandit = getattr(state, "_bandit", None)
+    if _bandit is not None:
+        family_key = (
+            str(getattr(candidate, "candidate_type", "rule"))
+            + "/"
+            + str(getattr(candidate, "model_family", "") or "unknown")
+        )
+        _bandit.update(family_key, effective_sharpe, bool(candidate.constraints_ok))
+
     logger.info(
         "Phase EVALUATION: %s sharpe=%.4f native_sharpe=%.4f sortino=%.4f "
         "native_sortino=%.4f calmar=%.4f native_calmar=%.4f "

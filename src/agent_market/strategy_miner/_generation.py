@@ -49,6 +49,7 @@ from ._helpers import (
     _rewrite_strategy_class_name,
 )
 from ._rendering import _normalize_model_candidate_payload
+from ._scheduler import BanditScheduler
 
 logger = logging.getLogger(__name__)
 
@@ -186,6 +187,24 @@ def phase_strategy_gen(
     state.active_candidate_idx = None
 
     n = max(1, int(getattr(config, "candidates_per_iteration", 1) or 1))
+
+    # --- Adaptive family allocation via Thompson Sampling ---
+    _bandit: BanditScheduler | None = getattr(state, "_bandit", None)
+    if _bandit is None:
+        all_families = [
+            "rule/mean-reversion", "rule/trend-pullback", "rule/breakout",
+            "rule/dca-grid", "rule/martingale",
+            "ml/lightgbm", "ml/xgboost",
+        ]
+        # Filter by enabled types
+        from ._helpers import _configured_candidate_types
+        enabled_types = set(_configured_candidate_types(config))
+        families = [f for f in all_families if f.split("/")[0] in enabled_types]
+        _bandit = BanditScheduler(families or ["rule/mean-reversion", "ml/lightgbm"])
+        state._bandit = _bandit  # type: ignore[attr-defined]
+
+    selected_families = _bandit.select_families(n)
+    logger.info("Bandit selected families: %s", selected_families)
 
     best_code = state.best_candidate.code if state.best_candidate is not None else None
 
@@ -404,12 +423,17 @@ def phase_strategy_gen(
 
     def _gen_one(candidate_idx: int) -> Optional[StrategyCandidate]:
         cand_label = f"cand_{candidate_idx:02d}"
-        candidate_type = _candidate_type_for_slot(
-            config,
-            iteration=state.iteration,
-            candidate_idx=candidate_idx,
-            candidates_per_iteration=n,
-        )
+        # Use bandit-selected family when available, fall back to fixed rotation
+        if candidate_idx < len(selected_families):
+            _family = selected_families[candidate_idx]
+            candidate_type = _family.split("/")[0]
+        else:
+            candidate_type = _candidate_type_for_slot(
+                config,
+                iteration=state.iteration,
+                candidate_idx=candidate_idx,
+                candidates_per_iteration=n,
+            )
 
         if candidate_type != "rule":
             return _gen_model_candidate(candidate_idx, candidate_type)

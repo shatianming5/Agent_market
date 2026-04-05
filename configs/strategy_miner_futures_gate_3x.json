@@ -16,7 +16,9 @@
   },
   "backtest": {
     "freqtrade_config": "user_data/config_freqai_gate_5m_futures_3x.json",
-    "timerange": "20260312-20260329",
+    "timerange": "20260312-20260323",
+    "selection_timerange": "20260312-20260323",
+    "holdout_timerange": "20260324-20260329",
     "train_timerange": "20260228-20260311",
     "backtest_timeout": 420,
     "enable_quick_funnel": true,

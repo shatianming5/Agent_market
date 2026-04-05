@@ -847,14 +847,43 @@ def phase_backtest(
         except Exception:
             pass
 
-        # Run Hyperopt before full backtest (first attempt only)
-        if attempt_idx == 0:
-            _run_hyperopt(
-                candidate=candidate,
-                config=config,
-                sandbox=sandbox,
-                strategies_dir=strategies_dir,
-            )
+        # Stage 1: 2-pair smoke backtest (cheap, ~10s) — reject obvious failures before hyperopt
+        if attempt_idx == 0 and bool(getattr(config, "enable_quick_funnel", True)):
+            smoke_pairs = list(getattr(config, "quick_backtest_pairs", []) or [])[:3] or ["BTC/USDT", "ETH/USDT"]
+            smoke_timeout = int(getattr(config, "quick_backtest_timeout", 60) or 60)
+
+            # Build smoke backtest command
+            ft_config_path = paths.resolve_repo_path(config.freqtrade_config)
+            smoke_cmd = [
+                sys.executable, "-m", "freqtrade", "backtesting",
+                "--config", str(ft_config_path),
+                "--strategy", candidate.name,
+                "--strategy-path", str(strategies_dir),
+                "--timerange", config.timerange,
+                "--userdir", str(sandbox / "user_data"),
+                "-p", *smoke_pairs,
+            ]
+
+            try:
+                from ._sandbox_exec import run_sandboxed
+                smoke_proc = run_sandboxed(
+                    smoke_cmd, cwd=paths.REPO_ROOT,
+                    timeout=smoke_timeout, cpu_seconds=smoke_timeout + 30, mem_mb=4096,
+                )
+                if smoke_proc.returncode != 0:
+                    logger.info("Smoke backtest failed for %s, skipping hyperopt", candidate.name)
+                    # Don't skip the full backtest — let the repair loop handle it
+                else:
+                    logger.info("Smoke backtest passed for %s, proceeding to hyperopt", candidate.name)
+                    # Stage 2: Hyperopt (expensive, only if smoke passed)
+                    _run_hyperopt(
+                        candidate=candidate,
+                        config=config,
+                        sandbox=sandbox,
+                        strategies_dir=strategies_dir,
+                    )
+            except Exception:
+                logger.debug("Smoke backtest error, skipping hyperopt", exc_info=True)
 
         logger.info(
             "Phase BACKTEST: running freqtrade backtesting for %s (attempt %d/%d)",

@@ -286,6 +286,17 @@ def run_strategy_miner(
 
             _save_checkpoint(state, miner_dir)
 
+        # Sealed holdout: run exactly once on the final champion
+        if state.best_candidate is not None:
+            try:
+                from ._holdout import run_sealed_holdout
+                holdout_result = run_sealed_holdout(state.best_candidate, config, miner_dir)
+                if holdout_result is not None:
+                    state.best_candidate.funnel_state["holdout"] = holdout_result
+                    _save_checkpoint(state, miner_dir)
+            except Exception as exc:
+                logger.warning("Sealed holdout failed: %s", exc)
+
         best_summary = state.best_candidate.backtest_summary if state.best_candidate else {}
         logger.info(
             "Mining complete: run_id=%s iterations=%d best_sharpe=%.4f best_profit=%.2f%%",
