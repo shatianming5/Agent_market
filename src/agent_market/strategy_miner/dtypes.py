@@ -405,6 +405,7 @@ class StrategyCandidate:
     training_config: Optional[Dict[str, Any]] = None
     training_summary: Optional[Dict[str, Any]] = None
     quick_backtest_summary: Optional[Dict[str, Any]] = None
+    candidate_family: str = ""
     funnel_state: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -435,6 +436,7 @@ class StrategyCandidate:
             "training_config": self.training_config,
             "training_summary": self.training_summary,
             "quick_backtest_summary": self.quick_backtest_summary,
+            "candidate_family": self.candidate_family,
             "funnel_state": dict(self.funnel_state or {}),
         }
 
@@ -474,6 +476,7 @@ class StrategyCandidate:
                     "training_config",
                     "training_summary",
                     "quick_backtest_summary",
+                    "candidate_family",
                     "funnel_state",
                 }
             }
@@ -497,6 +500,9 @@ class MinerState:
     # Retry counter for iterations that produce no results (persisted in checkpoint)
     gen_retries: int = 0
 
+    # Bandit scheduler state (persisted across checkpoints)
+    bandit_state: Dict[str, Any] = field(default_factory=dict)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -509,6 +515,7 @@ class MinerState:
             "pending_candidate_idxs": list(self.pending_candidate_idxs or []),
             "active_candidate_idx": self.active_candidate_idx,
             "gen_retries": self.gen_retries,
+            "bandit_state": self.bandit_state,
         }
 
     @classmethod
@@ -528,4 +535,5 @@ class MinerState:
         state.pending_candidate_idxs = list(d.get("pending_candidate_idxs") or [])
         state.active_candidate_idx = d.get("active_candidate_idx")
         state.gen_retries = int(d.get("gen_retries", 0) or 0)
+        state.bandit_state = d.get("bandit_state", {})
         return state

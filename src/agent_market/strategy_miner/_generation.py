@@ -191,19 +191,25 @@ def phase_strategy_gen(
     # --- Adaptive family allocation via Thompson Sampling ---
     _bandit: BanditScheduler | None = getattr(state, "_bandit", None)
     if _bandit is None:
-        all_families = [
-            "rule/mean-reversion", "rule/trend-pullback", "rule/breakout",
-            "rule/dca-grid", "rule/martingale",
-            "ml/lightgbm", "ml/xgboost",
-        ]
-        # Filter by enabled types
-        from ._helpers import _configured_candidate_types
-        enabled_types = set(_configured_candidate_types(config))
-        families = [f for f in all_families if f.split("/")[0] in enabled_types]
-        _bandit = BanditScheduler(families or ["rule/mean-reversion", "ml/lightgbm"])
+        # Try restore from checkpoint
+        if state.bandit_state:
+            _bandit = BanditScheduler.from_dict(state.bandit_state)
+        else:
+            all_families = [
+                "rule/mean-reversion", "rule/trend-pullback", "rule/breakout",
+                "rule/dca-grid", "rule/martingale",
+                "ml/lightgbm", "ml/xgboost",
+            ]
+            # Filter by enabled types
+            from ._helpers import _configured_candidate_types
+            enabled_types = set(_configured_candidate_types(config))
+            families = [f for f in all_families if f.split("/")[0] in enabled_types]
+            _bandit = BanditScheduler(families or ["rule/mean-reversion", "ml/lightgbm"])
         state._bandit = _bandit  # type: ignore[attr-defined]
 
     selected_families = _bandit.select_families(n)
+    # Persist bandit state for checkpoint
+    state.bandit_state = _bandit.to_dict()
     logger.info("Bandit selected families: %s", selected_families)
 
     best_code = state.best_candidate.code if state.best_candidate is not None else None

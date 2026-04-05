@@ -869,17 +869,49 @@ def phase_backtest(
                     timeout=smoke_timeout, cpu_seconds=smoke_timeout + 30, mem_mb=4096,
                 )
                 if smoke_proc.returncode != 0:
-                    logger.info("Smoke backtest failed for %s, skipping hyperopt", candidate.name)
-                    # Don't skip the full backtest — let the repair loop handle it
+                    logger.info("Smoke backtest crashed for %s, skipping hyperopt", candidate.name)
                 else:
-                    logger.info("Smoke backtest passed for %s, proceeding to hyperopt", candidate.name)
-                    # Stage 2: Hyperopt (expensive, only if smoke passed)
-                    _run_hyperopt(
-                        candidate=candidate,
-                        config=config,
-                        sandbox=sandbox,
-                        strategies_dir=strategies_dir,
-                    )
+                    # Parse smoke results for quality gate
+                    smoke_results_dir = sandbox / "user_data" / "backtest_results"
+                    smoke_zip = find_latest_backtest_zip(smoke_results_dir)
+                    smoke_passed = False
+                    if smoke_zip:
+                        try:
+                            smoke_summary = build_backtest_summary(smoke_zip)
+                            smoke_trades = int(smoke_summary.get("trades", 0) or 0)
+                            smoke_pf = float(smoke_summary.get("profit_factor", 0) or 0)
+                            smoke_profit = float(smoke_summary.get("profit_total_pct", 0) or 0)
+                            candidate.quick_backtest_summary = smoke_summary
+
+                            quick_min_trades = int(getattr(config, "quick_min_trades", 3) or 3)
+                            quick_min_pf = float(getattr(config, "quick_min_profit_factor", 0.5) or 0.5)
+                            quick_min_profit = float(getattr(config, "quick_min_profit_pct", -5.0) or -5.0)
+
+                            smoke_passed = (
+                                smoke_trades >= quick_min_trades
+                                and smoke_pf >= quick_min_pf
+                                and smoke_profit >= quick_min_profit
+                            )
+                            logger.info(
+                                "Smoke quality: trades=%d pf=%.2f profit=%.2f%% → %s",
+                                smoke_trades, smoke_pf, smoke_profit,
+                                "PASS" if smoke_passed else "FAIL",
+                            )
+                        except Exception:
+                            smoke_passed = True  # parse failure → let full backtest decide
+                    else:
+                        smoke_passed = True  # no zip → let full backtest decide
+
+                    if smoke_passed:
+                        logger.info("Smoke passed for %s, proceeding to hyperopt", candidate.name)
+                        _run_hyperopt(
+                            candidate=candidate,
+                            config=config,
+                            sandbox=sandbox,
+                            strategies_dir=strategies_dir,
+                        )
+                    else:
+                        logger.info("Smoke quality gate failed for %s, skipping hyperopt", candidate.name)
             except Exception:
                 logger.debug("Smoke backtest error, skipping hyperopt", exc_info=True)
 
