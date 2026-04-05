@@ -737,26 +737,24 @@ def phase_backtest(
             failure = f"[{category}] Validation failed: {msg}"
             candidate.diagnosis = failure
 
-            # Local auto-fix first for syntax/tool-tag/forbidden-import failures.
-            msg_lower = msg.lower()
-            if "syntax error" in msg_lower or "<write" in candidate.code.lower() or "forbidden import" in msg_lower:
-                did, fixes = auto_fix_strategy_file(candidate.strategy_path)
-                if did:
-                    try:
-                        candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
-                    except Exception:
-                        pass
-                    passed2, msg2 = validate_strategy_code(candidate.code)
-                    candidate.validation_passed = passed2
-                    if passed2:
-                        logger.info("Auto-fix succeeded for %s: %s", candidate.name, ",".join(fixes))
-                        candidate.diagnosis = ""
-                        candidate.failure_category = ""
-                    else:
-                        category2 = _classify_validation_failure(msg2)
-                        candidate.failure_category = category2
-                        failure = f"[{category2}] Validation failed after auto-fix({','.join(fixes)}): {msg2}"
-                        candidate.diagnosis = failure
+            # Local auto-fix first for any deterministic validator failure.
+            did, fixes = auto_fix_strategy_file(candidate.strategy_path)
+            if did:
+                try:
+                    candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+                passed2, msg2 = validate_strategy_code(candidate.code)
+                candidate.validation_passed = passed2
+                if passed2:
+                    logger.info("Auto-fix succeeded for %s: %s", candidate.name, ",".join(fixes))
+                    candidate.diagnosis = ""
+                    candidate.failure_category = ""
+                else:
+                    category2 = _classify_validation_failure(msg2)
+                    candidate.failure_category = category2
+                    failure = f"[{category2}] Validation failed after auto-fix({','.join(fixes)}): {msg2}"
+                    candidate.diagnosis = failure
 
             if candidate.validation_passed:
                 # Proceed to backtest without consuming an LLM repair attempt.
