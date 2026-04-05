@@ -456,8 +456,12 @@ def phase_strategy_gen(
                 variant=variant,
             )
 
-            # Diversity: assign role based on candidate index
-            _div = _INDICATOR_SETS[candidate_idx % len(_INDICATOR_SETS)]
+            # Diversity: use bandit-selected family when available, else slot rotation
+            if selected_family and "/" in selected_family:
+                _family_archetype = selected_family.split("/", 1)[1]  # e.g. "mean-reversion"
+                _div = {"role": _family_archetype, "instructions": f"Build a {_family_archetype} strategy."}
+            else:
+                _div = _INDICATOR_SETS[candidate_idx % len(_INDICATOR_SETS)]
             prompt = build_strategy_gen_prompt(
                 iteration=state.iteration,
                 candidate_idx=candidate_idx,
