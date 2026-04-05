@@ -65,7 +65,17 @@
     "hyperopt_loss": "SharpeHyperOptLoss",
     "hyperopt_jobs": 16,
     "hyperopt_min_trades": 10,
-    "walkforward_enabled": false
+    "walkforward_enabled": true,
+    "walkforward_folds": 3,
+    "walkforward_train_ratio": 0.6,
+    "benchmark_suite": "benchmark_pack/default"
+  },
+  "portfolio": {
+    "portfolio_enabled": true,
+    "portfolio_top_k": 3,
+    "portfolio_min_candidates": 2,
+    "portfolio_correlation_threshold": 0.85,
+    "portfolio_max_weight": 0.60
   },
   "strategy_profile": {
     "roi_target_min_pct": 1.0,

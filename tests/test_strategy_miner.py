@@ -44,6 +44,14 @@ def test_miner_config_nested_sections():
                 "min_trades": 25,
                 "max_abs_drawdown": 12.5,
                 "min_winrate": 0.55,
+                "benchmark_suite": "benchmark_pack/default",
+            },
+            "portfolio": {
+                "portfolio_enabled": True,
+                "portfolio_top_k": 4,
+                "portfolio_min_candidates": 2,
+                "portfolio_correlation_threshold": 0.8,
+                "portfolio_max_weight": 0.5,
             },
         }
     )
@@ -62,6 +70,11 @@ def test_miner_config_nested_sections():
     assert cfg.min_trades == 25
     assert cfg.max_abs_drawdown == 12.5
     assert cfg.min_winrate == 0.55
+    assert cfg.benchmark_suite == "benchmark_pack/default"
+    assert cfg.portfolio_enabled is True
+    assert cfg.portfolio_top_k == 4
+    assert cfg.portfolio_correlation_threshold == 0.8
+    assert cfg.portfolio_max_weight == 0.5
 
 
 

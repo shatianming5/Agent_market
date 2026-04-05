@@ -59,13 +59,32 @@ def _sanitize_external_text(text: str) -> str:
     return s[:500]
 
 
+def _scrubbed_env() -> Dict[str, str]:
+    """Return a copy of os.environ with secrets removed."""
+    import os
+    _SECRET_KEYS = {
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN",
+        "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID",
+        "AZURE_OPENAI_KEY", "HF_TOKEN", "HUGGINGFACE_TOKEN",
+        "LLM_API_KEY", "OPENCODE_API_KEY", "CLAUDE_API_KEY",
+        "GOOGLE_API_KEY", "COHERE_API_KEY", "MISTRAL_API_KEY",
+    }
+    return {k: v for k, v in os.environ.items() if k not in _SECRET_KEYS}
+
+
 def _run_opencli(args: List[str], timeout: int = _TIMEOUT) -> str:
-    """Run an opencli command with --format json and return stdout."""
+    """Run an opencli command with --format json and return stdout.
+
+    Runs with scrubbed environment to prevent secret leakage (D11).
+    """
     if not _opencli_available():
         return ""
     cmd = [_OPENCLI] + args + ["--format", "json"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+            env=_scrubbed_env(),
+        )
         if result.returncode == 0:
             return result.stdout.strip()
         logger.debug("opencli %s rc=%d: %s", " ".join(args[:3]), result.returncode, result.stderr[:200])

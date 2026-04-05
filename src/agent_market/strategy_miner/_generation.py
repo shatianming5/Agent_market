@@ -24,6 +24,7 @@ from .prompts import (
     build_planner_prompt,
     build_reviewer_prompt,
     build_strategy_gen_prompt,
+    prompt_metadata,
 )
 from .sandbox import (
     auto_fix_strategy_code,
@@ -47,6 +48,8 @@ from ._helpers import (
     _phase_for_candidate,
     _pick_active_candidate,
     _rewrite_strategy_class_name,
+    safe_transition,
+    update_candidate_stage,
 )
 from ._rendering import _normalize_model_candidate_payload
 from ._scheduler import BanditScheduler
@@ -75,6 +78,34 @@ _INDICATOR_SETS = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _accumulate_tokens(state: MinerState, result: Any) -> None:
+    """D13: Accumulate token usage from AgentRunResult into state.economics."""
+    usage = getattr(result, "usage", None)
+    if not usage or not isinstance(usage, dict):
+        # Fallback: try extracting from raw response (OpenAI format)
+        raw = getattr(result, "raw", None)
+        if isinstance(raw, dict):
+            usage = raw.get("usage")
+    if not usage or not isinstance(usage, dict):
+        return
+    total = int(usage.get("total_tokens", 0) or 0)
+    if total > 0 and hasattr(state, "economics"):
+        state.economics["total_tokens"] = (
+            state.economics.get("total_tokens", 0) + total
+        )
+        # Estimate cost: $0.01 per 1K tokens (conservative average)
+        # Real cost depends on model; this provides a rough budget signal.
+        prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+        completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+        # Use differentiated pricing if available, else flat rate
+        est_cost = (prompt_tokens * 0.003 + completion_tokens * 0.012) / 1000.0
+        if est_cost <= 0:
+            est_cost = total * 0.01 / 1000.0
+        state.economics["total_cost_usd"] = round(
+            state.economics.get("total_cost_usd", 0.0) + est_cost, 6
+        )
 
 
 def _extract_indicator_names(code: str) -> List[str]:
@@ -126,6 +157,7 @@ def _normalize_candidate_artifact(
     candidate_idx: int,
     names_seen: set[str],
     names_seen_lock: threading.Lock,
+    reserved_name: str | None = None,
 ) -> tuple[str, Path, str, list[str]]:
     """Return (strategy_name, strategy_path, code, fixes)."""
 
@@ -142,6 +174,8 @@ def _normalize_candidate_artifact(
 
     # Ensure stable uniqueness within iteration to avoid artifact overwrites.
     with names_seen_lock:
+        if reserved_name:
+            names_seen.discard(reserved_name)
         if name in names_seen:
             new_name = f"{name}_cand{candidate_idx}"
             code2 = _rewrite_strategy_class_name(code, old=name, new=new_name)
@@ -276,7 +310,8 @@ def phase_strategy_gen(
         generation_provider = ""
         generation_model = None
 
-        def _write_trace(role: str, payload: dict[str, Any]) -> None:
+        def _write_trace(role: str, payload: dict[str, Any],
+                         prompt_meta: Optional[dict] = None) -> None:
             try:
                 from .artifacts import write_agent_trace
 
@@ -286,6 +321,7 @@ def phase_strategy_gen(
                     candidate_idx=candidate_idx,
                     role=role,
                     payload=payload,
+                    prompt_meta=prompt_meta,
                 )
                 trace_paths[role] = str(p)
             except Exception:
@@ -310,6 +346,7 @@ def phase_strategy_gen(
             planner_agent = build_strategy_agent(config, sandbox)
             try:
                 planner_res = planner_agent.run_result(planner_prompt)
+                _accumulate_tokens(state, planner_res)
                 planner_notes = (planner_res.assistant_text or "").strip()[:3000]
                 _write_trace(
                     "planner",
@@ -319,6 +356,7 @@ def phase_strategy_gen(
                         "assistant_text": planner_res.assistant_text,
                         "tool_trace": planner_res.tool_trace,
                     },
+                    prompt_meta=prompt_metadata("model_planner", planner_prompt),
                 )
             finally:
                 try:
@@ -357,6 +395,7 @@ def phase_strategy_gen(
         local_agent = build_strategy_agent(config, sandbox)
         try:
             res = local_agent.run_result(prompt)
+            _accumulate_tokens(state, res)
             generation_provider = str(getattr(res, "provider", "") or "")
             generation_model = getattr(res, "model", None)
             _write_trace(
@@ -367,6 +406,7 @@ def phase_strategy_gen(
                     "assistant_text": res.assistant_text,
                     "tool_trace": res.tool_trace,
                 },
+                prompt_meta=prompt_metadata("model_candidate", prompt),
             )
             payload_raw = _json_block_or_none(res.assistant_text or "")
         finally:
@@ -627,7 +667,8 @@ def phase_strategy_gen(
         generation_provider = ""
         generation_model = None
 
-        def _write_trace(role: str, payload: dict[str, Any]) -> None:
+        def _write_trace(role: str, payload: dict[str, Any],
+                         prompt_meta: Optional[dict] = None) -> None:
             try:
                 from .artifacts import write_agent_trace
 
@@ -637,6 +678,7 @@ def phase_strategy_gen(
                     candidate_idx=candidate_idx,
                     role=role,
                     payload=payload,
+                    prompt_meta=prompt_meta,
                 )
                 trace_paths[role] = str(p)
             except Exception:
@@ -647,6 +689,7 @@ def phase_strategy_gen(
             local_agent = build_strategy_agent(config, sandbox_planner)
             try:
                 res = local_agent.run_result(planner_prompt)
+                _accumulate_tokens(state, res)
                 planner_notes = (res.assistant_text or "").strip()[:4000]
                 _write_trace(
                     "planner",
@@ -656,6 +699,7 @@ def phase_strategy_gen(
                         "assistant_text": res.assistant_text,
                         "tool_trace": res.tool_trace,
                     },
+                    prompt_meta=prompt_metadata("planner", planner_prompt),
                 )
             finally:
                 try:
@@ -710,6 +754,7 @@ def phase_strategy_gen(
                         "out_path": str(out_path) if out_path is not None else None,
                         "attempts": attempts,
                     },
+                    prompt_meta=prompt_metadata("strategy_gen", prompt),
                 )
 
                 return Path(out_path) if out_path is not None else None
@@ -858,6 +903,7 @@ def phase_strategy_gen(
             local_agent = build_strategy_agent(config, sandbox_reviewer)
             try:
                 res = local_agent.run_result(reviewer_prompt)
+                _accumulate_tokens(state, res)
                 reviewer_notes = (res.assistant_text or "").strip()[:4000]
                 parsed = _try_parse_json(res.assistant_text or "") or {}
                 fixed = parsed.get("fixed_code")
@@ -872,6 +918,7 @@ def phase_strategy_gen(
                         "tool_trace": res.tool_trace,
                         "parsed": parsed,
                     },
+                    prompt_meta=prompt_metadata("reviewer", reviewer_prompt),
                 )
             finally:
                 try:
@@ -884,6 +931,7 @@ def phase_strategy_gen(
             local_agent = build_strategy_agent(config, sandbox_backtester)
             try:
                 res = local_agent.run_result(backtester_prompt)
+                _accumulate_tokens(state, res)
                 backtester_notes = (res.assistant_text or "").strip()[:4000]
                 parsed = _try_parse_json(res.assistant_text or "")
                 _write_trace(
@@ -895,6 +943,7 @@ def phase_strategy_gen(
                         "tool_trace": res.tool_trace,
                         "parsed": parsed,
                     },
+                    prompt_meta=prompt_metadata("backtester", backtester_prompt),
                 )
             finally:
                 try:
@@ -939,6 +988,7 @@ def phase_strategy_gen(
                     candidate_idx=candidate_idx,
                     names_seen=names_seen,
                     names_seen_lock=names_seen_lock,
+                    reserved_name=name,
                 )
                 name, norm_path, code = name2, norm_path2, code2
                 if fixes2:
@@ -1019,7 +1069,7 @@ def phase_strategy_gen(
 
     if not results:
         logger.warning("Agent did not produce any strategy files")
-        state.phase = Phase.ANALYSIS
+        safe_transition(state, Phase.ANALYSIS)
         return
 
     start_idx = len(state.candidates)
@@ -1030,5 +1080,8 @@ def phase_strategy_gen(
     state.active_candidate_idx = new_idxs[0]
 
     first_candidate = _pick_active_candidate(state)
-    state.phase = _phase_for_candidate(first_candidate)
+    safe_transition(state, _phase_for_candidate(first_candidate))
+    # D2: Mark generated candidates
+    for c in state.candidates[len(state.candidates) - len(new_idxs):]:
+        update_candidate_stage(c, "generated")
     logger.info("Generated %d candidates for iteration %d", len(new_idxs), state.iteration)

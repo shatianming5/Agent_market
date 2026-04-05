@@ -1,7 +1,21 @@
 """Prompt templates for the strategy mining agent."""
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Dict, List, Optional
+
+# D8: Prompt version — bump when prompt structure changes materially
+PROMPT_VERSION = "v2.2"
+
+
+def prompt_metadata(prompt_id: str, prompt_text: str) -> Dict[str, str]:
+    """Generate metadata dict for a prompt (D8: context engineering)."""
+    sha = hashlib.sha256(prompt_text.encode()).hexdigest()[:12]
+    return {
+        "prompt_id": prompt_id,
+        "prompt_version": PROMPT_VERSION,
+        "prompt_sha256": sha,
+    }
 
 
 def _fmt_pct(value: float) -> str:
@@ -191,10 +205,22 @@ def build_strategy_gen_prompt(
                 + sugg_lines + "\n"
             )
 
-    # Tooling: simplified — always request a single code block
-    tooling_section = """
+    use_tool_tags = provider in ("opencode", "auto")
+    if use_tool_tags:
+        tooling_section = f"""
+## Output / Tooling
+You MAY use tool-call tags to inspect files and write the strategy.
+- Read reference/context if useful:
+  <read filePath="{sandbox_path}/user_data/strategies/ExpressionLongStrategy_reference.py"/>
+- Write the final strategy file with a `<write ...>` tool call:
+  <write filePath="{sandbox_path}/user_data/strategies/YourStrategy.py">...python code...</write>
+- Keep the final output focused on creating the strategy file in the strategies directory.
+"""
+    else:
+        tooling_section = """
 ## Output format
-Reply with exactly one Python code block containing the complete strategy file.
+Reply with a single Python code block containing the complete strategy file.
+Do NOT use any XML tool tags.
 """
 
     trade_soft_cap = max(int(target_trades) * 2, 1200)

@@ -95,8 +95,13 @@ def write_agent_trace(
     candidate_idx: int,
     role: str,
     payload: Any,
+    prompt_meta: Optional[dict] = None,
 ) -> Path:
-    """Write an agent trace JSON under agent_traces/iter_xxxx/cand_xx/."""
+    """Write an agent trace JSON under agent_traces/iter_xxxx/cand_xx/.
+
+    Args:
+        prompt_meta: D8 context-engineering metadata from ``prompt_metadata()``.
+    """
     safe_role = "".join(ch if (ch.isalnum() or ch in "-_@.") else "_" for ch in (role or "role"))
     out_dir = traces_dir(miner_dir) / f"iter_{int(iteration):04d}" / f"cand_{int(candidate_idx):02d}"
     out = out_dir / f"{safe_role}.json"
@@ -107,6 +112,8 @@ def write_agent_trace(
         "role": str(role),
         "payload": payload,
     }
+    if prompt_meta:
+        wrapped["prompt_meta"] = prompt_meta
     _atomic_write_json(out, wrapped)
     return out
 
@@ -324,4 +331,149 @@ def write_leaderboard(
 
     out = leaderboard_path(miner_dir)
     _atomic_write_json(out, payload)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# D1: Goal Contract snapshot
+# ---------------------------------------------------------------------------
+
+def write_goal_contract(miner_dir: Path, goal_contract: Any) -> Path:
+    """Persist an immutable snapshot of the goal contract for this run."""
+    out = miner_dir / "goal_contract.json"
+    payload = {
+        "snapshot_at": _iso_now(),
+        "sha256": goal_contract.sha256() if hasattr(goal_contract, "sha256") else "",
+        "contract": goal_contract.to_dict() if hasattr(goal_contract, "to_dict") else {},
+    }
+    _atomic_write_json(out, payload)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# D9: Observability — run metadata + event timeline
+# ---------------------------------------------------------------------------
+
+def write_run_meta(miner_dir: Path, *, run_id: str, phase: str,
+                   iteration: int, extra: Optional[dict] = None) -> Path:
+    """Write/overwrite run_meta.json with current run status."""
+    out = miner_dir / "run_meta.json"
+    payload = {
+        "run_id": run_id,
+        "updated_at": _iso_now(),
+        "phase": phase,
+        "iteration": iteration,
+    }
+    if extra:
+        payload.update(extra)
+    _atomic_write_json(out, payload)
+    return out
+
+
+def append_event(miner_dir: Path, event_type: str,
+                 detail: Optional[dict] = None) -> Path:
+    """Append a single JSONL event to events.jsonl for timeline tracking."""
+    out = miner_dir / "events.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "timestamp": _iso_now(),
+        "event": event_type,
+    }
+    if detail:
+        entry["detail"] = detail
+    line = json.dumps(entry, ensure_ascii=False)
+    with open(out, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# D10: Promotion chain — holdout gate artifact
+# ---------------------------------------------------------------------------
+
+def write_holdout_gate(miner_dir: Path, holdout_result: dict) -> Path:
+    """Write holdout_gate.json with pass/fail determination."""
+    passed = not holdout_result.get("overfitting_flag", False)
+    payload = {
+        "evaluated_at": _iso_now(),
+        "passed": passed,
+        "holdout_profit_pct": holdout_result.get("holdout_profit_pct"),
+        "selection_profit_pct": holdout_result.get("selection_profit_pct"),
+        "delta_pct": holdout_result.get("delta_pct"),
+        "overfitting_flag": holdout_result.get("overfitting_flag", False),
+        "holdout_timerange": holdout_result.get("holdout_timerange", ""),
+    }
+    out = miner_dir / "holdout_gate.json"
+    _atomic_write_json(out, payload)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# D5: Frozen benchmark verdict
+# ---------------------------------------------------------------------------
+
+def write_benchmark_verdict(miner_dir: Path, verdict: dict) -> Path:
+    """Write benchmark_verdict.json for frozen benchmark/challenge results."""
+    out = miner_dir / "benchmark_verdict.json"
+    _atomic_write_json(out, verdict)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# D12: Candidate portfolio recommendation
+# ---------------------------------------------------------------------------
+
+def write_portfolio_plan(miner_dir: Path, report: dict) -> Path:
+    """Write portfolio_plan.json for final candidate allocation."""
+    out = miner_dir / "portfolio_plan.json"
+    _atomic_write_json(out, report)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# D10: Promotion log
+# ---------------------------------------------------------------------------
+
+def append_promotion_log(miner_dir: Path, entry: dict) -> Path:
+    """Append a promotion-chain decision to promotion_log.jsonl."""
+    out = miner_dir / "promotion_log.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "timestamp": _iso_now(),
+        **dict(entry or {}),
+    }
+    with open(out, "a", encoding="utf-8") as f:
+        f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# D13: Economics — per-run cost rollup
+# ---------------------------------------------------------------------------
+
+def write_economics(miner_dir: Path, economics: dict) -> Path:
+    """Write or overwrite economics.json rollup."""
+    out = miner_dir / "economics.json"
+    payload = {
+        "updated_at": _iso_now(),
+        **economics,
+    }
+    _atomic_write_json(out, payload)
+    return out
+
+
+def append_candidate_economics(miner_dir: Path, candidate_name: str,
+                               iteration: int, econ: dict) -> Path:
+    """Append per-candidate economics to economics_per_candidate.jsonl."""
+    out = miner_dir / "economics_per_candidate.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "timestamp": _iso_now(),
+        "candidate": candidate_name,
+        "iteration": iteration,
+        **econ,
+    }
+    line = json.dumps(entry, ensure_ascii=False)
+    with open(out, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
     return out

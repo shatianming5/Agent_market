@@ -204,7 +204,7 @@ class StrategyAgent:
                     stale_timeout=stale_timeout,
                     max_retries=max_retries,
                     tool_policy=tool_policy,
-                    permission_overrides={"external_directory": {"*": "allow"}},
+                    permission_overrides={"external_directory": {str(self._workspace): "allow"}},
                 )
                 self._executor_info = {"provider": "opencode"}
                 logger.info("StrategyAgent provider=opencode workspace=%s", self._workspace)

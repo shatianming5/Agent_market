@@ -84,3 +84,79 @@ def compute_factor_score(
         logger.warning("Factor scoring failed: %s", e)
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# D6: Trace grading — evaluate agent reasoning quality
+# ---------------------------------------------------------------------------
+
+def grade_trace(candidate: Any) -> Dict[str, Any]:
+    """Grade the quality of agent reasoning for a candidate.
+
+    Produces a bounded score from available traces and validation results.
+    Does NOT use LLM — purely rule-based for speed and determinism.
+    """
+    planner_notes = str(getattr(candidate, "planner_notes", "") or "")
+    reviewer_notes = str(getattr(candidate, "reviewer_notes", "") or "")
+    code = str(getattr(candidate, "code", "") or "")
+    diagnosis = str(getattr(candidate, "diagnosis", "") or "")
+    validation_passed = bool(getattr(candidate, "validation_passed", False))
+    constraints_ok = bool(getattr(candidate, "constraints_ok", True))
+    failure_category = str(getattr(candidate, "failure_category", "") or "")
+
+    scores: Dict[str, float] = {}
+    flags: list = []
+
+    # 1) Did the planner produce a clear hypothesis?
+    hypothesis_clear = len(planner_notes) > 30
+    scores["hypothesis_clear"] = 1.0 if hypothesis_clear else 0.0
+
+    # 2) Did the reviewer identify issues?
+    reviewer_active = len(reviewer_notes) > 20
+    scores["reviewer_active"] = 1.0 if reviewer_active else 0.0
+
+    # 3) Was validation passed on first try?
+    scores["validation_first_pass"] = 1.0 if validation_passed else 0.0
+
+    # 4) Are constraints met?
+    scores["constraints_met"] = 1.0 if constraints_ok else 0.0
+
+    # 5) Was code non-trivial (> 50 lines)?
+    code_lines = len(code.strip().splitlines()) if code else 0
+    scores["code_nontrivial"] = 1.0 if code_lines > 50 else 0.5 if code_lines > 20 else 0.0
+
+    # 6) Failure categorization
+    if failure_category:
+        flags.append(f"failed:{failure_category}")
+        scores["no_failure"] = 0.0
+    else:
+        scores["no_failure"] = 1.0
+
+    # 7) Wasted cycles indicator
+    wasted = 0
+    if "syntax" in diagnosis.lower():
+        wasted += 1
+        flags.append("syntax_error")
+    if "import" in diagnosis.lower():
+        wasted += 1
+        flags.append("import_error")
+    scores["no_wasted_cycles"] = max(0.0, 1.0 - wasted * 0.5)
+
+    # Overall grade: weighted average
+    weights = {
+        "hypothesis_clear": 0.15,
+        "reviewer_active": 0.10,
+        "validation_first_pass": 0.20,
+        "constraints_met": 0.20,
+        "code_nontrivial": 0.10,
+        "no_failure": 0.15,
+        "no_wasted_cycles": 0.10,
+    }
+    overall = sum(scores.get(k, 0) * w for k, w in weights.items())
+
+    return {
+        "overall_grade": round(overall, 3),
+        "scores": scores,
+        "flags": flags,
+        "code_lines": code_lines,
+    }

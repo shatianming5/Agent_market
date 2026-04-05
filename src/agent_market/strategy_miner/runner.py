@@ -9,7 +9,8 @@ from typing import Optional
 from agent_market import paths
 
 from .agent_factory import build_strategy_agent
-from .dtypes import MinerConfig, MinerState, Phase
+from .dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
+from ._helpers import safe_transition
 from .knowledge_base import KnowledgeBase
 from .phases import (
     phase_analysis,
@@ -105,19 +106,27 @@ def _load_checkpoint(cp_path: Path) -> MinerState:
     return MinerState.from_dict(data)
 
 
-def _update_knowledge_base(kb: KnowledgeBase, state: MinerState) -> None:
-    """Update knowledge base (best-effort) based on the most recent candidate."""
+def _update_knowledge_base(kb: KnowledgeBase, state: MinerState,
+                           candidate: Optional[StrategyCandidate] = None) -> None:
+    """Update knowledge base (best-effort) based on the just-evaluated candidate.
+
+    Args:
+        kb: Knowledge base instance.
+        state: Current miner state.
+        candidate: The specific candidate that was just evaluated. If None,
+            falls back to active_candidate_idx then to state.candidates[-1].
+    """
 
     if not state.candidates:
         return
 
-    # Prefer active candidate when available, else fallback to last.
-    cand = None
-    idx = getattr(state, "active_candidate_idx", None)
-    if idx is not None and isinstance(idx, int) and 0 <= idx < len(state.candidates):
-        cand = state.candidates[idx]
-    else:
-        cand = state.candidates[-1]
+    cand = candidate
+    if cand is None:
+        idx = getattr(state, "active_candidate_idx", None)
+        if idx is not None and isinstance(idx, int) and 0 <= idx < len(state.candidates):
+            cand = state.candidates[idx]
+        else:
+            cand = state.candidates[-1]
 
     if cand.reward is not None and cand.backtest_summary is not None:
         if getattr(cand, "constraints_ok", True):
@@ -128,6 +137,24 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState) -> None:
                 backtest_summary=cand.backtest_summary,
                 iteration=state.iteration,
             )
+            # D7: Write strategy card with provenance + metrics
+            try:
+                kb.add_strategy_card(
+                    name=cand.name,
+                    code=cand.code,
+                    iteration=state.iteration,
+                    candidate_type=getattr(cand, "candidate_type", "rule"),
+                    candidate_family=getattr(cand, "candidate_family", ""),
+                    metrics={
+                        "sharpe": cand.reward,
+                        "profit_pct": (cand.backtest_summary or {}).get("profit_total_pct"),
+                        "trades": (cand.backtest_summary or {}).get("trades"),
+                        "trace_grade": (cand.candidate_payload or {}).get("trace_grade", {}).get("overall_grade"),
+                    },
+                    parent_name=state.best_candidate.name if state.best_candidate and state.best_candidate.name != cand.name else "",
+                )
+            except Exception:
+                pass
         else:
             kb.add_failure(
                 name=cand.name,
@@ -135,6 +162,17 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState) -> None:
                 failure_type="constraint_violation",
                 detail=f"Constraint violations: {', '.join(cand.constraint_violations or [])}",
             )
+            # D6/D7: Write failure card
+            try:
+                kb.add_failure_card(
+                    name=cand.name,
+                    iteration=state.iteration,
+                    phase="evaluation",
+                    category="constraint_violation",
+                    detail=f"Constraint violations: {', '.join(cand.constraint_violations or [])}",
+                )
+            except Exception:
+                pass
     elif cand.diagnosis:
         failure_type = "validation" if not cand.validation_passed else "backtest"
         kb.add_failure(
@@ -143,6 +181,17 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState) -> None:
             failure_type=failure_type,
             detail=cand.diagnosis,
         )
+        # D6/D7: Write failure card
+        try:
+            kb.add_failure_card(
+                name=cand.name,
+                iteration=state.iteration,
+                phase=failure_type,
+                category=getattr(cand, "failure_category", "") or failure_type,
+                detail=cand.diagnosis,
+            )
+        except Exception:
+            pass
 
 
 def run_strategy_miner(
@@ -179,11 +228,31 @@ def run_strategy_miner(
 
     miner_dir = miner_run_dir(state.run_id)
     miner_dir.mkdir(parents=True, exist_ok=True)
+    final_artifacts: dict[str, str] = {}
+    final_status: dict[str, object] = {}
 
     # Persist a stable proposal artifact for API/audit.
-    from .artifacts import write_proposal
+    from .artifacts import write_proposal, write_goal_contract, write_run_meta, append_event
 
     write_proposal(miner_dir, run_id=state.run_id, config=config, overwrite=False)
+
+    # D1: Goal contract snapshot (backward compatible — auto-extract from config)
+    _goal_contract = None
+    try:
+        from .goal_contract import GoalContract
+        _goal_contract = GoalContract.from_miner_config(config)
+        _gc_errors = _goal_contract.validate()
+        if _gc_errors:
+            logger.warning("Goal contract validation issues: %s", _gc_errors)
+        write_goal_contract(miner_dir, _goal_contract)
+        logger.debug("Goal contract snapshot: sha=%s", _goal_contract.sha256())
+    except Exception as exc:
+        logger.debug("Goal contract snapshot skipped: %s", exc)
+
+    # D9: Initialize run metadata
+    write_run_meta(miner_dir, run_id=state.run_id, phase=state.phase.value,
+                   iteration=state.iteration)
+    append_event(miner_dir, "run_start", {"run_id": state.run_id})
 
     kb = KnowledgeBase(miner_dir / "knowledge_base.json")
 
@@ -211,13 +280,32 @@ def run_strategy_miner(
     _stagnation_count = 0
     _last_best_score = state.best_score
 
+    # D13: Track total wall time
+    import time as _run_time
+    _run_start_wall = _run_time.time()
+
     try:
         while state.phase != Phase.COMPLETE:
+            # D1: Check budget exhaustion from GoalContract
+            if _goal_contract is not None and _goal_contract.is_budget_exhausted(
+                state.economics, state.iteration, len(state.candidates)
+            ):
+                logger.info("Budget exhausted per GoalContract — completing run")
+                append_event(miner_dir, "budget_exhausted", {
+                    "iteration": state.iteration,
+                    "candidates": len(state.candidates),
+                    "economics": state.economics,
+                })
+                safe_transition(state, Phase.COMPLETE)
+                break
             logger.info(
                 "=== Iteration %d | Phase %s ===",
                 state.iteration,
                 state.phase.value,
             )
+
+            # Capture phase name BEFORE execution (phase may advance inside)
+            _phase_before = state.phase.value
 
             if state.phase == Phase.STRATEGY_GEN:
                 # Track stagnation
@@ -226,6 +314,24 @@ def run_strategy_miner(
                 else:
                     _stagnation_count = 0
                     _last_best_score = state.best_score
+
+                # D1: Stop on stagnation if GoalContract declares it
+                if (
+                    _goal_contract is not None
+                    and "stagnation" in (_goal_contract.stop_conditions or [])
+                    and _stagnation_count >= max(3, _goal_contract.max_iterations() // 2)
+                ):
+                    logger.info(
+                        "Stagnation stop: no improvement for %d iterations (limit=%d)",
+                        _stagnation_count,
+                        _goal_contract.max_iterations() // 2,
+                    )
+                    append_event(miner_dir, "stagnation_stop", {
+                        "stagnation_count": _stagnation_count,
+                        "best_score": state.best_score,
+                    })
+                    safe_transition(state, Phase.COMPLETE)
+                    break
 
                 # Inject deep research into strategy generation
                 _extra_kw = {}
@@ -262,7 +368,15 @@ def run_strategy_miner(
                 phase_train_model(state, config, miner_dir, kb=kb)
 
             elif state.phase == Phase.EVALUATION:
-                phase_evaluation(state, config, run_dir=miner_dir, kb=kb)
+                # Capture the candidate being evaluated BEFORE phase advances
+                _eval_idx = getattr(state, "active_candidate_idx", None)
+                _eval_cand = None
+                if _eval_idx is not None and isinstance(_eval_idx, int) and 0 <= _eval_idx < len(state.candidates):
+                    _eval_cand = state.candidates[_eval_idx]
+                phase_evaluation(state, config, run_dir=miner_dir, kb=kb,
+                                 goal_contract=_goal_contract)
+                # D7: Update knowledge base after evaluation — pass the exact candidate
+                _update_knowledge_base(kb, state, candidate=_eval_cand)
 
             elif state.phase == Phase.ANALYSIS:
                 # Optional LLM diagnosis for best candidate in the iteration.
@@ -286,6 +400,15 @@ def run_strategy_miner(
 
             _save_checkpoint(state, miner_dir)
 
+            # D9: Update run metadata + event timeline after each phase
+            append_event(miner_dir, "phase_complete", {
+                "iteration": state.iteration,
+                "phase_completed": _phase_before,
+                "phase_next": state.phase.value,
+            })
+            write_run_meta(miner_dir, run_id=state.run_id,
+                           phase=state.phase.value, iteration=state.iteration)
+
         # Sealed holdout: run exactly once on the final champion
         if (
             state.best_candidate is not None
@@ -296,9 +419,162 @@ def run_strategy_miner(
                 holdout_result = run_sealed_holdout(state.best_candidate, config, miner_dir)
                 if holdout_result is not None:
                     state.best_candidate.funnel_state["holdout"] = holdout_result
+                    final_status["holdout_passed"] = not holdout_result.get("overfitting_flag", False)
+                    # D10: Enforce holdout gate — demote champion if overfitting detected
+                    holdout_passed = not holdout_result.get("overfitting_flag", False)
+                    from ._helpers import update_candidate_stage
+                    update_candidate_stage(state.best_candidate, "holdout_tested")
+                    if holdout_passed:
+                        # D1/D10: Check promotion conditions from GoalContract
+                        _promotion_ok = True
+                        if _goal_contract is not None:
+                            _delta_pct = holdout_result.get("delta_pct")
+                            # Walk-forward folds are stored in backtest_summary["walkforward"]
+                            _wf_data = (state.best_candidate.backtest_summary or {}).get("walkforward") or {}
+                            _wf_passed = int(_wf_data.get("folds_completed", 0) or 0)
+                            _obs_days = int((state.best_candidate.backtest_summary or {}).get("observation_days", 0) or 0)
+                            _promotion_ok = _goal_contract.is_promotable(
+                                sharpe=float(state.best_candidate.reward or 0),
+                                holdout_delta_pct=float(_delta_pct) if _delta_pct is not None else None,
+                                wf_folds_passed=_wf_passed,
+                                constraints_ok=bool(getattr(state.best_candidate, "constraints_ok", True)),
+                                observation_days=_obs_days,
+                            )
+                        benchmark_ok = True
+                        benchmark_result = None
+                        benchmark_suite = ""
+                        if _goal_contract is not None:
+                            benchmark_suite = str(
+                                (_goal_contract.evaluation_protocol or {}).get("benchmark_suite") or ""
+                            ).strip()
+                        if not benchmark_suite:
+                            benchmark_suite = str(getattr(config, "benchmark_suite", "") or "").strip()
+                        if benchmark_suite:
+                            try:
+                                from ._benchmark import run_benchmark_suite
+                                from .artifacts import write_benchmark_verdict
+
+                                benchmark_result = run_benchmark_suite(
+                                    state.best_candidate,
+                                    suite_path=benchmark_suite,
+                                    holdout_result=holdout_result,
+                                )
+                                state.best_candidate.funnel_state["benchmark"] = benchmark_result
+                                benchmark_ok = bool(benchmark_result.get("passed", False))
+                                final_status["benchmark_passed"] = benchmark_ok
+                                _benchmark_path = write_benchmark_verdict(miner_dir, benchmark_result)
+                                final_artifacts["benchmark_verdict"] = str(_benchmark_path.resolve())
+                                append_event(miner_dir, "benchmark_complete", {
+                                    "passed": benchmark_ok,
+                                    "failed_ids": benchmark_result.get("failed_ids", []),
+                                })
+                            except Exception as exc:
+                                benchmark_ok = False
+                                final_status["benchmark_passed"] = False
+                                logger.warning("Frozen benchmark suite failed: %s", exc)
+                        if _promotion_ok:
+                            if benchmark_ok:
+                                update_candidate_stage(state.best_candidate, "promoted")
+                                logger.info(
+                                    "Holdout PASSED + promoted: %s (delta=%.2f%%)",
+                                    state.best_candidate.name,
+                                    float(holdout_result.get("delta_pct") or 0),
+                                )
+                                final_status["promotion_status"] = "promoted"
+                            else:
+                                logger.warning(
+                                    "Holdout PASSED but frozen benchmark FAILED: %s",
+                                    state.best_candidate.name,
+                                )
+                                final_status["promotion_status"] = "benchmark_failed"
+                        else:
+                            logger.warning(
+                                "Holdout PASSED but promotion conditions NOT met: %s",
+                                state.best_candidate.name,
+                            )
+                            final_status["promotion_status"] = "promotion_conditions_failed"
+                        try:
+                            from .artifacts import append_promotion_log
+
+                            append_promotion_log(miner_dir, {
+                                "candidate": state.best_candidate.name,
+                                "holdout_passed": holdout_passed,
+                                "holdout_delta_pct": holdout_result.get("delta_pct"),
+                                "benchmark_passed": benchmark_result.get("passed") if isinstance(benchmark_result, dict) else None,
+                                "benchmark_failed_ids": benchmark_result.get("failed_ids", []) if isinstance(benchmark_result, dict) else [],
+                                "promotion_ok": _promotion_ok and benchmark_ok,
+                            })
+                        except Exception:
+                            pass
+                    else:
+                        _failed_name = state.best_candidate.name
+                        logger.warning(
+                            "Holdout FAILED (overfitting): %s demoted (delta=%.2f%%)",
+                            state.best_candidate.name,
+                            float(holdout_result.get("delta_pct") or 0),
+                        )
+                        # Demote: mark and clear best_candidate so downstream
+                        # consumers know no strategy passed the full pipeline.
+                        state.best_candidate.constraints_ok = False
+                        state.best_candidate.constraint_violations = list(
+                            state.best_candidate.constraint_violations or []
+                        ) + ["holdout_overfitting"]
+                        # Nullify best so API/export never sees a failed champion
+                        state.best_candidate = None
+                        state.best_score = float("-inf")
+                        final_status["promotion_status"] = "holdout_failed"
+                        try:
+                            from .artifacts import append_promotion_log
+
+                            append_promotion_log(miner_dir, {
+                                "candidate": _failed_name,
+                                "holdout_passed": False,
+                                "holdout_delta_pct": holdout_result.get("delta_pct"),
+                                "promotion_ok": False,
+                            })
+                        except Exception:
+                            pass
                     _save_checkpoint(state, miner_dir)
+                    # D10: Write holdout gate artifact
+                    try:
+                        from .artifacts import write_holdout_gate
+                        _holdout_path = write_holdout_gate(miner_dir, holdout_result)
+                        final_artifacts["holdout_gate"] = str(_holdout_path.resolve())
+                    except Exception:
+                        pass
+                    # D9: Event
+                    append_event(miner_dir, "holdout_complete", {
+                        "passed": not holdout_result.get("overfitting_flag", False),
+                        "delta_pct": holdout_result.get("delta_pct"),
+                    })
             except Exception as exc:
                 logger.warning("Sealed holdout failed: %s", exc)
+
+        try:
+            if bool(getattr(config, "portfolio_enabled", True)):
+                from ._portfolio import build_candidate_portfolio_report
+                from .artifacts import write_portfolio_plan
+
+                portfolio_report = build_candidate_portfolio_report(
+                    state.candidates,
+                    top_k=int(getattr(config, "portfolio_top_k", 3) or 3),
+                    min_candidates=int(getattr(config, "portfolio_min_candidates", 2) or 2),
+                    correlation_threshold=float(
+                        getattr(config, "portfolio_correlation_threshold", 0.85) or 0.85
+                    ),
+                    max_weight=float(getattr(config, "portfolio_max_weight", 0.60) or 0.60),
+                )
+                if portfolio_report is not None:
+                    _portfolio_path = write_portfolio_plan(miner_dir, portfolio_report)
+                    final_artifacts["portfolio_plan"] = str(_portfolio_path.resolve())
+                    final_status["portfolio_method"] = portfolio_report.get("method")
+                    append_event(miner_dir, "portfolio_complete", {
+                        "passed": portfolio_report.get("passed"),
+                        "method": portfolio_report.get("method"),
+                        "weights": portfolio_report.get("weights", {}),
+                    })
+        except Exception as exc:
+            logger.warning("Candidate portfolio construction failed: %s", exc)
 
         best_summary = state.best_candidate.backtest_summary if state.best_candidate else {}
         logger.info(
@@ -316,6 +592,33 @@ def run_strategy_miner(
             )
 
     finally:
+        # D13: Accumulate total wall time (don't overwrite on resume)
+        _session_wall = round(_run_time.time() - _run_start_wall, 1)
+        state.economics["total_wall_seconds"] = round(
+            state.economics.get("total_wall_seconds", 0.0) + _session_wall, 1
+        )
         _save_checkpoint(state, miner_dir)
+        # D9: Final event
+        try:
+            append_event(miner_dir, "run_complete", {
+                "iterations": state.iteration,
+                "best_score": state.best_score,
+                "best_name": state.best_candidate.name if state.best_candidate else None,
+            })
+            write_run_meta(miner_dir, run_id=state.run_id,
+                           phase="complete", iteration=state.iteration,
+                           extra={
+                               "best_score": state.best_score,
+                               "artifacts": final_artifacts,
+                               **final_status,
+                           })
+        except Exception:
+            pass
+        # D13: Persist economics rollup
+        try:
+            from .artifacts import write_economics
+            write_economics(miner_dir, state.economics)
+        except Exception:
+            pass
 
     return state

@@ -65,16 +65,24 @@ def run_sandboxed(
     - Environment sanitization (remove sensitive vars)
     - Timeout enforcement
     """
-    # Sanitize environment: remove sensitive vars from child
+    # Sanitize environment: remove sensitive vars from child (D11)
+    _SENSITIVE_KEYS = {
+        "AGENT_MARKET_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY",
+        "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "GITHUB_TOKEN",
+        "GH_TOKEN", "ANTHROPIC_API_KEY", "AZURE_OPENAI_KEY",
+        "HF_TOKEN", "HUGGINGFACE_TOKEN", "OPENCODE_API_KEY",
+        "CLAUDE_API_KEY", "GOOGLE_API_KEY", "COHERE_API_KEY",
+        "MISTRAL_API_KEY",
+    }
     safe_env = dict(env or os.environ)
-    for sensitive_key in ("AGENT_MARKET_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN"):
+    for sensitive_key in _SENSITIVE_KEYS:
         safe_env.pop(sensitive_key, None)
     # Prevent OpenBLAS thread explosion in sandboxed subprocesses
     safe_env.setdefault("OPENBLAS_NUM_THREADS", "4")
     safe_env.setdefault("MKL_NUM_THREADS", "4")
     safe_env.setdefault("OMP_NUM_THREADS", "4")
 
-    return subprocess.run(
+    result = subprocess.run(
         cmd,
         cwd=str(cwd),
         capture_output=True,
@@ -86,3 +94,47 @@ def run_sandboxed(
         ),
         env=safe_env,
     )
+
+    # D11: Scrub stdout/stderr to remove any leaked secrets
+    result = _scrub_output(result, _SENSITIVE_KEYS)
+    return result
+
+
+def _scrub_output(
+    result: subprocess.CompletedProcess[str],
+    sensitive_keys: set[str],
+) -> subprocess.CompletedProcess[str]:
+    """Remove accidental secret leaks from subprocess output."""
+    import os as _os2
+    scrub_vals = set()
+    for key in sensitive_keys:
+        val = _os2.environ.get(key, "")
+        if val and len(val) >= 8:  # Only scrub non-trivial values
+            scrub_vals.add(val)
+    if not scrub_vals:
+        return result
+    stdout = getattr(result, "stdout", "") or ""
+    stderr = getattr(result, "stderr", "") or ""
+    changed = False
+    for val in scrub_vals:
+        if val in stdout:
+            stdout = stdout.replace(val, "***REDACTED***")
+            changed = True
+        if val in stderr:
+            stderr = stderr.replace(val, "***REDACTED***")
+            changed = True
+    if not changed:
+        return result
+    # Reconstruct — handle both CompletedProcess and mock objects
+    try:
+        return subprocess.CompletedProcess(
+            args=getattr(result, "args", []),
+            returncode=getattr(result, "returncode", 1),
+            stdout=stdout,
+            stderr=stderr,
+        )
+    except Exception:
+        # Fallback: mutate in-place for non-standard result objects
+        result.stdout = stdout  # type: ignore[attr-defined]
+        result.stderr = stderr  # type: ignore[attr-defined]
+        return result

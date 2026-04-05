@@ -74,6 +74,51 @@ class Phase(Enum):
     COMPLETE = "complete"
 
 
+# 显式转换表 — 防止非法状态跳转
+VALID_TRANSITIONS: Dict[Phase, List[Phase]] = {
+    Phase.STRATEGY_GEN: [Phase.TRAIN_MODEL, Phase.BACKTEST, Phase.ANALYSIS,
+                         Phase.COMPLETE, Phase.STRATEGY_GEN],
+    Phase.TRAIN_MODEL: [Phase.BACKTEST, Phase.ANALYSIS, Phase.TRAIN_MODEL, Phase.COMPLETE],
+    Phase.BACKTEST: [Phase.EVALUATION, Phase.ANALYSIS, Phase.BACKTEST, Phase.TRAIN_MODEL, Phase.COMPLETE],
+    Phase.EVALUATION: [Phase.STRATEGY_GEN, Phase.ANALYSIS, Phase.COMPLETE,
+                       Phase.TRAIN_MODEL, Phase.BACKTEST, Phase.EVALUATION],
+    Phase.ANALYSIS: [Phase.STRATEGY_GEN, Phase.COMPLETE],
+    Phase.COMPLETE: [],
+}
+
+
+class CandidateStage(Enum):
+    """Per-candidate lifecycle stage for fine-grained tracking."""
+    GENERATED = "generated"
+    TRAINED = "trained"
+    SMOKE_PASSED = "smoke_passed"
+    HYPEROPT_DONE = "hyperopt_done"
+    BACKTESTED = "backtested"
+    EVALUATED = "evaluated"
+    HOLDOUT_TESTED = "holdout_tested"
+    PROMOTED = "promoted"
+    FAILED = "failed"
+
+
+# D2: Valid candidate stage transitions (fail-closed)
+# Any stage can transition to FAILED (terminal).
+# Normal flow: GENERATED → TRAINED → SMOKE_PASSED → HYPEROPT_DONE → BACKTESTED
+#              → EVALUATED → HOLDOUT_TESTED → PROMOTED
+# Shortcuts allowed: skipping intermediate stages (e.g., rule-based
+#   candidates skip TRAINED; quick funnel may skip SMOKE/HYPEROPT)
+VALID_CANDIDATE_TRANSITIONS: Dict[str, List[str]] = {
+    "generated": ["trained", "smoke_passed", "backtested", "evaluated", "failed"],
+    "trained": ["smoke_passed", "backtested", "evaluated", "failed"],
+    "smoke_passed": ["hyperopt_done", "backtested", "evaluated", "failed"],
+    "hyperopt_done": ["backtested", "evaluated", "failed"],
+    "backtested": ["evaluated", "failed"],
+    "evaluated": ["holdout_tested", "failed"],  # Must go through holdout gate
+    "holdout_tested": ["promoted", "failed"],
+    "promoted": [],  # terminal
+    "failed": [],    # terminal
+}
+
+
 @dataclass
 class MinerConfig:
     # Agent provider
@@ -167,11 +212,19 @@ class MinerConfig:
     # Sealed holdout (final validation, touched only once at run completion)
     selection_timerange: str = ""   # used for iteration scoring (replaces timerange if set)
     holdout_timerange: str = ""     # sealed final validation window
+    benchmark_suite: str = ""       # frozen benchmark/challenge pack manifest or directory
 
     # Walk-forward OOS validation (optional — default off for backward compat)
     walkforward_enabled: bool = False
     walkforward_folds: int = 3
     walkforward_train_ratio: float = 0.6
+
+    # Portfolio construction (D12)
+    portfolio_enabled: bool = True
+    portfolio_top_k: int = 3
+    portfolio_min_candidates: int = 2
+    portfolio_correlation_threshold: float = 0.85
+    portfolio_max_weight: float = 0.60
 
     # Risk constraints / gating (optional)
     min_trades: int = 10
@@ -295,6 +348,7 @@ class MinerConfig:
                 "min_acceptable_trades",
                 "selection_timerange",
                 "holdout_timerange",
+                "benchmark_suite",
                 "walkforward_enabled",
                 "walkforward_folds",
                 "walkforward_train_ratio",
@@ -311,6 +365,18 @@ class MinerConfig:
             ):
                 if k in evaluation and k not in d2:
                     d2[k] = evaluation[k]
+
+        portfolio = d2.get("portfolio")
+        if isinstance(portfolio, dict):
+            for k in (
+                "portfolio_enabled",
+                "portfolio_top_k",
+                "portfolio_min_candidates",
+                "portfolio_correlation_threshold",
+                "portfolio_max_weight",
+            ):
+                if k in portfolio and k not in d2:
+                    d2[k] = portfolio[k]
 
         risk = d2.get("risk_constraints")
         if isinstance(risk, dict):
@@ -407,6 +473,14 @@ class StrategyCandidate:
     quick_backtest_summary: Optional[Dict[str, Any]] = None
     candidate_family: str = ""
     funnel_state: Dict[str, Any] = field(default_factory=dict)
+    stage: str = "generated"  # CandidateStage value
+    stage_history: List[Dict[str, Any]] = field(default_factory=list)
+
+    # D6: Structured repair ledger — each entry records one repair attempt
+    # Fields per entry: attempt, failure_type, root_cause, patch_scope,
+    #   code_hash_before, code_hash_after, verification_result, timestamp,
+    #   provider, model, auto_fixes, compliance_fixes
+    repair_ledger: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -438,6 +512,9 @@ class StrategyCandidate:
             "quick_backtest_summary": self.quick_backtest_summary,
             "candidate_family": self.candidate_family,
             "funnel_state": dict(self.funnel_state or {}),
+            "stage": self.stage,
+            "stage_history": list(self.stage_history or []),
+            "repair_ledger": list(self.repair_ledger or []),
         }
 
     @classmethod
@@ -478,6 +555,9 @@ class StrategyCandidate:
                     "quick_backtest_summary",
                     "candidate_family",
                     "funnel_state",
+                    "stage",
+                    "stage_history",
+                    "repair_ledger",
                 }
             }
         )
@@ -503,6 +583,14 @@ class MinerState:
     # Bandit scheduler state (persisted across checkpoints)
     bandit_state: Dict[str, Any] = field(default_factory=dict)
 
+    # D13: Economics tracking (total tokens, cost, backtest seconds)
+    economics: Dict[str, Any] = field(default_factory=lambda: {
+        "total_tokens": 0,
+        "total_cost_usd": 0.0,
+        "total_backtest_seconds": 0.0,
+        "total_wall_seconds": 0.0,
+    })
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "run_id": self.run_id,
@@ -516,6 +604,7 @@ class MinerState:
             "active_candidate_idx": self.active_candidate_idx,
             "gen_retries": self.gen_retries,
             "bandit_state": self.bandit_state,
+            "economics": self.economics,
         }
 
     @classmethod
@@ -536,4 +625,10 @@ class MinerState:
         state.active_candidate_idx = d.get("active_candidate_idx")
         state.gen_retries = int(d.get("gen_retries", 0) or 0)
         state.bandit_state = d.get("bandit_state", {})
+        state.economics = d.get("economics", {
+            "total_tokens": 0,
+            "total_cost_usd": 0.0,
+            "total_backtest_seconds": 0.0,
+            "total_wall_seconds": 0.0,
+        })
         return state

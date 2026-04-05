@@ -22,6 +22,8 @@ class AgentRunResult:
     model: str | None = None
     tool_trace: list[dict[str, Any]] | None = None
     raw: Any | None = None
+    # D13: Token usage tracking
+    usage: dict[str, int] | None = None
 
 
 class AgentExecutor(Protocol):
@@ -225,12 +227,20 @@ class OpenAIChatExecutor:
                         content = "" if content is None else str(content)
                     if not content.strip():
                         raise RuntimeError("llm_empty_response")
+                    # D13: Extract token usage from response
+                    _usage = None
+                    if isinstance(data.get("usage"), dict):
+                        _usage = {
+                            k: int(v) for k, v in data["usage"].items()
+                            if isinstance(v, (int, float))
+                        }
                     return AgentRunResult(
                         assistant_text=content,
                         provider=self._provider,
                         model=self._model,
                         tool_trace=None,
                         raw=data,
+                        usage=_usage,
                     )
                 except (RequestException, RuntimeError, ValueError) as exc:
                     last_err = exc

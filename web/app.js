@@ -568,8 +568,18 @@ async function renderFlowArtifactsCheck(runIdOverride) {
   rows.push(_renderArtifactItem({ label: `run_meta (${meta.status || 'unknown'})`, ok: true, href: `${API}/flow/run-meta/${encodeURIComponent(runId)}` }))
   rows.push(_renderArtifactItem({ label: 'features', ok: !!(checks.feature_output && checks.feature_output.exists) }))
   rows.push(_renderArtifactItem({ label: 'expressions', ok: !!(checks.expression_output && checks.expression_output.exists) }))
+  rows.push(_renderArtifactItem({
+    label: 'factor scores',
+    ok: !!(checks.factor_scores_json && checks.factor_scores_json.exists),
+    href: `${API}/flow/factor-scores/${encodeURIComponent(runId)}`,
+  }))
   rows.push(_renderArtifactItem({ label: 'training', ok: trSums.some(x => x && x.exists), href: `${API}/results/latest-training` }))
   rows.push(_renderArtifactItem({ label: 'backtest', ok: btZips.some(x => x && x.exists), href: latestZipName ? `${API}/results/summary?name=${encodeURIComponent(latestZipName)}` : `${API}/results/latest-summary` }))
+  rows.push(_renderArtifactItem({
+    label: 'bundle.zip',
+    ok: !!(checks.bundle_zip && checks.bundle_zip.exists),
+    href: `${API}/results/bundles/download/${encodeURIComponent(runId)}`,
+  }))
 
   el.innerHTML = `<div class="section-title text-sm mt-2">产物检查 (${_escapeHtml(runId.slice(0, 12))})</div>${rows.join('')}`
 }

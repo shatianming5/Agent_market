@@ -44,6 +44,8 @@ from ._helpers import (
     _coerce_float,
     _coerce_int,
     _normalize_roi_map,
+    safe_transition,
+    update_candidate_stage,
 )
 from ._rendering import (
     _render_ml_strategy_code,
@@ -57,6 +59,29 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Repair helper
 # ---------------------------------------------------------------------------
+
+
+def _update_repair_ledger_result(candidate: StrategyCandidate, result: str) -> None:
+    """Update the most recent repair ledger entry's verification_result.
+
+    Called after re-backtest to record whether the repair actually fixed the issue.
+    result: 'pass', 'fail', or 'error'
+    """
+    ledger = getattr(candidate, "repair_ledger", None)
+    if ledger and isinstance(ledger, list) and ledger:
+        ledger[-1]["verification_result"] = result
+
+
+def _repair_agent_explicitly_configured(config: MinerConfig) -> bool:
+    """Return True when repair is explicitly enabled by caller/config.
+
+    Bare `MinerConfig()` should stay fail-closed during static validation tests
+    instead of opportunistically reaching for ambient LLM credentials.
+    """
+    model = str(getattr(config, "model", "") or "").strip()
+    base_url = str(getattr(config, "base_url", "") or "").strip()
+    provider = str(getattr(config, "provider", "auto") or "auto").strip().lower()
+    return bool(model or base_url or provider not in {"", "auto"})
 
 
 def _repair_candidate(
@@ -193,25 +218,49 @@ def _repair_candidate(
             compliance_fixes = []
 
         candidate.name = infer_strategy_class_name(candidate.code) or repaired_path.stem
+        # D6: Capture failure info BEFORE clearing for repair ledger
+        _repair_failure_type = str(candidate.failure_category or "unknown")
+        _repair_diagnosis = str(candidate.diagnosis or "")
         candidate.backtest_summary = None
         candidate.reward = None
         candidate.failure_category = ""
         candidate.diagnosis = ""
+
+        # D6: Append structured repair ledger entry
+        import time as _rl_time
+        _ledger_entry = {
+            "attempt": int(attempt),
+            "max_attempts": int(max_attempts),
+            "failure_type": _repair_failure_type,
+            "root_cause": _repair_diagnosis[:500] if _repair_diagnosis else "",
+            "patch_scope": "full_strategy",
+            "code_hash_before": before_hash,
+            "code_hash_after": after_hash,
+            "verification_result": "pending",  # updated after next backtest
+            "provider": repair_provider,
+            "model": repair_model,
+            "auto_fixes": list(auto_fixes or []),
+            "compliance_fixes": list(compliance_fixes or []),
+            "timestamp": _rl_time.time(),
+        }
+        if not hasattr(candidate, "repair_ledger") or candidate.repair_ledger is None:
+            candidate.repair_ledger = []
+        candidate.repair_ledger.append(_ledger_entry)
 
         # Record repair trace (best-effort).
         try:
             from .artifacts import write_agent_trace
 
             slot = int(getattr(candidate, "candidate_slot", 0) or 0)
-            failure_cat = str(getattr(candidate, "failure_category", "") or "unknown")
-            role = f"repair_{int(attempt):02d}.{failure_cat}"
+            role = f"repair_{int(attempt):02d}.{_repair_failure_type}"
             p = write_agent_trace(
                 run_dir,
                 iteration=int(candidate.iteration),
                 candidate_idx=slot,
                 role=role,
                 payload={
-                    "failure_category": failure_cat,
+                    "failure_category": _repair_failure_type,
+                    "root_cause": _repair_diagnosis[:500] if _repair_diagnosis else "",
                     "failure": failure,
                     "attempt": int(attempt),
                     "max_attempts": int(max_attempts),
@@ -224,6 +273,7 @@ def _repair_candidate(
                     "after_hash": after_hash,
                     "auto_fixes": list(auto_fixes or []),
                     "compliance_fixes": list(compliance_fixes or []),
+                    "repair_ledger_entry": _ledger_entry,
                 },
             )
             candidate.agent_traces = dict(getattr(candidate, "agent_traces", None) or {})
@@ -345,12 +395,12 @@ def phase_train_model(
 ) -> None:
     candidate = _pick_active_candidate(state)
     if candidate is None:
-        state.phase = Phase.ANALYSIS
+        safe_transition(state, Phase.ANALYSIS)
         return
 
     candidate_type = _normalize_candidate_type(getattr(candidate, "candidate_type", "rule"))
     if candidate_type == "rule":
-        state.phase = Phase.BACKTEST
+        safe_transition(state, Phase.BACKTEST)
         return
     if candidate_type == "rl" and not bool(getattr(config, "enable_rl", False)):
         candidate.failure_category = "train_model.rl.disabled"
@@ -521,7 +571,8 @@ def phase_train_model(
     except Exception:
         logger.debug("Candidate/training evidence write failed", exc_info=True)
 
-    state.phase = Phase.BACKTEST
+    update_candidate_stage(candidate, "trained")
+    safe_transition(state, Phase.BACKTEST)
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +609,7 @@ def _run_hyperopt(
     min_trades = int(getattr(config, "hyperopt_min_trades", 10) or 10)
 
     ft_config = paths.resolve_repo_path(config.freqtrade_config)
-    timerange = str(getattr(config, "timerange", "") or "")
+    timerange = str(getattr(config, "selection_timerange", "") or getattr(config, "timerange", "") or "")
 
     wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
     if wrapper.exists():
@@ -636,7 +687,7 @@ def phase_backtest(
     candidate = _pick_active_candidate(state)
     if candidate is None:
         logger.warning("No candidates to backtest")
-        state.phase = Phase.ANALYSIS
+        safe_transition(state, Phase.ANALYSIS)
         return
 
     sandbox = candidate.strategy_path.parent.parent.parent  # sandbox root
@@ -652,6 +703,11 @@ def phase_backtest(
         max_repairs = 0
 
     for attempt_idx in range(max_repairs + 1):
+        # D6: If previous repair iteration failed (we're back in the loop),
+        # mark the last repair_ledger entry as 'fail'
+        if attempt_idx > 0:
+            _update_repair_ledger_result(candidate, "fail")
+
         if candidate_type != "rule":
             _restore_trained_wrapper(candidate, config, run_dir)
 
@@ -709,11 +765,17 @@ def phase_backtest(
                 if attempt_idx < max_repairs:
                     local_agent = agent
                     if local_agent is None:
-                        try:
-                            local_agent = build_strategy_agent(config, sandbox)
-                        except Exception as exc:
-                            logger.warning("Repair skipped (agent unavailable): %s", exc)
-                            local_agent = None
+                        if _repair_agent_explicitly_configured(config):
+                            try:
+                                local_agent = build_strategy_agent(config, sandbox)
+                            except Exception as exc:
+                                logger.warning("Repair skipped (agent unavailable): %s", exc)
+                                local_agent = None
+                        else:
+                            logger.info(
+                                "Repair skipped for %s: no explicit repair agent configured",
+                                candidate.name,
+                            )
 
                     try:
                         failure_for_repair = failure
@@ -857,7 +919,7 @@ def phase_backtest(
                 "--config", str(ft_config_path),
                 "--strategy", candidate.name,
                 "--strategy-path", str(strategies_dir),
-                "--timerange", config.timerange,
+                "--timerange", str(getattr(config, "quick_backtest_timerange", "") or getattr(config, "selection_timerange", "") or config.timerange),
                 "--userdir", str(sandbox / "user_data"),
                 "-p", *smoke_pairs,
             ]
@@ -904,12 +966,15 @@ def phase_backtest(
 
                     if smoke_passed:
                         logger.info("Smoke passed for %s, proceeding to hyperopt", candidate.name)
-                        _run_hyperopt(
+                        update_candidate_stage(candidate, "smoke_passed")
+                        _ho_ok = _run_hyperopt(
                             candidate=candidate,
                             config=config,
                             sandbox=sandbox,
                             strategies_dir=strategies_dir,
                         )
+                        if _ho_ok:
+                            update_candidate_stage(candidate, "hyperopt_done")
                     else:
                         logger.info("Smoke quality gate failed for %s, skipping hyperopt", candidate.name)
             except Exception:
@@ -924,6 +989,7 @@ def phase_backtest(
 
         # Build backtest command
         ft_config = paths.resolve_repo_path(config.freqtrade_config)
+        backtest_timerange = str(getattr(config, "selection_timerange", "") or config.timerange)
         results_dir = sandbox / "user_data" / "backtest_results"
         results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -952,7 +1018,7 @@ def phase_backtest(
             "--strategy-path",
             str(strategies_dir),
             "--timerange",
-            config.timerange,
+            backtest_timerange,
             "--userdir",
             str(sandbox / "user_data"),
         ]
@@ -971,13 +1037,15 @@ def phase_backtest(
                 "--strategy-path",
                 str(strategies_dir),
                 "--timerange",
-                config.timerange,
+                backtest_timerange,
                 "--userdir",
                 str(sandbox / "user_data"),
             ]
 
         try:
             from ._sandbox_exec import run_sandboxed
+            import time as _bt_time
+            _bt_start = _bt_time.time()
             proc = run_sandboxed(
                 cmd,
                 cwd=paths.REPO_ROOT,
@@ -985,7 +1053,27 @@ def phase_backtest(
                 cpu_seconds=config.backtest_timeout + 60,
                 mem_mb=4096,
             )
+            _bt_elapsed = _bt_time.time() - _bt_start
+            # D4/D13: Track backtest wall time on candidate
+            if not hasattr(candidate, 'candidate_payload') or candidate.candidate_payload is None:
+                candidate.candidate_payload = {}
+            candidate.candidate_payload["backtest_seconds"] = round(_bt_elapsed, 1)
+            # D13: Aggregate into state economics immediately
+            if hasattr(state, "economics"):
+                state.economics["total_backtest_seconds"] = (
+                    state.economics.get("total_backtest_seconds", 0.0) + _bt_elapsed
+                )
         except subprocess.TimeoutExpired:
+            _bt_elapsed = _bt_time.time() - _bt_start
+            # D13: Record backtest time even on timeout
+            if not hasattr(candidate, 'candidate_payload') or candidate.candidate_payload is None:
+                candidate.candidate_payload = {}
+            candidate.candidate_payload["backtest_seconds"] = round(_bt_elapsed, 1)
+            # D13: Aggregate into state economics immediately
+            if hasattr(state, "economics"):
+                state.economics["total_backtest_seconds"] = (
+                    state.economics.get("total_backtest_seconds", 0.0) + _bt_elapsed
+                )
             candidate.failure_category = "backtest.timeout"
             candidate.diagnosis = f"[backtest.timeout] Backtest timed out after {config.backtest_timeout}s"
             logger.warning("%s", candidate.diagnosis)
@@ -1155,7 +1243,10 @@ def phase_backtest(
             candidate.backtest_summary = summary
             candidate.failure_category = ""
             candidate.diagnosis = ""
-            state.phase = Phase.EVALUATION
+            # D6: Mark last repair as verified-pass (if any repair occurred)
+            _update_repair_ledger_result(candidate, "pass")
+            safe_transition(state, Phase.EVALUATION)
+            update_candidate_stage(candidate, "backtested")
 
             try:
                 from .artifacts import write_backtest_summary
