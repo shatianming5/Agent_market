@@ -16,16 +16,19 @@ def discover_shared_user_data_root(
     if configured:
         candidates.append(Path(configured).expanduser())
 
-    local_user_data = repo_root / "user_data"
-    candidates.append(local_user_data)
-
     repo_name = repo_root.name
     parent = repo_root.parent
     base_name = repo_name.split("_release_", 1)[0]
 
     if "_release_" in repo_name:
         candidates.append(parent / base_name / "user_data")
-    candidates.append(parent / "Agent_market" / "user_data")
+        candidates.append(parent / "Agent_market" / "user_data")
+
+    local_user_data = repo_root / "user_data"
+    candidates.append(local_user_data)
+
+    if "_release_" not in repo_name:
+        candidates.append(parent / "Agent_market" / "user_data")
 
     seen: set[Path] = set()
     for candidate in candidates:
@@ -51,17 +54,18 @@ def ensure_repo_user_data_data_link(
     repo_data_dir = repo_user_data / "data"
     repo_user_data.mkdir(parents=True, exist_ok=True)
 
-    if repo_data_dir.exists() and not repo_data_dir.is_symlink():
+    shared_root = discover_shared_user_data_root(
+        repo_root=repo_root,
+        explicit_root=shared_user_data_root,
+    )
+
+    if repo_data_dir.exists() and not repo_data_dir.is_symlink() and shared_root is None:
         return {
             "status": "present",
             "data_path": str(repo_data_dir.resolve()),
             "linked": False,
         }
 
-    shared_root = discover_shared_user_data_root(
-        repo_root=repo_root,
-        explicit_root=shared_user_data_root,
-    )
     if shared_root is None:
         return {
             "status": "missing",
@@ -76,6 +80,22 @@ def ensure_repo_user_data_data_link(
             "data_path": str(repo_data_dir),
             "shared_data_path": str(shared_data_dir),
             "linked": False,
+        }
+
+    if repo_data_dir.exists() and not repo_data_dir.is_symlink():
+        linked_entries: list[str] = []
+        for child in sorted(shared_data_dir.iterdir()):
+            target = repo_data_dir / child.name
+            if target.exists():
+                continue
+            target.symlink_to(child.resolve(), target_is_directory=child.is_dir())
+            linked_entries.append(child.name)
+        return {
+            "status": "linked_children" if linked_entries else "present",
+            "data_path": str(repo_data_dir.resolve()),
+            "shared_data_path": str(shared_data_dir),
+            "linked": bool(linked_entries),
+            "linked_entries": linked_entries,
         }
 
     if repo_data_dir.is_symlink():
