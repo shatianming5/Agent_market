@@ -155,12 +155,16 @@ def test_tca_report_script_writes_preflight(tmp_path: Path) -> None:
 def test_ws_production_preflight_reports_ready(monkeypatch, tmp_path: Path) -> None:
     from agent_market import runtime_preflight
 
-    workspace = tmp_path / "ws_production"
+    repo_root = tmp_path / "repo"
+    workspace = repo_root / "ws_production"
     for rel in ("strategies", "results", "reports", "validation", "backtests", "paper", "signals"):
         (workspace / rel).mkdir(parents=True, exist_ok=True)
     (workspace / "GUIDE.md").write_text("# guide\n", encoding="utf-8")
     (workspace / "meta.json").write_text("{}\n", encoding="utf-8")
     (workspace / "sop.json").write_text("{}\n", encoding="utf-8")
+    data_dir = repo_root / "user_data" / "data" / "gate"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "DOGE_USDT-1h.feather").write_text("stub", encoding="utf-8")
 
     monkeypatch.setattr(
         runtime_preflight,

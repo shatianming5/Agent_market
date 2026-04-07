@@ -14,6 +14,7 @@ if str(SRC) not in sys.path:
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
+from agent_market.runtime_bootstrap import ensure_repo_user_data_data_link
 from agent_market.runtime_preflight import run_ws_production_preflight
 
 
@@ -29,6 +30,7 @@ def main() -> int:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
     )
 
+    ensure_repo_user_data_data_link(repo_root=REPO)
     report = run_ws_production_preflight(
         workspace=Path(args.workspace),
         model=str(args.model),

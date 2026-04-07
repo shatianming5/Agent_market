@@ -910,6 +910,9 @@ def run_ws_production_preflight(
 ) -> dict[str, Any]:
     load_project_dotenv()
     workspace = workspace.resolve()
+    repo_root = workspace.parent
+    market_data_dir = repo_root / "user_data" / "data" / "gate"
+    market_data_files = sorted(market_data_dir.glob("*-1h.feather")) if market_data_dir.exists() else []
     applied_env: dict[str, str] = {}
     llm_settings = resolve_openai_compatible_settings(model=model)
     checks = [
@@ -924,6 +927,17 @@ def run_ws_production_preflight(
         check_writable_dir("ws.backtests", workspace / "backtests"),
         check_writable_dir("ws.paper", workspace / "paper"),
         check_writable_dir("ws.signals", workspace / "signals"),
+        _check(
+            "ws.market_data",
+            ok=bool(market_data_files),
+            severity="info" if market_data_files else "error",
+            detail=(
+                f"{market_data_dir} — {len(market_data_files)} x 1h feather files"
+                if market_data_files
+                else f"No Gate 1h feather files found under {market_data_dir}"
+            ),
+            data={"path": str(market_data_dir)},
+        ),
         check_opencli(),
         check_freqtrade_cli(),
         check_opencode_cli(model=llm_settings["opencode_model"]),
