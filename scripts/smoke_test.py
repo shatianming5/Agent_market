@@ -155,8 +155,10 @@ def main() -> None:
     )(client.get("/flow/progress/unknown").json()))
 
     # ---------- web assets quick sanity ----------
-    index_html = Path("web/index.html").read_text(encoding="utf-8")
-    assert "节点面板" in index_html or "Agent Market Flow" in index_html
+    index_html = Path("web/index.html").read_text(encoding="utf-8", errors="replace")
+    assert "Agent Market" in index_html
+    assert 'id="root"' in index_html
+    assert 'data-tab="miner"' in index_html
 
     # ---------- Report ----------
     width = max(len(n) for n, _, _ in results)
