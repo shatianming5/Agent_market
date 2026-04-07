@@ -28,10 +28,22 @@ def test_auto_improver_uses_openai_model_and_env(monkeypatch) -> None:
     improver = AutoImprover()
     text = improver._llm_call("", "Reply with OK")
 
-    assert improver.opencode_model == "openai/gpt-5.2"
+    assert improver.opencode_model == "custom/gpt-5.2"
     assert improver.model == "gpt-5.2"
     assert improver.base_url == "http://proxy.internal:4141/v1"
     assert text == "OK"
-    assert captured["cmd"][:4] == ["opencode", "run", "-m", "openai/gpt-5.2"]
+    assert captured["cmd"][:4] == ["opencode", "run", "-m", "custom/gpt-5.2"]
     assert captured["env"]["OPENAI_BASE_URL"] == "http://proxy.internal:4141/v1"
     assert captured["env"]["OPENAI_API_KEY"] == "_"
+    assert captured["env"]["OPENCODE_CONFIG"].endswith("/.opencode.json")
+
+
+def test_project_opencode_config_uses_chat_compatible_provider() -> None:
+    import json
+    from pathlib import Path
+
+    payload = json.loads((Path(__file__).resolve().parents[1] / ".opencode.json").read_text(encoding="utf-8"))
+
+    assert payload["model"] == "custom/gpt-5.2"
+    assert payload["small_model"] == "custom/gpt-5.2"
+    assert payload["provider"]["custom"]["npm"] == "@ai-sdk/openai-compatible"

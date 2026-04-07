@@ -190,7 +190,7 @@ def test_ws_production_preflight_reports_ready(monkeypatch, tmp_path: Path) -> N
 
     report = runtime_preflight.run_ws_production_preflight(
         workspace=workspace,
-        model="openai/gpt-5.2",
+        model="custom/gpt-5.2",
         raise_on_error=False,
     )
 

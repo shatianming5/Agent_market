@@ -7,6 +7,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 export PATH="$HOME/.local/bin:$PATH"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+if [ -f "$REPO_ROOT/.opencode.json" ] && [ -z "${OPENCODE_CONFIG:-}" ]; then
+  export OPENCODE_CONFIG="$REPO_ROOT/.opencode.json"
+fi
 
 if [ -f "$REPO_ROOT/.env" ]; then
   set -a
@@ -33,11 +36,12 @@ if [ -z "${LLM_BASE_URL:-}" ] && [ -n "${OPENAI_BASE_URL:-}" ]; then
   export LLM_BASE_URL="$OPENAI_BASE_URL"
 fi
 
-MODEL="${OPENCODE_MODEL:-openai/gpt-5.2}"
+MODEL="${OPENCODE_MODEL:-custom/gpt-5.2}"
 case "$MODEL" in
   */*) ;;
-  *) MODEL="openai/$MODEL" ;;
+  *) MODEL="custom/$MODEL" ;;
 esac
+export OPENCODE_MODEL="$MODEL"
 
 cd "$SCRIPT_DIR"
 python3 "$REPO_ROOT/scripts/ws_production_preflight.py" --workspace "$SCRIPT_DIR" --model "$MODEL"

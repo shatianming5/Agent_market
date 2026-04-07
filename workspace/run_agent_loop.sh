@@ -10,9 +10,16 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [ -f "$REPO_ROOT/.opencode.json" ] && [ -z "${OPENCODE_CONFIG:-}" ]; then
+    export OPENCODE_CONFIG="$REPO_ROOT/.opencode.json"
+fi
+
 MAX_ITERATIONS=${1:-5}
 ITERATION=0
 MODEL="${OPENCODE_MODEL:-custom/gpt-5.2}"
+export OPENCODE_MODEL="$MODEL"
 
 echo "======================================"
 echo "OpenCode Agent Continuous Loop"

@@ -48,7 +48,7 @@ class AutoImprover:
     ):
         settings = resolve_openai_compatible_settings(
             model=model or os.environ.get("OPENCODE_MODEL") or os.environ.get("OPENAI_MODEL"),
-            default_provider="openai",
+            default_provider="custom",
             default_model="gpt-5.2",
             default_base_url="http://localhost:4141/v1",
         )
@@ -56,7 +56,7 @@ class AutoImprover:
         self.api_key = api_key or settings["api_key"] or "_"
         self.opencode_model = normalize_opencode_model(
             model or os.environ.get("OPENCODE_MODEL") or settings["opencode_model"],
-            default_provider="openai",
+            default_provider="custom",
             default_model="gpt-5.2",
         )
         self.model = self.opencode_model.split("/", 1)[1]
@@ -94,6 +94,7 @@ class AutoImprover:
                         **os.environ,
                         "OPENAI_BASE_URL": self.base_url,
                         "OPENAI_API_KEY": self.api_key,
+                        "OPENCODE_CONFIG": os.environ.get("OPENCODE_CONFIG") or str(ROOT / ".opencode.json"),
                     },
                 )
                 if proc.returncode == 0:
