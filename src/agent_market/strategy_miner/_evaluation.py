@@ -59,6 +59,9 @@ def _run_walkforward_backtests(
         return None
 
     sandbox = candidate.strategy_path.parent.parent.parent
+    cmd_cwd = sandbox / "user_data"
+    if not cmd_cwd.exists():
+        cmd_cwd = sandbox
     strategies_dir = sandbox / "user_data" / "strategies"
     ft_config = paths.resolve_repo_path(config.freqtrade_config)
 
@@ -91,7 +94,7 @@ def _run_walkforward_backtests(
             from ._sandbox_exec import run_sandboxed
             proc = run_sandboxed(
                 cmd,
-                cwd=paths.REPO_ROOT,
+                cwd=cmd_cwd,
                 timeout=config.backtest_timeout,
                 cpu_seconds=config.backtest_timeout + 60,
                 mem_mb=4096,
@@ -241,12 +244,18 @@ def phase_evaluation(
             _pf = max(0.0, min(5.0, profit_factor)) if math.isfinite(profit_factor) else 0.0
             _pp = max(-50.0, min(100.0, profit_pct)) if math.isfinite(profit_pct) else 0.0
             _wr = max(0.0, min(1.0, winrate))
+            _rod = (
+                max(0.0, min(5.0, return_over_drawdown))
+                if math.isfinite(return_over_drawdown)
+                else 0.0
+            )
             weighted += ow.get("sharpe", 0.0) * _s
             weighted += ow.get("sortino", 0.0) * _so
             weighted += ow.get("profit_factor", 0.0) * _pf
             weighted += ow.get("calmar", 0.0) * _ca
             weighted += ow.get("profit_pct", 0.0) * (_pp / 10.0)  # normalize scale
             weighted += ow.get("winrate", 0.0) * (_wr * 4.0)  # scale to ~sharpe range
+            weighted += ow.get("return_over_drawdown", 0.0) * _rod
             # Blend: 60% original score + 40% objective-weighted
             effective_sharpe = 0.6 * effective_sharpe + 0.4 * weighted
 

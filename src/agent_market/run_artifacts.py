@@ -12,6 +12,7 @@ class RunArtifacts:
 
     feature_output: Optional[str] = None
     expression_output: Optional[str] = None
+    expression_scored_output: Optional[str] = None
     portfolio_weights: Optional[str] = None
     portfolio_report: Optional[str] = None
     portfolio_returns: Optional[str] = None
@@ -29,10 +30,29 @@ class RunArtifacts:
     factor_eval_meta: Optional[str] = None
     factor_scores_json: Optional[str] = None
     factor_pareto_csv: Optional[str] = None
+    factor_memory_json: Optional[str] = None
+    factor_cards_json: Optional[str] = None
+    factor_failure_cards_json: Optional[str] = None
+    factor_lineage_json: Optional[str] = None
+    global_factor_memory_json: Optional[str] = None
+    global_factor_cards_json: Optional[str] = None
+    global_factor_failure_cards_json: Optional[str] = None
+    global_factor_lineage_json: Optional[str] = None
     tca_report: Optional[str] = None
     tca_html: Optional[str] = None
     bundle_zip: Optional[str] = None
     bundle_manifest: Optional[str] = None
+    strategy_miner_summary: Optional[str] = None
+    strategy_miner_dir: Optional[str] = None
+    global_strategy_knowledge_base_json: Optional[str] = None
+    training_summary_json: Optional[str] = None
+    feedback_summary_json: Optional[str] = None
+    experiment_registry: Optional[str] = None
+    budget_plan_json: Optional[str] = None
+    replay_manifest_json: Optional[str] = None
+    lineage_graph_json: Optional[str] = None
+    promotion_chain_json: Optional[str] = None
+    resource_dashboard_json: Optional[str] = None
 
     # Transient state — not serialised into run_meta.
     compiled_expression_path: Optional[Path] = None
@@ -57,6 +77,7 @@ class RunArtifacts:
             "portfolio_report": self.portfolio_report,
             "portfolio_returns": self.portfolio_returns,
             "expression_output": self.expression_output,
+            "expression_scored_output": self.expression_scored_output,
             "factor_spec_json": self.factor_spec_json,
             "factor_ast_json": self.factor_ast_json,
             "factor_expression_txt": self.factor_expression_txt,
@@ -64,6 +85,14 @@ class RunArtifacts:
             "factor_eval_meta": self.factor_eval_meta,
             "factor_scores_json": self.factor_scores_json,
             "factor_pareto_csv": self.factor_pareto_csv,
+            "factor_memory_json": self.factor_memory_json,
+            "factor_cards_json": self.factor_cards_json,
+            "factor_failure_cards_json": self.factor_failure_cards_json,
+            "factor_lineage_json": self.factor_lineage_json,
+            "global_factor_memory_json": self.global_factor_memory_json,
+            "global_factor_cards_json": self.global_factor_cards_json,
+            "global_factor_failure_cards_json": self.global_factor_failure_cards_json,
+            "global_factor_lineage_json": self.global_factor_lineage_json,
             "feedback_summary": feedback_summary,
             "model_dirs": model_dirs or [],
             "training_summaries": training_summaries or [],
@@ -73,4 +102,15 @@ class RunArtifacts:
             "tca_html": self.tca_html,
             "bundle_zip": self.bundle_zip,
             "bundle_manifest": self.bundle_manifest,
+            "strategy_miner_summary": self.strategy_miner_summary,
+            "strategy_miner_dir": self.strategy_miner_dir,
+            "global_strategy_knowledge_base_json": self.global_strategy_knowledge_base_json,
+            "training_summary_json": self.training_summary_json,
+            "feedback_summary_json": self.feedback_summary_json,
+            "experiment_registry": self.experiment_registry,
+            "budget_plan_json": self.budget_plan_json,
+            "replay_manifest_json": self.replay_manifest_json,
+            "lineage_graph_json": self.lineage_graph_json,
+            "promotion_chain_json": self.promotion_chain_json,
+            "resource_dashboard_json": self.resource_dashboard_json,
         }

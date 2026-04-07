@@ -64,10 +64,12 @@ def test_agent_flow_config_all_keys():
         "tca": {"html": True},
         "report": {},
         "strategy_miner": {"model": "gpt-4o"},
+        "experiment": {"hypothesis": "demo"},
     }
     cfg = AgentFlowConfig.from_dict(data)
     assert cfg.capture == {"exchange": "binance"}
     assert cfg.strategy_miner == {"model": "gpt-4o"}
+    assert cfg.experiment == {"hypothesis": "demo"}
 
 
 # ---------------------------------------------------------------------------
@@ -206,6 +208,26 @@ def test_agent_flow_skips_unconfigured_steps():
             mock_paths.default_feedback_path.return_value = "feedback.json"
             # flow.run should complete without error (no steps configured)
             flow.run(steps=["feature"])
+
+
+def test_agent_flow_runs_empty_dict_step_config():
+    from agent_market.agent_flow import AgentFlow, AgentFlowConfig
+
+    cfg = AgentFlowConfig(report={})
+    flow = AgentFlow(cfg)
+
+    with tempfile.TemporaryDirectory() as td:
+        with patch("agent_market.agent_flow.paths") as mock_paths:
+            mock_paths.REPO_ROOT = Path(td)
+            mock_paths.run_meta_latest_path.return_value = Path(td) / "meta_latest.json"
+            mock_paths.run_meta_path.return_value = Path(td) / "runs" / "test" / "meta.json"
+            mock_paths.models_root.return_value = Path(td) / "models"
+            mock_paths.resolve_repo_path.side_effect = lambda x: Path(td) / str(x)
+            mock_paths.relpath_under_repo.side_effect = lambda x: str(x)
+            mock_paths.default_feedback_path.return_value = "feedback.json"
+            with patch("agent_market.agent_flow.STEP_HANDLERS", {"report": lambda cfg, arts, ctx: None}):
+                run_id = flow.run(steps=["report"])
+                assert isinstance(run_id, str) and run_id
 
 
 # ---------------------------------------------------------------------------

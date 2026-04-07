@@ -41,9 +41,39 @@ def models_root() -> Path:
     return _resolve_env_path("AGENT_MARKET_MODELS_ROOT", default=default)
 
 
+def control_plane_root() -> Path:
+    default = artifacts_root() / "control_plane"
+    return _resolve_env_path("AGENT_MARKET_CONTROL_PLANE_ROOT", default=default)
+
+
+def global_factor_memory_dir() -> Path:
+    default = control_plane_root() / "factor_memory"
+    return _resolve_env_path("AGENT_MARKET_GLOBAL_FACTOR_MEMORY_DIR", default=default)
+
+
+def global_factor_memory_path() -> Path:
+    default = global_factor_memory_dir() / "factor_memory.json"
+    return _resolve_env_path("AGENT_MARKET_GLOBAL_FACTOR_MEMORY_PATH", default=default)
+
+
+def global_strategy_memory_dir() -> Path:
+    default = control_plane_root() / "strategy_memory"
+    return _resolve_env_path("AGENT_MARKET_GLOBAL_STRATEGY_MEMORY_DIR", default=default)
+
+
+def global_strategy_knowledge_base_path() -> Path:
+    default = global_strategy_memory_dir() / "knowledge_base.json"
+    return _resolve_env_path("AGENT_MARKET_GLOBAL_STRATEGY_KNOWLEDGE_BASE_PATH", default=default)
+
+
 def run_meta_latest_path() -> Path:
     default = artifacts_root() / "run_meta.json"
     return _resolve_env_path("AGENT_MARKET_RUN_META_LATEST_PATH", default=default)
+
+
+def experiment_registry_path() -> Path:
+    default = artifacts_root() / "experiment_registry.jsonl"
+    return _resolve_env_path("AGENT_MARKET_EXPERIMENT_REGISTRY_PATH", default=default)
 
 
 def run_dir(run_id: str) -> Path:
@@ -106,6 +136,7 @@ def _allowed_roots() -> list[Path]:
         user_data_root().resolve(),
         runs_root().resolve(),
         models_root().resolve(),
+        control_plane_root().resolve(),
     ]
 
 
@@ -149,7 +180,13 @@ __all__ = [
     "user_data_root",
     "runs_root",
     "models_root",
+    "control_plane_root",
+    "global_factor_memory_dir",
+    "global_factor_memory_path",
+    "global_strategy_memory_dir",
+    "global_strategy_knowledge_base_path",
     "run_meta_latest_path",
+    "experiment_registry_path",
     "run_dir",
     "run_meta_path",
     "default_feedback_path",
@@ -158,4 +195,3 @@ __all__ = [
     "relpath_under_repo",
     "safe_resolve",
 ]
-

@@ -12,6 +12,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import pickle
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -52,6 +53,7 @@ class FreqtradeMLStrategy(IStrategy):
     _model_features: Optional[List[str]] = None
     _feature_cfg: Optional[Dict[str, Any]] = None
     _expression_specs = None
+    _scaler = None
     _loaded = False
 
     def _find_model_dir(self) -> Path:
@@ -73,6 +75,10 @@ class FreqtradeMLStrategy(IStrategy):
         model_dir = self._find_model_dir()
         summary_path = model_dir / "training_summary.json"
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        data_section = summary.get("data") if isinstance(summary.get("data"), dict) else {}
+        summary_timeframe = str(data_section.get("timeframe") or "").strip()
+        if summary_timeframe:
+            self.timeframe = summary_timeframe
 
         # Load feature config
         feature_file = summary.get("feature_snapshot") or summary.get("feature_file")
@@ -99,6 +105,12 @@ class FreqtradeMLStrategy(IStrategy):
             if ep.exists():
                 from agent_market.freqai.expression_engine import load_expression_file
                 self._expression_specs = load_expression_file(ep)
+
+        scaler_path = model_dir / "scaler.pkl"
+        if scaler_path.exists():
+            with open(scaler_path, "rb") as handle:
+                scaler_payload = pickle.load(handle)
+            self._scaler = scaler_payload.get("scaler")
 
         # Load model
         self._model_features = [str(c) for c in (summary.get("features") or []) if str(c).strip()]
@@ -177,7 +189,10 @@ class FreqtradeMLStrategy(IStrategy):
             .ffill()
             .fillna(0.0)
         )
-        preds = self._predict(matrix.to_numpy(dtype=np.float32))
+        matrix_values = matrix.to_numpy(dtype=np.float32)
+        if self._scaler is not None:
+            matrix_values = self._scaler.transform(matrix_values)
+        preds = self._predict(matrix_values)
         dataframe["ml_pred"] = preds.reshape(-1)
 
         return dataframe

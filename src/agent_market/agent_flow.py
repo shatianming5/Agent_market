@@ -69,6 +69,7 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
             "tca": cfg.tca,
             "report": cfg.report,
             "strategy_miner": cfg.strategy_miner,
+            "experiment": cfg.experiment,
         }
         payload = json.dumps(
             snapshot,
@@ -97,6 +98,7 @@ class AgentFlowConfig:
     tca: Optional[Dict[str, Any]] = None
     report: Optional[Dict[str, Any]] = None
     strategy_miner: Optional[Dict[str, Any]] = None
+    experiment: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentFlowConfig":
@@ -115,6 +117,7 @@ class AgentFlowConfig:
             "tca",
             "report",
             "strategy_miner",
+            "experiment",
         }
         extra = set(data.keys()) - known_keys
         if extra:
@@ -136,6 +139,7 @@ class AgentFlowConfig:
             tca=data.get("tca"),
             report=data.get("report"),
             strategy_miner=data.get("strategy_miner"),
+            experiment=data.get("experiment"),
         )
 
 
@@ -163,8 +167,8 @@ class AgentFlow:
         "rl",
         "backtest",
         "tca",
-        "report",
         "strategy_miner",
+        "report",
     ]
 
     def __init__(
@@ -179,7 +183,7 @@ class AgentFlow:
             feedback_path if feedback_path is not None else paths.default_feedback_path()
         )
 
-    def run(self, steps: Optional[List[str]] = None) -> None:
+    def run(self, steps: Optional[List[str]] = None) -> str:
         run_id = uuid.uuid4().hex[:12]
         started_at = datetime.now(timezone.utc).isoformat()
         meta_latest_path = paths.run_meta_latest_path()
@@ -207,8 +211,8 @@ class AgentFlow:
             ("rl", self.config.rl_training),
             ("backtest", self.config.backtest),
             ("tca", self.config.tca),
-            ("report", self.config.report),
             ("strategy_miner", self.config.strategy_miner),
+            ("report", self.config.report),
         ]
 
         logger.info("[FLOW] RUN_ID %s", run_id)
@@ -229,7 +233,7 @@ class AgentFlow:
             for name, cfg in sequence:
                 if requested and name not in requested:
                     continue
-                if not cfg:
+                if cfg is None:
                     if requested:
                         logger.warning("Step '%s' requested but no configuration provided", name)
                     continue
@@ -281,6 +285,27 @@ class AgentFlow:
             raise
         finally:
             try:
+                try:
+                    from agent_market.strategy_factory import finalize_strategy_factory_artifacts  # noqa: WPS433
+
+                    extra_artifacts = finalize_strategy_factory_artifacts(
+                        run_id=run_id,
+                        run_dir=run_dir,
+                        experiment_cfg=dict(self.config.experiment or {}),
+                        status=status,
+                        started_at=started_at,
+                        steps_meta=steps_meta,
+                        error_info=error_info,
+                        arts=arts,
+                    )
+                    arts.experiment_registry = extra_artifacts.get("experiment_registry")
+                    arts.budget_plan_json = extra_artifacts.get("budget_plan_json")
+                    arts.replay_manifest_json = extra_artifacts.get("replay_manifest_json")
+                    arts.lineage_graph_json = extra_artifacts.get("lineage_graph_json")
+                    arts.promotion_chain_json = extra_artifacts.get("promotion_chain_json")
+                    arts.resource_dashboard_json = extra_artifacts.get("resource_dashboard_json")
+                except Exception as exc:
+                    logger.error("[FLOW] STRATEGY_FACTORY_FINALIZE_FAIL %s: %s", run_id, exc)
                 meta = self._build_run_meta(
                     run_id, started_at, status, requested, steps_meta,
                     error_info, arts, meta_latest_path, meta_run_path,
@@ -296,6 +321,7 @@ class AgentFlow:
                 raise RuntimeError(
                     f"Failed to write run metadata: {meta_write_error}"
                 ) from meta_write_error
+        return run_id
 
     # ------------------------------------------------------------------
     # Metadata assembly (extracted from run())

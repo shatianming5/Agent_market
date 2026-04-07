@@ -66,9 +66,11 @@ jobs:
             tests/test_api_smoke.py \
             tests/test_no_bom.py \
             tests/test_security_and_gates.py \
+            tests/test_sandbox_exec.py \
             tests/test_workspace_core.py \
             tests/test_strategy_miner_runner.py \
             tests/test_strategy_miner_artifacts.py \
+            tests/test_strategy_miner_phases.py \
             tests/test_backtest_results.py \
             tests/test_pipeline_leakage.py \
             tests/test_walkforward.py

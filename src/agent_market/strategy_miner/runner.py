@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from agent_market import paths
 
@@ -21,6 +22,8 @@ from .phases import (
 )
 
 logger = logging.getLogger(__name__)
+
+_TIMEFRAME_RE = re.compile(r"^\s*timeframe\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 
 
 def miner_run_dir(run_id: str) -> Path:
@@ -106,8 +109,13 @@ def _load_checkpoint(cp_path: Path) -> MinerState:
     return MinerState.from_dict(data)
 
 
-def _update_knowledge_base(kb: KnowledgeBase, state: MinerState,
-                           candidate: Optional[StrategyCandidate] = None) -> None:
+def _update_knowledge_base(
+    kb: KnowledgeBase,
+    state: MinerState,
+    candidate: Optional[StrategyCandidate] = None,
+    *,
+    config: Optional[MinerConfig] = None,
+) -> None:
     """Update knowledge base (best-effort) based on the just-evaluated candidate.
 
     Args:
@@ -127,6 +135,17 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState,
             cand = state.candidates[idx]
         else:
             cand = state.candidates[-1]
+
+    timeframe = ""
+    universe: list[str] = []
+    if config is not None:
+        try:
+            from ._helpers import _freqtrade_market_context
+
+            timeframe, market_pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
+            universe = list(getattr(config, "model_training_pairs", None) or []) or list(market_pairs or [])
+        except Exception:
+            logger.debug("Failed to infer market context for strategy card", exc_info=True)
 
     if cand.reward is not None and cand.backtest_summary is not None:
         if getattr(cand, "constraints_ok", True):
@@ -152,6 +171,9 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState,
                         "trace_grade": (cand.candidate_payload or {}).get("trace_grade", {}).get("overall_grade"),
                     },
                     parent_name=state.best_candidate.name if state.best_candidate and state.best_candidate.name != cand.name else "",
+                    run_id=state.run_id,
+                    timeframe=timeframe,
+                    universe=universe,
                 )
             except Exception:
                 pass
@@ -170,6 +192,11 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState,
                     phase="evaluation",
                     category="constraint_violation",
                     detail=f"Constraint violations: {', '.join(cand.constraint_violations or [])}",
+                    run_id=state.run_id,
+                    candidate_family=getattr(cand, "candidate_family", ""),
+                    candidate_type=getattr(cand, "candidate_type", "rule"),
+                    timeframe=timeframe,
+                    universe=universe,
                 )
             except Exception:
                 pass
@@ -189,9 +216,342 @@ def _update_knowledge_base(kb: KnowledgeBase, state: MinerState,
                 phase=failure_type,
                 category=getattr(cand, "failure_category", "") or failure_type,
                 detail=cand.diagnosis,
+                run_id=state.run_id,
+                candidate_family=getattr(cand, "candidate_family", ""),
+                candidate_type=getattr(cand, "candidate_type", "rule"),
+                timeframe=timeframe,
+                universe=universe,
             )
         except Exception:
             pass
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _infer_timeframe(*texts: Any) -> str:
+    for raw in texts:
+        text = str(raw or "")
+        if not text:
+            continue
+        match = _TIMEFRAME_RE.search(text)
+        if match:
+            return str(match.group(1) or "").strip()
+    return ""
+
+
+def _infer_candidate_family(
+    *,
+    candidate_type: Any,
+    model_family: Any,
+    name: Any,
+    existing: Any = "",
+) -> str:
+    existing_text = str(existing or "").strip()
+    if existing_text:
+        return existing_text
+
+    ctype = str(candidate_type or "").strip().lower()
+    model = str(model_family or "").strip().lower()
+    blob = str(name or "").strip().lower()
+
+    if ctype == "ml" or any(token in blob for token in ("lgbm", "lightgbm", "xgb", "xgboost")):
+        model_name = model or ("xgboost" if ("xgb" in blob or "xgboost" in blob) else "lightgbm")
+        return f"ml/{model_name}"
+    if ctype == "dl" or any(token in blob for token in ("mlp", "torch", "deep")):
+        return f"dl/{model or 'pytorch_mlp'}"
+    if ctype == "rl" or any(token in blob for token in ("ppo", "policy", "reinforcement")):
+        return f"rl/{model or 'ppo'}"
+    if any(token in blob for token in ("breakout", "donchian", "channel", "squeeze")):
+        return "rule/breakout"
+    if any(token in blob for token in ("pullback", "retest", "dip")):
+        return "rule/trend-pullback"
+    if any(token in blob for token in ("meanrev", "mean_revert", "revert", "vwap", "boll", "keltner", "stoch", "cci", "wr")):
+        return "rule/mean-reversion"
+    if any(token in blob for token in ("basket", "rotation")):
+        return "rule/basket-rotation"
+    if ctype == "rule":
+        return "rule/trend-following"
+    return existing_text
+
+
+def _run_strategy_meta(miner_dir: Path) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    summary = _read_json(miner_dir / "strategy_miner_summary.json")
+    leaderboard = _read_json(miner_dir / "leaderboard.json")
+    proposal = _read_json(miner_dir / "proposal.json")
+    cfg = proposal.get("config") or {}
+    universe = list(cfg.get("model_training_pairs") or []) or list(cfg.get("quick_backtest_pairs") or [])
+
+    by_name: dict[str, dict[str, Any]] = {}
+    for row in list(summary.get("candidates") or []):
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        by_name[name] = dict(row)
+
+    for row in list(summary.get("history") or []):
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        current = dict(by_name.get(name) or {})
+        for key in (
+            "name",
+            "candidate_type",
+            "model_family",
+            "candidate_family",
+            "constraint_violations",
+            "constraints_ok",
+            "analysis_structured",
+            "diagnosis",
+        ):
+            if key not in current and key in row:
+                current[key] = row.get(key)
+        if "reward" not in current and "sharpe" in row:
+            current["reward"] = row.get("sharpe")
+        by_name[name] = current
+
+    leaderboard_rows = list(leaderboard.get("items") or [])
+    best_row = leaderboard.get("best")
+    if isinstance(best_row, dict):
+        leaderboard_rows.append(best_row)
+    for row in leaderboard_rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        if not name:
+            continue
+        current = dict(by_name.get(name) or {})
+        for key in (
+            "name",
+            "candidate_type",
+            "model_family",
+            "candidate_family",
+            "training_summary",
+            "constraints_ok",
+            "constraint_violations",
+        ):
+            if key not in current and key in row:
+                current[key] = row.get(key)
+        if "reward" not in current and "sharpe" in row:
+            current["reward"] = row.get("sharpe")
+        training_data = ((row.get("training_summary") or {}).get("data") or {})
+        if "inferred_timeframe" not in current and training_data.get("timeframe"):
+            current["inferred_timeframe"] = training_data.get("timeframe")
+        if not universe:
+            pairs = training_data.get("pairs")
+            if isinstance(pairs, list) and pairs:
+                universe = list(pairs)
+        by_name[name] = current
+
+    return by_name, universe
+
+
+def _strategy_memory_payload_from_run(miner_dir: Path, run_id: str) -> dict[str, Any]:
+    kb = KnowledgeBase(miner_dir / "knowledge_base.json")
+    by_name, universe = _run_strategy_meta(miner_dir)
+
+    payload: dict[str, Any] = {
+        "elites": kb.elites,
+        "failures": kb.failures,
+        "strategy_cards": [],
+        "failure_cards": [],
+        "edges": kb.edges,
+    }
+    existing_strategy_keys: set[tuple[str, int]] = set()
+    existing_failure_keys: set[tuple[str, int, str]] = set()
+
+    for raw_card in kb.strategy_cards:
+        card = dict(raw_card)
+        name = str(card.get("name") or "").strip()
+        if not name:
+            continue
+        meta = dict(by_name.get(name) or {})
+        metrics = dict(card.get("metrics") or {})
+        trace_grade = ((meta.get("trace_grade") or {}).get("overall_grade"))
+        if trace_grade is None:
+            trace_grade = (((meta.get("candidate_payload") or {}).get("trace_grade") or {}).get("overall_grade"))
+        if trace_grade is not None and "trace_grade" not in metrics:
+            metrics["trace_grade"] = trace_grade
+        card["metrics"] = metrics
+        if not card.get("candidate_type"):
+            card["candidate_type"] = meta.get("candidate_type") or "rule"
+        card["candidate_family"] = _infer_candidate_family(
+            candidate_type=card.get("candidate_type") or meta.get("candidate_type"),
+            model_family=meta.get("model_family"),
+            name=name,
+            existing=card.get("candidate_family") or meta.get("candidate_family"),
+        )
+        if not card.get("timeframe"):
+            card["timeframe"] = (
+                str(meta.get("inferred_timeframe") or "").strip()
+                or _infer_timeframe(meta.get("code"), meta.get("reviewer_notes"), meta.get("planner_notes"))
+            )
+        if not card.get("universe"):
+            card["universe"] = list(universe)
+        payload["strategy_cards"].append(card)
+        existing_strategy_keys.add((name, int(card.get("iteration") or 0)))
+
+    for raw_card in kb.failure_cards:
+        card = dict(raw_card)
+        name = str(card.get("name") or "").strip()
+        if not name:
+            continue
+        meta = dict(by_name.get(name) or {})
+        if not card.get("candidate_type"):
+            card["candidate_type"] = meta.get("candidate_type") or "rule"
+        card["candidate_family"] = _infer_candidate_family(
+            candidate_type=card.get("candidate_type") or meta.get("candidate_type"),
+            model_family=meta.get("model_family"),
+            name=name,
+            existing=card.get("candidate_family") or meta.get("candidate_family"),
+        )
+        if not card.get("timeframe"):
+            card["timeframe"] = (
+                str(meta.get("inferred_timeframe") or "").strip()
+                or _infer_timeframe(meta.get("code"), meta.get("reviewer_notes"), meta.get("planner_notes"))
+            )
+        if not card.get("universe"):
+            card["universe"] = list(universe)
+        payload["failure_cards"].append(card)
+        existing_failure_keys.add(
+            (
+                name,
+                int(card.get("iteration") or 0),
+                str(card.get("category") or card.get("subcategory") or ""),
+            )
+        )
+
+    for elite in kb.elites:
+        if not isinstance(elite, dict):
+            continue
+        name = str(elite.get("name") or "").strip()
+        iteration = int(elite.get("iteration") or 0)
+        if not name or (name, iteration) in existing_strategy_keys:
+            continue
+        meta = dict(by_name.get(name) or {})
+        reward = elite.get("reward")
+        card = {
+            "run_id": run_id,
+            "name": name,
+            "iteration": iteration,
+            "candidate_type": meta.get("candidate_type") or "rule",
+            "candidate_family": _infer_candidate_family(
+                candidate_type=meta.get("candidate_type") or "rule",
+                model_family=meta.get("model_family"),
+                name=name,
+                existing=meta.get("candidate_family"),
+            ),
+            "timeframe": str(meta.get("inferred_timeframe") or "").strip()
+            or _infer_timeframe(meta.get("code"), elite.get("code_snippet"), meta.get("reviewer_notes")),
+            "universe": list(universe),
+            "indicators": [],
+            "metrics": {
+                "sharpe": reward,
+                "profit_pct": elite.get("profit_pct"),
+                "trades": elite.get("trades"),
+                "winrate": elite.get("winrate"),
+                "max_drawdown_abs": elite.get("max_drawdown"),
+                "trace_grade": ((meta.get("trace_grade") or {}).get("overall_grade"))
+                or (((meta.get("candidate_payload") or {}).get("trace_grade") or {}).get("overall_grade")),
+            },
+            "parent_name": "",
+            "mutation_description": "",
+            "reuse_count": 0,
+            "downstream_strategy_references": [],
+        }
+        payload["strategy_cards"].append(card)
+        existing_strategy_keys.add((name, iteration))
+
+    for failure in kb.failures:
+        if not isinstance(failure, dict):
+            continue
+        name = str(failure.get("name") or "").strip()
+        iteration = int(failure.get("iteration") or 0)
+        category = str(failure.get("failure_type") or "")
+        if not name or (name, iteration, category) in existing_failure_keys:
+            continue
+        meta = dict(by_name.get(name) or {})
+        payload["failure_cards"].append(
+            {
+                "run_id": run_id,
+                "name": name,
+                "iteration": iteration,
+                "phase": category,
+                "category": category,
+                "subcategory": "",
+                "candidate_family": _infer_candidate_family(
+                    candidate_type=meta.get("candidate_type") or "rule",
+                    model_family=meta.get("model_family"),
+                    name=name,
+                    existing=meta.get("candidate_family"),
+                ),
+                "candidate_type": meta.get("candidate_type") or "rule",
+                "timeframe": str(meta.get("inferred_timeframe") or "").strip()
+                or _infer_timeframe(meta.get("code"), meta.get("reviewer_notes")),
+                "universe": list(universe),
+                "detail": str(failure.get("detail") or "")[:500],
+                "fix_applied": "",
+                "attempt": 0,
+            }
+        )
+        existing_failure_keys.add((name, iteration, category))
+
+    return payload
+
+
+def backfill_global_strategy_knowledge_base(
+    global_kb: KnowledgeBase,
+    *,
+    runs_root: Optional[Path] = None,
+    current_run_id: str = "",
+) -> dict[str, int]:
+    root = Path(runs_root or paths.runs_root()).resolve()
+    stats = {
+        "runs_scanned": 0,
+        "runs_merged": 0,
+        "strategy_cards_before": len(global_kb.strategy_cards),
+        "failure_cards_before": len(global_kb.failure_cards),
+    }
+
+    if not root.exists():
+        stats["strategy_cards_after"] = stats["strategy_cards_before"]
+        stats["failure_cards_after"] = stats["failure_cards_before"]
+        stats["strategy_cards_added"] = 0
+        stats["failure_cards_added"] = 0
+        return stats
+
+    for kb_path in sorted(root.glob("*/strategy_miner/knowledge_base.json")):
+        run_id = str(kb_path.parent.parent.name or "")
+        if not run_id or run_id == str(current_run_id or "").strip():
+            continue
+        stats["runs_scanned"] += 1
+        payload = _strategy_memory_payload_from_run(kb_path.parent, run_id)
+        if not any(payload.get(key) for key in ("elites", "failures", "strategy_cards", "failure_cards", "edges")):
+            continue
+        global_kb.merge_payload(payload, run_id_hint=run_id, save=False)
+        stats["runs_merged"] += 1
+
+    global_kb.save()
+    stats["strategy_cards_after"] = len(global_kb.strategy_cards)
+    stats["failure_cards_after"] = len(global_kb.failure_cards)
+    stats["strategy_cards_added"] = (
+        stats["strategy_cards_after"] - stats["strategy_cards_before"]
+    )
+    stats["failure_cards_added"] = (
+        stats["failure_cards_after"] - stats["failure_cards_before"]
+    )
+    return stats
 
 
 def run_strategy_miner(
@@ -255,6 +615,32 @@ def run_strategy_miner(
     append_event(miner_dir, "run_start", {"run_id": state.run_id})
 
     kb = KnowledgeBase(miner_dir / "knowledge_base.json")
+    global_kb: Optional[KnowledgeBase] = None
+    if bool(getattr(config, "use_global_memory", True)):
+        global_kb_path_raw = str(getattr(config, "global_strategy_knowledge_base_path", "") or "").strip()
+        global_kb_path = (
+            paths.resolve_repo_path(global_kb_path_raw)
+            if global_kb_path_raw
+            else paths.global_strategy_knowledge_base_path()
+        )
+        try:
+            global_kb = KnowledgeBase(global_kb_path)
+            logger.info("Loaded global strategy knowledge base: %s", global_kb_path)
+            backfill_stats = backfill_global_strategy_knowledge_base(
+                global_kb,
+                current_run_id=state.run_id,
+            )
+            logger.info(
+                "Backfilled global strategy knowledge base: runs=%d merged=%d strategy_cards +%d => %d, failure_cards +%d => %d",
+                int(backfill_stats.get("runs_scanned", 0)),
+                int(backfill_stats.get("runs_merged", 0)),
+                int(backfill_stats.get("strategy_cards_added", 0)),
+                int(backfill_stats.get("strategy_cards_after", 0)),
+                int(backfill_stats.get("failure_cards_added", 0)),
+                int(backfill_stats.get("failure_cards_after", 0)),
+            )
+        except Exception:
+            logger.warning("Failed to load global strategy knowledge base", exc_info=True)
 
     # --- Deep research: run once for new runs, load from file on resume ---
     _deep_research_result = None
@@ -359,7 +745,7 @@ def run_strategy_miner(
                         _extra_kw["strategy_blueprints"] = bp_str
                     except Exception as e:
                         logger.debug("Research formatting failed: %s", e)
-                phase_strategy_gen(state, config, miner_dir, kb=kb, **_extra_kw)
+                phase_strategy_gen(state, config, miner_dir, kb=kb, global_kb=global_kb, **_extra_kw)
 
             elif state.phase == Phase.BACKTEST:
                 phase_backtest(state, config, miner_dir, kb=kb)
@@ -376,7 +762,9 @@ def run_strategy_miner(
                 phase_evaluation(state, config, run_dir=miner_dir, kb=kb,
                                  goal_contract=_goal_contract)
                 # D7: Update knowledge base after evaluation — pass the exact candidate
-                _update_knowledge_base(kb, state, candidate=_eval_cand)
+                _update_knowledge_base(kb, state, candidate=_eval_cand, config=config)
+                if global_kb is not None and getattr(global_kb, "_path", None) != getattr(kb, "_path", None):
+                    _update_knowledge_base(global_kb, state, candidate=_eval_cand, config=config)
 
             elif state.phase == Phase.ANALYSIS:
                 # Optional LLM diagnosis for best candidate in the iteration.
@@ -496,6 +884,7 @@ def run_strategy_miner(
                         try:
                             from .artifacts import append_promotion_log
 
+                            _factor_retrieval = ((state.best_candidate.candidate_payload or {}).get("factor_retrieval") or {})
                             append_promotion_log(miner_dir, {
                                 "candidate": state.best_candidate.name,
                                 "holdout_passed": holdout_passed,
@@ -503,6 +892,8 @@ def run_strategy_miner(
                                 "benchmark_passed": benchmark_result.get("passed") if isinstance(benchmark_result, dict) else None,
                                 "benchmark_failed_ids": benchmark_result.get("failed_ids", []) if isinstance(benchmark_result, dict) else [],
                                 "promotion_ok": _promotion_ok and benchmark_ok,
+                                "factor_references": [item.get("card_id") for item in _factor_retrieval.get("factor_cards", []) if item.get("card_id")],
+                                "factor_query": _factor_retrieval.get("query"),
                             })
                         except Exception:
                             pass
@@ -526,11 +917,14 @@ def run_strategy_miner(
                         try:
                             from .artifacts import append_promotion_log
 
+                            _factor_retrieval = ((state.best_candidate.candidate_payload or {}).get("factor_retrieval") or {})
                             append_promotion_log(miner_dir, {
                                 "candidate": _failed_name,
                                 "holdout_passed": False,
                                 "holdout_delta_pct": holdout_result.get("delta_pct"),
                                 "promotion_ok": False,
+                                "factor_references": [item.get("card_id") for item in _factor_retrieval.get("factor_cards", []) if item.get("card_id")],
+                                "factor_query": _factor_retrieval.get("query"),
                             })
                         except Exception:
                             pass

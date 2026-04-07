@@ -1,0 +1,125 @@
+{
+  "budget": {
+    "provider": "openai_compatible",
+    "model": "gpt-5.2",
+    "base_url": "http://127.0.0.1:4141/v1",
+    "multiagent_enabled": true,
+    "multiagent_refine_rounds": 1,
+    "candidates_per_iteration": 6,
+    "max_iterations": 200,
+    "max_turns": 30,
+    "max_retries": 3,
+    "stale_timeout": 180.0,
+    "repair_attempts": 5,
+    "max_parallel_candidates": 6,
+    "max_parallel_roles": 1
+  },
+  "backtest": {
+    "freqtrade_config": "user_data/config_freqai_gate_spot_core_alpha.json",
+    "timerange": "20260310-20260324",
+    "selection_timerange": "20260310-20260324",
+    "holdout_timerange": "20260325-20260329",
+    "train_timerange": "20260228-20260309",
+    "backtest_timeout": 420,
+    "enable_quick_funnel": true,
+    "quick_backtest_pairs": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+    "quick_backtest_timeout": 120,
+    "max_strategy_timeframe": "1h",
+    "allowed_informative_timeframes": ["15m", "1h"]
+  },
+  "model_mining": {
+    "candidate_types": ["rule", "ml", "dl", "rl"],
+    "enable_dl": true,
+    "enable_rl": true,
+    "train_timerange": "20260228-20260309",
+    "model_training_pairs": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+    "rl_total_timesteps": 20000
+  },
+  "search_space": {
+    "search_families": [
+      "rule/trend-following",
+      "rule/trend-pullback",
+      "rule/breakout",
+      "rule/basket-rotation",
+      "ml/lightgbm",
+      "ml/xgboost",
+      "dl/pytorch_mlp",
+      "rl/ppo"
+    ]
+  },
+  "tools": {
+    "tool_allowlist": ["file", "bash"],
+    "bash_allow": true,
+    "bash_timeout": 60,
+    "bash_allowlist": [
+      "ls ",
+      "find ",
+      "cat ",
+      "head ",
+      "tail ",
+      "sed ",
+      "grep ",
+      "python ",
+      "python3 ",
+      "freqtrade "
+    ]
+  },
+  "evaluation": {
+    "min_trades": 8,
+    "max_abs_drawdown": 80.0,
+    "max_drawdown_pct": 18.0,
+    "min_winrate": 0.42,
+    "min_profit_factor": 1.0,
+    "min_profit_pct": 0.0,
+    "min_positive_days_ratio": 0.45,
+    "min_return_over_drawdown": 0.35,
+    "min_pair_profit_pct": -2.0,
+    "target_trades": 80,
+    "min_acceptable_trades": 25,
+    "objective_weights": {
+      "sharpe": 0.18,
+      "sortino": 0.10,
+      "profit_factor": 0.15,
+      "calmar": 0.05,
+      "profit_pct": 0.27,
+      "winrate": 0.05,
+      "return_over_drawdown": 0.20
+    },
+    "hyperopt_enabled": true,
+    "hyperopt_epochs": 80,
+    "hyperopt_spaces": ["buy", "sell", "roi", "stoploss"],
+    "hyperopt_loss": "SharpeHyperOptLoss",
+    "hyperopt_jobs": 12,
+    "hyperopt_min_trades": 10,
+    "walkforward_enabled": true,
+    "walkforward_folds": 4,
+    "walkforward_train_ratio": 0.6,
+    "benchmark_suite": "benchmark_pack/default"
+  },
+  "portfolio": {
+    "portfolio_enabled": true,
+    "portfolio_top_k": 3,
+    "portfolio_min_candidates": 2,
+    "portfolio_correlation_threshold": 0.80,
+    "portfolio_max_weight": 0.55
+  },
+  "strategy_profile": {
+    "max_strategy_timeframe": "1h",
+    "allowed_informative_timeframes": ["15m", "1h"],
+    "roi_target_min_pct": 0.8,
+    "roi_target_max_pct": 3.0,
+    "stoploss_min_pct": 1.0,
+    "stoploss_max_pct": 3.5,
+    "preferred_patterns": [
+      "5m breakout continuation with 1h trend confirmation",
+      "5m pullback into intraday trend with 15m and 1h structure filter",
+      "basket rotation between BTC ETH SOL using relative momentum and volume expansion",
+      "trend-following or breakout structures that can ride intraday moves without demanding hundreds of trades"
+    ],
+    "avoid_patterns": [
+      "ultra-tight scalping that only works through huge trade count",
+      "slow mean-reversion that fights strong trends",
+      "setups that only survive on one coin and collapse on the other two"
+    ]
+  }
+}

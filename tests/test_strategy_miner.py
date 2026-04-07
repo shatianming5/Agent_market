@@ -313,6 +313,137 @@ class FixedMerge(IStrategy):
     assert ok, msg
 
 
+def test_auto_fix_strategy_code_rewrites_self_merge_informative_pair_usage():
+    from agent_market.strategy_miner.sandbox import auto_fix_strategy_code, validate_strategy_code
+
+    code = """
+import pandas as pd
+from freqtrade.strategy import IStrategy
+class FixedSelfMerge(IStrategy):
+    def populate_indicators(self, dataframe, metadata):
+        inf = dataframe.copy()
+        dataframe = self.merge_informative_pair(dataframe, inf, "5m", "15m", ffill=True)
+        return dataframe
+    def populate_entry_trend(self, dataframe, metadata): return dataframe
+    def populate_exit_trend(self, dataframe, metadata): return dataframe
+"""
+    fixed, fixes = auto_fix_strategy_code(code)
+    assert "rewrite_self_merge_informative_pair" in fixes
+    assert "ensure_merge_informative_pair_import" in fixes
+    assert "self.merge_informative_pair" not in fixed
+    assert "merge_informative_pair(dataframe, inf, '5m', '15m', ffill=True)" in fixed
+    ok, msg = validate_strategy_code(fixed)
+    assert ok, msg
+
+
+def test_auto_fix_strategy_code_forces_append_timeframe_false_when_suffix_is_used():
+    from agent_market.strategy_miner.sandbox import auto_fix_strategy_code, validate_strategy_code
+
+    code = """
+from freqtrade.strategy import IStrategy, merge_informative_pair
+class FixedSuffixMerge(IStrategy):
+    def populate_indicators(self, dataframe, metadata):
+        inf = dataframe.copy()
+        dataframe = merge_informative_pair(
+            dataframe,
+            inf,
+            "5m",
+            "1h",
+            suffix="1h",
+            ffill=True,
+        )
+        return dataframe
+    def populate_entry_trend(self, dataframe, metadata): return dataframe
+    def populate_exit_trend(self, dataframe, metadata): return dataframe
+"""
+    fixed, fixes = auto_fix_strategy_code(code)
+    assert "force_append_timeframe_false_for_suffix" in fixes
+    assert "append_timeframe=False" in fixed
+    ok, msg = validate_strategy_code(fixed)
+    assert ok, msg
+
+
+def test_auto_fix_strategy_code_rewrites_parameter_default_to_value():
+    from agent_market.strategy_miner.sandbox import auto_fix_strategy_code, validate_strategy_code
+
+    code = """
+from freqtrade.strategy import IStrategy, DecimalParameter
+
+class BadParamDefault(IStrategy):
+    p = DecimalParameter(0.5, 3.0, default=1.0, space="buy")
+
+    def populate_indicators(self, dataframe, metadata):
+        x = float(self.p.default)
+        return dataframe
+
+    def populate_entry_trend(self, dataframe, metadata):
+        return dataframe
+
+    def populate_exit_trend(self, dataframe, metadata):
+        return dataframe
+"""
+    fixed, fixes = auto_fix_strategy_code(code)
+    assert "rewrite_parameter_default_to_value" in fixes
+    assert "self.p.default" not in fixed
+    assert "self.p.value" in fixed
+    ok, msg = validate_strategy_code(fixed)
+    assert ok, msg
+
+
+def test_validate_strategy_code_rejects_suffix_without_append_timeframe_false():
+    from agent_market.strategy_miner.sandbox import validate_strategy_code
+
+    code = """
+from freqtrade.strategy import IStrategy, merge_informative_pair
+class BadSuffixMerge(IStrategy):
+    def populate_indicators(self, dataframe, metadata):
+        inf = dataframe.copy()
+        dataframe = merge_informative_pair(dataframe, inf, "5m", "1h", suffix="1h", ffill=True)
+        return dataframe
+    def populate_entry_trend(self, dataframe, metadata): return dataframe
+    def populate_exit_trend(self, dataframe, metadata): return dataframe
+"""
+    ok, msg = validate_strategy_code(code)
+    assert not ok
+    assert "append_timeframe=False" in msg
+
+
+def test_ensure_freqtrade_strategy_compliance_adds_ohlcv_suffix_guard_for_merge_asof():
+    from agent_market.strategy_miner.sandbox import ensure_freqtrade_strategy_compliance_code, validate_strategy_code
+
+    code = """
+import pandas as pd
+from freqtrade.strategy import IStrategy
+
+class MergeAsOfClose(IStrategy):
+    timeframe = "5m"
+    can_short = False
+    order_types = {"entry": "market", "exit": "market", "stoploss": "market", "stoploss_on_exchange": False}
+    order_time_in_force = {"entry": "GTC", "exit": "GTC"}
+
+    def populate_indicators(self, df, metadata):
+        informative = df[["date", "close"]].copy()
+        df = pd.merge_asof(
+            df.sort_values("date"),
+            informative.sort_values("date"),
+            on="date",
+            direction="backward",
+        )
+        return df
+
+    def populate_entry_trend(self, df, metadata):
+        return df
+
+    def populate_exit_trend(self, df, metadata):
+        return df
+"""
+    fixed, fixes = ensure_freqtrade_strategy_compliance_code(code, timeframe="5m", enforce_can_short_false=True)
+    assert "add_ohlcv_suffix_guard" in fixes
+    assert "close_x" in fixed
+    ok, msg = validate_strategy_code(fixed)
+    assert ok, msg
+
+
 # ---------------------------------------------------------------------------
 # knowledge base
 # ---------------------------------------------------------------------------
@@ -335,6 +466,98 @@ def test_knowledge_base_roundtrip():
         kb2 = KnowledgeBase(Path(td) / "kb.json")
         assert len(kb2.elites) == 2
         assert kb2.to_dict()["top_reward"] == 0.8
+
+
+def test_knowledge_base_prefers_family_match_in_generation_query():
+    from agent_market.strategy_miner.knowledge_base import KnowledgeBase
+
+    with tempfile.TemporaryDirectory() as td:
+        kb = KnowledgeBase(Path(td) / "kb.json")
+        kb.merge_payload(
+            {
+                "strategy_cards": [
+                    {
+                        "run_id": "run_ml",
+                        "name": "HugeMlWinner",
+                        "iteration": 0,
+                        "candidate_type": "ml",
+                        "candidate_family": "ml/lightgbm",
+                        "timeframe": "5m",
+                        "universe": ["BTC/USDT", "ETH/USDT"],
+                        "metrics": {"sharpe": 999.0, "profit_pct": 20.0, "trades": 1000},
+                    },
+                    {
+                        "run_id": "run_rule",
+                        "name": "BreakoutRuleWinner",
+                        "iteration": 0,
+                        "candidate_type": "rule",
+                        "candidate_family": "rule/breakout",
+                        "timeframe": "5m",
+                        "universe": ["BTC/USDT", "ETH/USDT"],
+                        "metrics": {"sharpe": 1.2, "profit_pct": 4.0, "trades": 80},
+                    },
+                ]
+            }
+        )
+
+        results = kb.query_strategy_cards_for_generation(
+            top_n=2,
+            family="rule/breakout",
+            timeframe="5m",
+            universe=["BTC/USDT", "ETH/USDT"],
+        )
+
+        assert len(results) == 2
+        assert results[0]["name"] == "BreakoutRuleWinner"
+
+
+def test_knowledge_base_retrieve_for_generation_can_include_recent_cards():
+    from agent_market.strategy_miner.knowledge_base import KnowledgeBase
+
+    with tempfile.TemporaryDirectory() as td:
+        kb = KnowledgeBase(Path(td) / "kb.json")
+        kb.merge_payload(
+            {
+                "strategy_cards": [
+                    {
+                        "card_id": "run_old:OldBest:0",
+                        "created_at": "2026-01-01T00:00:00+00:00",
+                        "run_id": "run_old",
+                        "name": "OldBest",
+                        "iteration": 0,
+                        "candidate_type": "ml",
+                        "candidate_family": "ml/lightgbm",
+                        "timeframe": "5m",
+                        "universe": ["BTC/USDT"],
+                        "metrics": {"sharpe": 10.0, "profit_pct": 100.0, "trades": 1000},
+                    },
+                    {
+                        "card_id": "run_new:RecentLow:0",
+                        "created_at": "2026-01-02T00:00:00+00:00",
+                        "run_id": "run_new",
+                        "name": "RecentLow",
+                        "iteration": 0,
+                        "candidate_type": "ml",
+                        "candidate_family": "ml/lightgbm",
+                        "timeframe": "5m",
+                        "universe": ["BTC/USDT"],
+                        "metrics": {"sharpe": 0.0, "profit_pct": 0.0, "trades": 0},
+                    },
+                ]
+            }
+        )
+
+        res = kb.retrieve_for_generation(
+            family="ml/lightgbm",
+            timeframe="5m",
+            universe=["BTC/USDT"],
+            top_n=1,
+            recent_n=1,
+        )
+        names = [c.get("name") for c in res.strategy_cards]
+        assert "OldBest" in names
+        assert "RecentLow" in names
+        assert int((res.query or {}).get("recent_n") or 0) == 1
 
 
 
@@ -492,6 +715,38 @@ def test_prompt_without_kb_context():
     )
     assert "Elite Strategy Archive" not in p
     assert "Failure Patterns" not in p
+
+
+def test_strategy_prompt_includes_factor_memory_context():
+    from agent_market.strategy_miner.prompts import build_strategy_gen_prompt
+
+    p = build_strategy_gen_prompt(
+        iteration=0,
+        sandbox_path="/tmp/sandbox",
+        freqtrade_config="config.json",
+        timerange="20250101-20260101",
+        history=[],
+        best_score=float("-inf"),
+        factor_context="## Factor Memory Retrieval\n- breakout_card [id] tf=5m gate_pass=True",
+    )
+    assert "Factor Memory Retrieval" in p
+    assert "breakout_card" in p
+
+
+def test_strategy_prompt_includes_strategy_memory_context():
+    from agent_market.strategy_miner.prompts import build_strategy_gen_prompt
+
+    p = build_strategy_gen_prompt(
+        iteration=0,
+        sandbox_path="/tmp/sandbox",
+        freqtrade_config="config.json",
+        timerange="20250101-20260101",
+        history=[],
+        best_score=float("-inf"),
+        strategy_memory_context="## Strategy Memory Retrieval\n- PriorBreakoutWinner [run:card] family=rule/breakout type=rule sharpe=1.2",
+    )
+    assert "Strategy Memory Retrieval" in p
+    assert "PriorBreakoutWinner" in p
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 _IS_LINUX = platform.system() == "Linux"
 _NPROC_ENV_KEY = "AGENT_MARKET_SANDBOX_NPROC_LIMIT"
+_THREAD_ENV_KEY = "AGENT_MARKET_SANDBOX_THREADS"
+_THREAD_ENV_VARS = (
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "BLIS_NUM_THREADS",
+)
 
 
 def _resolve_nproc_limit(env: Optional[dict[str, str]] = None) -> int | None:
@@ -43,6 +52,27 @@ def _resolve_nproc_limit(env: Optional[dict[str, str]] = None) -> int | None:
     if value <= 0:
         logger.warning("Ignoring non-positive %s=%r", _NPROC_ENV_KEY, raw)
         return None
+    return value
+
+
+def _resolve_thread_limit(env: Optional[dict[str, str]] = None) -> int:
+    """Return the default sandbox thread cap for BLAS/OpenMP style runtimes.
+
+    Shared research servers often run many sandboxed backtests concurrently.
+    Letting each child keep the library defaults can trigger thread-local
+    allocation failures in xgboost/OpenMP before the strategy code even runs.
+    """
+    raw = (env or os.environ).get(_THREAD_ENV_KEY, "").strip()
+    if not raw:
+        return 1
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("Ignoring invalid %s=%r", _THREAD_ENV_KEY, raw)
+        return 1
+    if value <= 0:
+        logger.warning("Ignoring non-positive %s=%r", _THREAD_ENV_KEY, raw)
+        return 1
     return value
 
 
@@ -102,10 +132,14 @@ def run_sandboxed(
     safe_env = dict(env or os.environ)
     for sensitive_key in _SENSITIVE_KEYS:
         safe_env.pop(sensitive_key, None)
-    # Prevent OpenBLAS thread explosion in sandboxed subprocesses
-    safe_env.setdefault("OPENBLAS_NUM_THREADS", "4")
-    safe_env.setdefault("MKL_NUM_THREADS", "4")
-    safe_env.setdefault("OMP_NUM_THREADS", "4")
+    # Backtests must be deterministic and must not depend on the caller's
+    # PYTHONPATH. In particular, `PYTHONPATH=src:.` can inject the repo root
+    # and shadow vendored `freqtrade/` as a namespace package.
+    safe_env.pop("PYTHONPATH", None)
+    # Keep threaded math libraries conservative inside shared-server sandboxes.
+    thread_limit = str(_resolve_thread_limit(safe_env))
+    for thread_env_key in _THREAD_ENV_VARS:
+        safe_env.setdefault(thread_env_key, thread_limit)
     nproc_limit = _resolve_nproc_limit(safe_env)
 
     result = subprocess.run(

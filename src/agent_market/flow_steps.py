@@ -670,6 +670,7 @@ def run_strategy_miner_step(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) 
 
     return {
         "strategy_miner_summary": str(summary_path),
+        "strategy_miner_dir": str(out_dir.resolve()),
         "run_id": state.run_id,
         "best_score": str(state.best_score),
         "best_strategy": state.best_candidate.name if state.best_candidate else "",

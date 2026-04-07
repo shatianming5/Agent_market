@@ -91,8 +91,20 @@ def _build_artifact_checks(payload: dict, artifacts: dict) -> dict:
         "factor_eval_meta": _check_path(artifacts.get("factor_eval_meta")),
         "factor_scores_json": _check_path(artifacts.get("factor_scores_json")),
         "factor_pareto_csv": _check_path(artifacts.get("factor_pareto_csv")),
+        "factor_memory_json": _check_path(artifacts.get("factor_memory_json")),
+        "factor_cards_json": _check_path(artifacts.get("factor_cards_json")),
+        "factor_failure_cards_json": _check_path(artifacts.get("factor_failure_cards_json")),
+        "factor_lineage_json": _check_path(artifacts.get("factor_lineage_json")),
         "bundle_zip": _check_path(artifacts.get("bundle_zip")),
         "bundle_manifest": _check_path(artifacts.get("bundle_manifest")),
+        "strategy_miner_summary": _check_path(artifacts.get("strategy_miner_summary")),
+        "strategy_miner_dir": _check_path(artifacts.get("strategy_miner_dir")),
+        "experiment_registry": _check_path(artifacts.get("experiment_registry")),
+        "budget_plan_json": _check_path(artifacts.get("budget_plan_json")),
+        "replay_manifest_json": _check_path(artifacts.get("replay_manifest_json")),
+        "lineage_graph_json": _check_path(artifacts.get("lineage_graph_json")),
+        "promotion_chain_json": _check_path(artifacts.get("promotion_chain_json")),
+        "resource_dashboard_json": _check_path(artifacts.get("resource_dashboard_json")),
         "feedback_summary": _check_path(artifacts.get("feedback_summary")),
         "training_summaries": [
             _check_path(p) for p in (artifacts.get("training_summaries") or []) if p
@@ -271,6 +283,89 @@ def flow_factor_scores(run_id: str):
         return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
     meta_path = paths.run_meta_path(run_id)
     return _load_json_artifact_from_run_meta(meta_path, "factor_scores_json")
+
+
+@router.get("/flow/factor-memory/latest")
+def flow_factor_memory_latest():
+    meta_path = paths.run_meta_latest_path()
+    return _load_json_artifact_from_run_meta(meta_path, "factor_memory_json")
+
+
+@router.get("/flow/factor-memory/global")
+def flow_factor_memory_global():
+    path = paths.global_factor_memory_path()
+    if not path.exists():
+        return error("NOT_FOUND", "Global factor memory not found", status_code=404)
+    return _load_json(path)
+
+
+@router.get("/flow/factor-memory/{run_id}")
+def flow_factor_memory(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+    meta_path = paths.run_meta_path(run_id)
+    return _load_json_artifact_from_run_meta(meta_path, "factor_memory_json")
+
+
+@router.get("/flow/replay-manifest/latest")
+def flow_replay_manifest_latest():
+    meta_path = paths.run_meta_latest_path()
+    return _load_json_artifact_from_run_meta(meta_path, "replay_manifest_json")
+
+
+@router.get("/flow/replay-manifest/{run_id}")
+def flow_replay_manifest(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+    meta_path = paths.run_meta_path(run_id)
+    return _load_json_artifact_from_run_meta(meta_path, "replay_manifest_json")
+
+
+@router.get("/flow/lineage/latest")
+def flow_lineage_latest():
+    meta_path = paths.run_meta_latest_path()
+    return _load_json_artifact_from_run_meta(meta_path, "lineage_graph_json")
+
+
+@router.get("/flow/lineage/{run_id}")
+def flow_lineage(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+    meta_path = paths.run_meta_path(run_id)
+    return _load_json_artifact_from_run_meta(meta_path, "lineage_graph_json")
+
+
+@router.get("/flow/promotion-chain/latest")
+def flow_promotion_chain_latest():
+    meta_path = paths.run_meta_latest_path()
+    return _load_json_artifact_from_run_meta(meta_path, "promotion_chain_json")
+
+
+@router.get("/flow/promotion-chain/{run_id}")
+def flow_promotion_chain(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+    meta_path = paths.run_meta_path(run_id)
+    return _load_json_artifact_from_run_meta(meta_path, "promotion_chain_json")
+
+
+@router.get("/flow/resource-dashboard/latest")
+def flow_resource_dashboard_latest():
+    meta_path = paths.run_meta_latest_path()
+    return _load_json_artifact_from_run_meta(meta_path, "resource_dashboard_json")
+
+
+@router.get("/flow/resource-dashboard/{run_id}")
+def flow_resource_dashboard(run_id: str):
+    run_id = str(run_id or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{8,64}", run_id):
+        return error("INVALID_RUN_ID", f"Invalid run_id: {run_id!r}")
+    meta_path = paths.run_meta_path(run_id)
+    return _load_json_artifact_from_run_meta(meta_path, "resource_dashboard_json")
 
 
 @router.get("/flow/runs/list")

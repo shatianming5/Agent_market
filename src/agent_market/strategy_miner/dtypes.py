@@ -150,8 +150,17 @@ class MinerConfig:
     max_strategy_timeframe: str = ""
     allowed_informative_timeframes: List[str] = field(default_factory=list)
     candidate_types: List[str] = field(default_factory=lambda: ["rule"])
+    search_families: List[str] = field(default_factory=list)
+    family_weight_schedule: List[Dict[str, Any]] = field(default_factory=list)
     model_feature_file: str = "user_data/freqai_features_real.json"
     model_expressions_file: str = "user_data/freqai_expressions_selected.json"
+    use_global_memory: bool = True
+    factor_memory_path: str = ""
+    global_factor_memory_path: str = ""
+    factor_retrieval_top_n: int = 3
+    global_strategy_knowledge_base_path: str = ""
+    strategy_retrieval_top_n: int = 3
+    strategy_retrieval_recent_n: int = 0
     model_training_pairs: List[str] = field(default_factory=list)
     model_output_root: str = "artifacts/models/strategy_miner"
     training_validation_ratio: float = 0.2
@@ -169,6 +178,10 @@ class MinerConfig:
     quick_min_profit_factor: float = 0.9
     quick_min_profit_pct: float = -1.0
     quick_max_drawdown_pct: float = 35.0
+    discovery_quick_min_trades: int = 0
+    discovery_quick_min_profit_factor: float = 0.0
+    discovery_quick_min_profit_pct: float = 0.0
+    discovery_quick_max_drawdown_pct: float = 0.0
 
     # Hyperopt integration
     hyperopt_enabled: bool = False
@@ -177,6 +190,12 @@ class MinerConfig:
     hyperopt_loss: str = "SharpeHyperOptLoss"
     hyperopt_jobs: int = 2
     hyperopt_min_trades: int = 10
+
+    # Deterministic backtest self-heal: relax wrapper signal thresholds when the
+    # backtest succeeds but violates `min_trades`. This is opt-in.
+    trade_calibration_attempts: int = 0
+    trade_calibration_scale: float = 0.7
+    trade_calibration_prob_step: float = 0.05
 
     # Position management (DCA / grid / martingale support)
     position_adjustment_enable: bool = False
@@ -212,6 +231,9 @@ class MinerConfig:
     # Sealed holdout (final validation, touched only once at run completion)
     selection_timerange: str = ""   # used for iteration scoring (replaces timerange if set)
     holdout_timerange: str = ""     # sealed final validation window
+    # Holdout gate: if >0, fail when abs(selection_profit - holdout_profit) exceeds this threshold (pct points).
+    # Default 0 keeps backward-compat heuristic in _holdout.py.
+    holdout_delta_max_pct: float = 0.0
     benchmark_suite: str = ""       # frozen benchmark/challenge pack manifest or directory
 
     # Walk-forward OOS validation (optional — default off for backward compat)
@@ -235,6 +257,7 @@ class MinerConfig:
     min_profit_pct: float = 0.0
     min_positive_days_ratio: float = 0.0
     min_return_over_drawdown: float = 0.0
+    objective_weights: Dict[str, float] = field(default_factory=dict)
     min_pair_profit_pct: float = -0.5
     target_trades: int = 20
     min_acceptable_trades: int = 10
@@ -312,8 +335,17 @@ class MinerConfig:
                 "max_strategy_timeframe",
                 "allowed_informative_timeframes",
                 "candidate_types",
+                "search_families",
+                "family_weight_schedule",
                 "model_feature_file",
                 "model_expressions_file",
+                "use_global_memory",
+                "factor_memory_path",
+                "global_factor_memory_path",
+                "factor_retrieval_top_n",
+                "global_strategy_knowledge_base_path",
+                "strategy_retrieval_top_n",
+                "strategy_retrieval_recent_n",
                 "model_training_pairs",
                 "model_output_root",
                 "training_validation_ratio",
@@ -325,6 +357,9 @@ class MinerConfig:
                 "quick_backtest_pairs",
                 "quick_backtest_timerange",
                 "quick_backtest_timeout",
+                "trade_calibration_attempts",
+                "trade_calibration_scale",
+                "trade_calibration_prob_step",
                 "position_adjustment_enable",
                 "max_entry_position_adjustment",
                 "strategy_archetypes",
@@ -343,11 +378,13 @@ class MinerConfig:
                 "min_profit_pct",
                 "min_positive_days_ratio",
                 "min_return_over_drawdown",
+                "objective_weights",
                 "min_pair_profit_pct",
                 "target_trades",
                 "min_acceptable_trades",
                 "selection_timerange",
                 "holdout_timerange",
+                "holdout_delta_max_pct",
                 "benchmark_suite",
                 "walkforward_enabled",
                 "walkforward_folds",
@@ -356,6 +393,10 @@ class MinerConfig:
                 "quick_min_profit_factor",
                 "quick_min_profit_pct",
                 "quick_max_drawdown_pct",
+                "discovery_quick_min_trades",
+                "discovery_quick_min_profit_factor",
+                "discovery_quick_min_profit_pct",
+                "discovery_quick_max_drawdown_pct",
                 "hyperopt_enabled",
                 "hyperopt_epochs",
                 "hyperopt_spaces",
@@ -392,6 +433,7 @@ class MinerConfig:
                 "min_pair_profit_pct",
                 "target_trades",
                 "min_acceptable_trades",
+                "holdout_delta_max_pct",
             ):
                 if k in risk and k not in d2:
                     d2[k] = risk[k]
@@ -401,6 +443,8 @@ class MinerConfig:
             for k in (
                 "max_strategy_timeframe",
                 "allowed_informative_timeframes",
+                "search_families",
+                "family_weight_schedule",
                 "roi_target_min_pct",
                 "roi_target_max_pct",
                 "stoploss_min_pct",
@@ -415,8 +459,17 @@ class MinerConfig:
         if isinstance(model_mining, dict):
             for k in (
                 "candidate_types",
+                "search_families",
+                "family_weight_schedule",
                 "model_feature_file",
                 "model_expressions_file",
+                "use_global_memory",
+                "factor_memory_path",
+                "global_factor_memory_path",
+                "factor_retrieval_top_n",
+                "global_strategy_knowledge_base_path",
+                "strategy_retrieval_top_n",
+                "strategy_retrieval_recent_n",
                 "model_training_pairs",
                 "model_output_root",
                 "training_validation_ratio",
@@ -429,6 +482,18 @@ class MinerConfig:
             ):
                 if k in model_mining and k not in d2:
                     d2[k] = model_mining[k]
+
+        search_space = d2.get("search_space")
+        if isinstance(search_space, dict):
+            for k in (
+                "candidate_types",
+                "search_families",
+                "family_weight_schedule",
+                "max_iterations",
+                "candidates_per_iteration",
+            ):
+                if k in search_space and k not in d2:
+                    d2[k] = search_space[k]
 
         known = {f.name for f in cls.__dataclass_fields__.values()}
         payload = {k: v for k, v in d2.items() if k in known}

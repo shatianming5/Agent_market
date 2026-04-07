@@ -52,7 +52,7 @@ from ._helpers import (
     update_candidate_stage,
 )
 from ._rendering import _normalize_model_candidate_payload
-from ._scheduler import BanditScheduler
+from ._scheduler import BanditScheduler, resolve_family_weights
 
 logger = logging.getLogger(__name__)
 
@@ -91,10 +91,27 @@ def _accumulate_tokens(state: MinerState, result: Any) -> None:
     if not usage or not isinstance(usage, dict):
         return
     total = int(usage.get("total_tokens", 0) or 0)
-    if total > 0 and hasattr(state, "economics"):
+    if not hasattr(state, "economics"):
+        return
+    if total > 0:
         state.economics["total_tokens"] = (
             state.economics.get("total_tokens", 0) + total
         )
+
+    direct_cost = usage.get("cost_usd")
+    try:
+        direct_cost_value = float(direct_cost) if direct_cost is not None else 0.0
+    except Exception:
+        direct_cost_value = 0.0
+
+    if direct_cost_value > 0:
+        state.economics["total_cost_usd"] = round(
+            state.economics.get("total_cost_usd", 0.0) + direct_cost_value,
+            6,
+        )
+        return
+
+    if total > 0:
         # Estimate cost: $0.01 per 1K tokens (conservative average)
         # Real cost depends on model; this provides a rough budget signal.
         prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
@@ -211,6 +228,7 @@ def phase_strategy_gen(
     run_dir: Path,
     agent: Optional[StrategyAgent] = None,
     kb: Optional["KnowledgeBase"] = None,
+    global_kb: Optional["KnowledgeBase"] = None,
     research_insights: Optional[str] = None,
     strategy_blueprints: Optional[str] = None,
 ) -> None:
@@ -229,10 +247,20 @@ def phase_strategy_gen(
         if state.bandit_state:
             _bandit = BanditScheduler.from_dict(state.bandit_state)
         else:
-            all_families = [
-                "rule/mean-reversion", "rule/trend-pullback", "rule/breakout",
-                "rule/dca-grid", "rule/martingale",
-                "ml/lightgbm", "ml/xgboost",
+            configured_families = list(getattr(config, "search_families", None) or [])
+            all_families = configured_families or [
+                "rule/mean-reversion",
+                "rule/trend-pullback",
+                "rule/trend-following",
+                "rule/breakout",
+                "rule/basket-rotation",
+                "rule/pair-relative",
+                "rule/dca-grid",
+                "rule/martingale",
+                "ml/lightgbm",
+                "ml/xgboost",
+                "dl/pytorch_mlp",
+                "rl/ppo",
             ]
             # Filter by enabled types
             from ._helpers import _configured_candidate_types
@@ -241,19 +269,64 @@ def phase_strategy_gen(
             _bandit = BanditScheduler(families or ["rule/mean-reversion", "ml/lightgbm"])
         state._bandit = _bandit  # type: ignore[attr-defined]
 
-    selected_families = _bandit.select_families(n)
+    active_family_weights = resolve_family_weights(
+        list(getattr(config, "family_weight_schedule", None) or []),
+        iteration=state.iteration,
+    )
+    selected_families = _bandit.select_families(n, family_weights=active_family_weights)
     # Persist bandit state for checkpoint
     state.bandit_state = _bandit.to_dict()
-    logger.info("Bandit selected families: %s", selected_families)
+    logger.info(
+        "Bandit selected families: %s%s",
+        selected_families,
+        f" weights={active_family_weights}" if active_family_weights else "",
+    )
 
     best_code = state.best_candidate.code if state.best_candidate is not None else None
 
     # Inject knowledge base context
     elite_summaries = None
     failure_summary = None
+    kb_entries: list[tuple[str, "KnowledgeBase"]] = []
+    seen_kb_paths: set[str] = set()
     if kb is not None:
-        elite_summaries = kb.elites[:3] if kb.elites else None
-        failure_summary = kb.failure_summary(5) if kb.failures else None
+        kb_path = str(getattr(kb, "_path", ""))
+        kb_entries.append((kb_path or "local", kb))
+        if kb_path:
+            seen_kb_paths.add(kb_path)
+    if global_kb is not None:
+        gkb_path = str(getattr(global_kb, "_path", ""))
+        if not gkb_path or gkb_path not in seen_kb_paths:
+            kb_entries.append((gkb_path or "global", global_kb))
+
+    if kb_entries:
+        merged_elites: dict[str, dict[str, Any]] = {}
+        failure_lines: list[str] = []
+        seen_failure_lines: set[str] = set()
+        for _, entry in kb_entries:
+            for elite in list(entry.elites or []):
+                name = str(elite.get("name") or "").strip()
+                if not name:
+                    continue
+                existing = merged_elites.get(name)
+                elite_reward = float(elite.get("reward", 0) or 0.0)
+                existing_reward = float((existing or {}).get("reward", 0) or 0.0)
+                if existing is None or elite_reward > existing_reward:
+                    merged_elites[name] = dict(elite)
+            summary = entry.failure_summary(5)
+            if summary and summary != "No recorded failures.":
+                for line in [item.strip() for item in summary.splitlines() if item.strip()]:
+                    if line not in seen_failure_lines:
+                        failure_lines.append(line)
+                        seen_failure_lines.add(line)
+        if merged_elites:
+            elite_summaries = sorted(
+                merged_elites.values(),
+                key=lambda item: float(item.get("reward", 0) or 0.0),
+                reverse=True,
+            )[:3]
+        if failure_lines:
+            failure_summary = "\n".join(failure_lines)
 
     # --- Web research (only first 5 iterations to save tokens) ---
     _market_context_str = ""
@@ -279,6 +352,191 @@ def phase_strategy_gen(
     names_seen: set[str] = set()
     names_seen_lock = threading.Lock()
     objective_profile = _prompt_objective_profile(config)
+    _, market_pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
+    factor_store_entries: list[tuple[str, Any]] = []
+    factor_store_lock = threading.Lock()
+    factor_memory_path = str(getattr(config, "factor_memory_path", "") or "").strip()
+    global_factor_memory_path = str(getattr(config, "global_factor_memory_path", "") or "").strip()
+    if not global_factor_memory_path and bool(getattr(config, "use_global_memory", True)):
+        global_factor_memory_path = str(paths.global_factor_memory_path())
+    seen_factor_paths: set[str] = set()
+
+    def _load_factor_store(raw_path: str) -> None:
+        raw = str(raw_path or "").strip()
+        if not raw:
+            return
+        try:
+            from agent_market.factor_memory import FactorMemoryStore  # noqa: WPS433
+
+            resolved = paths.resolve_repo_path(raw)
+            resolved_key = str(resolved)
+            if resolved_key in seen_factor_paths:
+                return
+            if resolved.exists():
+                factor_store_entries.append((resolved_key, FactorMemoryStore(resolved)))
+                seen_factor_paths.add(resolved_key)
+                logger.info("Loaded factor memory for strategy generation: %s", resolved)
+            else:
+                logger.debug("Factor memory path does not exist yet: %s", resolved)
+        except Exception:
+            logger.warning("Failed to load factor memory for strategy generation", exc_info=True)
+
+    _load_factor_store(factor_memory_path)
+    _load_factor_store(global_factor_memory_path)
+
+    def _factor_retrieval_for_candidate(
+        *,
+        selected_family: str | None,
+        candidate_type: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not factor_store_entries:
+            return "", None
+        from agent_market.factor_memory import format_factor_retrieval_context  # noqa: WPS433
+
+        family = str(selected_family or candidate_type or "").strip()
+        timeframe = str(objective_profile.get("base_timeframe") or "")
+        universe = list(getattr(config, "model_training_pairs", None) or []) or list(market_pairs or [])
+        try:
+            factor_cards: list[dict[str, Any]] = []
+            failure_cards: list[dict[str, Any]] = []
+            seen_card_ids: set[str] = set()
+            seen_failure_ids: set[str] = set()
+            with factor_store_lock:
+                for memory_path, store in factor_store_entries:
+                    result = store.retrieve_for_strategy(
+                        family=family,
+                        timeframe=timeframe,
+                        universe=universe,
+                        top_n=max(1, int(getattr(config, "factor_retrieval_top_n", 3) or 3)),
+                    )
+                    for card in list(result.factor_cards or []):
+                        card_id = str(card.get("card_id") or "").strip()
+                        dedupe_key = card_id or json.dumps(card, ensure_ascii=False, sort_keys=True)
+                        if dedupe_key in seen_card_ids:
+                            continue
+                        seen_card_ids.add(dedupe_key)
+                        factor_cards.append(dict(card))
+                    for card in list(result.failure_cards or []):
+                        failure_id = str(card.get("failure_id") or "").strip()
+                        dedupe_key = failure_id or json.dumps(card, ensure_ascii=False, sort_keys=True)
+                        if dedupe_key in seen_failure_ids:
+                            continue
+                        seen_failure_ids.add(dedupe_key)
+                        failure_cards.append(dict(card))
+        except Exception:
+            logger.warning("Factor retrieval failed for family=%s", family, exc_info=True)
+            return "", None
+        context = format_factor_retrieval_context(
+            factor_cards=factor_cards,
+            failure_cards=failure_cards,
+        )
+        snapshot = {
+            "memory_paths": [item[0] for item in factor_store_entries],
+            "query": {
+                "family": family,
+                "timeframe": timeframe,
+                "universe": universe,
+                "top_n": max(1, int(getattr(config, "factor_retrieval_top_n", 3) or 3)),
+            },
+            "factor_cards": factor_cards,
+            "failure_cards": failure_cards,
+        }
+        return context, snapshot
+
+    def _strategy_retrieval_for_candidate(
+        *,
+        selected_family: str | None,
+        candidate_type: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        if not kb_entries:
+            return "", None
+        from .knowledge_base import format_strategy_retrieval_context  # noqa: WPS433
+
+        family = str(selected_family or candidate_type or "").strip()
+        timeframe = str(objective_profile.get("base_timeframe") or "")
+        universe = list(getattr(config, "model_training_pairs", None) or []) or list(market_pairs or [])
+        strategy_cards: list[dict[str, Any]] = []
+        failure_cards: list[dict[str, Any]] = []
+        seen_strategy_ids: set[str] = set()
+        seen_failure_ids: set[str] = set()
+        try:
+            for kb_path, entry in kb_entries:
+                result = entry.retrieve_for_generation(
+                    family=family,
+                    timeframe=timeframe,
+                    universe=universe,
+                    top_n=max(1, int(getattr(config, "strategy_retrieval_top_n", 3) or 3)),
+                    recent_n=max(0, int(getattr(config, "strategy_retrieval_recent_n", 0) or 0)),
+                )
+                for card in list(result.strategy_cards or []):
+                    card_id = str(card.get("card_id") or "").strip()
+                    dedupe_key = card_id or f"{card.get('run_id','')}::{card.get('name','')}"
+                    if dedupe_key in seen_strategy_ids:
+                        continue
+                    seen_strategy_ids.add(dedupe_key)
+                    strategy_cards.append(dict(card))
+                for card in list(result.failure_cards or []):
+                    failure_id = str(card.get("failure_id") or "").strip()
+                    dedupe_key = failure_id or f"{card.get('run_id','')}::{card.get('name','')}::{card.get('category','')}"
+                    if dedupe_key in seen_failure_ids:
+                        continue
+                    seen_failure_ids.add(dedupe_key)
+                    failure_cards.append(dict(card))
+        except Exception:
+            logger.warning("Strategy retrieval failed for family=%s", family, exc_info=True)
+            return "", None
+        context = format_strategy_retrieval_context(
+            strategy_cards=strategy_cards,
+            failure_cards=failure_cards,
+        )
+        snapshot = {
+            "knowledge_base_paths": [item[0] for item in kb_entries],
+            "query": {
+                "family": family,
+                "timeframe": timeframe,
+                "universe": universe,
+                "top_n": max(1, int(getattr(config, "strategy_retrieval_top_n", 3) or 3)),
+                "recent_n": max(0, int(getattr(config, "strategy_retrieval_recent_n", 0) or 0)),
+            },
+            "strategy_cards": strategy_cards,
+            "failure_cards": failure_cards,
+        }
+        return context, snapshot
+
+    def _register_factor_references(cand: StrategyCandidate, factor_snapshot: dict[str, Any] | None) -> None:
+        if not factor_snapshot:
+            return
+        card_ids = [item.get("card_id") for item in factor_snapshot.get("factor_cards", []) if item.get("card_id")]
+        if not card_ids:
+            return
+        try:
+            with factor_store_lock:
+                for _, store in factor_store_entries:
+                    store.register_strategy_references(
+                        card_ids=card_ids,
+                        strategy_name=cand.name,
+                        strategy_run_id=state.run_id,
+                        candidate_family=str(cand.candidate_family or cand.candidate_type or ""),
+                    )
+        except Exception:
+            logger.debug("Failed to register factor references for candidate", exc_info=True)
+
+    def _register_strategy_memory_references(cand: StrategyCandidate, strategy_snapshot: dict[str, Any] | None) -> None:
+        if not strategy_snapshot:
+            return
+        card_ids = [item.get("card_id") for item in strategy_snapshot.get("strategy_cards", []) if item.get("card_id")]
+        if not card_ids:
+            return
+        try:
+            for _, entry in kb_entries:
+                entry.register_strategy_references(
+                    card_ids=card_ids,
+                    strategy_name=cand.name,
+                    strategy_run_id=state.run_id,
+                    candidate_family=str(cand.candidate_family or cand.candidate_type or ""),
+                )
+        except Exception:
+            logger.debug("Failed to register strategy references for candidate", exc_info=True)
 
     def _reserve_candidate_name(name_hint: str, candidate_idx: int, fallback: str) -> str:
         name = _sanitize_candidate_name(name_hint, fallback=fallback)
@@ -304,6 +562,14 @@ def phase_strategy_gen(
 
         _, pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
         pairs = list(getattr(config, "model_training_pairs", None) or []) or pairs
+        factor_context, factor_snapshot = _factor_retrieval_for_candidate(
+            selected_family=selected_family,
+            candidate_type=candidate_type,
+        )
+        strategy_memory_context, strategy_snapshot = _strategy_retrieval_for_candidate(
+            selected_family=selected_family,
+            candidate_type=candidate_type,
+        )
 
         planner_notes = ""
         trace_paths: dict[str, str] = {}
@@ -340,6 +606,8 @@ def phase_strategy_gen(
                 expressions_file=getattr(config, "model_expressions_file", None),
                 pairs=pairs,
                 history=state.history,
+                factor_context=factor_context or None,
+                strategy_memory_context=strategy_memory_context or None,
                 target_trades=int(objective_profile.get("target_trades") or 20),
                 min_acceptable_trades=int(objective_profile.get("min_acceptable_trades") or 10),
             )
@@ -376,6 +644,8 @@ def phase_strategy_gen(
             expressions_file=getattr(config, "model_expressions_file", None),
             pairs=pairs,
             history=state.history,
+            factor_context=factor_context or None,
+            strategy_memory_context=strategy_memory_context or None,
             planner_notes=planner_notes or None,
             previous_suggestions=_prev_suggestions,
             base_timeframe=str(objective_profile.get("base_timeframe") or "1h"),
@@ -452,6 +722,10 @@ def phase_strategy_gen(
         if selected_family:
             cand.candidate_family = selected_family  # e.g. "ml/lightgbm"
         cand.candidate_payload = payload
+        if factor_snapshot:
+            cand.candidate_payload["factor_retrieval"] = factor_snapshot
+        if strategy_snapshot:
+            cand.candidate_payload["strategy_retrieval"] = strategy_snapshot
         cand.training_config = payload.get("training_config")
         cand.planner_notes = planner_notes
         cand.agent_traces = dict(trace_paths)
@@ -466,6 +740,8 @@ def phase_strategy_gen(
             write_candidate_snapshot(run_dir, cand)
         except Exception:
             logger.debug("Candidate snapshot write failed", exc_info=True)
+        _register_factor_references(cand, factor_snapshot)
+        _register_strategy_memory_references(cand, strategy_snapshot)
 
         return cand
 
@@ -495,6 +771,14 @@ def phase_strategy_gen(
                 state.iteration,
                 variant=variant,
             )
+            factor_context, factor_snapshot = _factor_retrieval_for_candidate(
+                selected_family=selected_family,
+                candidate_type="rule",
+            )
+            strategy_memory_context, strategy_snapshot = _strategy_retrieval_for_candidate(
+                selected_family=selected_family,
+                candidate_type="rule",
+            )
 
             # Diversity: use bandit-selected family when available, else slot rotation
             if selected_family and "/" in selected_family:
@@ -519,6 +803,8 @@ def phase_strategy_gen(
                 market_context=_market_context_str,
                 research_insights=research_insights,
                 strategy_blueprints=strategy_blueprints,
+                factor_context=factor_context or None,
+                strategy_memory_context=strategy_memory_context or None,
                 diversity_instructions=_div["instructions"],
                 previous_suggestions=_prev_suggestions,
                 **objective_profile,
@@ -594,6 +880,11 @@ def phase_strategy_gen(
                 if gen_model is not None:
                     cand.source_model = gen_model
                     cand.generation_model = gen_model
+                cand.candidate_payload = {
+                    "selected_family": selected_family or "",
+                    "factor_retrieval": factor_snapshot or {},
+                    "strategy_retrieval": strategy_snapshot or {},
+                }
 
                 try:
                     from .artifacts import write_candidate_snapshot
@@ -601,6 +892,8 @@ def phase_strategy_gen(
                     write_candidate_snapshot(run_dir, cand)
                 except Exception:
                     logger.debug("Candidate snapshot write failed", exc_info=True)
+                _register_factor_references(cand, factor_snapshot)
+                _register_strategy_memory_references(cand, strategy_snapshot)
 
                 return cand
             finally:
@@ -623,6 +916,14 @@ def phase_strategy_gen(
             state.iteration,
             variant=f"{cand_label}/planner",
         )
+        factor_context, factor_snapshot = _factor_retrieval_for_candidate(
+            selected_family=selected_family,
+            candidate_type="rule",
+        )
+        strategy_memory_context, strategy_snapshot = _strategy_retrieval_for_candidate(
+            selected_family=selected_family,
+            candidate_type="rule",
+        )
 
         _div = _INDICATOR_SETS[candidate_idx % len(_INDICATOR_SETS)]
         coder_prompt = build_strategy_gen_prompt(
@@ -642,6 +943,8 @@ def phase_strategy_gen(
             market_context=_market_context_str,
             research_insights=research_insights,
             strategy_blueprints=strategy_blueprints,
+            factor_context=factor_context or None,
+            strategy_memory_context=strategy_memory_context or None,
             diversity_instructions=_div["instructions"],
             previous_suggestions=_prev_suggestions,
             **objective_profile,
@@ -656,6 +959,8 @@ def phase_strategy_gen(
             history=state.history,
             elite_summaries=elite_summaries,
             failure_summary=failure_summary,
+            factor_context=factor_context or None,
+            strategy_memory_context=strategy_memory_context or None,
             **objective_profile,
         )
 
@@ -1019,6 +1324,11 @@ def phase_strategy_gen(
 
         cand.candidate_slot = int(candidate_idx)
         cand.candidate_type = "rule"
+        cand.candidate_payload = {
+            "selected_family": selected_family or "",
+            "factor_retrieval": factor_snapshot or {},
+            "strategy_retrieval": strategy_snapshot or {},
+        }
         if selected_family:
             cand.candidate_family = selected_family  # e.g. "rule/mean-reversion"
 
@@ -1037,20 +1347,25 @@ def phase_strategy_gen(
             write_candidate_snapshot(run_dir, cand)
         except Exception:
             logger.debug("Candidate snapshot write failed", exc_info=True)
+        _register_factor_references(cand, factor_snapshot)
+        _register_strategy_memory_references(cand, strategy_snapshot)
 
         return cand
-
-    logger.info(
-        "Phase STRATEGY_GEN: iteration=%d generating %d candidates (parallel)",
-        state.iteration,
-        n,
-    )
 
     results: list[tuple[int, StrategyCandidate]] = []
     max_workers = min(8, n)
     max_parallel = int(getattr(config, "max_parallel_candidates", 0) or 0)
     if max_parallel > 0:
         max_workers = max(1, min(max_workers, max_parallel))
+    roles_workers = max(1, min(2, int(getattr(config, "max_parallel_roles", 1) or 1)))
+
+    logger.info(
+        "Phase STRATEGY_GEN: iteration=%d generating %d candidates (candidate_workers=%d role_workers=%d)",
+        state.iteration,
+        n,
+        max_workers,
+        roles_workers,
+    )
 
     # Run in parallel to reduce wall-clock; each candidate has isolated sandbox.
     with ThreadPoolExecutor(max_workers=max_workers) as pool:

@@ -1,0 +1,496 @@
+{
+  "schema_version": "1.0",
+  "mode": "soak",
+  "generated_at": "2026-04-07T12:17:16+00:00",
+  "base_config": "/Users/shatianming/Downloads/Agent_market/configs/agent_flow_strategy_factory_acceptance_ml.json",
+  "pythonpath": "src:.",
+  "runs_requested": 10,
+  "results": [
+    {
+      "run_id": "937455737d74",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/937455737d74",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-200246.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "FiveMinRobustLGBMRegCand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 13.31,
+        "trades": 466,
+        "realistic_sharpe": 0.747361,
+        "profit_factor": 8.747982450227733,
+        "winrate": 0.8862660944206009,
+        "max_drawdown_pct": 0.222207
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 88.397324,
+        "total_seconds": 88.619819,
+        "by_step_seconds": {
+          "micro_feature": 1.050415,
+          "factor_compile": 0.295512,
+          "factor_eval": 1.172885,
+          "strategy_miner": 85.407651,
+          "report": 0.691122
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 937455737d74\nbest_score: 3.146355848196763\nbest: FiveMinRobustLGBMRegCand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/937455737d74/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. FiveMinRobustLGBMRegCand0 reward=? profit_pct=13.310% trades=466 winrate=0.8863 max_dd=2.2242 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/937455737d74/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/937455737d74/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-00",
+      "returncode": 0,
+      "wall_seconds": 101.78821301460266
+    },
+    {
+      "run_id": "8d1bd343d392",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/8d1bd343d392",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-200428.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "FiveMinIntradayLGBMRegCand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 14.08,
+        "trades": 471,
+        "realistic_sharpe": 0.77124,
+        "profit_factor": 12.520147407748004,
+        "winrate": 0.881104033970276,
+        "max_drawdown_pct": 0.153573
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 103.395066,
+        "total_seconds": 103.83578,
+        "by_step_seconds": {
+          "micro_feature": 2.298974,
+          "factor_compile": 1.051148,
+          "factor_eval": 1.347241,
+          "strategy_miner": 98.849495,
+          "report": 0.288027
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 8d1bd343d392\nbest_score: 3.1189088119720925\nbest: FiveMinIntradayLGBMRegCand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/8d1bd343d392/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. FiveMinIntradayLGBMRegCand0 reward=? profit_pct=14.080% trades=471 winrate=0.8811 max_dd=1.7216 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/8d1bd343d392/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/8d1bd343d392/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-01",
+      "returncode": 0,
+      "wall_seconds": 111.90522813796997
+    },
+    {
+      "run_id": "159c3b1961bf",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/159c3b1961bf",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-200621.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "IntraRegressLGBM5mV1Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 4.16,
+        "trades": 203,
+        "realistic_sharpe": 0.434501,
+        "profit_factor": 3.0818897050684577,
+        "winrate": 0.8078817733990148,
+        "max_drawdown_pct": 0.707631
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 93.755594,
+        "total_seconds": 93.886104,
+        "by_step_seconds": {
+          "micro_feature": 0.964003,
+          "factor_compile": 0.241634,
+          "factor_eval": 0.945361,
+          "strategy_miner": 91.449446,
+          "report": 0.282396
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 159c3b1961bf\nbest_score: 1.978146836652376\nbest: IntraRegressLGBM5mV1Cand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/159c3b1961bf/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. IntraRegressLGBM5mV1Cand0 reward=? profit_pct=4.1600% trades=203 winrate=0.8079 max_dd=7.0763 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/159c3b1961bf/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/159c3b1961bf/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-02",
+      "returncode": 0,
+      "wall_seconds": 97.37518787384033
+    },
+    {
+      "run_id": "47879f9caf47",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/47879f9caf47",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-200758.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "IntraBreakoutLGBM5mCand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 13.0,
+        "trades": 526,
+        "realistic_sharpe": 0.727865,
+        "profit_factor": 7.529992903757258,
+        "winrate": 0.8802281368821293,
+        "max_drawdown_pct": 0.239223
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 75.232508,
+        "total_seconds": 75.79914,
+        "by_step_seconds": {
+          "micro_feature": 0.523495,
+          "factor_compile": 0.174455,
+          "factor_eval": 0.676046,
+          "strategy_miner": 74.152771,
+          "report": 0.271562
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 47879f9caf47\nbest_score: 3.0999043500165557\nbest: IntraBreakoutLGBM5mCand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/47879f9caf47/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. IntraBreakoutLGBM5mCand0 reward=? profit_pct=13.000% trades=526 winrate=0.8802 max_dd=2.7096 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/47879f9caf47/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/47879f9caf47/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-03",
+      "returncode": 0,
+      "wall_seconds": 78.77795505523682
+    },
+    {
+      "run_id": "14394c8e553d",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/14394c8e553d",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-200917.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "FiveMinLightGBMIntradayBreakoutCand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 11.45,
+        "trades": 315,
+        "realistic_sharpe": 0.673085,
+        "profit_factor": 32.38929756002297,
+        "winrate": 0.9333333333333333,
+        "max_drawdown_pct": 0.147286
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 64.211884,
+        "total_seconds": 64.905942,
+        "by_step_seconds": {
+          "micro_feature": 0.513237,
+          "factor_compile": 0.172153,
+          "factor_eval": 1.055188,
+          "strategy_miner": 62.888097,
+          "report": 0.276568
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 14394c8e553d\nbest_score: 2.7446733496516798\nbest: FiveMinLightGBMIntradayBreakoutCand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/14394c8e553d/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. FiveMinLightGBMIntradayBreakoutCand0 reward=? profit_pct=11.450% trades=315 winrate=0.9333 max_dd=1.6439 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/14394c8e553d/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/14394c8e553d/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-04",
+      "returncode": 0,
+      "wall_seconds": 68.26063370704651
+    },
+    {
+      "run_id": "a2bffb2e7554",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/a2bffb2e7554",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-201026.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "FiveMinIntraLGBMRegV1Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 1.66,
+        "trades": 151,
+        "realistic_sharpe": 0.258534,
+        "profit_factor": 1.694790695967825,
+        "winrate": 0.7284768211920529,
+        "max_drawdown_pct": 0.49084
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 85.75532,
+        "total_seconds": 86.168282,
+        "by_step_seconds": {
+          "micro_feature": 0.403676,
+          "factor_compile": 0.14879,
+          "factor_eval": 0.526371,
+          "strategy_miner": 84.815523,
+          "report": 0.273578
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: a2bffb2e7554\nbest_score: 1.2085997743077097\nbest: FiveMinIntraLGBMRegV1Cand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/a2bffb2e7554/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. FiveMinIntraLGBMRegV1Cand0 reward=? profit_pct=1.6600% trades=151 winrate=0.7285 max_dd=4.9675 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/a2bffb2e7554/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/a2bffb2e7554/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-05",
+      "returncode": 0,
+      "wall_seconds": 90.12041187286377
+    },
+    {
+      "run_id": "9b09b5c09a7d",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/9b09b5c09a7d",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-201156.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "IntradayLGBMReg5mCand0Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 6.51,
+        "trades": 188,
+        "realistic_sharpe": 0.57097,
+        "profit_factor": 15.149179877773435,
+        "winrate": 0.9095744680851063,
+        "max_drawdown_pct": 0.197064
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 70.38405,
+        "total_seconds": 70.92664,
+        "by_step_seconds": {
+          "micro_feature": 0.539898,
+          "factor_compile": 0.190041,
+          "factor_eval": 0.629357,
+          "strategy_miner": 69.287306,
+          "report": 0.27942
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 9b09b5c09a7d\nbest_score: 2.5863490271287164\nbest: IntradayLGBMReg5mCand0Cand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/9b09b5c09a7d/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. IntradayLGBMReg5mCand0Cand0 reward=? profit_pct=6.5100% trades=188 winrate=0.9096 max_dd=2.1031 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/9b09b5c09a7d/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/9b09b5c09a7d/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-06",
+      "returncode": 0,
+      "wall_seconds": 74.39394187927246
+    },
+    {
+      "run_id": "82c5c26e61b8",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/82c5c26e61b8",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-201311.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "LGBMIntradayRegV1Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 12.29,
+        "trades": 412,
+        "realistic_sharpe": 0.712121,
+        "profit_factor": 12.63294326316996,
+        "winrate": 0.8762135922330098,
+        "max_drawdown_pct": 0.130872
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 77.758666,
+        "total_seconds": 78.276804,
+        "by_step_seconds": {
+          "micro_feature": 0.49717,
+          "factor_compile": 0.165468,
+          "factor_eval": 0.575453,
+          "strategy_miner": 76.753294,
+          "report": 0.285013
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 82c5c26e61b8\nbest_score: 3.0375758501343397\nbest: LGBMIntradayRegV1Cand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/82c5c26e61b8/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. LGBMIntradayRegV1Cand0 reward=? profit_pct=12.290% trades=412 winrate=0.8762 max_dd=1.4715 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/82c5c26e61b8/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/82c5c26e61b8/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-07",
+      "returncode": 0,
+      "wall_seconds": 81.42904281616211
+    },
+    {
+      "run_id": "fd2405a5cd59",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/fd2405a5cd59",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-201432.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "LGBMIntradayBreakoutRegV1Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 6.77,
+        "trades": 215,
+        "realistic_sharpe": 0.63605,
+        "profit_factor": 9.995107235344376,
+        "winrate": 0.8790697674418605,
+        "max_drawdown_pct": 0.205765
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 73.107221,
+        "total_seconds": 74.01297,
+        "by_step_seconds": {
+          "micro_feature": 0.497534,
+          "factor_compile": 0.175801,
+          "factor_eval": 0.561455,
+          "strategy_miner": 72.503682,
+          "report": 0.274146
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: fd2405a5cd59\nbest_score: 2.734379236098255\nbest: LGBMIntradayBreakoutRegV1Cand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/fd2405a5cd59/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. LGBMIntradayBreakoutRegV1Cand0 reward=? profit_pct=6.7700% trades=215 winrate=0.8791 max_dd=2.2014 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/fd2405a5cd59/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/fd2405a5cd59/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-08",
+      "returncode": 0,
+      "wall_seconds": 77.00040125846863
+    },
+    {
+      "run_id": "5e37e8158a3e",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/5e37e8158a3e",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246/agent_flow_20260407-201550.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "IntraBreakoutLGBMRegV0Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 12.19,
+        "trades": 443,
+        "realistic_sharpe": 0.727457,
+        "profit_factor": 10.610522090125519,
+        "winrate": 0.9051918735891648,
+        "max_drawdown_pct": 0.213753
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 81.90142,
+        "total_seconds": 82.77498,
+        "by_step_seconds": {
+          "micro_feature": 0.466857,
+          "factor_compile": 0.165328,
+          "factor_eval": 0.567286,
+          "strategy_miner": 81.309905,
+          "report": 0.265234
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": true,
+        "returncode": 0,
+        "output_tail": "VERIFY PASS\nrun_id: 5e37e8158a3e\nbest_score: 3.0880879613471865\nbest: IntraBreakoutLGBMRegV0Cand0\nleaderboard: /Users/shatianming/Downloads/Agent_market/artifacts/runs/5e37e8158a3e/strategy_miner/leaderboard.json\nrisk_gates: min_trades=150 max_abs_drawdown=80.0 min_winrate=0.55\n\nTop1:\n1. IntraBreakoutLGBMRegV0Cand0 reward=? profit_pct=12.190% trades=443 winrate=0.9052 max_dd=2.4033 constraints_ok=True violations=[]"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/5e37e8158a3e/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/5e37e8158a3e/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-09",
+      "returncode": 0,
+      "wall_seconds": 85.90568804740906
+    }
+  ],
+  "summary": {
+    "runs_total": 10,
+    "runs_success": 10,
+    "freqtrade_ok": 10,
+    "verify_ok": 10,
+    "provider_503_total": 0,
+    "wall_seconds": {
+      "min": 68.26063370704651,
+      "p50": 81.42904281616211,
+      "p90": 101.78821301460266,
+      "max": 111.90522813796997,
+      "mean": 86.69567036628723
+    },
+    "full_run_seconds": {
+      "min": 64.211884,
+      "p50": 77.758666,
+      "p90": 93.755594,
+      "max": 103.395066,
+      "mean": 81.3899053
+    },
+    "failures": []
+  },
+  "paths": {
+    "config_dir": "/Users/shatianming/Downloads/Agent_market/runtime_configs/strategy_factory_soak_20260407-120246",
+    "log_dir": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-120246"
+  }
+}

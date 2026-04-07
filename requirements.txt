@@ -7,6 +7,7 @@ tqdm
 tenacity
 python-dateutil
 requests
+filelock
 vectorbt
 pandas_ta
 pyyaml

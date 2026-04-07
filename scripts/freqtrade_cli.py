@@ -3,10 +3,47 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 
 logger = logging.getLogger("agent_market.freqtrade_cli")
+
+
+def _bootstrap_freqtrade_sys_path() -> None:
+    """Make freqtrade imports deterministic under repo executions.
+
+    Some entrypoints run this wrapper with an inherited `PYTHONPATH=src:.`,
+    which injects the repo root into `sys.path` and causes the top-level
+    `freqtrade/` directory to be imported as a namespace package.
+
+    Prefer the vendored package in `REPO_ROOT/freqtrade/freqtrade`.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    vendored_root = repo_root / "freqtrade"
+    vendored_pkg_init = vendored_root / "freqtrade" / "__init__.py"
+    if not vendored_pkg_init.exists():
+        return
+
+    try:
+        repo_root_resolved = repo_root.resolve()
+    except Exception:
+        repo_root_resolved = repo_root
+
+    sanitized: list[str] = []
+    for entry in list(sys.path):
+        try:
+            resolved = Path.cwd().resolve() if not entry else Path(entry).resolve()
+        except Exception:
+            sanitized.append(entry)
+            continue
+        if resolved == repo_root_resolved:
+            continue
+        sanitized.append(entry)
+
+    vendored_root_s = str(vendored_root)
+    sanitized = [p for p in sanitized if p != vendored_root_s]
+    sys.path[:] = [vendored_root_s] + sanitized
 
 
 def _patch_offline_markets() -> None:
@@ -75,6 +112,7 @@ def _patch_offline_markets() -> None:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    _bootstrap_freqtrade_sys_path()
     args = list(sys.argv[1:] if argv is None else argv)
     disable = False
     if args and args[0] == "--no-offline-markets":

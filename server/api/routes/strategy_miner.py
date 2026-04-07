@@ -281,6 +281,15 @@ def miner_run_detail(run_id: str):
     }
 
 
+@router.get("/global-knowledge-base")
+def miner_global_knowledge_base():
+    path = paths.global_strategy_knowledge_base_path()
+    data = _load_json(path)
+    if data is None:
+        return not_found("NOT_FOUND", "global strategy knowledge base not found")
+    return data
+
+
 @router.get("/runs/{run_id}/proposal")
 def miner_run_proposal(run_id: str):
     run_id_norm = _validate_run_id(run_id)

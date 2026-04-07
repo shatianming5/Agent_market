@@ -562,15 +562,33 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--llm-enabled", action="store_true", help="Enable LLM-based expression generation.")
     parser.add_argument("--no-llm", action="store_true", help="Disable LLM-based generation (force classic templates).")
     parser.add_argument("--llm-fallback", action="store_true", help="Fallback to classic templates if LLM fails.")
+    parser.add_argument(
+        "--llm-provider",
+        default=None,
+        choices=["openai_compatible", "opencode", "auto"],
+        help="LLM provider for factor mining. Use opencode for agentic generation.",
+    )
     parser.add_argument("--llm-base-url", default=None)
+    parser.add_argument(
+        "--llm-agent-url",
+        default=None,
+        help="Optional OpenCode server URL. Falls back to OPENCODE_URL or local opencode CLI.",
+    )
     parser.add_argument("--llm-api-key", default=None)
     parser.add_argument("--llm-model", default=None)
+    parser.add_argument(
+        "--llm-workspace",
+        default=None,
+        help="Repo workspace exposed to the OpenCode factor-mining agent.",
+    )
     parser.add_argument("--llm-temperature", type=float, default=0.2)
     parser.add_argument("--llm-max-tokens", type=int, default=1024)
     parser.add_argument("--llm-count", type=int, default=20)
     parser.add_argument("--llm-loops", type=int, default=1)
     parser.add_argument("--llm-retries", type=int, default=3)
     parser.add_argument("--llm-timeout", type=float, default=45)
+    parser.add_argument("--llm-max-turns", type=int, default=12)
+    parser.add_argument("--llm-stale-timeout", type=float, default=180.0)
 
     parser.add_argument("--feedback", default=None, help="Optional feedback file to guide the next batch.")
     parser.add_argument("--feedback-top", type=int, default=10, help="Reserved for orchestrator; kept for compatibility.")
@@ -623,6 +641,24 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     feedback_text = _read_feedback(args.feedback)
     expressions: List[Dict[str, Any]] = []
+    llm_usage_totals: Dict[str, float] = {
+        "total_tokens": 0.0,
+        "prompt_tokens": 0.0,
+        "completion_tokens": 0.0,
+        "reasoning_tokens": 0.0,
+        "cache_read_tokens": 0.0,
+        "cache_write_tokens": 0.0,
+        "cost_usd": 0.0,
+    }
+
+    def _accumulate_llm_usage(usage: Optional[Dict[str, Any]]) -> None:
+        if not usage:
+            return
+        for key in llm_usage_totals:
+            try:
+                llm_usage_totals[key] += float(usage.get(key) or 0.0)
+            except Exception:
+                continue
 
     if args.mine:
         settings = FreqAISettings.from_file(config_path, timeframe_override=timeframe)
@@ -672,6 +708,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         if len(expressions) >= candidate_pool:
                             break
                     if usage:
+                        _accumulate_llm_usage(usage)
                         print(
                             "[llm] usage",
                             json.dumps(usage, ensure_ascii=False, separators=(",", ":")),
@@ -806,6 +843,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if len(expressions) >= request_count:
                     break
                 if usage:
+                    _accumulate_llm_usage(usage)
                     print(
                         "[llm] usage",
                         json.dumps(usage, ensure_ascii=False, separators=(",", ":")),
@@ -830,6 +868,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "label_period": label_period,
         "feature_file": str(feature_path),
         "llm_used": bool(args.llm_enabled) and not bool(args.no_llm) and bool(args.llm_api_key or args.llm_model),
+        "llm_usage": {
+            key: (int(value) if key.endswith("tokens") else round(float(value), 6))
+            for key, value in llm_usage_totals.items()
+        },
         "mine_enabled": bool(args.mine),
         "score_method": str(args.score_method) if args.mine else None,
         "top_n": int(args.top_n) if args.mine else None,

@@ -24,6 +24,31 @@ def _relpath(path: Path) -> str:
     return paths.relpath_under_repo(path if path.is_absolute() else (REPO_ROOT / path))
 
 
+def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
+    if not isinstance(args, list):
+        return None
+    value: Optional[str] = None
+    for idx, item in enumerate(args):
+        if str(item) == flag and idx + 1 < len(args):
+            value = str(args[idx + 1])
+    return value
+
+
+def _merge_into_global_factor_memory(arts: RunArtifacts) -> None:
+    from agent_market.factor_memory import merge_factor_memory_artifacts  # noqa: WPS433
+
+    if not arts.factor_memory_json:
+        return
+    merged = merge_factor_memory_artifacts(
+        source_memory_path=paths.resolve_repo_path(arts.factor_memory_json),
+        target_memory_dir=paths.global_factor_memory_dir(),
+    )
+    arts.global_factor_memory_json = _relpath(Path(merged.factor_memory_json))
+    arts.global_factor_cards_json = _relpath(Path(merged.factor_cards_json))
+    arts.global_factor_failure_cards_json = _relpath(Path(merged.factor_failure_cards_json))
+    arts.global_factor_lineage_json = _relpath(Path(merged.factor_lineage_json))
+
+
 @dataclass
 class StepContext:
     """Shared state passed to every step handler."""
@@ -40,6 +65,9 @@ class StepContext:
 
 def _step_feature(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
     flow_steps.run_feature_generation(cfg)
+    out = _extract_flag_value(cfg.get("args"), "--output")
+    if out:
+        arts.feature_output = _relpath(paths.resolve_repo_path(out))
 
 
 def _step_capture(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
@@ -144,7 +172,92 @@ def _step_portfolio(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -
 
 
 def _step_expression(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
+    from agent_market.factor_memory import build_factor_memory_artifacts_from_expression_output  # noqa: WPS433
+
     flow_steps.run_expression_generation(cfg, ctx.feedback_path)
+    out = _extract_flag_value(cfg.get("args"), "--output")
+    if not out:
+        return
+    output_path = paths.resolve_repo_path(out)
+    if not output_path.exists():
+        return
+
+    arts.expression_output = _relpath(output_path)
+
+    scored_path = output_path.with_name(output_path.stem + "_scored_all.json")
+    if scored_path.exists():
+        arts.expression_scored_output = _relpath(scored_path)
+        factor_eval_dir = (ctx.run_dir / "factor_eval").resolve()
+        factor_eval_dir.mkdir(parents=True, exist_ok=True)
+        expressions_payload = json.loads(output_path.read_text(encoding="utf-8"))
+        selected = list(expressions_payload.get("expressions") or [])
+        scored_payload = json.loads(scored_path.read_text(encoding="utf-8"))
+        candidates = list(scored_payload.get("candidates") or [])
+
+        factor_eval_meta = {
+            "source": "legacy_expression_mining",
+            "generated_at": expressions_payload.get("generated_at"),
+            "expression_output": str(output_path.resolve()),
+            "scored_candidates_json": str(scored_path.resolve()),
+            "selected_count": len(selected),
+            "candidate_count": len(candidates),
+            "exchange": expressions_payload.get("exchange"),
+            "pairs": expressions_payload.get("pairs") or [],
+            "timeframe": expressions_payload.get("timeframe"),
+            "label_period": expressions_payload.get("label_period"),
+            "llm_usage": expressions_payload.get("llm_usage") or {},
+        }
+        factor_eval_meta_path = factor_eval_dir / "factor_eval_meta.json"
+        factor_eval_meta_path.write_text(
+            json.dumps(factor_eval_meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        factor_scores = {
+            "generated_at": expressions_payload.get("generated_at"),
+            "source": "legacy_expression_mining",
+            "items": [
+                {
+                    "name": item.get("name"),
+                    "expression": item.get("expression"),
+                    "weighted_score": item.get("score"),
+                    "gate_pass": True,
+                    "pareto": True,
+                    "category": item.get("category"),
+                    "complexity": item.get("complexity"),
+                    "metric_abs_ic": item.get("metric_abs_ic"),
+                    "per_pair": item.get("per_pair") or {},
+                }
+                for item in selected
+            ],
+        }
+        factor_scores_path = factor_eval_dir / "factor_scores.json"
+        factor_scores_path.write_text(
+            json.dumps(factor_scores, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        pareto_path = factor_eval_dir / "pareto.csv"
+        lines = ["name,weighted_score,category,expression"]
+        for item in selected:
+            expr = str(item.get("expression") or "").replace('"', '""')
+            lines.append(
+                f"{item.get('name')},{item.get('score')},{item.get('category')},\"{expr}\""
+            )
+        pareto_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        mem = build_factor_memory_artifacts_from_expression_output(
+            run_id=ctx.run_id,
+            memory_dir=(ctx.run_dir / "factor_memory").resolve(),
+            expressions_path=output_path.resolve(),
+            scored_candidates_path=scored_path.resolve(),
+        )
+        arts.factor_eval_meta = _relpath(factor_eval_meta_path)
+        arts.factor_scores_json = _relpath(factor_scores_path)
+        arts.factor_pareto_csv = _relpath(pareto_path)
+        arts.factor_memory_json = _relpath(Path(mem.factor_memory_json))
+        arts.factor_cards_json = _relpath(Path(mem.factor_cards_json))
+        arts.factor_failure_cards_json = _relpath(Path(mem.factor_failure_cards_json))
+        arts.factor_lineage_json = _relpath(Path(mem.factor_lineage_json))
+        _merge_into_global_factor_memory(arts)
 
 
 def _step_factor_compile(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
@@ -157,6 +270,8 @@ def _step_factor_compile(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepConte
 
 
 def _step_factor_eval(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
+    from agent_market.factor_memory import build_factor_memory_artifacts  # noqa: WPS433
+
     fe_cfg = dict(cfg)
     if not fe_cfg.get("features_parquet") and arts.micro_feature_parquet:
         fe_cfg["features_parquet"] = arts.micro_feature_parquet
@@ -167,10 +282,40 @@ def _step_factor_eval(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext)
     arts.factor_eval_meta = _relpath(Path(out["factor_eval_meta"]))
     arts.factor_scores_json = _relpath(Path(out["factor_scores_json"]))
     arts.factor_pareto_csv = _relpath(Path(out["pareto_csv"]))
+    factor_spec_path = None
+    if arts.factor_spec_json:
+        factor_spec_path = (REPO_ROOT / arts.factor_spec_json).resolve()
+    mem = build_factor_memory_artifacts(
+        run_id=ctx.run_id,
+        memory_dir=(ctx.run_dir / "factor_memory").resolve(),
+        factor_spec_path=factor_spec_path,
+        factor_eval_meta_path=Path(out["factor_eval_meta"]).resolve(),
+        factor_scores_path=Path(out["factor_scores_json"]).resolve(),
+    )
+    arts.factor_memory_json = _relpath(Path(mem.factor_memory_json))
+    arts.factor_cards_json = _relpath(Path(mem.factor_cards_json))
+    arts.factor_failure_cards_json = _relpath(Path(mem.factor_failure_cards_json))
+    arts.factor_lineage_json = _relpath(Path(mem.factor_lineage_json))
+    _merge_into_global_factor_memory(arts)
 
 
 def _step_ml(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
     flow_steps.run_ml_training(cfg)
+    configs = cfg.get("configs") or []
+    if not isinstance(configs, list):
+        return
+    for item in configs:
+        if not isinstance(item, dict):
+            continue
+        output_cfg = item.get("output") or {}
+        model_cfg = (item.get("model") or {}).get("params") or {}
+        model_dir = output_cfg.get("model_dir") or model_cfg.get("model_dir")
+        if not model_dir:
+            continue
+        summary_path = paths.resolve_repo_path(str(model_dir)) / "training_summary.json"
+        if summary_path.exists():
+            arts.training_summary_json = _relpath(summary_path)
+            break
 
 
 def _step_rl(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
@@ -179,6 +324,8 @@ def _step_rl(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
 
 def _step_backtest(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
     flow_steps.run_backtest(cfg, ctx.feedback_path)
+    if ctx.feedback_path.exists():
+        arts.feedback_summary_json = _relpath(ctx.feedback_path)
 
 
 def _step_tca(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
@@ -202,8 +349,25 @@ def _step_report(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> N
         "factor_expression_txt": arts.factor_expression_txt,
         "factor_scores_json": arts.factor_scores_json,
         "factor_pareto_csv": arts.factor_pareto_csv,
+        "factor_memory_json": arts.factor_memory_json,
+        "factor_cards_json": arts.factor_cards_json,
+        "factor_failure_cards_json": arts.factor_failure_cards_json,
+        "factor_lineage_json": arts.factor_lineage_json,
+        "global_factor_memory_json": arts.global_factor_memory_json,
+        "global_factor_cards_json": arts.global_factor_cards_json,
+        "global_factor_failure_cards_json": arts.global_factor_failure_cards_json,
+        "global_factor_lineage_json": arts.global_factor_lineage_json,
         "tca_report": arts.tca_report,
         "tca_html": arts.tca_html,
+        "strategy_miner_summary": arts.strategy_miner_summary,
+        "strategy_miner_dir": arts.strategy_miner_dir,
+        "global_strategy_knowledge_base_json": arts.global_strategy_knowledge_base_json,
+        "experiment_registry": arts.experiment_registry,
+        "budget_plan_json": arts.budget_plan_json,
+        "replay_manifest_json": arts.replay_manifest_json,
+        "lineage_graph_json": arts.lineage_graph_json,
+        "promotion_chain_json": arts.promotion_chain_json,
+        "resource_dashboard_json": arts.resource_dashboard_json,
         "feedback_summary": _relpath(ctx.feedback_path),
         "config_path": _relpath(ctx.config_path) if ctx.config_path else None,
     }
@@ -215,7 +379,22 @@ def _step_report(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> N
 
 
 def _step_strategy_miner(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
-    flow_steps.run_strategy_miner_step(cfg, run_id=ctx.run_id, out_dir=(ctx.run_dir / "strategy_miner").resolve())
+    sm_cfg = dict(cfg)
+    if not sm_cfg.get("factor_memory_path") and arts.factor_memory_json:
+        sm_cfg["factor_memory_path"] = arts.factor_memory_json
+    if not sm_cfg.get("global_factor_memory_path"):
+        if arts.global_factor_memory_json:
+            sm_cfg["global_factor_memory_path"] = arts.global_factor_memory_json
+        else:
+            sm_cfg["global_factor_memory_path"] = _relpath(paths.global_factor_memory_path())
+    if not sm_cfg.get("global_strategy_knowledge_base_path"):
+        sm_cfg["global_strategy_knowledge_base_path"] = _relpath(paths.global_strategy_knowledge_base_path())
+    arts.global_strategy_knowledge_base_json = _relpath(paths.global_strategy_knowledge_base_path())
+    out = flow_steps.run_strategy_miner_step(sm_cfg, run_id=ctx.run_id, out_dir=(ctx.run_dir / "strategy_miner").resolve())
+    if out.get("strategy_miner_summary"):
+        arts.strategy_miner_summary = _relpath(Path(out["strategy_miner_summary"]))
+    if out.get("strategy_miner_dir"):
+        arts.strategy_miner_dir = _relpath(Path(out["strategy_miner_dir"]))
 
 
 # ---------------------------------------------------------------------------

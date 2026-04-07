@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 import json
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import torch
 import torch.nn as nn
 
 try:
@@ -13,6 +15,7 @@ except ImportError:  # pragma: no cover
     PPO = None  # type: ignore
 
 from agent_market.freqai.rl.env import TradingEnv, TradingEnvConfig
+from agent_market.freqai.runtime_threads import resolve_num_threads
 from agent_market.freqai.training.pipeline import FeatureDatasetBuilder
 
 
@@ -92,6 +95,32 @@ class RLTrainer:
         return payload
 
     @staticmethod
+    def _filter_kwargs_for_callable(fn: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Filter a kwargs dict so it only contains parameters accepted by a callable.
+
+        This makes RL training resilient to LLM-generated configs that include keys from
+        other algorithms (e.g., `train_freq`) or unrelated metadata (e.g., `timeframe`).
+        """
+        if not isinstance(kwargs, dict):
+            return {}
+        try:
+            sig = inspect.signature(fn)
+        except (TypeError, ValueError):
+            return dict(kwargs)
+
+        params = list(sig.parameters.values())
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params):
+            return dict(kwargs)
+
+        allowed = {
+            p.name
+            for p in params
+            if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        }
+        allowed.discard('self')
+        return {k: v for k, v in kwargs.items() if k in allowed}
+
+    @staticmethod
     def _json_safe(value: Any) -> Any:
         if isinstance(value, dict):
             return {str(k): RLTrainer._json_safe(v) for k, v in value.items()}
@@ -104,6 +133,13 @@ class RLTrainer:
     def train(self) -> RLTrainingResult:
         if PPO is None:
             raise ImportError('stable-baselines3 is not installed; RL training unavailable')
+        num_threads = resolve_num_threads(self.config, explicit_keys=('num_threads',))
+        if num_threads > 0:
+            torch.set_num_threads(num_threads)
+            try:
+                torch.set_num_interop_threads(num_threads)
+            except RuntimeError:
+                pass
         data_cfg = self.config.get('data')
         if not isinstance(data_cfg, dict):
             raise ValueError('rl_training.config.data must be provided')
@@ -120,6 +156,7 @@ class RLTrainer:
         env = TradingEnv(dataset, env_cfg)
         algo_params = self._sanitize_algo_params(self.algo_params)
         algo_params.setdefault('verbose', 0)
+        algo_params = self._filter_kwargs_for_callable(PPO.__init__, algo_params)
         policy = self.policy
         model = PPO(policy, env, **algo_params)
         model.learn(total_timesteps=self.total_timesteps)
@@ -142,4 +179,3 @@ class RLTrainer:
         summary_path = self.model_dir / 'training_summary.json'
         summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
         return RLTrainingResult(model_path=model_path, timesteps=self.total_timesteps)
-

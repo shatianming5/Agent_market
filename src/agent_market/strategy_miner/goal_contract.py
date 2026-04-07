@@ -70,6 +70,7 @@ class GoalContract:
         "calmar": 0.10,
         "profit_pct": 0.10,
         "winrate": 0.05,
+        "return_over_drawdown": 0.0,
     })
 
     # --- Hard constraints (must-pass gates) --------------------------------
@@ -259,10 +260,13 @@ class GoalContract:
         }
         gc.search_space = {
             "candidate_types": list(getattr(config, "candidate_types", ["rule"])),
-            "families": [],
+            "families": list(getattr(config, "search_families", []) or []),
             "max_iterations": int(getattr(config, "max_iterations", 10)),
             "candidates_per_iteration": int(getattr(config, "candidates_per_iteration", 1)),
         }
+        objective_weights = dict(getattr(config, "objective_weights", {}) or {})
+        if objective_weights:
+            gc.objective_weights = objective_weights
         gc.budget = {
             "max_iterations": int(getattr(config, "max_iterations", 10)),
             "max_candidates": 0,

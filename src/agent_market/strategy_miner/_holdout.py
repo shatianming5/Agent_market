@@ -51,13 +51,42 @@ def run_sealed_holdout(
             pass
 
     cmd = [
-        sys.executable, "-m", "freqtrade", "backtesting",
-        "--config", str(ft_config),
-        "--strategy", candidate.name,
-        "--strategy-path", str(strategies_dir),
-        "--timerange", holdout_timerange,
-        "--userdir", str(sandbox / "user_data"),
+        sys.executable,
+        "-m",
+        "freqtrade",
+        "backtesting",
+        "--config",
+        str(ft_config),
+        "--strategy",
+        candidate.name,
+        "--strategy-path",
+        str(strategies_dir),
+        "--timerange",
+        holdout_timerange,
+        "--userdir",
+        str(sandbox / "user_data"),
     ]
+    cmd_cwd = sandbox / "user_data"
+    if not cmd_cwd.exists():
+        cmd_cwd = sandbox
+
+    wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
+    if wrapper.exists():
+        cmd = [
+            sys.executable,
+            str(wrapper),
+            "backtesting",
+            "--config",
+            str(ft_config),
+            "--strategy",
+            candidate.name,
+            "--strategy-path",
+            str(strategies_dir),
+            "--timerange",
+            holdout_timerange,
+            "--userdir",
+            str(sandbox / "user_data"),
+        ]
 
     logger.info("Running sealed holdout for %s on %s", candidate.name, holdout_timerange)
 
@@ -65,7 +94,7 @@ def run_sealed_holdout(
         from ._sandbox_exec import run_sandboxed
         proc = run_sandboxed(
             cmd,
-            cwd=paths.REPO_ROOT,
+            cwd=cmd_cwd,
             timeout=config.backtest_timeout,
             cpu_seconds=config.backtest_timeout + 60,
             mem_mb=4096,
@@ -86,13 +115,25 @@ def run_sealed_holdout(
         holdout_profit = summary.get("profit_total_pct", 0)
         delta = abs(selection_profit - (holdout_profit or 0))
 
+        # Backward-compatible gate: if a delta threshold is configured, use it.
+        # Otherwise fall back to the legacy heuristic (holdout profit must retain >=50% of selection profit).
+        try:
+            delta_max = float(getattr(config, "holdout_delta_max_pct", 0.0) or 0.0)
+        except Exception:
+            delta_max = 0.0
+        if delta_max > 0:
+            overfit_flag = delta > delta_max
+        else:
+            overfit_flag = holdout_profit < selection_profit * 0.5 if selection_profit > 0 else holdout_profit < 0
+
         result = {
             "holdout_timerange": holdout_timerange,
             "holdout_summary": summary,
             "selection_profit_pct": selection_profit,
             "holdout_profit_pct": holdout_profit,
             "delta_pct": delta,
-            "overfitting_flag": holdout_profit < selection_profit * 0.5 if selection_profit > 0 else holdout_profit < 0,
+            "holdout_delta_max_pct": delta_max,
+            "overfitting_flag": overfit_flag,
         }
 
         logger.info(

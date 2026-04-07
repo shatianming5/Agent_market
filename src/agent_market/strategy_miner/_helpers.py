@@ -59,6 +59,11 @@ def _freqtrade_market_context(freqtrade_config_path: str) -> tuple[str, list[str
     return exchange, pairs, timeframe, datadir
 
 
+def _freqtrade_trading_mode(freqtrade_config_path: str) -> str:
+    payload = _load_freqtrade_payload(freqtrade_config_path)
+    return str(payload.get("trading_mode") or "spot").strip().lower() or "spot"
+
+
 # ---------------------------------------------------------------------------
 # Timerange helpers
 # ---------------------------------------------------------------------------

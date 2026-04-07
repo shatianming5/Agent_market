@@ -4,7 +4,7 @@
 This is a lightweight gate intended for CI/local automation.
 
 Checks:
-- checkpoint best_reward is finite and not -inf
+- checkpoint best_score is finite and not -inf (backward compatible with legacy best_reward)
 - leaderboard has eligible items (constraints_ok)
 - top-N entries are not template-sourced and pass sandbox static validation
 
@@ -13,6 +13,7 @@ Also prints top-N key metrics + risk gate results.
 
 from __future__ import annotations
 
+import ast
 import argparse
 import json
 import math
@@ -57,6 +58,28 @@ def main() -> int:
     from agent_market.strategy_miner.runner import miner_run_dir
     from agent_market.strategy_miner.sandbox import validate_strategy_code
 
+    forbidden_model_imports = {
+        # Keep the model wrapper away from obvious dangerous surfaces.
+        "os",
+        "subprocess",
+        "socket",
+        "requests",
+        "importlib",
+        "ctypes",
+        "multiprocessing",
+        "signal",
+        "pty",
+        "webbrowser",
+        "http",
+        "urllib",
+        "ftplib",
+        "smtplib",
+        "telnetlib",
+        "xmlrpc",
+        "shutil",
+        "talib",
+    }
+
     run_id = str(args.run_id).strip().lower()
     miner_dir = miner_run_dir(run_id)
     cp = miner_dir / "checkpoint.json"
@@ -65,8 +88,8 @@ def main() -> int:
         return 2
 
     state = MinerState.from_dict(_load_json(cp))
-    if not math.isfinite(float(state.best_reward)) or float(state.best_reward) == float("-inf"):
-        print(f"ERROR: best_reward invalid: {state.best_reward}")
+    if not math.isfinite(float(state.best_score)) or float(state.best_score) == float("-inf"):
+        print(f"ERROR: best_score invalid: {state.best_score}")
         return 3
 
     lb_path = leaderboard_path(miner_dir)
@@ -86,6 +109,7 @@ def main() -> int:
     for row in items[:top_n]:
         name = str(row.get("name") or "").strip()
         it = int(row.get("iteration") or 0)
+        candidate_type = str(row.get("candidate_type") or "").strip().lower()
         if not name:
             failures.append(f"leaderboard row missing name: {row}")
             continue
@@ -100,9 +124,30 @@ def main() -> int:
         if name == "TemplateRsiStrategy" or "TemplateRsiStrategy" in code:
             failures.append(f"template strategy detected in top{top_n}: {name}")
 
-        ok, msg = validate_strategy_code(code)
-        if not ok:
-            failures.append(f"static validation failed for {name}: {msg}")
+        if candidate_type in {"ml", "dl", "rl"}:
+            # Model candidates are deterministic wrappers that legitimately need
+            # file IO and ML deps; the strict sandbox validator is intended for
+            # LLM-authored rule strategies.
+            try:
+                tree = ast.parse(code)
+            except SyntaxError as exc:
+                failures.append(f"syntax error for {name}: {exc}")
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        root_mod = str(alias.name).split(".", 1)[0]
+                        if root_mod in forbidden_model_imports:
+                            failures.append(f"forbidden import for {name}: {alias.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        root_mod = str(node.module).split(".", 1)[0]
+                        if root_mod in forbidden_model_imports:
+                            failures.append(f"forbidden import for {name}: {node.module}")
+        else:
+            ok, msg = validate_strategy_code(code)
+            if not ok:
+                failures.append(f"static validation failed for {name}: {msg}")
 
     if failures:
         print("VERIFY FAIL")
@@ -114,7 +159,7 @@ def main() -> int:
     cfg = lb.get("config") or {}
     print("VERIFY PASS")
     print(f"run_id: {run_id}")
-    print(f"best_reward: {state.best_reward}")
+    print(f"best_score: {state.best_score}")
     print(f"best: {best}")
     print(f"leaderboard: {lb_path}")
     print(
