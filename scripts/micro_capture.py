@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
 
 from _lib import parse_csv, resolve_path, utc_now_compact  # noqa: E402
 from agent_market import paths  # noqa: E402
+from agent_market.runtime_preflight import run_capture_preflight  # noqa: E402
 
 
 def _ensure_imports() -> None:
@@ -120,13 +121,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     fixture = resolve_path(str(args.fixture)) if args.fixture else None
-    if fixture is not None and not fixture.exists():
-        raise SystemExit(f"Fixture not found: {fixture}")
+    symbols = parse_csv(str(args.symbols))
+    run_capture_preflight(
+        exchange=exchange,
+        channels=channels,
+        symbols=symbols,
+        fixture=fixture,
+        out_dir=out_dir,
+    )
 
     if fixture is not None:
         meta = asyncio.run(_run_fixture(fixture=fixture, out_dir=out_dir, exchange=exchange, channels=channels))
     else:
-        symbols = parse_csv(str(args.symbols))
         if not symbols:
             raise SystemExit("No symbols provided")
         meta = asyncio.run(

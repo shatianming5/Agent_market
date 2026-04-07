@@ -16,6 +16,7 @@ from agent_market.flow_ext import steps as flow_steps
 from agent_market.flow_ext.step_dispatch import STEP_HANDLERS, StepContext
 from agent_market.run_artifacts import RunArtifacts
 from agent_market import paths
+from agent_market.runtime_preflight import run_agent_flow_preflight
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = paths.REPO_ROOT
@@ -182,6 +183,7 @@ class AgentFlow:
         self.feedback_path = paths.resolve_repo_path(
             feedback_path if feedback_path is not None else paths.default_feedback_path()
         )
+        self._last_preflight_report: Optional[Dict[str, Any]] = None
 
     def run(self, steps: Optional[List[str]] = None) -> str:
         run_id = uuid.uuid4().hex[:12]
@@ -222,6 +224,12 @@ class AgentFlow:
             run_id=run_id, run_dir=run_dir,
             feedback_path=self.feedback_path, full_config=self.config,
             config_path=self.config_path,
+        )
+        self._last_preflight_report = run_agent_flow_preflight(
+            self.config,
+            run_dir=run_dir,
+            requested_steps=requested,
+            feedback_path=self.feedback_path,
         )
         status = "success"
         error_info: Optional[dict[str, Any]] = None
@@ -391,6 +399,13 @@ class AgentFlow:
                 "platform": platform.platform(),
             },
             "freqtrade": flow_steps.get_freqtrade_version(),
+            "preflight": {
+                "ok": bool((self._last_preflight_report or {}).get("ok")),
+                "warnings": int((self._last_preflight_report or {}).get("warnings") or 0),
+                "errors": int((self._last_preflight_report or {}).get("errors") or 0),
+                "applied_env": dict((self._last_preflight_report or {}).get("applied_env") or {}),
+                "report": _relpath((meta_run_path.parent / "preflight.json").resolve()),
+            },
             "artifacts": arts.to_dict(
                 feedback_summary=_relpath(self.feedback_path),
                 model_dirs=model_dirs,
