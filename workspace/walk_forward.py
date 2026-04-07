@@ -171,6 +171,9 @@ class WalkForwardValidator:
             bt = run_backtest(
                 str(strategy_path),
                 strategy_name,
+                pairs=[pair],
+                exchange_name=exchange,
+                timeframe=timeframe,
                 timerange=w["test_timerange"],
             )
 

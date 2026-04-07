@@ -112,12 +112,25 @@ class GatePipeline:
             self._save_report(report, strategy_path.stem)
             return report
 
-        report["final_gate_passed"] = "gate_3"
-        report["recommendation"] = (
-            "PASSED Gates 1-3 (automated). "
-            "Gate 4 (paper trading) requires manual setup with paper_trader.py. "
-            "Gate 5 (live) requires human approval."
-        )
+        gate_results = [g1, g2, g3]
+        if all(g.passed for g in gate_results):
+            report["final_gate_passed"] = "gate_3"
+            report["recommendation"] = (
+                "PASSED Gates 1-3 (automated). "
+                "Gate 4 (paper trading) requires manual setup with paper_trader.py. "
+                "Gate 5 (live) requires human approval."
+            )
+        else:
+            first_failed_index = next(i for i, gate in enumerate(gate_results) if not gate.passed)
+            report["final_gate_passed"] = "gate_0" if first_failed_index == 0 else gate_results[first_failed_index - 1].gate
+            gate_label = gate_results[first_failed_index].gate.replace("_", " ").title().replace("Gate ", "Gate ")
+            details = [
+                f"{gate.gate}: {'; '.join(gate.failures)}"
+                for gate in gate_results
+                if not gate.passed and gate.failures
+            ]
+            suffix = f" {' | '.join(details)}" if details else ""
+            report["recommendation"] = f"REJECTED at {gate_label}:{suffix}".rstrip()
         self._save_report(report, strategy_path.stem)
         return report
 
@@ -154,8 +167,16 @@ class GatePipeline:
         else:
             from workspace.backtest_api import run_backtest
 
+            timeframe = self._detect_strategy_timeframe(path) or "1h"
             tr = timerange or "20250601-20260301"
-            bt = run_backtest(str(path), name, timerange=tr)
+            bt = run_backtest(
+                str(path),
+                name,
+                pairs=[pair],
+                exchange_name=exchange,
+                timeframe=timeframe,
+                timerange=tr,
+            )
             if not bt.get("ok"):
                 failures.append(f"backtest failed: {bt.get('error', '?')[:100]}")
                 return GateResult("gate_2", False, bt, failures)
@@ -394,7 +415,8 @@ class GatePipeline:
             pass_threshold_pct_profitable=criteria.get("profitable_windows_pct", 0.6),
         )
 
-        report = wf.validate(path, name, exchange=exchange, pair=pair)
+        timeframe = self._detect_strategy_timeframe(path) or "1h"
+        report = wf.validate(path, name, exchange=exchange, pair=pair, timeframe=timeframe)
         metrics = {
             "n_windows": report.n_windows,
             "n_successful": report.n_successful,
@@ -458,6 +480,31 @@ class GatePipeline:
                 "entry_z": float(constants.get("ENTRY_Z", 2.5)),
                 "exit_z": float(constants.get("EXIT_Z", 0.7)),
             }
+        return None
+
+    def _detect_strategy_timeframe(self, path: Path) -> Optional[str]:
+        """Extract a static `timeframe` class attribute without importing the file."""
+        import ast as _ast
+
+        try:
+            tree = _ast.parse(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+        for node in tree.body:
+            if not isinstance(node, _ast.ClassDef):
+                continue
+            for stmt in node.body:
+                if not isinstance(stmt, _ast.Assign) or len(stmt.targets) != 1:
+                    continue
+                target = stmt.targets[0]
+                if (
+                    isinstance(target, _ast.Name)
+                    and target.id == "timeframe"
+                    and isinstance(stmt.value, _ast.Constant)
+                    and isinstance(stmt.value.value, str)
+                ):
+                    return stmt.value.value
         return None
 
     def _gate_1_pairs_signal(self, config: Dict[str, Any], exchange: str) -> GateResult:

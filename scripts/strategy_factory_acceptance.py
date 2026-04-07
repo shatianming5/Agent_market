@@ -796,7 +796,13 @@ def _closure_mode(
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Strategy Factory acceptance runner (soak + matrix)")
-    parser.add_argument("--base-config", default="configs/agent_flow_strategy_factory_acceptance_ml.json")
+    parser.add_argument(
+        "--base-config",
+        "--config",
+        dest="base_config",
+        default="configs/agent_flow_strategy_factory_acceptance_ml.json",
+        help="Base AgentFlow config JSON used to generate soak/matrix runs.",
+    )
     parser.add_argument("--mode", choices=["soak", "matrix", "closure"], default="soak")
     parser.add_argument("--runs", type=int, default=5, help="Soak runs (mode=soak)")
     parser.add_argument("--pythonpath", default="src:.", help="Set PYTHONPATH for the parent flow (stress test). Use empty to unset.")

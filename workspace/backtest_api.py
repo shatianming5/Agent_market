@@ -73,12 +73,54 @@ def _parse_backtest_zip(zip_path: Path) -> Dict[str, Any]:
     }
 
 
+def _build_effective_config(
+    config_path: Path,
+    *,
+    pairs: Optional[List[str]] = None,
+    exchange_name: Optional[str] = None,
+    timeframe: Optional[str] = None,
+) -> tuple[Path, bool]:
+    """Return config path with optional runtime overrides applied."""
+    if not pairs and not exchange_name and not timeframe:
+        return config_path, False
+
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    exchange_cfg = cfg.setdefault("exchange", {})
+    if pairs:
+        exchange_cfg["pair_whitelist"] = pairs
+    if exchange_name:
+        if exchange_cfg.get("name") != exchange_name:
+            exchange_cfg.pop("ccxt_config", None)
+            exchange_cfg.pop("ccxt_async_config", None)
+            exchange_cfg.pop("ccxt_sync_config", None)
+        exchange_cfg["name"] = exchange_name
+    if timeframe:
+        cfg["timeframe"] = timeframe
+        freqai_cfg = cfg.get("freqai")
+        if isinstance(freqai_cfg, dict):
+            feature_params = freqai_cfg.setdefault("feature_parameters", {})
+            if isinstance(feature_params, dict):
+                feature_params["include_timeframes"] = [timeframe]
+
+    tmp = tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        delete=False,
+        dir=str(ROOT / "workspace" / "configs"),
+    )
+    json.dump(cfg, tmp, indent=2)
+    tmp.close()
+    return Path(tmp.name), True
+
+
 def run_backtest(
     strategy_path: str | Path,
     strategy_name: Optional[str] = None,
     *,
     config_path: Optional[str | Path] = None,
     pairs: Optional[List[str]] = None,
+    exchange_name: Optional[str] = None,
+    timeframe: Optional[str] = None,
     timerange: str = "20251126-20260125",
     extra_args: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
@@ -117,16 +159,16 @@ def run_backtest(
 
     # Build config with pair override if needed
     effective_config = config_path
-    if pairs:
-        try:
-            cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            cfg["exchange"]["pair_whitelist"] = pairs
-            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, dir=str(ROOT / "workspace" / "configs"))
-            json.dump(cfg, tmp, indent=2)
-            tmp.close()
-            effective_config = Path(tmp.name)
-        except Exception as exc:
-            return {"ok": False, "error": f"config override failed: {exc}"}
+    temp_config = False
+    try:
+        effective_config, temp_config = _build_effective_config(
+            config_path,
+            pairs=pairs,
+            exchange_name=exchange_name,
+            timeframe=timeframe,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": f"config override failed: {exc}"}
 
     # Build command
     cmd = [
@@ -211,7 +253,7 @@ def run_backtest(
     result_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Clean up temp config
-    if effective_config != config_path and effective_config.exists():
+    if temp_config and effective_config.exists():
         try:
             effective_config.unlink()
         except OSError as exc:
