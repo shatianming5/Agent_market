@@ -145,6 +145,56 @@ def _normalize_base_url(raw: str) -> str:
     return OpenAIChatExecutor._normalize_base_url(raw or "")
 
 
+def normalize_opencode_model(model: str | None, *, default_provider: str = "openai", default_model: str = "gpt-5.2") -> str:
+    raw = str(model or "").strip()
+    if not raw:
+        raw = default_model
+    if "/" not in raw:
+        return f"{default_provider}/{raw}"
+    provider_id, model_id = raw.split("/", 1)
+    provider_id = provider_id.strip() or default_provider
+    model_id = model_id.strip() or default_model
+    return f"{provider_id}/{model_id}"
+
+
+def split_provider_model(model: str | None, *, default_provider: str = "openai", default_model: str = "gpt-5.2") -> tuple[str, str]:
+    normalized = normalize_opencode_model(model, default_provider=default_provider, default_model=default_model)
+    provider_id, model_id = normalized.split("/", 1)
+    return provider_id, model_id
+
+
+def resolve_openai_compatible_settings(
+    *,
+    model: str | None = None,
+    default_provider: str = "openai",
+    default_model: str = "gpt-5.2",
+    default_base_url: str = "https://api.openai.com/v1",
+) -> dict[str, str]:
+    provider_id, model_id = split_provider_model(
+        model,
+        default_provider=default_provider,
+        default_model=default_model,
+    )
+    base_url = str(
+        os.environ.get("OPENAI_BASE_URL")
+        or os.environ.get("LLM_BASE_URL")
+        or os.environ.get("OPENAI_API_BASE")
+        or default_base_url
+    ).strip()
+    api_key = str(
+        os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("LLM_API_KEY")
+        or ""
+    ).strip()
+    return {
+        "provider_id": provider_id,
+        "model_id": model_id,
+        "opencode_model": f"{provider_id}/{model_id}",
+        "base_url": base_url,
+        "api_key": api_key,
+    }
+
+
 def _request_json(url: str, *, api_key: str, timeout: float = 5.0) -> tuple[bool, Any, str]:
     headers = {
         "Content-Type": "application/json",
@@ -860,6 +910,8 @@ def run_ws_production_preflight(
 ) -> dict[str, Any]:
     load_project_dotenv()
     workspace = workspace.resolve()
+    applied_env: dict[str, str] = {}
+    llm_settings = resolve_openai_compatible_settings(model=model)
     checks = [
         check_existing_dir("ws.workspace", workspace),
         check_existing_file("ws.guide", workspace / "GUIDE.md"),
@@ -874,18 +926,29 @@ def run_ws_production_preflight(
         check_writable_dir("ws.signals", workspace / "signals"),
         check_opencli(),
         check_freqtrade_cli(),
-        check_opencode_cli(model=model),
+        check_opencode_cli(model=llm_settings["opencode_model"]),
         check_python_imports(
             "ws.python_imports",
             ["workspace.gate_pipeline", "workspace.continuous_runner"],
             cwd=paths.REPO_ROOT,
         ),
     ]
+    if llm_settings["provider_id"] in {"openai", "custom"}:
+        checks.append(
+            check_openai_compatible(
+                model=llm_settings["model_id"],
+                base_url=llm_settings["base_url"],
+                api_key=llm_settings["api_key"],
+                applied_env=applied_env,
+                env_key_name="OPENAI_API_KEY",
+            )
+        )
     return _finalize_report(
         kind="ws_production",
         report_path=(workspace / "results" / "preflight.json").resolve(),
         checks=checks,
-        extra={"workspace": str(workspace), "model": model},
+        applied_env=applied_env,
+        extra={"workspace": str(workspace), "model": llm_settings["opencode_model"]},
         raise_on_error=raise_on_error,
     )
 
@@ -901,9 +964,12 @@ __all__ = [
     "check_python_imports",
     "check_writable_dir",
     "load_project_dotenv",
+    "normalize_opencode_model",
+    "resolve_openai_compatible_settings",
     "run_agent_flow_preflight",
     "run_capture_preflight",
     "run_lob_rebuild_preflight",
     "run_tca_preflight",
     "run_ws_production_preflight",
+    "split_provider_model",
 ]

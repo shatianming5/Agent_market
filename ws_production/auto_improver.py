@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
+from agent_market.runtime_preflight import normalize_opencode_model, resolve_openai_compatible_settings
 from workspace.backtest_api import run_backtest
 from workspace.evaluator import evaluate
 from workspace.tracker import record_experiment, list_experiments, query_best
@@ -45,12 +46,20 @@ class AutoImprover:
         timeout: int = 120,
         max_retries: int = 3,
     ):
-        self.base_url = (
-            base_url
-            or os.environ.get("OPENAI_BASE_URL", "http://localhost:4141/v1")
-        ).rstrip("/")
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "_")
-        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-5.2")
+        settings = resolve_openai_compatible_settings(
+            model=model or os.environ.get("OPENCODE_MODEL") or os.environ.get("OPENAI_MODEL"),
+            default_provider="openai",
+            default_model="gpt-5.2",
+            default_base_url="http://localhost:4141/v1",
+        )
+        self.base_url = (base_url or settings["base_url"]).rstrip("/")
+        self.api_key = api_key or settings["api_key"] or "_"
+        self.opencode_model = normalize_opencode_model(
+            model or os.environ.get("OPENCODE_MODEL") or settings["opencode_model"],
+            default_provider="openai",
+            default_model="gpt-5.2",
+        )
+        self.model = self.opencode_model.split("/", 1)[1]
         self.timeout = timeout
         self.max_retries = max_retries
         self.strategies_dir = ROOT / "workspace" / "strategies"
@@ -73,7 +82,7 @@ class AutoImprover:
                 proc = subprocess.run(
                     [
                         "opencode", "run",
-                        "-m", f"custom/{self.model}",
+                        "-m", self.opencode_model,
                         "--format", "json",
                         prompt,
                     ],
@@ -81,6 +90,11 @@ class AutoImprover:
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
+                    env={
+                        **os.environ,
+                        "OPENAI_BASE_URL": self.base_url,
+                        "OPENAI_API_KEY": self.api_key,
+                    },
                 )
                 if proc.returncode == 0:
                     # Parse JSON event stream — extract assistant text

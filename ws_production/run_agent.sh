@@ -14,14 +14,35 @@ if [ -f "$REPO_ROOT/.env" ]; then
   set +a
 fi
 
-if [ -z "${LLM_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ] && { [ -n "${LLM_BASE_URL:-}" ] || [ -n "${OPENAI_BASE_URL:-}" ] || [ -n "${OPENAI_API_BASE:-}" ]; }; then
-  export LLM_API_KEY=_
+if [ -z "${OPENAI_BASE_URL:-}" ] && [ -n "${LLM_BASE_URL:-}" ]; then
+  export OPENAI_BASE_URL="$LLM_BASE_URL"
+elif [ -z "${OPENAI_BASE_URL:-}" ] && [ -n "${OPENAI_API_BASE:-}" ]; then
+  export OPENAI_BASE_URL="$OPENAI_API_BASE"
 fi
 
-cd "$SCRIPT_DIR"
-python3 "$REPO_ROOT/scripts/ws_production_preflight.py" --workspace "$SCRIPT_DIR" --model "custom/gpt-5.2"
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${LLM_API_KEY:-}" ]; then
+  export OPENAI_API_KEY="$LLM_API_KEY"
+fi
+if [ -z "${OPENAI_API_KEY:-}" ] && [ -n "${OPENAI_BASE_URL:-}" ]; then
+  export OPENAI_API_KEY=_
+fi
+if [ -z "${LLM_API_KEY:-}" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+  export LLM_API_KEY="$OPENAI_API_KEY"
+fi
+if [ -z "${LLM_BASE_URL:-}" ] && [ -n "${OPENAI_BASE_URL:-}" ]; then
+  export LLM_BASE_URL="$OPENAI_BASE_URL"
+fi
 
-opencode run -m custom/gpt-5.2 \
+MODEL="${OPENCODE_MODEL:-openai/gpt-5.2}"
+case "$MODEL" in
+  */*) ;;
+  *) MODEL="openai/$MODEL" ;;
+esac
+
+cd "$SCRIPT_DIR"
+python3 "$REPO_ROOT/scripts/ws_production_preflight.py" --workspace "$SCRIPT_DIR" --model "$MODEL"
+
+opencode run -m "$MODEL" \
   "Read GUIDE.md in this directory. You are an autonomous quant researcher. \
 Your goal: find profitable trading strategies using the tools documented in GUIDE.md. \
 Start by scanning cointegrated pairs, then backtest, then walk-forward validate. \

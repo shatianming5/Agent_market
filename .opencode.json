@@ -1,26 +1,5 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "custom/gpt-5.2",
-  "provider": {
-    "custom": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Local LLM",
-      "options": {
-        "baseURL": "http://localhost:4141/v1",
-        "apiKey": "_"
-      },
-      "models": {
-        "gpt-5.2": {
-          "name": "GPT-5.2"
-        },
-        "gpt-4.1": {
-          "name": "GPT-4.1"
-        },
-        "gpt-4o-mini": {
-          "name": "GPT-4o Mini"
-        }
-      }
-    }
-  },
+  "model": "openai/gpt-5.2",
   "plugin": []
 }

@@ -20,7 +20,7 @@ from agent_market.runtime_preflight import run_ws_production_preflight
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run ws_production startup preflight.")
     parser.add_argument("--workspace", default="ws_production", help="Workspace directory to validate")
-    parser.add_argument("--model", default="custom/gpt-5.2", help="OpenCode model to validate")
+    parser.add_argument("--model", default="openai/gpt-5.2", help="OpenCode model to validate")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 

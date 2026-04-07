@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from unittest.mock import Mock
+
+
+def test_auto_improver_uses_openai_model_and_env(monkeypatch) -> None:
+    from ws_production.auto_improver import AutoImprover
+
+    monkeypatch.setenv("LLM_BASE_URL", "http://proxy.internal:4141/v1")
+    monkeypatch.setenv("LLM_API_KEY", "_")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENCODE_MODEL", raising=False)
+
+    proc = Mock()
+    proc.returncode = 0
+    proc.stdout = '{"type":"text","part":{"text":"OK"}}\n'
+
+    captured: dict[str, object] = {}
+
+    def _fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env") or {}
+        return proc
+
+    monkeypatch.setattr("ws_production.auto_improver.subprocess.run", _fake_run)
+
+    improver = AutoImprover()
+    text = improver._llm_call("", "Reply with OK")
+
+    assert improver.opencode_model == "openai/gpt-5.2"
+    assert improver.model == "gpt-5.2"
+    assert improver.base_url == "http://proxy.internal:4141/v1"
+    assert text == "OK"
+    assert captured["cmd"][:4] == ["opencode", "run", "-m", "openai/gpt-5.2"]
+    assert captured["env"]["OPENAI_BASE_URL"] == "http://proxy.internal:4141/v1"
+    assert captured["env"]["OPENAI_API_KEY"] == "_"

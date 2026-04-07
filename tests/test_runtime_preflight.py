@@ -182,12 +182,33 @@ def test_ws_production_preflight_reports_ready(monkeypatch, tmp_path: Path) -> N
         "check_python_imports",
         lambda *_args, **_kwargs: {"name": "ws.python_imports", "ok": True, "severity": "info", "detail": "ok"},
     )
+    monkeypatch.setattr(
+        runtime_preflight,
+        "check_openai_compatible",
+        lambda **_kwargs: {"name": "llm.openai_compatible", "ok": True, "severity": "info", "detail": "ok"},
+    )
 
     report = runtime_preflight.run_ws_production_preflight(
         workspace=workspace,
-        model="custom/gpt-5.2",
+        model="openai/gpt-5.2",
         raise_on_error=False,
     )
 
     assert report["ok"] is True
     assert (workspace / "results" / "preflight.json").exists()
+
+
+def test_runtime_preflight_normalizes_ws_model_and_env(monkeypatch) -> None:
+    from agent_market.runtime_preflight import normalize_opencode_model, resolve_openai_compatible_settings
+
+    monkeypatch.setenv("LLM_BASE_URL", "http://proxy.internal:4141/v1")
+    monkeypatch.setenv("LLM_API_KEY", "_")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    assert normalize_opencode_model("gpt-5.2") == "openai/gpt-5.2"
+    settings = resolve_openai_compatible_settings(model="gpt-5.2")
+    assert settings["opencode_model"] == "openai/gpt-5.2"
+    assert settings["model_id"] == "gpt-5.2"
+    assert settings["base_url"] == "http://proxy.internal:4141/v1"
+    assert settings["api_key"] == "_"
