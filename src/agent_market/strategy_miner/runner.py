@@ -591,6 +591,19 @@ def run_strategy_miner(
     final_artifacts: dict[str, str] = {}
     final_status: dict[str, object] = {}
 
+    preflight_report = None
+    if state.phase != Phase.COMPLETE:
+        from .preflight import run_startup_preflight
+
+        preflight_report = run_startup_preflight(
+            config,
+            miner_dir=miner_dir,
+            phase=state.phase,
+        )
+        final_status["preflight_ok"] = bool(preflight_report.get("ok"))
+        final_status["preflight_warnings"] = int(preflight_report.get("warnings", 0) or 0)
+        final_artifacts["preflight_report"] = str((miner_dir / "preflight.json").resolve())
+
     # Persist a stable proposal artifact for API/audit.
     from .artifacts import write_proposal, write_goal_contract, write_run_meta, append_event
 
@@ -610,8 +623,17 @@ def run_strategy_miner(
         logger.debug("Goal contract snapshot skipped: %s", exc)
 
     # D9: Initialize run metadata
-    write_run_meta(miner_dir, run_id=state.run_id, phase=state.phase.value,
-                   iteration=state.iteration)
+    write_run_meta(
+        miner_dir,
+        run_id=state.run_id,
+        phase=state.phase.value,
+        iteration=state.iteration,
+        extra={
+            "preflight_ok": final_status.get("preflight_ok"),
+            "preflight_warnings": final_status.get("preflight_warnings"),
+            "preflight_report": final_artifacts.get("preflight_report"),
+        },
+    )
     append_event(miner_dir, "run_start", {"run_id": state.run_id})
 
     kb = KnowledgeBase(miner_dir / "knowledge_base.json")
@@ -794,8 +816,17 @@ def run_strategy_miner(
                 "phase_completed": _phase_before,
                 "phase_next": state.phase.value,
             })
-            write_run_meta(miner_dir, run_id=state.run_id,
-                           phase=state.phase.value, iteration=state.iteration)
+            write_run_meta(
+                miner_dir,
+                run_id=state.run_id,
+                phase=state.phase.value,
+                iteration=state.iteration,
+                extra={
+                    "preflight_ok": final_status.get("preflight_ok"),
+                    "preflight_warnings": final_status.get("preflight_warnings"),
+                    "preflight_report": final_artifacts.get("preflight_report"),
+                },
+            )
 
         # Sealed holdout: run exactly once on the final champion
         if (
