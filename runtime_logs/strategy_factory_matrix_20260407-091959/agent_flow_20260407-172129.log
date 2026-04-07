@@ -1,0 +1,84 @@
+[2026-04-07 17:21:29,762] INFO - Agent Flow log file: /Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_matrix_20260407-091959/agent_flow_20260407-172129.log
+[2026-04-07 17:21:29,763] INFO - [FLOW] RUN_ID 1b9c8c735dbf
+[2026-04-07 17:21:29,763] INFO - [FLOW] STEP_START micro_feature
+[2026-04-07 17:21:29,763] INFO - [FLOW] PHASE micro_feature prepare
+[2026-04-07 17:21:29,763] INFO - [FLOW] PHASE micro_feature execute
+[2026-04-07 17:21:29,951] INFO - NumExpr defaulting to 8 threads.
+[2026-04-07 17:21:30,125] INFO - [FLOW] PHASE micro_feature summarize
+[2026-04-07 17:21:30,125] INFO - [FLOW] STEP_OK micro_feature
+[2026-04-07 17:21:30,125] INFO - [FLOW] STEP_START factor_compile
+[2026-04-07 17:21:30,125] INFO - [FLOW] PHASE factor_compile prepare
+[2026-04-07 17:21:30,125] INFO - [FLOW] PHASE factor_compile execute
+[2026-04-07 17:21:30,125] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_compile.py --spec /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/factor_compile/input_factor_spec.json --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/factor_compile
+[2026-04-07 17:21:30,253] INFO - [FLOW] PHASE factor_compile summarize
+[2026-04-07 17:21:30,253] INFO - [FLOW] STEP_OK factor_compile
+[2026-04-07 17:21:30,253] INFO - [FLOW] STEP_START factor_eval
+[2026-04-07 17:21:30,253] INFO - [FLOW] PHASE factor_eval prepare
+[2026-04-07 17:21:30,253] INFO - [FLOW] PHASE factor_eval execute
+[2026-04-07 17:21:30,255] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_eval.py --expression-path /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/factor_compile/compiled_expression.txt --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/factor_eval --rows 4096 --seed 7 --features-parquet /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/micro_feature/features.parquet
+[2026-04-07 17:21:30,771] INFO - [FLOW] PHASE factor_eval summarize
+[2026-04-07 17:21:30,771] INFO - [FLOW] STEP_OK factor_eval
+[2026-04-07 17:21:30,771] INFO - [FLOW] STEP_START strategy_miner
+[2026-04-07 17:21:30,771] INFO - [FLOW] PHASE strategy_miner prepare
+[2026-04-07 17:21:30,771] INFO - [FLOW] PHASE strategy_miner execute
+[2026-04-07 17:21:30,837] INFO - Starting new mining run: run_id=1b9c8c735dbf
+[2026-04-07 17:21:30,844] INFO - Loaded global strategy knowledge base: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/strategy_memory/knowledge_base.json
+[2026-04-07 17:21:31,059] INFO - Backfilled global strategy knowledge base: runs=83 merged=83 strategy_cards +0 => 264, failure_cards +0 => 300
+[2026-04-07 17:21:31,060] INFO - Starting deep strategy research pipeline...
+[2026-04-07 17:21:33,782] INFO - R0 Market Regime: trending_down (2.5s)
+[2026-04-07 17:21:34,710] INFO - arXiv [rl_trading]: found 3 papers
+[2026-04-07 17:21:35,602] INFO - arXiv [dl_prediction]: found 3 papers
+[2026-04-07 17:21:36,498] INFO - arXiv [ml_features]: found 3 papers
+[2026-04-07 17:21:37,649] INFO - arXiv [alpha_mining]: found 3 papers
+[2026-04-07 17:21:38,535] INFO - arXiv [quant_strategy]: found 3 papers
+[2026-04-07 17:21:38,535] INFO - R1 Literature: found 15 papers across 5 topics (4.8s)
+[2026-04-07 17:21:38,535] INFO - R2 Blueprints: generated 5 blueprints (0.0s)
+[2026-04-07 17:21:38,535] INFO - Deep research complete: regime=trending_down, papers=15, blueprints=5 (7.5s total)
+[2026-04-07 17:21:38,536] INFO - Deep research saved to /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/strategy_miner/deep_research.json
+[2026-04-07 17:21:38,536] INFO - === Iteration 0 | Phase strategy_gen ===
+[2026-04-07 17:21:38,536] INFO - Bandit selected families: ['ml/lightgbm']
+[2026-04-07 17:21:40,113] INFO - Market research completed in 1.6s (5 sources)
+[2026-04-07 17:21:40,114] INFO - Market research injected (950 chars)
+[2026-04-07 17:21:40,115] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/factor_memory/factor_memory.json
+[2026-04-07 17:21:40,117] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/factor_memory/factor_memory.json
+[2026-04-07 17:21:40,117] INFO - Phase STRATEGY_GEN: iteration=0 generating 1 candidates (candidate_workers=1 role_workers=1)
+[2026-04-07 17:21:40,119] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 17:21:42,616] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 17:21:58,822] INFO - Generated 1 candidates for iteration 0
+[2026-04-07 17:21:58,824] INFO - === Iteration 0 | Phase train_model ===
+[2026-04-07 17:22:01,739] INFO - === Iteration 0 | Phase backtest ===
+[2026-04-07 17:22:03,931] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinLGBMIntradayRegV0Cand0 (attempt 0/10)
+[2026-04-07 17:22:07,770] INFO - Trade calibration applied for FiveMinLGBMIntradayRegV0Cand0: enter_threshold 0.002 -> 0.0014, exit_threshold -0.0006 -> -0.00042 (trades=0<min_trades=80)
+[2026-04-07 17:22:07,771] INFO - Re-running backtest after trade calibration for FiveMinLGBMIntradayRegV0Cand0 (1/10)
+[2026-04-07 17:22:07,815] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinLGBMIntradayRegV0Cand0 (attempt 1/10)
+[2026-04-07 17:22:11,985] INFO - Trade calibration applied for FiveMinLGBMIntradayRegV0Cand0: enter_threshold 0.0014 -> 0.00098, exit_threshold -0.00042 -> -0.000294 (trades=0<min_trades=80)
+[2026-04-07 17:22:11,986] INFO - Re-running backtest after trade calibration for FiveMinLGBMIntradayRegV0Cand0 (2/10)
+[2026-04-07 17:22:11,998] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinLGBMIntradayRegV0Cand0 (attempt 2/10)
+[2026-04-07 17:22:16,826] INFO - Trade calibration applied for FiveMinLGBMIntradayRegV0Cand0: enter_threshold 0.00098 -> 0.000686, exit_threshold -0.000294 -> -0.0002058 (trades=0<min_trades=80)
+[2026-04-07 17:22:16,826] INFO - Re-running backtest after trade calibration for FiveMinLGBMIntradayRegV0Cand0 (3/10)
+[2026-04-07 17:22:16,838] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinLGBMIntradayRegV0Cand0 (attempt 3/10)
+[2026-04-07 17:22:22,223] INFO - Trade calibration applied for FiveMinLGBMIntradayRegV0Cand0: enter_threshold 0.000686 -> 0.0004802, exit_threshold -0.0002058 -> -0.00014406 (trades=0<min_trades=80)
+[2026-04-07 17:22:22,224] INFO - Re-running backtest after trade calibration for FiveMinLGBMIntradayRegV0Cand0 (4/10)
+[2026-04-07 17:22:22,235] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinLGBMIntradayRegV0Cand0 (attempt 4/10)
+[2026-04-07 17:22:27,187] INFO - Trade calibration applied for FiveMinLGBMIntradayRegV0Cand0: enter_threshold 0.0004802 -> 0.00033614, exit_threshold -0.00014406 -> -0.000100842 (trades=0<min_trades=80)
+[2026-04-07 17:22:27,188] INFO - Re-running backtest after trade calibration for FiveMinLGBMIntradayRegV0Cand0 (5/10)
+[2026-04-07 17:22:27,215] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinLGBMIntradayRegV0Cand0 (attempt 5/10)
+[2026-04-07 17:22:32,368] INFO - Trade calibration applied for FiveMinLGBMIntradayRegV0Cand0: enter_threshold 0.00033614 -> 0.000235298, exit_threshold -0.000100842 -> -7.05894e-05 (trades=0<min_trades=80)
+[2026-04-07 17:22:32,369] INFO - Re-running backtest after trade calibration for FiveMinLGBMIntradayRegV0Cand0 (6/10)
+[2026-04-07 17:22:32,413] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinLGBMIntradayRegV0Cand0 (attempt 6/10)
+[2026-04-07 17:22:38,748] INFO - Backtest completed: profit=-1.53% trades=246
+[2026-04-07 17:22:38,750] INFO - === Iteration 0 | Phase evaluation ===
+[2026-04-07 17:22:38,750] INFO - Risk constraints violated for FiveMinLGBMIntradayRegV0Cand0: ['pair:AVAX/USDT profit=-0.67%', 'pair:DOGE/USDT profit=-1.15%', 'pair:TOTAL profit=-1.53%', 'min_profit_factor:0.7720<1.15']
+[2026-04-07 17:22:38,751] INFO - Phase EVALUATION: FiveMinLGBMIntradayRegV0Cand0 sharpe=-0.2250 native_sharpe=-18.5089 sortino=-0.2529 native_sortino=-37.5165 calmar=-0.6518 native_calmar=-46.1757 profit_factor=0.7720 profit=-1.53% trades=246 winrate=0.6463 pos_days=0.43 max_dd=2.35% rod=-0.6518 sqn=-1.6644 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+[2026-04-07 17:22:38,761] INFO - === Iteration 0 | Phase analysis ===
+[2026-04-07 17:22:41,261] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/1b9c8c735dbf/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 17:23:01,476] INFO - Phase ANALYSIS complete: 策略信号产生较多交易且胜率高，但总体为亏损且风险调整指标全为负，Profit Factor <1 且跨币对稳健性差；建议优先在模型目标/特征与验证（per-pair CV）上改进，并同步收紧并动态化风控规则以恢复正向、稳健的风险调整收益。
+[2026-04-07 17:23:01,525] INFO - Mining complete: run_id=1b9c8c735dbf iterations=0 best_sharpe=-inf best_profit=0.00%
+[2026-04-07 17:23:01,529] INFO - [FLOW] PHASE strategy_miner summarize
+[2026-04-07 17:23:01,529] INFO - [FLOW] STEP_OK strategy_miner
+[2026-04-07 17:23:01,529] INFO - [FLOW] STEP_START report
+[2026-04-07 17:23:01,529] INFO - [FLOW] PHASE report prepare
+[2026-04-07 17:23:01,529] INFO - [FLOW] PHASE report execute
+[2026-04-07 17:23:01,649] INFO - [FLOW] PHASE report summarize
+[2026-04-07 17:23:01,649] INFO - [FLOW] STEP_OK report
+[2026-04-07 17:23:04,645] INFO - [FLOW] META_OK artifacts/run_meta.json

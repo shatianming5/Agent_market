@@ -1,0 +1,1038 @@
+- generic [ref=e2]:
+  - region
+  - generic [ref=e3]:
+    - link "Skip to content" [ref=e4] [cursor=pointer]:
+      - /url: "#start-of-content"
+    - banner [ref=e6]:
+      - heading "Navigation Menu" [level=2] [ref=e7]
+      - generic [ref=e8]:
+        - link "Homepage" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+        - generic [ref=e13]:
+          - navigation "Global" [ref=e16]:
+            - list [ref=e17]:
+              - listitem [ref=e18]:
+                - button "Platform" [ref=e20] [cursor=pointer]:
+                  - text: Platform
+                  - img [ref=e21]
+              - listitem [ref=e23]:
+                - button "Solutions" [ref=e25] [cursor=pointer]:
+                  - text: Solutions
+                  - img [ref=e26]
+              - listitem [ref=e28]:
+                - button "Resources" [ref=e30] [cursor=pointer]:
+                  - text: Resources
+                  - img [ref=e31]
+              - listitem [ref=e33]:
+                - button "Open Source" [ref=e35] [cursor=pointer]:
+                  - text: Open Source
+                  - img [ref=e36]
+              - listitem [ref=e38]:
+                - button "Enterprise" [ref=e40] [cursor=pointer]:
+                  - text: Enterprise
+                  - img [ref=e41]
+              - listitem [ref=e43]:
+                - link "Pricing" [ref=e44] [cursor=pointer]:
+                  - /url: https://github.com/pricing
+                  - generic [ref=e45]: Pricing
+          - generic [ref=e46]:
+            - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+              - img [ref=e51]
+            - link "Sign in" [ref=e54] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FJayCheng113%2FInfiEpisteme
+            - link "Sign up" [ref=e55] [cursor=pointer]:
+              - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&source=header-repo&source_repo=JayCheng113%2FInfiEpisteme
+            - button "Appearance settings" [ref=e58] [cursor=pointer]:
+              - img
+  - main [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e66]:
+          - img [ref=e67]
+          - link "JayCheng113" [ref=e70] [cursor=pointer]:
+            - /url: /JayCheng113
+          - generic [ref=e71]: /
+          - strong [ref=e72]:
+            - link "InfiEpisteme" [ref=e73] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme
+          - generic [ref=e74]: Public
+        - generic [ref=e75]:
+          - list:
+            - listitem [ref=e76]:
+              - link "You must be signed in to change notification settings" [ref=e77] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2FInfiEpisteme
+                - img [ref=e78]
+                - text: Notifications
+            - listitem [ref=e80]:
+              - link "Fork 0" [ref=e81] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2FInfiEpisteme
+                - img [ref=e82]
+                - text: Fork
+                - generic "0" [ref=e84]
+            - listitem [ref=e85]:
+              - link "You must be signed in to star a repository" [ref=e87] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2FInfiEpisteme
+                - img [ref=e88]
+                - text: Star
+                - generic "0 users starred this repository" [ref=e90]: "0"
+      - navigation "Repository" [ref=e91]:
+        - list [ref=e92]:
+          - listitem [ref=e93]:
+            - link "Code" [ref=e94] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme
+              - img [ref=e95]
+              - generic [ref=e97]: Code
+          - listitem [ref=e98]:
+            - link "Issues" [ref=e99] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/issues
+              - img [ref=e100]
+              - generic [ref=e103]: Issues
+          - listitem [ref=e104]:
+            - link "Pull requests" [ref=e105] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/pulls
+              - img [ref=e106]
+              - generic [ref=e108]: Pull requests
+          - listitem [ref=e109]:
+            - link "Actions" [ref=e110] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/actions
+              - img [ref=e111]
+              - generic [ref=e113]: Actions
+          - listitem [ref=e114]:
+            - link "Projects" [ref=e115] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/projects
+              - img [ref=e116]
+              - generic [ref=e118]: Projects
+          - listitem [ref=e119]:
+            - link "Security" [ref=e120] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/security
+              - img [ref=e121]
+              - generic [ref=e123]: Security
+          - listitem [ref=e124]:
+            - link "Insights" [ref=e125] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/pulse
+              - img [ref=e126]
+              - generic [ref=e128]: Insights
+    - generic [ref=e141]:
+      - heading "JayCheng113/InfiEpisteme" [level=1] [ref=e143]
+      - generic [ref=e144]:
+        - generic [ref=e147]:
+          - generic [ref=e148]:
+            - generic [ref=e149]:
+              - button "main branch" [ref=e151] [cursor=pointer]:
+                - generic [ref=e152]:
+                  - generic [ref=e154]:
+                    - img [ref=e156]
+                    - generic [ref=e159]: main
+                  - generic:
+                    - img
+              - generic [ref=e160]:
+                - link "Branches" [ref=e161] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiEpisteme/branches
+                  - generic [ref=e162]:
+                    - generic:
+                      - img
+                    - generic [ref=e163]: Branches
+                - link "Tags" [ref=e164] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiEpisteme/tags
+                  - generic [ref=e165]:
+                    - generic:
+                      - img
+                    - generic [ref=e166]: Tags
+            - generic [ref=e167]:
+              - generic [ref=e171]:
+                - img [ref=e173]
+                - combobox "Go to file" [ref=e175]
+              - button "Code" [ref=e176] [cursor=pointer]:
+                - generic [ref=e177]:
+                  - generic:
+                    - img
+                  - generic [ref=e178]: Code
+                  - generic:
+                    - img
+          - generic [ref=e179]:
+            - generic [ref=e180]:
+              - heading "Folders and files" [level=2] [ref=e181]
+              - table "Folders and files" [ref=e182]:
+                - rowgroup:
+                  - row "Name Last commit message Last commit date":
+                    - columnheader "Name"
+                    - columnheader "Last commit message":
+                      - generic "Last commit message"
+                    - columnheader "Last commit date":
+                      - generic "Last commit date"
+                - rowgroup [ref=e183]:
+                  - row "Latest commit History 62 Commits" [ref=e184]:
+                    - cell "Latest commit History 62 Commits" [ref=e185]:
+                      - generic [ref=e186]:
+                        - heading "Latest commit" [level=2] [ref=e187]
+                        - generic [ref=e190]:
+                          - heading "History" [level=2] [ref=e191]
+                          - link "62 Commits" [ref=e192] [cursor=pointer]:
+                            - /url: /JayCheng113/InfiEpisteme/commits/main/
+                            - generic [ref=e193]:
+                              - generic:
+                                - img
+                              - generic [ref=e194]: 62 Commits
+                  - row ".ai, (Directory)" [ref=e195]:
+                    - cell ".ai, (Directory)" [ref=e196]:
+                      - generic [ref=e197]:
+                        - img [ref=e198]
+                        - link ".ai, (Directory)" [ref=e203] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/tree/main/.ai
+                          - text: .ai
+                    - cell [ref=e204]
+                    - cell [ref=e206]
+                  - row "docs/superpowers/plans, (Directory)" [ref=e209]:
+                    - cell "docs/superpowers/plans, (Directory)" [ref=e210]:
+                      - generic [ref=e211]:
+                        - img [ref=e212]
+                        - link "docs/superpowers/plans, (Directory)" [ref=e217] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/tree/main/docs/superpowers/plans
+                          - text: docs/superpowers/plans
+                    - cell [ref=e218]
+                    - cell [ref=e220]
+                  - row "scripts, (Directory)" [ref=e223]:
+                    - cell "scripts, (Directory)" [ref=e224]:
+                      - generic [ref=e225]:
+                        - img [ref=e226]
+                        - link "scripts, (Directory)" [ref=e231] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/tree/main/scripts
+                          - text: scripts
+                    - cell [ref=e232]
+                    - cell [ref=e234]
+                  - row "skills, (Directory)" [ref=e237]:
+                    - cell "skills, (Directory)" [ref=e238]:
+                      - generic [ref=e239]:
+                        - img [ref=e240]
+                        - link "skills, (Directory)" [ref=e245] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/tree/main/skills
+                          - text: skills
+                    - cell [ref=e246]
+                    - cell [ref=e248]
+                  - row "templates, (Directory)" [ref=e251]:
+                    - cell "templates, (Directory)" [ref=e252]:
+                      - generic [ref=e253]:
+                        - img [ref=e254]
+                        - link "templates, (Directory)" [ref=e259] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/tree/main/templates
+                          - text: templates
+                    - cell [ref=e260]
+                    - cell [ref=e262]
+                  - row "tests, (Directory)" [ref=e265]:
+                    - cell "tests, (Directory)" [ref=e266]:
+                      - generic [ref=e267]:
+                        - img [ref=e268]
+                        - link "tests, (Directory)" [ref=e273] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/tree/main/tests
+                          - text: tests
+                    - cell [ref=e274]
+                    - cell [ref=e276]
+                  - row ".gitignore, (File)" [ref=e279]:
+                    - cell ".gitignore, (File)" [ref=e280]:
+                      - generic [ref=e281]:
+                        - img [ref=e282]
+                        - link ".gitignore, (File)" [ref=e287] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/.gitignore
+                          - text: .gitignore
+                    - cell [ref=e288]
+                    - cell [ref=e290]
+                  - row "CLAUDE.md, (File)" [ref=e293]:
+                    - cell "CLAUDE.md, (File)" [ref=e294]:
+                      - generic [ref=e295]:
+                        - img [ref=e296]
+                        - link "CLAUDE.md, (File)" [ref=e301] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/CLAUDE.md
+                          - text: CLAUDE.md
+                    - cell [ref=e302]
+                    - cell [ref=e304]
+                  - row "LICENSE, (File)" [ref=e307]:
+                    - cell "LICENSE, (File)" [ref=e308]:
+                      - generic [ref=e309]:
+                        - img [ref=e310]
+                        - link "LICENSE, (File)" [ref=e315] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/LICENSE
+                          - text: LICENSE
+                    - cell [ref=e316]
+                    - cell [ref=e318]
+                  - row "PIPELINE.md, (File)" [ref=e321]:
+                    - cell "PIPELINE.md, (File)" [ref=e322]:
+                      - generic [ref=e323]:
+                        - img [ref=e324]
+                        - link "PIPELINE.md, (File)" [ref=e329] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/PIPELINE.md
+                          - text: PIPELINE.md
+                    - cell [ref=e330]
+                    - cell [ref=e332]
+                  - row "README.md, (File)" [ref=e335]:
+                    - cell "README.md, (File)" [ref=e336]:
+                      - generic [ref=e337]:
+                        - img [ref=e338]
+                        - link "README.md, (File)" [ref=e343] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/README.md
+                          - text: README.md
+                    - cell [ref=e344]
+                    - cell [ref=e346]
+                  - row "RESEARCH_AGENT_BRIEFING.md, (File)" [ref=e349]:
+                    - cell "RESEARCH_AGENT_BRIEFING.md, (File)" [ref=e350]:
+                      - generic [ref=e351]:
+                        - img [ref=e352]
+                        - link "RESEARCH_AGENT_BRIEFING.md, (File)" [ref=e357] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/RESEARCH_AGENT_BRIEFING.md
+                          - text: RESEARCH_AGENT_BRIEFING.md
+                    - cell [ref=e358]
+                    - cell [ref=e360]
+                  - row "config.yaml, (File)" [ref=e363]:
+                    - cell "config.yaml, (File)" [ref=e364]:
+                      - generic [ref=e365]:
+                        - img [ref=e366]
+                        - link "config.yaml, (File)" [ref=e371] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/config.yaml
+                          - text: config.yaml
+                    - cell [ref=e372]
+                    - cell [ref=e374]
+                  - row "experiment_tree.json, (File)" [ref=e377]:
+                    - cell "experiment_tree.json, (File)" [ref=e378]:
+                      - generic [ref=e379]:
+                        - img [ref=e380]
+                        - link "experiment_tree.json, (File)" [ref=e385] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/experiment_tree.json
+                          - text: experiment_tree.json
+                    - cell [ref=e386]
+                    - cell [ref=e388]
+                  - row "registry.yaml, (File)" [ref=e391]:
+                    - cell "registry.yaml, (File)" [ref=e392]:
+                      - generic [ref=e393]:
+                        - img [ref=e394]
+                        - link "registry.yaml, (File)" [ref=e399] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/registry.yaml
+                          - text: registry.yaml
+                    - cell [ref=e400]
+                    - cell [ref=e402]
+                  - row "requirements.txt, (File)" [ref=e405]:
+                    - cell "requirements.txt, (File)" [ref=e406]:
+                      - generic [ref=e407]:
+                        - img [ref=e408]
+                        - link "requirements.txt, (File)" [ref=e413] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/requirements.txt
+                          - text: requirements.txt
+                    - cell [ref=e414]
+                    - cell [ref=e416]
+                  - row "run.sh, (File)" [ref=e419]:
+                    - cell "run.sh, (File)" [ref=e420]:
+                      - generic [ref=e421]:
+                        - img [ref=e422]
+                        - link "run.sh, (File)" [ref=e427] [cursor=pointer]:
+                          - /url: /JayCheng113/InfiEpisteme/blob/main/run.sh
+                          - text: run.sh
+                    - cell [ref=e428]
+                    - cell [ref=e430]
+            - generic [ref=e434]:
+              - generic [ref=e435]:
+                - heading "Repository files navigation" [level=2] [ref=e436]
+                - navigation "Repository files" [ref=e437]:
+                  - list [ref=e438]:
+                    - listitem [ref=e439]:
+                      - link "README" [ref=e440] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e442]
+                        - generic [ref=e444]: README
+                    - listitem [ref=e445]:
+                      - link "MIT license" [ref=e446] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e448]
+                        - generic [ref=e450]: MIT license
+                - button "Outline" [ref=e451] [cursor=pointer]:
+                  - img [ref=e452]
+              - article [ref=e455]:
+                - generic [ref=e456]:
+                  - heading "InfiEpisteme" [level=1] [ref=e457]
+                  - 'link "Permalink: InfiEpisteme" [ref=e458] [cursor=pointer]':
+                    - /url: "#infiepisteme"
+                    - img [ref=e459]
+                - paragraph [ref=e461]:
+                  - 'link "License: MIT" [ref=e462] [cursor=pointer]':
+                    - /url: /JayCheng113/InfiEpisteme/blob/main/LICENSE
+                    - 'img "License: MIT" [ref=e463]'
+                - blockquote [ref=e464]:
+                  - paragraph [ref=e465]:
+                    - strong [ref=e466]: Talk to Claude Code. Get a research paper.
+                - paragraph [ref=e467]: InfiEpisteme is an automated research pipeline that turns a research idea into a peer-review-quality paper, clean code, and organized results — all through natural language conversation with Claude Code.
+                - paragraph [ref=e468]: No frameworks to learn. No scripts to memorize. Just describe what you want to study.
+                - generic [ref=e469]:
+                  - code [ref=e471]: "You: I want to study Kimi's Attention Residuals paper that just came out. Validate it on small LLMs and propose improvements. Target NeurIPS 2026. CC: [searches web, finds paper, identifies 5 competing methods] [sets up server, writes proposal, starts 9-stage pipeline] [pauses for your review at key decisions] [monitors, catches bugs, fixes them, keeps going] ...6 hours later... Pipeline complete. Paper: 12 pages, 36 citations, 6 experiments. → DELIVERY/paper.pdf"
+                  - button "Copy" [ref=e473] [cursor=pointer]:
+                    - img [ref=e474]
+                - generic [ref=e477]:
+                  - heading "Why InfiEpisteme?" [level=2] [ref=e478]
+                  - 'link "Permalink: Why InfiEpisteme?" [ref=e479] [cursor=pointer]':
+                    - /url: "#why-infiepisteme"
+                    - img [ref=e480]
+                - table [ref=e483]:
+                  - rowgroup [ref=e484]:
+                    - row "Traditional InfiEpisteme" [ref=e485]:
+                      - columnheader "Traditional" [ref=e486]
+                      - columnheader "InfiEpisteme" [ref=e487]
+                  - rowgroup [ref=e488]:
+                    - row "Edit YAML configs Just talk" [ref=e489]:
+                      - cell "Edit YAML configs" [ref=e490]
+                      - cell "Just talk" [ref=e491]
+                    - row "Read docs to learn the framework CC already knows how" [ref=e492]:
+                      - cell "Read docs to learn the framework" [ref=e493]
+                      - cell "CC already knows how" [ref=e494]
+                    - row "SSH in to debug when things break CC diagnoses and fixes automatically" [ref=e495]:
+                      - cell "SSH in to debug when things break" [ref=e496]
+                      - cell "CC diagnoses and fixes automatically" [ref=e497]
+                    - row "Monitor scripts manually CC watches for risks proactively" [ref=e498]:
+                      - cell "Monitor scripts manually" [ref=e499]
+                      - cell "CC watches for risks proactively" [ref=e500]
+                    - row "Restart from scratch on failure CC retries, hotfixes, resumes" [ref=e501]:
+                      - cell "Restart from scratch on failure" [ref=e502]
+                      - cell "CC retries, hotfixes, resumes" [ref=e503]
+                - paragraph [ref=e504]:
+                  - strong [ref=e505]: Key advantage
+                  - text: ": You command one local Claude Code, which commands multiple Claude Code instances on the server — and actively monitors, diagnoses, and hotfixes along the way."
+                - generic [ref=e506]:
+                  - heading "Self-Evolving Pipeline" [level=2] [ref=e507]
+                  - 'link "Permalink: Self-Evolving Pipeline" [ref=e508] [cursor=pointer]':
+                    - /url: "#self-evolving-pipeline"
+                    - img [ref=e509]
+                - paragraph [ref=e511]: InfiEpisteme improves itself through natural language — no RL, no retraining, just updated instructions.
+                - generic [ref=e512]:
+                  - code [ref=e514]: "Run pipeline │ ▼ Observe problems ◄─── \"S1 only found 21 citations, need 30\" │ ▼ Discuss with CC ◄─── \"The regex doesn't match 'et al.' format\" │ ▼ CC updates .md ◄─── S1_literature.md: \"Web Search is Source 1, not fallback\" │ state_guard.py: fix regex ▼ S2_ideation.md: \"speculative hypotheses must be questions\" Next run is better │ └──► repeat"
+                  - button "Copy" [ref=e516] [cursor=pointer]:
+                    - img [ref=e517]
+                - paragraph [ref=e520]: "Every skill file is a natural language instruction. When something goes wrong, you tell CC what happened, and it rewrites the instruction to prevent the same mistake. Real examples from our first run:"
+                - table [ref=e522]:
+                  - rowgroup [ref=e523]:
+                    - row "You said CC improved" [ref=e524]:
+                      - columnheader "You said" [ref=e525]
+                      - columnheader "CC improved" [ref=e526]
+                  - rowgroup [ref=e527]:
+                    - 'row "\"Why only 21 citations?\" S1: Web Search promoted to primary source; added \"run second pass if < 30\"" [ref=e528]':
+                      - cell "\"Why only 21 citations?\"" [ref=e529]
+                      - 'cell "S1: Web Search promoted to primary source; added \"run second pass if < 30\"" [ref=e530]'
+                    - 'row "\"This hypothesis has no evidence\" S2: Added evidence_basis: speculative label requirement" [ref=e531]':
+                      - cell "\"This hypothesis has no evidence\"" [ref=e532]
+                      - 'cell "S2: Added evidence_basis: speculative label requirement" [ref=e533]':
+                        - text: "S2: Added"
+                        - code [ref=e534]: "evidence_basis: speculative"
+                        - text: label requirement
+                    - 'row "\"The node packed 6 training runs\" S2: Added \"one node = one training run\" rule" [ref=e535]':
+                      - cell "\"The node packed 6 training runs\"" [ref=e536]
+                      - 'cell "S2: Added \"one node = one training run\" rule" [ref=e537]'
+                    - 'row "\"500M tokens is too much for preliminary\" S4: Added \"S4.1 uses 100-200M tokens\" limit" [ref=e538]':
+                      - cell "\"500M tokens is too much for preliminary\"" [ref=e539]
+                      - 'cell "S4: Added \"S4.1 uses 100-200M tokens\" limit" [ref=e540]'
+                    - 'row "\"experiment_tree.json never updates\" S4: Added \"set status to running BEFORE training\" step" [ref=e541]':
+                      - cell "\"experiment_tree.json never updates\"" [ref=e542]
+                      - 'cell "S4: Added \"set status to running BEFORE training\" step" [ref=e543]'
+                    - row "\"Only one architecture isn't convincing\" Added Pythia arch support; redesigned S4.1 as cross-architecture screening" [ref=e544]:
+                      - cell "\"Only one architecture isn't convincing\"" [ref=e545]
+                      - cell "Added Pythia arch support; redesigned S4.1 as cross-architecture screening" [ref=e546]
+                    - 'row "\"Training restarted and lost 2h of logs\" S4/common: Added \"never overwrite results, back up with timestamp\" rule" [ref=e547]':
+                      - cell "\"Training restarted and lost 2h of logs\"" [ref=e548]
+                      - 'cell "S4/common: Added \"never overwrite results, back up with timestamp\" rule" [ref=e549]'
+                - paragraph [ref=e550]:
+                  - strong [ref=e551]: The pipeline's instructions are its weights. Natural language is the gradient. Conversation is the training loop.
+                - generic [ref=e552]:
+                  - heading "Architecture" [level=2] [ref=e553]
+                  - 'link "Permalink: Architecture" [ref=e554] [cursor=pointer]':
+                    - /url: "#architecture"
+                    - img [ref=e555]
+                - generic [ref=e557]:
+                  - code [ref=e559]: "┌─────────────────────────────────────────────────────────────────────────────┐ │ │ │ You: \"Study Attention Residuals, target NeurIPS 2026\" │ │ │ │ │ ▼ │ │ Local Claude Code (mission control — the only CC you talk to) │ │ │ │ │ ├─ Web search: finds paper, competing methods │ │ ├─ SSH: configures server, writes config.yaml │ │ │ │ │ │ ┌─ Per-stage execution loop ─────────────────────────────────────┐ │ │ │ │ │ │ │ │ │ ssh: claude -p \"skills/S{N}.md\" ──► skill execution │ │ │ │ │ ssh: state_guard.py verify ──► deterministic check │ │ │ │ │ ssh: claude -p \"skills/memory_sync\" ──► knowledge consolidate │ │ │ │ │ ssh: claude -p \"skills/judge.md\" ──► 3-layer quality gate │ │ │ │ │ Layer 1: deterministic checks │ │ │ │ │ Layer 2: content quality │ │ │ │ │ Layer 3: first-principles reasoning │ │ │ │ │ ssh: state_guard.py advance ──► next stage or retry │ │ │ │ │ │ │ │ │ │ [CHECKPOINT at P0, S2, S3?] ──► pause for human review │ │ │ │ │ Fixed checklist (targets known failure modes) │ │ │ │ │ + LLM adversarial brief (supplements) │ │ │ │ │ + Raw file access (fallback) │ │ │ │ │ ──► ./run.sh approve to continue │ │ │ │ │ │ │ │ │ └────────────────────────────────────────────────────────────────┘ │ │ │ │ │ ├─ Diagnoses failures, hotfixes, retries automatically │ │ ├─ Reports to you in plain language │ │ └─ Repeats for all stages ─── intervene anytime ◄── You │ │ │ └─────────────────────────────────────────────────────────────────────────────┘ GPU Server receives SSH commands. Each \"claude -p\" spawns an independent CC instance that reads skill instructions, does the work, writes files. Local CC checks results, decides next action."
+                  - button "Copy" [ref=e561] [cursor=pointer]:
+                    - img [ref=e562]
+                - paragraph [ref=e565]:
+                  - strong [ref=e566]:
+                    - code [ref=e567]: run.sh
+                    - text: is optional.
+                  - text: "It automates the loop for unattended runs, but the real orchestrator is your local Claude Code. In practice, local CC provides better results because it can:"
+                - list [ref=e568]:
+                  - listitem [ref=e569]:
+                    - strong [ref=e570]: Predict risks
+                    - text: before they happen ("this paper is too new for Semantic Scholar")
+                  - listitem [ref=e571]:
+                    - strong [ref=e572]: Diagnose root causes
+                    - text: when checks fail ("regex doesn't match this citation format")
+                  - listitem [ref=e573]:
+                    - strong [ref=e574]: Hotfix and retry
+                    - text: without waiting for 3 automated failures
+                  - listitem [ref=e575]:
+                    - strong [ref=e576]: Search the web
+                    - text: for context that server-side CC can't access
+                  - listitem [ref=e577]:
+                    - strong [ref=e578]: Report to you
+                    - text: in plain language and ask for judgment calls
+                - paragraph [ref=e579]:
+                  - strong [ref=e580]: The chain of command
+                  - text: ": You give one instruction in natural language → your local CC breaks it into actions → each action spawns a dedicated CC instance on the server → they coordinate through shared files → local CC monitors results and intervenes when needed."
+                - generic [ref=e581]:
+                  - heading ".md Files Are the Program" [level=3] [ref=e582]
+                  - 'link "Permalink: .md Files Are the Program" [ref=e583] [cursor=pointer]':
+                    - /url: "#md-files-are-the-program"
+                    - img [ref=e584]
+                - paragraph [ref=e586]:
+                  - text: All research logic lives in
+                  - code [ref=e587]: skills/*.md
+                  - text: files — structured markdown that Claude Code executes natively. No framework overhead, no hidden state. Every decision traces back to a readable
+                  - code [ref=e588]: .md
+                  - text: file.
+                - generic [ref=e589]:
+                  - heading "Three-Layer Memory" [level=3] [ref=e590]
+                  - 'link "Permalink: Three-Layer Memory" [ref=e591] [cursor=pointer]':
+                    - /url: "#three-layer-memory"
+                    - img [ref=e592]
+                - paragraph [ref=e594]:
+                  - text: Each
+                  - code [ref=e595]: claude -p
+                  - text: "call is stateless. Memory is reconstructed from files:"
+                - generic [ref=e596]:
+                  - code [ref=e598]: "Layer 1: State registry.yaml, experiment_tree.json Layer 2: Knowledge .ai/core/ (research context, methodology, literature) .ai/evolution/ (decisions, negative results, experiment log) Layer 3: Context .ai/context_chain.md — the \"why\" thread across stages"
+                  - button "Copy" [ref=e600] [cursor=pointer]:
+                    - img [ref=e601]
+                - paragraph [ref=e604]:
+                  - text: A dedicated Memory Synthesizer runs after every stage to consolidate knowledge. Skills never write to
+                  - code [ref=e605]: .ai/
+                  - text: directly.
+                - generic [ref=e606]:
+                  - heading "Setup" [level=2] [ref=e607]
+                  - 'link "Permalink: Setup" [ref=e608] [cursor=pointer]':
+                    - /url: "#setup"
+                    - img [ref=e609]
+                - generic [ref=e611]:
+                  - heading "Prerequisites" [level=3] [ref=e612]
+                  - 'link "Permalink: Prerequisites" [ref=e613] [cursor=pointer]':
+                    - /url: "#prerequisites"
+                    - img [ref=e614]
+                - list [ref=e616]:
+                  - listitem [ref=e617]:
+                    - strong [ref=e618]: Local machine
+                    - text: ":"
+                    - link "Claude Code" [ref=e619] [cursor=pointer]:
+                      - /url: https://claude.com/claude-code
+                    - text: installed
+                  - listitem [ref=e620]:
+                    - strong [ref=e621]: GPU server
+                    - text: ": SSH access to a machine with GPU (e.g.,"
+                    - code [ref=e622]: ubuntu@gpu-box
+                    - text: )
+                    - list [ref=e623]:
+                      - listitem [ref=e624]: Claude Code installed on the server
+                      - listitem [ref=e625]:
+                        - text: Python 3.10+ with
+                        - code [ref=e626]: pyyaml
+                        - text: ","
+                        - code [ref=e627]: requests
+                      - listitem [ref=e628]:
+                        - text: "OpenAI API key on the server (for cross-model review in S7):"
+                        - generic [ref=e629]:
+                          - generic [ref=e630]:
+                            - text: echo
+                            - generic [ref=e631]: "'export OPENAI_API_KEY=\"sk-...\"'"
+                            - text: ">> ~/.bashrc && source ~/.bashrc"
+                          - button "Copy" [ref=e633] [cursor=pointer]:
+                            - img [ref=e634]
+                - generic [ref=e637]:
+                  - heading "Server Setup" [level=3] [ref=e638]
+                  - 'link "Permalink: Server Setup" [ref=e639] [cursor=pointer]':
+                    - /url: "#server-setup"
+                    - img [ref=e640]
+                - paragraph [ref=e642]: "Clone and configure on the server:"
+                - generic [ref=e643]:
+                  - generic [ref=e644]: ssh user@gpu-box git clone https://github.com/JayCheng113/InfiEpisteme.git cd InfiEpisteme pip install pyyaml requests
+                  - button "Copy" [ref=e646] [cursor=pointer]:
+                    - img [ref=e647]
+                - paragraph [ref=e650]:
+                  - text: Then edit
+                  - code [ref=e651]: config.yaml
+                  - text: "on the server:"
+                - generic [ref=e652]:
+                  - generic [ref=e653]:
+                    - text: "research_direction: | Your research idea here. Be specific: what problem, what method, what comparison, what scale. The more detail, the better the pipeline performs. Example: \"Validate Kimi's Attention Residuals on dense sub-2B LLMs. Compare against DCA, MUDDFormer, DenseFormer on LLaMA and Pythia at 0.5B scale. Target NeurIPS 2026.\""
+                    - text: "target_venue:"
+                    - generic [ref=e654]: "\"NeurIPS 2026\""
+                    - generic [ref=e655]: "# or \"ICML 2026\", \"arxiv\", etc."
+                    - text: "compute: gpu_hours: 80"
+                    - generic [ref=e656]: "# your available GPU budget"
+                    - text: "gpu_type:"
+                    - generic [ref=e657]: "\"A100\""
+                    - generic [ref=e658]: "# your GPU type"
+                    - text: "parallel_jobs: 1"
+                    - generic [ref=e659]: "# how many experiments to run at once"
+                  - button "Copy" [ref=e661] [cursor=pointer]:
+                    - img [ref=e662]
+                - generic [ref=e665]:
+                  - heading "Two Ways to Run" [level=3] [ref=e666]
+                  - 'link "Permalink: Two Ways to Run" [ref=e667] [cursor=pointer]':
+                    - /url: "#two-ways-to-run"
+                    - img [ref=e668]
+                - paragraph [ref=e670]:
+                  - strong [ref=e671]: "Option A: Interactive (recommended)"
+                  - text: — You talk to your local Claude Code, it SSHs to the server and runs stages one by one. You can monitor, intervene, and guide at any point.
+                - generic [ref=e672]:
+                  - code [ref=e674]: "You: SSH to ubuntu@gpu-box, go to ~/InfiEpisteme, and start the research pipeline."
+                  - button "Copy" [ref=e676] [cursor=pointer]:
+                    - img [ref=e677]
+                - paragraph [ref=e680]:
+                  - text: Your local CC will read config.yaml, run each stage via
+                  - code [ref=e681]: claude -p
+                  - text: ", check results, and report back. At checkpoints (P0, S2, and conditionally S3 for novel methods), it pauses for your review."
+                - paragraph [ref=e682]:
+                  - strong [ref=e683]: "Option B: Unattended"
+                  - text: "— Run directly on the server:"
+                - generic [ref=e684]:
+                  - generic [ref=e685]:
+                    - text: ./run.sh start
+                    - generic [ref=e686]: "# runs pipeline, pauses at checkpoints"
+                    - text: ./run.sh approve
+                    - generic [ref=e687]: "# approve checkpoint and continue"
+                    - text: ./run.sh approve --with
+                    - generic [ref=e688]: "'add Pythia'"
+                    - generic [ref=e689]: "# approve with modifications"
+                    - text: ./run.sh status
+                    - generic [ref=e690]: "# check progress"
+                  - button "Copy" [ref=e692] [cursor=pointer]:
+                    - img [ref=e693]
+                - generic [ref=e696]:
+                  - heading "How It Works in Practice" [level=2] [ref=e697]
+                  - 'link "Permalink: How It Works in Practice" [ref=e698] [cursor=pointer]':
+                    - /url: "#how-it-works-in-practice"
+                    - img [ref=e699]
+                - generic [ref=e701]:
+                  - heading "1. You describe your research idea" [level=3] [ref=e702]
+                  - 'link "Permalink: 1. You describe your research idea" [ref=e703] [cursor=pointer]':
+                    - /url: "#1-you-describe-your-research-idea"
+                    - img [ref=e704]
+                - paragraph [ref=e706]:
+                  - text: The most important input is
+                  - code [ref=e707]: config.yaml
+                  - text: "'s"
+                  - code [ref=e708]: research_direction
+                  - text: ". Write it yourself, or tell your local CC what you want and ask it to write config.yaml for you:"
+                - generic [ref=e709]:
+                  - code [ref=e711]: "You: I want to study Kimi's Attention Residuals paper (arxiv:2603.15031). Validate it on small dense LLMs, compare against other depth-aggregation methods, and propose improvements. Target NeurIPS 2026. I have an A100-40GB with 80 GPU-hours budget. CC: Got it. I'll write config.yaml with this direction and set up the pipeline. [SSHs to server, writes config.yaml, starts P0]"
+                  - button "Copy" [ref=e713] [cursor=pointer]:
+                    - img [ref=e714]
+                - generic [ref=e717]:
+                  - heading "2. Pipeline runs, pauses at checkpoints" [level=3] [ref=e718]
+                  - 'link "Permalink: 2. Pipeline runs, pauses at checkpoints" [ref=e719] [cursor=pointer]':
+                    - /url: "#2-pipeline-runs-pauses-at-checkpoints"
+                    - img [ref=e720]
+                - generic [ref=e722]:
+                  - code [ref=e724]: "── CHECKPOINT: P0 (research direction) ── CC: Here's the formalized proposal. Please verify: 1. Is the hypothesis correctly framed? 2. Is the scope appropriate for NeurIPS? 3. Is the compute budget feasible? You: Looks good, but add DHC as a baseline too. CC: [updates proposal, continues to S1-S2] ── CHECKPOINT: S2 (experiment design) ── CC: Experiment design ready. 14 nodes, 2 architectures. Check: 1. Each node tests exactly one variable? ✓ 2. Budget: 14 × 2.5h = ~35h screening. Leaves 45h for tuning. ✓ 3. Any missing baselines? You: Go. CC: [runs S3, implements all methods] ── CHECKPOINT: S3 (only if you proposed a novel method) ── CC: Implementation complete. Your DPE-AttnRes method: - depth_scale initialized at 0.01 (learnable, ReZero-style) - Invariant verified: reduces to vanilla AttnRes when scale=0 ✓ - 341.9M params, 14.5 GB peak memory Approve to start training? You: Go. CC: [runs S4-S8 fully automated, reports when done]"
+                  - button "Copy" [ref=e726] [cursor=pointer]:
+                    - img [ref=e727]
+                - generic [ref=e730]:
+                  - heading "3. Monitor anytime" [level=3] [ref=e731]
+                  - 'link "Permalink: 3. Monitor anytime" [ref=e732] [cursor=pointer]':
+                    - /url: "#3-monitor-anytime"
+                    - img [ref=e733]
+                - generic [ref=e735]:
+                  - code [ref=e737]: "You: What's the status? CC: S4.2 running. 4/6 experiments complete. Best perplexity: 48.4. You: Change H2's direction to [new idea]. CC: [updates experiment tree, re-runs affected sub-stage]"
+                  - button "Copy" [ref=e739] [cursor=pointer]:
+                    - img [ref=e740]
+                - generic [ref=e743]:
+                  - heading "4. CC handles problems automatically" [level=3] [ref=e744]
+                  - 'link "Permalink: 4. CC handles problems automatically" [ref=e745] [cursor=pointer]':
+                    - /url: "#4-cc-handles-problems-automatically"
+                    - img [ref=e746]
+                - generic [ref=e748]:
+                  - code [ref=e750]: "CC: S1 failed: only 21 citations detected (need 30). Root cause: regex doesn't match \"et al.\" format. [fixes regex, re-verifies] Fixed. 36 citations now. Advancing."
+                  - button "Copy" [ref=e752] [cursor=pointer]:
+                    - img [ref=e753]
+                - generic [ref=e756]:
+                  - heading "Pipeline Stages" [level=2] [ref=e757]
+                  - 'link "Permalink: Pipeline Stages" [ref=e758] [cursor=pointer]':
+                    - /url: "#pipeline-stages"
+                    - img [ref=e759]
+                - generic [ref=e761]:
+                  - code [ref=e763]: P0 → [CHECKPOINT] → S0 → S1 → S2 → [CHECKPOINT] → S3 → [CHECKPOINT?] → S4 → S5 → S6 → S7 → S8 │ │ │ │ direction experiment fully automated delivery (human reviews) design (code, train, (human reviews) analyze, write, review, package)
+                  - button "Copy" [ref=e765] [cursor=pointer]:
+                    - img [ref=e766]
+                - table [ref=e770]:
+                  - rowgroup [ref=e771]:
+                    - row "Stage What Happens Output" [ref=e772]:
+                      - columnheader "Stage" [ref=e773]
+                      - columnheader "What Happens" [ref=e774]
+                      - columnheader "Output" [ref=e775]
+                  - rowgroup [ref=e776]:
+                    - row "P0 You + CC brainstorm direction, novelty check RESEARCH_PROPOSAL.md" [ref=e777]:
+                      - cell "P0" [ref=e778]:
+                        - strong [ref=e779]: P0
+                      - cell "You + CC brainstorm direction, novelty check" [ref=e780]
+                      - cell "RESEARCH_PROPOSAL.md" [ref=e781]:
+                        - code [ref=e782]: RESEARCH_PROPOSAL.md
+                    - row "[CHECKPOINT] — human reviews direction, checks factual claims" [ref=e783]:
+                      - cell [ref=e784]
+                      - cell "[CHECKPOINT] — human reviews direction, checks factual claims" [ref=e785]:
+                        - strong [ref=e786]: "[CHECKPOINT]"
+                        - text: — human reviews direction, checks factual claims
+                      - cell [ref=e787]
+                    - row "S0 Hardware detection, init .ai/ knowledge base hardware_profile.json, .ai/" [ref=e788]:
+                      - cell "S0" [ref=e789]:
+                        - strong [ref=e790]: S0
+                      - cell "Hardware detection, init .ai/ knowledge base" [ref=e791]
+                      - cell "hardware_profile.json, .ai/" [ref=e792]:
+                        - code [ref=e793]: hardware_profile.json
+                        - text: ","
+                        - code [ref=e794]: .ai/
+                    - row "S1 Literature survey (30+ papers, multi-source) RELATED_WORK.md, BASELINES.md, bibliography.bib" [ref=e795]:
+                      - cell "S1" [ref=e796]:
+                        - strong [ref=e797]: S1
+                      - cell "Literature survey (30+ papers, multi-source)" [ref=e798]
+                      - cell "RELATED_WORK.md, BASELINES.md, bibliography.bib" [ref=e799]:
+                        - code [ref=e800]: RELATED_WORK.md
+                        - text: ","
+                        - code [ref=e801]: BASELINES.md
+                        - text: ","
+                        - code [ref=e802]: bibliography.bib
+                    - row "S2 6-perspective hypothesis debate, experiment design EXPERIMENT_PLAN.md, experiment_tree.json" [ref=e803]:
+                      - cell "S2" [ref=e804]:
+                        - strong [ref=e805]: S2
+                      - cell "6-perspective hypothesis debate, experiment design" [ref=e806]
+                      - cell "EXPERIMENT_PLAN.md, experiment_tree.json" [ref=e807]:
+                        - code [ref=e808]: EXPERIMENT_PLAN.md
+                        - text: ","
+                        - code [ref=e809]: experiment_tree.json
+                    - row "[CHECKPOINT] — human reviews design, verifies budget, checks baselines" [ref=e810]:
+                      - cell [ref=e811]
+                      - cell "[CHECKPOINT] — human reviews design, verifies budget, checks baselines" [ref=e812]:
+                        - strong [ref=e813]: "[CHECKPOINT]"
+                        - text: — human reviews design, verifies budget, checks baselines
+                      - cell [ref=e814]
+                    - row "S3 Implement methods + baselines src/, requirements.txt" [ref=e815]:
+                      - cell "S3" [ref=e816]:
+                        - strong [ref=e817]: S3
+                      - cell "Implement methods + baselines" [ref=e818]
+                      - cell "src/, requirements.txt" [ref=e819]:
+                        - code [ref=e820]: src/
+                        - text: ","
+                        - code [ref=e821]: requirements.txt
+                    - row "[CHECKPOINT?] — triggers if novel methods exist; human reviews implementation details" [ref=e822]:
+                      - cell [ref=e823]
+                      - cell "[CHECKPOINT?] — triggers if novel methods exist; human reviews implementation details" [ref=e824]:
+                        - strong [ref=e825]: "[CHECKPOINT?]"
+                        - text: — triggers if novel methods exist; human reviews implementation details
+                      - cell [ref=e826]
+                    - row "S4 Progressive tree search (4 sub-stages, 6+ experiments) RESULTS_SUMMARY.md, results/" [ref=e827]:
+                      - cell "S4" [ref=e828]:
+                        - strong [ref=e829]: S4
+                      - cell "Progressive tree search (4 sub-stages, 6+ experiments)" [ref=e830]
+                      - cell "RESULTS_SUMMARY.md, results/" [ref=e831]:
+                        - code [ref=e832]: RESULTS_SUMMARY.md
+                        - text: ","
+                        - code [ref=e833]: results/
+                    - row "S5 Statistical analysis, 6-perspective interpretation ANALYSIS.md, tables/, figures/" [ref=e834]:
+                      - cell "S5" [ref=e835]:
+                        - strong [ref=e836]: S5
+                      - cell "Statistical analysis, 6-perspective interpretation" [ref=e837]
+                      - cell "ANALYSIS.md, tables/, figures/" [ref=e838]:
+                        - code [ref=e839]: ANALYSIS.md
+                        - text: ","
+                        - code [ref=e840]: tables/
+                        - text: ","
+                        - code [ref=e841]: figures/
+                    - row "S6 LaTeX paper with 5-step citation verification paper.pdf" [ref=e842]:
+                      - cell "S6" [ref=e843]:
+                        - strong [ref=e844]: S6
+                      - cell "LaTeX paper with 5-step citation verification" [ref=e845]
+                      - cell "paper.pdf" [ref=e846]:
+                        - code [ref=e847]: paper.pdf
+                    - row "S7 Cross-model adversarial review (Claude writes, GPT reviews) reviews/" [ref=e848]:
+                      - cell "S7" [ref=e849]:
+                        - strong [ref=e850]: S7
+                      - cell "Cross-model adversarial review (Claude writes, GPT reviews)" [ref=e851]
+                      - cell "reviews/" [ref=e852]:
+                        - code [ref=e853]: reviews/
+                    - row "S8 Package deliverables, venue-specific checklist DELIVERY/" [ref=e854]:
+                      - cell "S8" [ref=e855]:
+                        - strong [ref=e856]: S8
+                      - cell "Package deliverables, venue-specific checklist" [ref=e857]
+                      - cell "DELIVERY/" [ref=e858]:
+                        - code [ref=e859]: DELIVERY/
+                - paragraph [ref=e860]:
+                  - strong [ref=e861]: 10 stages (P0 + S0-S8), 2-3 need human input
+                  - text: (P0, S2, and S3 if you proposed a novel method). The rest run fully automated.
+                - generic [ref=e862]:
+                  - heading "Safety & Quality" [level=2] [ref=e863]
+                  - 'link "Permalink: Safety & Quality" [ref=e864] [cursor=pointer]':
+                    - /url: "#safety--quality"
+                    - img [ref=e865]
+                - table [ref=e868]:
+                  - rowgroup [ref=e869]:
+                    - row "Mechanism What It Does" [ref=e870]:
+                      - columnheader "Mechanism" [ref=e871]
+                      - columnheader "What It Does" [ref=e872]
+                  - rowgroup [ref=e873]:
+                    - row "Human checkpoints Pipeline pauses after P0, S2, and conditionally S3 (novel methods) for human review — fixed checklist + LLM adversarial brief + raw file access" [ref=e874]:
+                      - cell "Human checkpoints" [ref=e875]:
+                        - strong [ref=e876]: Human checkpoints
+                      - cell "Pipeline pauses after P0, S2, and conditionally S3 (novel methods) for human review — fixed checklist + LLM adversarial brief + raw file access" [ref=e877]
+                    - 'row "3-Layer Judge Layer 1: deterministic checks. Layer 2: content quality. Layer 3: first-principles reasoning — challenges assumptions, catches factual errors, flags insufficient experimental design" [ref=e878]':
+                      - cell "3-Layer Judge" [ref=e879]:
+                        - strong [ref=e880]: 3-Layer Judge
+                      - 'cell "Layer 1: deterministic checks. Layer 2: content quality. Layer 3: first-principles reasoning — challenges assumptions, catches factual errors, flags insufficient experimental design" [ref=e881]'
+                    - row "Circuit breaker Same failure 3x → pauses for human input" [ref=e882]:
+                      - cell "Circuit breaker" [ref=e883]:
+                        - strong [ref=e884]: Circuit breaker
+                      - cell "Same failure 3x → pauses for human input" [ref=e885]
+                    - row "State Guard Deterministic Python checks after every stage" [ref=e886]:
+                      - cell "State Guard" [ref=e887]:
+                        - strong [ref=e888]: State Guard
+                      - cell "Deterministic Python checks after every stage" [ref=e889]
+                    - row "Citation verification 5-step protocol — every citation verified in 2+ sources" [ref=e890]:
+                      - cell "Citation verification" [ref=e891]:
+                        - strong [ref=e892]: Citation verification
+                      - cell "5-step protocol — every citation verified in 2+ sources" [ref=e893]
+                    - row "Cross-model review External model (GPT) reviews the paper Claude wrote" [ref=e894]:
+                      - cell "Cross-model review" [ref=e895]:
+                        - strong [ref=e896]: Cross-model review
+                      - cell "External model (GPT) reviews the paper Claude wrote" [ref=e897]
+                    - row "Hardware detection Prevents experiments exceeding GPU/RAM capacity" [ref=e898]:
+                      - cell "Hardware detection" [ref=e899]:
+                        - strong [ref=e900]: Hardware detection
+                      - cell "Prevents experiments exceeding GPU/RAM capacity" [ref=e901]
+                    - row "Git pre-registration Experiment design committed before execution" [ref=e902]:
+                      - cell "Git pre-registration" [ref=e903]:
+                        - strong [ref=e904]: Git pre-registration
+                      - cell "Experiment design committed before execution" [ref=e905]
+                    - row "Venue checklists NeurIPS/ICML/ICLR/ACL-specific checks before delivery" [ref=e906]:
+                      - cell "Venue checklists" [ref=e907]:
+                        - strong [ref=e908]: Venue checklists
+                      - cell "NeurIPS/ICML/ICLR/ACL-specific checks before delivery" [ref=e909]
+                - generic [ref=e910]:
+                  - heading "3-Layer Judge in Action" [level=2] [ref=e911]
+                  - 'link "Permalink: 3-Layer Judge in Action" [ref=e912] [cursor=pointer]':
+                    - /url: "#3-layer-judge-in-action"
+                    - img [ref=e913]
+                - paragraph [ref=e915]: Every stage passes through a judge before advancing. The judge doesn't just check boxes — it reasons from first principles.
+                - generic [ref=e916]:
+                  - code [ref=e918]: "S2 just completed. Judge evaluating... Layer 1 (deterministic): ✓ EXPERIMENT_PLAN.md exists ✓ experiment_tree.json has 8 nodes ✓ Each node has id, approach, success_metric Layer 2 (content quality): ✓ Hypotheses are genuinely different ✓ Multi-perspective debate includes real criticism ✗ Baseline list missing DenseFormer — important competitor Layer 3 (first-principles): ✗ \"All experiments use LLaMA only. A benchmark claim at NeurIPS requires ≥2 architectures to demonstrate generalizability.\" ✗ \"H3 states 'AttnRes underperforms on dense models' as fact, but evidence_basis is speculative. Reframe as question.\" ⚠ \"Budget: 16 nodes × 500M tokens = 43 GPU-hours for screening alone. 200M tokens would suffice and leave room for ablations.\" Result: RETRY Guidance: \"Add second architecture (e.g., Pythia). Reframe H3 as question. Reduce screening to 200M tokens.\""
+                  - button "Copy" [ref=e920] [cursor=pointer]:
+                    - img [ref=e921]
+                - paragraph [ref=e924]: Without Layer 3, this stage would have passed — the files exist, the counts are right. But the research design had fundamental problems that would have wasted 43 GPU-hours and produced a paper no reviewer would accept.
+                - generic [ref=e925]:
+                  - heading "Risk Prediction" [level=2] [ref=e926]
+                  - 'link "Permalink: Risk Prediction" [ref=e927] [cursor=pointer]':
+                    - /url: "#risk-prediction"
+                    - img [ref=e928]
+                - paragraph [ref=e930]: "When working on cutting-edge topics, CC proactively watches for:"
+                - table [ref=e932]:
+                  - rowgroup [ref=e933]:
+                    - row "Risk CC's Response" [ref=e934]:
+                      - columnheader "Risk" [ref=e935]
+                      - columnheader "CC's Response" [ref=e936]
+                  - rowgroup [ref=e937]:
+                    - row "Paper too new for Semantic Scholar Falls back to web search, broadens to related fields" [ref=e938]:
+                      - cell "Paper too new for Semantic Scholar" [ref=e939]
+                      - cell "Falls back to web search, broadens to related fields" [ref=e940]
+                    - row "Not enough papers for 30-citation threshold Supplements with adjacent literature" [ref=e941]:
+                      - cell "Not enough papers for 30-citation threshold" [ref=e942]
+                      - cell "Supplements with adjacent literature" [ref=e943]
+                    - row "Experiments exceed GPU budget Adjusts batch size, reduces model scale, or stops early" [ref=e944]:
+                      - cell "Experiments exceed GPU budget" [ref=e945]
+                      - cell "Adjusts batch size, reduces model scale, or stops early" [ref=e946]
+                    - row "Citation format mismatch Fixes validation regex, re-verifies" [ref=e947]:
+                      - cell "Citation format mismatch" [ref=e948]
+                      - cell "Fixes validation regex, re-verifies" [ref=e949]
+                    - row "API errors mid-pipeline Retries with exponential backoff, or resumes from checkpoint" [ref=e950]:
+                      - cell "API errors mid-pipeline" [ref=e951]
+                      - cell "Retries with exponential backoff, or resumes from checkpoint" [ref=e952]
+                - paragraph [ref=e953]:
+                  - strong [ref=e954]: Optional MCP servers
+                  - text: "for enhanced paper search:"
+                - generic [ref=e955]:
+                  - generic [ref=e956]: claude mcp add semantic-scholar -- npx -y <semantic-scholar-mcp-package>
+                  - button "Copy" [ref=e958] [cursor=pointer]:
+                    - img [ref=e959]
+                - generic [ref=e962]:
+                  - heading "What It Produces" [level=2] [ref=e963]
+                  - 'link "Permalink: What It Produces" [ref=e964] [cursor=pointer]':
+                    - /url: "#what-it-produces"
+                    - img [ref=e965]
+                - generic [ref=e967]:
+                  - code [ref=e969]: "DELIVERY/ paper.pdf # Peer-review-quality paper code/src/ # Clean implementation code/requirements.txt # Dependencies results/ # Experiment tree, metrics, figures reviews/ # All reviewer feedback DELIVERY.md # Summary for human review"
+                  - button "Copy" [ref=e971] [cursor=pointer]:
+                    - img [ref=e972]
+                - generic [ref=e975]:
+                  - heading "Acknowledgments" [level=2] [ref=e976]
+                  - 'link "Permalink: Acknowledgments" [ref=e977] [cursor=pointer]':
+                    - /url: "#acknowledgments"
+                    - img [ref=e978]
+                - paragraph [ref=e980]: "Design informed by:"
+                - list [ref=e981]:
+                  - listitem [ref=e982]:
+                    - link "ARIS" [ref=e983] [cursor=pointer]:
+                      - /url: https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep
+                    - text: — cross-model review, state-persistent loops
+                  - listitem [ref=e984]:
+                    - link "Sibyl" [ref=e985] [cursor=pointer]:
+                      - /url: https://github.com/Sibyl-Research-Team/sibyl-research-system
+                    - text: — multi-perspective debate, self-healing
+                  - listitem [ref=e986]:
+                    - link "GPT-Researcher" [ref=e987] [cursor=pointer]:
+                      - /url: https://github.com/assafelovic/gpt-researcher
+                    - text: — multi-source aggregation
+                  - listitem [ref=e988]:
+                    - link "AgentInfra" [ref=e989] [cursor=pointer]:
+                      - /url: https://github.com/JayCheng113/AgentInfra
+                    - text: — .ai/ persistent knowledge layer
+                  - listitem [ref=e990]:
+                    - link "Orchestra Research" [ref=e991] [cursor=pointer]:
+                      - /url: https://github.com/orchestra-research/ai-research-skills
+                    - text: — citation verification, venue checklists
+                  - listitem [ref=e992]:
+                    - link "LaTeX Document Skill" [ref=e993] [cursor=pointer]:
+                      - /url: https://github.com/ndpvt-web/latex-document-skill
+                    - text: — LaTeX debugging patterns, long-form best practices
+                  - listitem [ref=e994]:
+                    - link "Academic Writing Skills" [ref=e995] [cursor=pointer]:
+                      - /url: https://github.com/bahayonghang/academic-writing-skills
+                    - text: — academic style guide, common writing errors
+                  - listitem [ref=e996]:
+                    - link "Antigravity Awesome Skills" [ref=e997] [cursor=pointer]:
+                      - /url: https://github.com/sickn33/antigravity-awesome-skills
+                    - text: — incremental build-verify, coding practices, TDD principles
+                - generic [ref=e998]:
+                  - heading "License" [level=2] [ref=e999]
+                  - 'link "Permalink: License" [ref=e1000] [cursor=pointer]':
+                    - /url: "#license"
+                    - img [ref=e1001]
+                - paragraph [ref=e1003]: MIT
+        - generic [ref=e1007]:
+          - generic [ref=e1010]:
+            - heading "About" [level=2] [ref=e1011]
+            - paragraph [ref=e1012]: "InfiEpisteme 📜 — Talk to Claude Code, get a research paper. 19 Markdown skills orchestrate the full pipeline: literature survey → ideation → experiments → writing → cross-model review. No framework, no lock-in — pure .md skills runnable by any LLM agent."
+            - heading "Topics" [level=3] [ref=e1013]
+            - generic [ref=e1015]:
+              - link "machine-learning" [ref=e1016] [cursor=pointer]:
+                - /url: /topics/machine-learning
+              - link "deep-learning" [ref=e1017] [cursor=pointer]:
+                - /url: /topics/deep-learning
+              - link "paper-writing" [ref=e1018] [cursor=pointer]:
+                - /url: /topics/paper-writing
+              - link "paper-review" [ref=e1019] [cursor=pointer]:
+                - /url: /topics/paper-review
+              - link "ai-research" [ref=e1020] [cursor=pointer]:
+                - /url: /topics/ai-research
+              - link "autonomous-research" [ref=e1021] [cursor=pointer]:
+                - /url: /topics/autonomous-research
+              - link "experiment-automation" [ref=e1022] [cursor=pointer]:
+                - /url: /topics/experiment-automation
+              - link "llm" [ref=e1023] [cursor=pointer]:
+                - /url: /topics/llm
+              - link "research-automation" [ref=e1024] [cursor=pointer]:
+                - /url: /topics/research-automation
+              - link "claude-code" [ref=e1025] [cursor=pointer]:
+                - /url: /topics/claude-code
+            - heading "Resources" [level=3] [ref=e1026]
+            - link "Readme" [ref=e1028] [cursor=pointer]:
+              - /url: "#readme-ov-file"
+              - img [ref=e1029]
+              - text: Readme
+            - heading "License" [level=3] [ref=e1031]
+            - link "MIT license" [ref=e1033] [cursor=pointer]:
+              - /url: "#MIT-1-ov-file"
+              - img [ref=e1034]
+              - text: MIT license
+            - link "Activity" [ref=e1037] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/activity
+              - img [ref=e1038]
+              - text: Activity
+            - heading "Stars" [level=3] [ref=e1040]
+            - link "0 stars" [ref=e1042] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/stargazers
+              - img [ref=e1043]
+              - strong [ref=e1045]: "0"
+              - text: stars
+            - heading "Watchers" [level=3] [ref=e1046]
+            - link "0 watching" [ref=e1048] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/watchers
+              - img [ref=e1049]
+              - strong [ref=e1051]: "0"
+              - text: watching
+            - heading "Forks" [level=3] [ref=e1052]
+            - link "0 forks" [ref=e1054] [cursor=pointer]:
+              - /url: /JayCheng113/InfiEpisteme/forks
+              - img [ref=e1055]
+              - strong [ref=e1057]: "0"
+              - text: forks
+            - link "Report repository" [ref=e1059] [cursor=pointer]:
+              - /url: /contact/report-content?content_url=https%3A%2F%2Fgithub.com%2FJayCheng113%2FInfiEpisteme&report=JayCheng113+%28user%29
+          - generic [ref=e1061]:
+            - heading "Releases" [level=2] [ref=e1062]:
+              - link "Releases" [ref=e1063] [cursor=pointer]:
+                - /url: /JayCheng113/InfiEpisteme/releases
+            - generic [ref=e1064]: No releases published
+          - generic "Loading latest packages" [ref=e1067]:
+            - heading "Packages" [level=2] [ref=e1068]:
+              - link "Packages" [ref=e1069] [cursor=pointer]:
+                - /url: /users/JayCheng113/packages?repo_name=InfiEpisteme
+          - generic "Loading contributors" [ref=e1081]:
+            - generic:
+              - heading "Contributors" [level=2] [ref=e1082]:
+                - link "Contributors" [ref=e1083] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiEpisteme/graphs/contributors
+              - list [ref=e1084]:
+                - listitem [ref=e1085]
+                - listitem [ref=e1087]
+                - listitem [ref=e1089]
+          - generic [ref=e1092]:
+            - heading "Languages" [level=2] [ref=e1093]
+            - list [ref=e1099]:
+              - listitem [ref=e1100]:
+                - link "Python 81.0%" [ref=e1101] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiEpisteme/search?l=python
+                  - img [ref=e1102]
+                  - generic [ref=e1104]: Python
+                  - generic [ref=e1105]: 81.0%
+              - listitem [ref=e1106]:
+                - link "Shell 13.2%" [ref=e1107] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiEpisteme/search?l=shell
+                  - img [ref=e1108]
+                  - generic [ref=e1110]: Shell
+                  - generic [ref=e1111]: 13.2%
+              - listitem [ref=e1112]:
+                - link "TeX 5.8%" [ref=e1113] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiEpisteme/search?l=tex
+                  - img [ref=e1114]
+                  - generic [ref=e1116]: TeX
+                  - generic [ref=e1117]: 5.8%
+  - contentinfo [ref=e1119]:
+    - heading "Footer" [level=2] [ref=e1120]
+    - generic [ref=e1121]:
+      - generic [ref=e1122]:
+        - link "GitHub Homepage" [ref=e1123] [cursor=pointer]:
+          - /url: https://github.com
+          - img [ref=e1124]
+        - generic [ref=e1126]: © 2026 GitHub, Inc.
+      - navigation "Footer" [ref=e1127]:
+        - heading "Footer navigation" [level=3] [ref=e1128]
+        - list "Footer navigation" [ref=e1129]:
+          - listitem [ref=e1130]:
+            - link "Terms" [ref=e1131] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+          - listitem [ref=e1132]:
+            - link "Privacy" [ref=e1133] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+          - listitem [ref=e1134]:
+            - link "Security" [ref=e1135] [cursor=pointer]:
+              - /url: https://github.com/security
+          - listitem [ref=e1136]:
+            - link "Status" [ref=e1137] [cursor=pointer]:
+              - /url: https://www.githubstatus.com/
+          - listitem [ref=e1138]:
+            - link "Community" [ref=e1139] [cursor=pointer]:
+              - /url: https://github.community/
+          - listitem [ref=e1140]:
+            - link "Docs" [ref=e1141] [cursor=pointer]:
+              - /url: https://docs.github.com/
+          - listitem [ref=e1142]:
+            - link "Contact" [ref=e1143] [cursor=pointer]:
+              - /url: https://support.github.com?tags=dotcom-footer
+          - listitem [ref=e1144]:
+            - button "Manage cookies" [ref=e1146] [cursor=pointer]
+          - listitem [ref=e1147]:
+            - button "Do not share my personal information" [ref=e1149] [cursor=pointer]

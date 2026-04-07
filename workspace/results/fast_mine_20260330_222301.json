@@ -1,0 +1,165 @@
+{
+  "timestamp": "2026-03-30T14:23:01.745035+00:00",
+  "total_time_s": 12.5,
+  "preload_time_s": 0.2,
+  "combos_tested": 270,
+  "cache_hits": 0,
+  "results_found": 63,
+  "top_10": [
+    {
+      "pair": "ADA/USDT/AVAX/USDT",
+      "lb": 40,
+      "ez": 2.5,
+      "xz": 0.5,
+      "profit": 8.85,
+      "sharpe": 1.29,
+      "pw": 3,
+      "windows": [
+        14.29,
+        27.42,
+        -10.04,
+        3.73
+      ]
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "xz": 0.5,
+      "profit": 7.4,
+      "sharpe": 1.83,
+      "pw": 3,
+      "windows": [
+        17.1,
+        13.44,
+        -2.37,
+        1.43
+      ]
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.5,
+      "xz": 0.7,
+      "profit": 6.34,
+      "sharpe": 0.94,
+      "pw": 3,
+      "windows": [
+        18.76,
+        18.73,
+        1.24,
+        -13.37
+      ]
+    },
+    {
+      "pair": "DOT/USDT/LINK/USDT",
+      "lb": 60,
+      "ez": 2.5,
+      "xz": 0.7,
+      "profit": 6.02,
+      "sharpe": 3.88,
+      "pw": 4,
+      "windows": [
+        6.79,
+        9.56,
+        6.69,
+        1.04
+      ]
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "xz": 0.5,
+      "profit": 5.72,
+      "sharpe": 0.66,
+      "pw": 3,
+      "windows": [
+        17.23,
+        18.43,
+        10.96,
+        -23.73
+      ]
+    },
+    {
+      "pair": "DOGE/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 3.0,
+      "xz": 0.5,
+      "profit": 5.61,
+      "sharpe": 1.29,
+      "pw": 3,
+      "windows": [
+        6.27,
+        2.84,
+        18.76,
+        -5.44
+      ]
+    },
+    {
+      "pair": "ETH/USDT/SOL/USDT",
+      "lb": 60,
+      "ez": 3.0,
+      "xz": 0.5,
+      "profit": 3.49,
+      "sharpe": 1.32,
+      "pw": 2,
+      "windows": [
+        11.85,
+        4.1,
+        -0.24,
+        -1.73
+      ]
+    },
+    {
+      "pair": "ADA/USDT/AVAX/USDT",
+      "lb": 60,
+      "ez": 2.5,
+      "xz": 0.7,
+      "profit": 3.48,
+      "sharpe": 1.17,
+      "pw": 2,
+      "windows": [
+        12.49,
+        -0.4,
+        4.91,
+        -3.09
+      ]
+    },
+    {
+      "pair": "DOT/USDT/LINK/USDT",
+      "lb": 60,
+      "ez": 3.0,
+      "xz": 0.5,
+      "profit": 3.4,
+      "sharpe": 1.41,
+      "pw": 3,
+      "windows": [
+        1.47,
+        11.47,
+        1.96,
+        -1.31
+      ]
+    },
+    {
+      "pair": "DOT/USDT/LINK/USDT",
+      "lb": 100,
+      "ez": 3.0,
+      "xz": 0.5,
+      "profit": 3.14,
+      "sharpe": 0.66,
+      "pw": 2,
+      "windows": [
+        3.37,
+        18.67,
+        -4.8,
+        -4.66
+      ]
+    }
+  ],
+  "best": {
+    "pair": "ADA/USDT/AVAX/USDT",
+    "profit": 8.85,
+    "sharpe": 1.29
+  }
+}

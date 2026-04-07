@@ -1,0 +1,69 @@
+[2026-04-07 17:57:12,305] INFO - Agent Flow log file: /Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_matrix_20260407-093931/agent_flow_20260407-175712.log
+[2026-04-07 17:57:12,306] INFO - [FLOW] RUN_ID d970a9485368
+[2026-04-07 17:57:12,306] INFO - [FLOW] STEP_START micro_feature
+[2026-04-07 17:57:12,306] INFO - [FLOW] PHASE micro_feature prepare
+[2026-04-07 17:57:12,306] INFO - [FLOW] PHASE micro_feature execute
+[2026-04-07 17:57:12,472] INFO - NumExpr defaulting to 8 threads.
+[2026-04-07 17:57:12,696] INFO - [FLOW] PHASE micro_feature summarize
+[2026-04-07 17:57:12,696] INFO - [FLOW] STEP_OK micro_feature
+[2026-04-07 17:57:12,696] INFO - [FLOW] STEP_START factor_compile
+[2026-04-07 17:57:12,696] INFO - [FLOW] PHASE factor_compile prepare
+[2026-04-07 17:57:12,696] INFO - [FLOW] PHASE factor_compile execute
+[2026-04-07 17:57:12,697] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_compile.py --spec /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/factor_compile/input_factor_spec.json --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/factor_compile
+[2026-04-07 17:57:12,812] INFO - [FLOW] PHASE factor_compile summarize
+[2026-04-07 17:57:12,812] INFO - [FLOW] STEP_OK factor_compile
+[2026-04-07 17:57:12,812] INFO - [FLOW] STEP_START factor_eval
+[2026-04-07 17:57:12,812] INFO - [FLOW] PHASE factor_eval prepare
+[2026-04-07 17:57:12,813] INFO - [FLOW] PHASE factor_eval execute
+[2026-04-07 17:57:12,814] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_eval.py --expression-path /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/factor_compile/compiled_expression.txt --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/factor_eval --rows 4096 --seed 7 --features-parquet /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/micro_feature/features.parquet
+[2026-04-07 17:57:13,340] INFO - [FLOW] PHASE factor_eval summarize
+[2026-04-07 17:57:13,340] INFO - [FLOW] STEP_OK factor_eval
+[2026-04-07 17:57:13,340] INFO - [FLOW] STEP_START strategy_miner
+[2026-04-07 17:57:13,340] INFO - [FLOW] PHASE strategy_miner prepare
+[2026-04-07 17:57:13,340] INFO - [FLOW] PHASE strategy_miner execute
+[2026-04-07 17:57:13,406] INFO - Starting new mining run: run_id=d970a9485368
+[2026-04-07 17:57:13,417] INFO - Loaded global strategy knowledge base: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/strategy_memory/knowledge_base.json
+[2026-04-07 17:57:13,690] INFO - Backfilled global strategy knowledge base: runs=101 merged=101 strategy_cards +0 => 277, failure_cards +0 => 300
+[2026-04-07 17:57:13,713] INFO - Starting deep strategy research pipeline...
+[2026-04-07 17:57:16,625] INFO - R0 Market Regime: trending_down (2.6s)
+[2026-04-07 17:57:17,534] INFO - arXiv [rl_trading]: found 3 papers
+[2026-04-07 17:57:18,353] INFO - arXiv [dl_prediction]: found 3 papers
+[2026-04-07 17:57:19,186] INFO - arXiv [ml_features]: found 3 papers
+[2026-04-07 17:57:19,992] INFO - arXiv [alpha_mining]: found 3 papers
+[2026-04-07 17:57:20,906] INFO - arXiv [quant_strategy]: found 3 papers
+[2026-04-07 17:57:20,906] INFO - R1 Literature: found 15 papers across 5 topics (4.3s)
+[2026-04-07 17:57:20,906] INFO - R2 Blueprints: generated 5 blueprints (0.0s)
+[2026-04-07 17:57:20,906] INFO - Deep research complete: regime=trending_down, papers=15, blueprints=5 (7.2s total)
+[2026-04-07 17:57:20,907] INFO - Deep research saved to /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/strategy_miner/deep_research.json
+[2026-04-07 17:57:20,907] INFO - === Iteration 0 | Phase strategy_gen ===
+[2026-04-07 17:57:20,907] INFO - Bandit selected families: ['ml/lightgbm']
+[2026-04-07 17:57:22,291] INFO - Market research completed in 1.4s (5 sources)
+[2026-04-07 17:57:22,292] INFO - Market research injected (938 chars)
+[2026-04-07 17:57:22,295] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/factor_memory/factor_memory.json
+[2026-04-07 17:57:22,298] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/factor_memory/factor_memory.json
+[2026-04-07 17:57:22,298] INFO - Phase STRATEGY_GEN: iteration=0 generating 1 candidates (candidate_workers=1 role_workers=1)
+[2026-04-07 17:57:22,302] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 17:57:25,363] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 17:57:49,415] INFO - Generated 1 candidates for iteration 0
+[2026-04-07 17:57:49,417] INFO - === Iteration 0 | Phase train_model ===
+[2026-04-07 17:57:54,635] INFO - === Iteration 0 | Phase backtest ===
+[2026-04-07 17:57:54,710] INFO - Compliance auto-fix applied for FiveMinBreakoutVolLGBMReg0Cand0: fix_stoploss
+[2026-04-07 17:57:56,934] INFO - Phase BACKTEST: running freqtrade backtesting for FiveMinBreakoutVolLGBMReg0Cand0 (attempt 0/10)
+[2026-04-07 17:58:01,314] INFO - Backtest completed: profit=15.56% trades=411
+[2026-04-07 17:58:01,316] INFO - === Iteration 0 | Phase evaluation ===
+[2026-04-07 17:58:01,316] INFO - Phase EVALUATION: FiveMinBreakoutVolLGBMReg0Cand0 sharpe=0.7504 native_sharpe=413.6040 sortino=33.9168 native_sortino=498.2615 calmar=15.5600 native_calmar=10461.7181 profit_factor=20.1978 profit=15.56% trades=411 winrate=0.8978 pos_days=0.79 max_dd=0.11% rod=15.5600 sqn=28.7973 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+[2026-04-07 17:58:01,316] INFO - New best candidate: FiveMinBreakoutVolLGBMReg0Cand0 with effective_sharpe=3.1703 (score_sharpe=0.7504, native_sharpe=413.6040, trades=411)
+[2026-04-07 17:58:01,330] INFO - === Iteration 0 | Phase analysis ===
+[2026-04-07 17:58:03,718] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d970a9485368/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 17:58:25,601] INFO - Phase ANALYSIS complete: 回测显示高胜率、高利润因子与稳定收益，但异常高的PF/Sortino与较低的Sharpe以及样本规模限制提示存在过拟合或摩擦未建模风险；优先在搜索层面扩展特征/模型并严格加入摩擦与时间序列验证以检验真实稳健性。
+[2026-04-07 17:58:25,669] INFO - No holdout_timerange configured, skipping sealed holdout
+[2026-04-07 17:58:25,956] INFO - Mining complete: run_id=d970a9485368 iterations=0 best_sharpe=3.1703 best_profit=15.56%
+[2026-04-07 17:58:25,956] INFO - Best strategy: FiveMinBreakoutVolLGBMReg0Cand0 (sharpe=3.1703)
+[2026-04-07 17:58:25,961] INFO - [FLOW] PHASE strategy_miner summarize
+[2026-04-07 17:58:25,961] INFO - [FLOW] STEP_OK strategy_miner
+[2026-04-07 17:58:25,961] INFO - [FLOW] STEP_START report
+[2026-04-07 17:58:25,961] INFO - [FLOW] PHASE report prepare
+[2026-04-07 17:58:25,961] INFO - [FLOW] PHASE report execute
+[2026-04-07 17:58:26,226] INFO - [FLOW] PHASE report summarize
+[2026-04-07 17:58:26,226] INFO - [FLOW] STEP_OK report
+[2026-04-07 17:58:28,421] INFO - [FLOW] META_OK artifacts/run_meta.json

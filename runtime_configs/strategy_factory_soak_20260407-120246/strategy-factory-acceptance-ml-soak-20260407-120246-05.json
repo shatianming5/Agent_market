@@ -1,0 +1,165 @@
+{
+  "experiment": {
+    "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-120246-05",
+    "owner": "shatianming",
+    "hypothesis": "Soak run 6/10: verify end-to-end stability under PYTHONPATH shadowing and provider flakes.",
+    "budget": {
+      "micro_feature": {
+        "cpu_minutes": 8
+      },
+      "factor_compile": {
+        "cpu_minutes": 2
+      },
+      "factor_eval": {
+        "cpu_minutes": 6
+      },
+      "strategy_miner": {
+        "llm_budget_usd": 20,
+        "backtest_cpu_minutes": 45
+      },
+      "report": {
+        "cpu_minutes": 2
+      }
+    }
+  },
+  "micro_feature": {
+    "config": "user_data/config_freqai_gate_5m.json",
+    "timeframe": "5m",
+    "pairs": [
+      "AVAX/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "timerange": "20260301-20260329"
+  },
+  "factor_compile": {
+    "spec": {
+      "name": "acceptance_breakout_range_vol",
+      "version": "1.0",
+      "hypothesis": "Intraday breakout expansion factor combining range expansion and abnormal volume.",
+      "expr": {
+        "op": "mul",
+        "args": [
+          {
+            "op": "zscore",
+            "args": [
+              {
+                "op": "var",
+                "args": [
+                  "range_pct"
+                ]
+              },
+              24
+            ]
+          },
+          {
+            "op": "tanh",
+            "args": [
+              {
+                "op": "zscore",
+                "args": [
+                  {
+                    "op": "var",
+                    "args": [
+                      "vol_z_24"
+                    ]
+                  },
+                  24
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "meta": {
+        "timeframe": "5m",
+        "universe": [
+          "AVAX/USDT",
+          "BTC/USDT",
+          "DOGE/USDT",
+          "ETH/USDT",
+          "SOL/USDT",
+          "XRP/USDT"
+        ],
+        "data_sources": [
+          "ohlcv_micro_features"
+        ]
+      }
+    }
+  },
+  "factor_eval": {
+    "enabled": true,
+    "rows": 4096,
+    "seed": 7
+  },
+  "strategy_miner": {
+    "provider": "opencode",
+    "model": "github-copilot/gpt-5-mini",
+    "multiagent_enabled": false,
+    "multiagent_refine_rounds": 0,
+    "freqtrade_config": "user_data/config_freqai_gate_5m.json",
+    "timerange": "20260301-20260329",
+    "candidates_per_iteration": 1,
+    "max_iterations": 1,
+    "max_turns": 24,
+    "max_retries": 3,
+    "stale_timeout": 180.0,
+    "repair_attempts": 4,
+    "max_parallel_candidates": 1,
+    "max_parallel_roles": 1,
+    "backtest_timeout": 420,
+    "enable_quick_funnel": false,
+    "candidate_types": [
+      "ml"
+    ],
+    "search_families": [
+      "ml/lightgbm"
+    ],
+    "model_training_pairs": [
+      "AVAX/USDT",
+      "BTC/USDT",
+      "DOGE/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "XRP/USDT"
+    ],
+    "factor_retrieval_top_n": 5,
+    "strategy_retrieval_top_n": 5,
+    "strategy_retrieval_recent_n": 1,
+    "max_strategy_timeframe": "15m",
+    "allowed_informative_timeframes": [
+      "15m"
+    ],
+    "min_trades": 150,
+    "trade_calibration_attempts": 10,
+    "max_abs_drawdown": 80.0,
+    "min_winrate": 0.55,
+    "min_profit_factor": 1.15,
+    "target_trades": 300,
+    "min_acceptable_trades": 100,
+    "roi_target_min_pct": 0.3,
+    "roi_target_max_pct": 1.0,
+    "stoploss_min_pct": 0.8,
+    "stoploss_max_pct": 1.5,
+    "strategy_profile": {
+      "max_strategy_timeframe": "15m",
+      "allowed_informative_timeframes": [
+        "15m"
+      ],
+      "preferred_patterns": [
+        "5m intraday classification or regression signals with explicit fee awareness",
+        "5m entries with 15m trend or volatility regime filters",
+        "setups that target 200-600 trades over one month across six pairs"
+      ],
+      "avoid_patterns": [
+        "1h swing strategies",
+        "slow multi-day holding assumptions",
+        "strategies that ignore fee drag or max-hold logic"
+      ]
+    }
+  },
+  "report": {}
+}

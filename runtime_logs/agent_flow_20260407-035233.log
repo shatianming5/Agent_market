@@ -1,0 +1,30 @@
+[2026-04-07 03:52:33,342] INFO - Agent Flow log file: /Users/shatianming/Downloads/Agent_market/runtime_logs/agent_flow_20260407-035233.log
+[2026-04-07 03:52:33,343] INFO - [FLOW] RUN_ID f8b4292fbd62
+[2026-04-07 03:52:33,343] INFO - [FLOW] STEP_START feature
+[2026-04-07 03:52:33,343] INFO - [FLOW] PHASE feature prepare
+[2026-04-07 03:52:33,343] INFO - [FLOW] PHASE feature execute
+[2026-04-07 03:52:33,343] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/freqai_feature_agent.py --config user_data/config_freqai_kucoin.json --output user_data/freqai_features_real.json
+[2026-04-07 03:52:33,422] INFO - [FLOW] PHASE feature summarize
+[2026-04-07 03:52:33,422] INFO - [FLOW] STEP_OK feature
+[2026-04-07 03:52:33,422] INFO - [FLOW] STEP_START expression
+[2026-04-07 03:52:33,422] INFO - [FLOW] PHASE expression prepare
+[2026-04-07 03:52:33,422] INFO - [FLOW] PHASE expression execute
+[2026-04-07 03:52:33,422] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/freqai_expression_agent.py --config user_data/config_freqai_kucoin.json --output user_data/freqai_expressions_selected.json --timeframe 1h --mine --top-n 12 --llm-enabled --llm-provider opencode --llm-model github-copilot/gpt-5-mini --llm-workspace . --llm-count 12 --llm-loops 2 --llm-max-turns 10 --llm-temperature 0.2
+[2026-04-07 03:53:36,662] INFO - [FLOW] PHASE expression summarize
+[2026-04-07 03:53:36,662] INFO - [FLOW] STEP_OK expression
+[2026-04-07 03:53:36,663] INFO - [FLOW] STEP_START ml
+[2026-04-07 03:53:36,663] INFO - [FLOW] PHASE ml prepare
+[2026-04-07 03:53:36,663] INFO - [FLOW] PHASE ml execute
+[2026-04-07 03:53:38,440] INFO - NumExpr defaulting to 8 threads.
+[2026-04-07 03:53:40,411] INFO - Starting ML training job 1/1 with model=lightgbm
+[2026-04-07 03:53:41,588] INFO - [FLOW] PHASE ml summarize
+[2026-04-07 03:53:41,589] INFO - [FLOW] STEP_OK ml
+[2026-04-07 03:53:41,589] INFO - [FLOW] STEP_START backtest
+[2026-04-07 03:53:41,589] INFO - [FLOW] PHASE backtest prepare
+[2026-04-07 03:53:41,590] INFO - [FLOW] PHASE backtest execute
+[2026-04-07 03:53:41,590] INFO - Skipping RL signal generation (generate_rl_signals=false)
+[2026-04-07 03:53:41,590] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/freqtrade_cli.py backtesting --userdir /Users/shatianming/Downloads/Agent_market/user_data --config /Users/shatianming/Downloads/Agent_market/user_data/config_freqai_kucoin.json --strategy ExpressionLongStrategy --strategy-path /Users/shatianming/Downloads/Agent_market/user_data/strategies --timerange 20251126-20260125 --cache none
+[2026-04-07 03:53:48,820] INFO - Backtest summary written to /Users/shatianming/Downloads/Agent_market/user_data/llm_feedback/latest_backtest_summary.json
+[2026-04-07 03:53:48,821] INFO - [FLOW] PHASE backtest summarize
+[2026-04-07 03:53:48,821] INFO - [FLOW] STEP_OK backtest
+[2026-04-07 03:53:51,627] INFO - [FLOW] META_OK artifacts/run_meta.json

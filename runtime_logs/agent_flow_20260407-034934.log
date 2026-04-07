@@ -1,0 +1,12 @@
+[2026-04-07 03:49:34,066] INFO - Agent Flow log file: /Users/shatianming/Downloads/Agent_market/runtime_logs/agent_flow_20260407-034934.log
+[2026-04-07 03:49:34,067] INFO - [FLOW] RUN_ID dcc2d689af3f
+[2026-04-07 03:49:34,067] INFO - [FLOW] STEP_START feature
+[2026-04-07 03:49:34,067] INFO - [FLOW] PHASE feature prepare
+[2026-04-07 03:49:34,067] INFO - [FLOW] PHASE feature execute
+[2026-04-07 03:49:34,067] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/freqai_feature_agent.py --config user_data/config_freqai_kucoin.json --output user_data/freqai_features_real.json
+[2026-04-07 03:49:34,141] INFO - [FLOW] PHASE feature summarize
+[2026-04-07 03:49:34,141] INFO - [FLOW] STEP_OK feature
+[2026-04-07 03:49:34,141] INFO - [FLOW] STEP_START expression
+[2026-04-07 03:49:34,141] INFO - [FLOW] PHASE expression prepare
+[2026-04-07 03:49:34,141] INFO - [FLOW] PHASE expression execute
+[2026-04-07 03:49:34,141] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/freqai_expression_agent.py --config user_data/config_freqai_kucoin.json --output user_data/freqai_expressions_selected.json --timeframe 1h --mine --top-n 40 --llm-enabled --llm-provider opencode --llm-model gpt-5.2 --llm-workspace . --llm-count 40 --llm-loops 3 --llm-max-turns 12 --llm-temperature 0.25

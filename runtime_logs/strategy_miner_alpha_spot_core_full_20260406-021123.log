@@ -1,0 +1,392 @@
+2026-04-06 02:11:23,964 root INFO Loaded config from /Users/shatianming/Downloads/Agent_market/configs/strategy_miner_alpha_spot_core.json
+2026-04-06 02:11:23,964 agent_market.strategy_miner.runner INFO Starting new mining run: run_id=16bfe7c63054
+2026-04-06 02:11:23,973 agent_market.strategy_miner.deep_research INFO Starting deep strategy research pipeline...
+2026-04-06 02:11:28,158 agent_market.strategy_miner.deep_research INFO R0 Market Regime: trending_down (3.7s)
+2026-04-06 02:11:29,732 agent_market.strategy_miner.research INFO arXiv [rl_trading]: found 3 papers
+2026-04-06 02:11:30,691 agent_market.strategy_miner.research INFO arXiv [dl_prediction]: found 3 papers
+2026-04-06 02:11:32,653 agent_market.strategy_miner.research INFO arXiv [ml_features]: found 3 papers
+2026-04-06 02:11:35,509 agent_market.strategy_miner.research INFO arXiv [alpha_mining]: found 3 papers
+2026-04-06 02:11:42,365 agent_market.strategy_miner.research INFO arXiv [quant_strategy]: found 3 papers
+2026-04-06 02:11:42,367 agent_market.strategy_miner.deep_research INFO R1 Literature: found 15 papers across 5 topics (14.2s)
+2026-04-06 02:11:42,368 agent_market.strategy_miner.deep_research INFO R2 Blueprints: generated 5 blueprints (0.0s)
+2026-04-06 02:11:42,368 agent_market.strategy_miner.deep_research INFO Deep research complete: regime=trending_down, papers=15, blueprints=5 (18.4s total)
+2026-04-06 02:11:42,372 agent_market.strategy_miner.runner INFO Deep research saved to /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/deep_research.json
+2026-04-06 02:11:42,373 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase strategy_gen ===
+2026-04-06 02:11:42,375 agent_market.strategy_miner._generation INFO Bandit selected families: ['dl/pytorch_mlp', 'ml/lightgbm', 'ml/xgboost', 'rl/ppo', 'rule/basket-rotation', 'rule/trend-following']
+2026-04-06 02:11:44,250 agent_market.strategy_miner.research INFO Market research completed in 1.9s (5 sources)
+2026-04-06 02:11:44,250 agent_market.strategy_miner._generation INFO Market research injected (950 chars)
+2026-04-06 02:11:44,251 agent_market.strategy_miner._generation INFO Phase STRATEGY_GEN: iteration=0 generating 6 candidates (parallel)
+2026-04-06 02:11:44,255 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_01/model/sandbox
+2026-04-06 02:11:44,255 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/coder/sandbox
+2026-04-06 02:11:44,255 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_00/model/sandbox
+2026-04-06 02:11:44,256 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_03/model/sandbox
+2026-04-06 02:11:44,256 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_02/model/sandbox
+2026-04-06 02:11:44,257 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/coder/sandbox
+2026-04-06 02:11:44,261 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/planner/sandbox
+2026-04-06 02:11:44,264 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_02/model/sandbox
+2026-04-06 02:11:44,265 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_00/model/sandbox
+2026-04-06 02:11:44,265 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_03/model/sandbox
+2026-04-06 02:11:44,265 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/planner/sandbox
+2026-04-06 02:11:44,265 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_01/model/sandbox
+2026-04-06 02:11:44,268 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/planner/sandbox
+2026-04-06 02:11:44,268 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/planner/sandbox
+2026-04-06 02:11:47,459 agent_market.agents.executor WARNING HTTP 429 from http://127.0.0.1:4141/v1, trying next endpoint (round 1, 1/1)
+2026-04-06 02:11:47,460 agent_market.agents.executor WARNING All 1 endpoints failed (round 1/4). Waiting 10s before retry...
+2026-04-06 02:11:47,474 agent_market.agents.executor WARNING HTTP 429 from http://127.0.0.1:4141/v1, trying next endpoint (round 1, 1/1)
+2026-04-06 02:11:47,474 agent_market.agents.executor WARNING All 1 endpoints failed (round 1/4). Waiting 10s before retry...
+2026-04-06 02:11:47,485 agent_market.agents.executor WARNING HTTP 429 from http://127.0.0.1:4141/v1, trying next endpoint (round 1, 1/1)
+2026-04-06 02:11:47,485 agent_market.agents.executor WARNING All 1 endpoints failed (round 1/4). Waiting 10s before retry...
+2026-04-06 02:11:47,485 agent_market.agents.executor WARNING HTTP 429 from http://127.0.0.1:4141/v1, trying next endpoint (round 1, 1/1)
+2026-04-06 02:11:47,486 agent_market.agents.executor WARNING All 1 endpoints failed (round 1/4). Waiting 10s before retry...
+2026-04-06 02:11:50,902 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_00/model/sandbox
+2026-04-06 02:11:51,048 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_03/model/sandbox
+2026-04-06 02:12:04,575 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_01/model/sandbox
+2026-04-06 02:12:04,732 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_02/model/sandbox
+2026-04-06 02:12:06,236 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/coder/sandbox
+2026-04-06 02:12:07,784 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/coder/sandbox
+2026-04-06 02:12:41,945 agent_market.strategy_miner._generation INFO Candidate 4 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:12:41,950 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/reviewer/sandbox
+2026-04-06 02:12:41,951 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/backtester/sandbox
+2026-04-06 02:12:41,951 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/reviewer/sandbox
+2026-04-06 02:12:43,600 agent_market.agents.executor WARNING HTTP 500 from http://127.0.0.1:4141/v1, trying next endpoint (round 1, 1/1)
+2026-04-06 02:12:43,601 agent_market.agents.executor WARNING All 1 endpoints failed (round 1/4). Waiting 10s before retry...
+2026-04-06 02:13:06,141 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/backtester/sandbox
+2026-04-06 02:13:26,602 agent_market.strategy_miner._generation INFO Candidate 5 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:13:26,735 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/reviewer/sandbox
+2026-04-06 02:13:26,747 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/backtester/sandbox
+2026-04-06 02:13:26,752 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/reviewer/sandbox
+2026-04-06 02:13:32,381 agent_market.strategy_miner._generation INFO Candidate 4 re-normalized after review: strip_tool_lines,normalize_future_annotations
+2026-04-06 02:14:01,823 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/backtester/sandbox
+2026-04-06 02:14:23,644 agent_market.strategy_miner._generation INFO Candidate 5 re-normalized after review: strip_tool_lines,normalize_future_annotations
+2026-04-06 02:14:23,659 agent_market.strategy_miner._generation INFO Generated 6 candidates for iteration 0
+2026-04-06 02:14:23,668 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase train_model ===
+2026-04-06 02:14:30,580 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase backtest ===
+2026-04-06 02:14:31,031 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for IntraEdgeMLP6FastCand0, skipping hyperopt
+2026-04-06 02:14:31,034 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for IntraEdgeMLP6FastCand0 (attempt 0/0)
+2026-04-06 02:14:44,982 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-6.47% trades=511
+2026-04-06 02:14:44,994 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase evaluation ===
+2026-04-06 02:15:11,299 agent_market.strategy_miner._evaluation INFO Risk constraints violated for IntraEdgeMLP6FastCand0: ['pair:SOL/USDT profit=-2.25%', 'pair:ETH/USDT profit=-2.27%', 'pair:TOTAL profit=-6.47%', 'min_winrate:0.1566<0.42', 'min_profit_factor:0.1255<1.0', 'min_positive_days_ratio:0.0000<0.4500', 'min_return_over_drawdown:-0.9995<0.3500']
+2026-04-06 02:15:11,300 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: IntraEdgeMLP6FastCand0 sharpe=-2.3897 native_sharpe=-467.8403 sortino=-2.3897 native_sortino=-539.8273 calmar=-0.9995 native_calmar=-136.4195 profit_factor=0.1255 profit=-6.47% trades=511 winrate=0.1566 pos_days=0.00 max_dd=6.47% rod=-0.9995 sqn=-15.1511 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+2026-04-06 02:15:11,333 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase train_model ===
+2026-04-06 02:15:11,767 agent_market.strategy_miner._backtest WARNING [train_model.dependency_missing.xgboost] Missing optional dependency for model='xgboost': No module named 'xgboost'. Install with: pip install xgboost (or pip install -r requirements-full.txt)
+2026-04-06 02:15:11,770 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase train_model ===
+[FLOW] EPOCH 1/200 PROGRESS 0%
+[FLOW] EPOCH 20/200 PROGRESS 10%
+[FLOW] EPOCH 40/200 PROGRESS 20%
+[FLOW] EPOCH 60/200 PROGRESS 30%
+[FLOW] EPOCH 80/200 PROGRESS 40%
+[FLOW] EPOCH 100/200 PROGRESS 50%
+[FLOW] EPOCH 120/200 PROGRESS 60%
+[FLOW] EPOCH 140/200 PROGRESS 70%
+[FLOW] EPOCH 160/200 PROGRESS 80%
+[FLOW] EPOCH 180/200 PROGRESS 90%
+[FLOW] EPOCH 200/200 PROGRESS 100%
+2026-04-06 02:15:12,537 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase backtest ===
+2026-04-06 02:15:12,725 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for IntradayReturnLgbm12mV3Cand2, skipping hyperopt
+2026-04-06 02:15:12,725 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for IntradayReturnLgbm12mV3Cand2 (attempt 0/0)
+2026-04-06 02:15:17,045 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-1.78% trades=214
+2026-04-06 02:15:17,050 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase evaluation ===
+2026-04-06 02:15:26,398 agent_market.strategy_miner._evaluation INFO Risk constraints violated for IntradayReturnLgbm12mV3Cand2: ['min_profit_factor:0.5059<1.0', 'min_positive_days_ratio:0.0714<0.4500', 'min_return_over_drawdown:-0.9178<0.3500']
+2026-04-06 02:15:26,398 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: IntradayReturnLgbm12mV3Cand2 sharpe=-0.8035 native_sharpe=-73.4384 sortino=-0.9055 native_sortino=-89.1391 calmar=-0.9178 native_calmar=-125.1373 profit_factor=0.5059 profit=-1.78% trades=214 winrate=0.4533 pos_days=0.07 max_dd=1.94% rod=-0.9178 sqn=-3.6701 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+2026-04-06 02:15:26,402 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase train_model ===
+2026-04-06 02:15:26,908 agent_market.strategy_miner._backtest WARNING [train_model.rl.failed] PPO.__init__() got an unexpected keyword argument 'timeframe'
+2026-04-06 02:15:26,911 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase backtest ===
+2026-04-06 02:15:27,080 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for IntradayVWAPStochMACD_cand4, skipping hyperopt
+2026-04-06 02:15:27,080 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for IntradayVWAPStochMACD_cand4 (attempt 0/5)
+2026-04-06 02:15:29,992 agent_market.strategy_miner._backtest WARNING [backtest.unknown] Backtest failed (rc=1 tail=len = 20
+2026-04-06 02:15:29,207 - freqtrade.strategy.hyper - INFO - Strategy Parameter(default): vwap_dev = 0.0035
+2026-04-06 02:15:29,216 - freqtrade.data.dataprovider - INFO - Loading data for BTC/USDT 1h from 2026-02-28 00:00:00 to 2026-03-24 00:00:00
+2026-04-06 02:15:29,226 - freqtrade - ERROR - Fatal exception!
+Traceback (most recent call last):
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/main.py", line 53, in main
+    return_code = args["func"](args)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/commands/optimize_commands.py", line 61, in start_backtesting
+    backtesting.start()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1851, in start
+    min_date, max_date = self.backtest_one_strategy(strat, data, timerange)
+                         ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1761, in backtest_one_strategy
+    preprocessed = self.strategy.advise_all_indicators(data)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1749, in advise_all_indicators
+    res[pair] = self.advise_indicators(pair_data.copy(), {"pair": pair}).copy()
+                ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1811, in advise_indicators
+    dataframe = self.populate_indicators(dataframe, metadata)
+  File "/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/coder/sandbox/user_data/strategies/IntradayVWAPStochMACD_cand4.py", line 148, in 
+populate_indicators
+    ichi = ta.ichimoku(
+        high=inf["high"],
+    ...<3 lines>...
+        senkou=int(self.ichi_senkou.value),
+    )
+TypeError: ichimoku() missing 1 required positional argument: 'close'
+)
+2026-04-06 02:15:29,993 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/coder/sandbox
+2026-04-06 02:16:04,272 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for IntradayVWAPStochMACD_cand4.py: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:16:04,553 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_04/coder/sandbox
+2026-04-06 02:16:42,424 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for IntradayVWAPStochMACD_cand4.py: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:16:42,878 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for IntradayVWAPStochMACD_cand4 (attempt 2/5)
+2026-04-06 02:16:47,318 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-0.46% trades=56
+2026-04-06 02:16:47,329 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase evaluation ===
+2026-04-06 02:17:14,090 agent_market.strategy_miner._evaluation INFO Risk constraints violated for IntradayVWAPStochMACD_cand4: ['min_winrate:0.2500<0.42', 'min_profit_factor:0.4836<1.0', 'min_positive_days_ratio:0.2500<0.4500', 'min_return_over_drawdown:-0.4600<0.3500']
+2026-04-06 02:17:14,093 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: IntradayVWAPStochMACD_cand4 sharpe=-0.4254 native_sharpe=-21.4066 sortino=-0.5334 native_sortino=-39.2826 calmar=-0.4600 native_calmar=-118.7861 profit_factor=0.4836 profit=-0.46% trades=56 winrate=0.2500 pos_days=0.25 max_dd=0.53% rod=-0.4600 sqn=-2.0774 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+2026-04-06 02:17:14,106 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase backtest ===
+2026-04-06 02:17:15,708 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for VolatilitySqueezeMomentum_cand5, skipping hyperopt
+2026-04-06 02:17:15,709 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for VolatilitySqueezeMomentum_cand5 (attempt 0/5)
+2026-04-06 02:17:19,064 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-0.02% trades=9
+2026-04-06 02:17:19,068 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase evaluation ===
+2026-04-06 02:17:26,502 agent_market.strategy_miner._evaluation INFO Risk constraints violated for VolatilitySqueezeMomentum_cand5: ['min_profit_factor:0.8590<1.0', 'min_positive_days_ratio:0.2857<0.4500', 'min_return_over_drawdown:-0.0200<0.3500']
+2026-04-06 02:17:26,503 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: VolatilitySqueezeMomentum_cand5 sharpe=-0.0923 native_sharpe=-0.8636 sortino=-0.1450 native_sortino=-1.7711 calmar=-0.0200 native_calmar=-42.2310 profit_factor=0.8590 profit=-0.02% trades=9 winrate=0.4444 pos_days=0.29 max_dd=0.07% rod=-0.0200 sqn=-0.1989 flags=native_calmar_inflated (best_score=-inf)
+2026-04-06 02:17:26,508 agent_market.strategy_miner.runner INFO === Iteration 0 | Phase analysis ===
+2026-04-06 02:17:26,508 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_0/cand_05/coder/sandbox
+2026-04-06 02:17:51,206 agent_market.strategy_miner._evaluation INFO Phase ANALYSIS complete: The strategy shows sensible risk controls and regime-aware intent, but the backtest exhibits negative expectancy, sub-1 profit factor, poor risk-adjusted metrics, and effectively zero cross-pair robus
+2026-04-06 02:17:51,216 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase strategy_gen ===
+2026-04-06 02:17:51,219 agent_market.strategy_miner._generation INFO Bandit selected families: ['dl/pytorch_mlp', 'rule/trend-pullback', 'ml/lightgbm', 'rule/trend-following', 'rule/breakout', 'rule/basket-rotation']
+2026-04-06 02:17:53,165 agent_market.strategy_miner.research INFO Market research completed in 1.9s (5 sources)
+2026-04-06 02:17:53,166 agent_market.strategy_miner._generation INFO Market research injected (950 chars)
+2026-04-06 02:17:53,183 agent_market.strategy_miner._generation INFO Phase STRATEGY_GEN: iteration=1 generating 6 candidates (parallel)
+2026-04-06 02:17:53,190 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox
+2026-04-06 02:17:53,191 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_02/model/sandbox
+2026-04-06 02:17:53,191 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_00/model/sandbox
+2026-04-06 02:17:53,191 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/coder/sandbox
+2026-04-06 02:17:53,191 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/coder/sandbox
+2026-04-06 02:17:53,191 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/coder/sandbox
+2026-04-06 02:17:53,193 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_00/model/sandbox
+2026-04-06 02:17:53,193 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_02/model/sandbox
+2026-04-06 02:17:53,199 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/planner/sandbox
+2026-04-06 02:17:53,199 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/planner/sandbox
+2026-04-06 02:17:53,200 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/planner/sandbox
+2026-04-06 02:17:53,200 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/planner/sandbox
+2026-04-06 02:17:53,201 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/planner/sandbox
+2026-04-06 02:17:53,201 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/planner/sandbox
+2026-04-06 02:17:53,202 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/planner/sandbox
+2026-04-06 02:17:53,204 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/planner/sandbox
+2026-04-06 02:17:58,333 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_02/model/sandbox
+2026-04-06 02:18:01,463 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/coder/sandbox
+2026-04-06 02:18:01,466 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox
+2026-04-06 02:18:01,916 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_00/model/sandbox
+2026-04-06 02:18:02,019 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/coder/sandbox
+2026-04-06 02:18:03,101 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/coder/sandbox
+2026-04-06 02:18:25,847 agent_market.strategy_miner._generation INFO Candidate 5 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:18:25,856 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/reviewer/sandbox
+2026-04-06 02:18:25,858 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/backtester/sandbox
+2026-04-06 02:18:25,860 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/reviewer/sandbox
+2026-04-06 02:18:32,074 agent_market.strategy_miner._generation INFO Candidate 1 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:18:32,076 agent_market.strategy_miner._generation INFO Candidate 3 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:18:32,118 agent_market.strategy_miner._generation INFO Compliance auto-fix applied (gen) for candidate 1: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:18:32,121 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/reviewer/sandbox
+2026-04-06 02:18:32,121 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/reviewer/sandbox
+2026-04-06 02:18:32,123 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/backtester/sandbox
+2026-04-06 02:18:32,123 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/reviewer/sandbox
+2026-04-06 02:18:32,123 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/backtester/sandbox
+2026-04-06 02:18:32,123 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/reviewer/sandbox
+2026-04-06 02:18:37,075 agent_market.agents.executor WARNING HTTP 500 from http://127.0.0.1:4141/v1, trying next endpoint (round 1, 1/1)
+2026-04-06 02:18:37,077 agent_market.agents.executor WARNING All 1 endpoints failed (round 1/4). Waiting 10s before retry...
+2026-04-06 02:18:38,595 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_01/backtester/sandbox
+2026-04-06 02:18:58,173 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/backtester/sandbox
+2026-04-06 02:18:58,189 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/backtester/sandbox
+2026-04-06 02:19:13,806 agent_market.strategy_miner._generation INFO Candidate 3 re-normalized after review: strip_tool_lines,normalize_future_annotations
+2026-04-06 02:19:21,147 agent_market.strategy_miner._generation INFO Candidate 4 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:19:21,177 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/reviewer/sandbox
+2026-04-06 02:19:21,181 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/backtester/sandbox
+2026-04-06 02:19:21,184 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/reviewer/sandbox
+2026-04-06 02:19:22,355 agent_market.strategy_miner._generation INFO Candidate 5 re-normalized after review: strip_tool_lines,normalize_future_annotations
+2026-04-06 02:19:43,299 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/backtester/sandbox
+2026-04-06 02:20:07,601 agent_market.strategy_miner._generation INFO Candidate 4 re-normalized after review: strip_tool_lines,normalize_future_annotations
+2026-04-06 02:20:07,627 agent_market.strategy_miner._generation INFO Generated 6 candidates for iteration 1
+2026-04-06 02:20:07,654 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase train_model ===
+2026-04-06 02:20:09,999 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase backtest ===
+2026-04-06 02:20:10,194 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for IntraEdgeMLP6CCand0, skipping hyperopt
+2026-04-06 02:20:10,194 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for IntraEdgeMLP6CCand0 (attempt 0/0)
+2026-04-06 02:20:15,663 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-2.99% trades=216
+2026-04-06 02:20:15,668 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase evaluation ===
+2026-04-06 02:20:38,319 agent_market.strategy_miner._evaluation INFO Risk constraints violated for IntraEdgeMLP6CCand0: ['pair:TOTAL profit=-2.99%', 'min_winrate:0.2037<0.42', 'min_profit_factor:0.2248<1.0', 'min_positive_days_ratio:0.0000<0.4500', 'min_return_over_drawdown:-1.0016<0.3500']
+2026-04-06 02:20:38,323 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: IntraEdgeMLP6CCand0 sharpe=-1.6396 native_sharpe=-164.3625 sortino=-1.6396 native_sortino=-217.8360 calmar=-1.0016 native_calmar=-136.4641 profit_factor=0.2248 profit=-2.99% trades=216 winrate=0.2037 pos_days=0.00 max_dd=2.99% rod=-1.0016 sqn=-8.1762 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+2026-04-06 02:20:38,340 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase backtest ===
+2026-04-06 02:20:38,495 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for IntradayVWAPStochMACD_cand1, skipping hyperopt
+2026-04-06 02:20:38,496 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for IntradayVWAPStochMACD_cand1 (attempt 0/5)
+2026-04-06 02:20:41,183 agent_market.strategy_miner._backtest INFO Backtest completed: profit=0.00% trades=0
+2026-04-06 02:20:41,188 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase evaluation ===
+2026-04-06 02:20:51,037 agent_market.strategy_miner._evaluation INFO Risk constraints violated for IntradayVWAPStochMACD_cand1: ['min_trades:0<8', 'min_winrate:0.0000<0.42', 'min_profit_factor:0.0000<1.0', 'min_positive_days_ratio:0.0000<0.4500', 'min_return_over_drawdown:0.0000<0.3500']
+2026-04-06 02:20:51,037 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: IntradayVWAPStochMACD_cand1 sharpe=0.0000 native_sharpe=0.0000 sortino=0.0000 native_sortino=0.0000 calmar=0.0000 native_calmar=0.0000 profit_factor=0.0000 profit=0.00% trades=0 winrate=0.0000 pos_days=0.00 max_dd=0.00% rod=0.0000 sqn=0.0000 flags=- (best_score=-inf)
+2026-04-06 02:20:51,043 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase train_model ===
+[FLOW] EPOCH 1/200 PROGRESS 0%
+[FLOW] EPOCH 20/200 PROGRESS 10%
+[FLOW] EPOCH 40/200 PROGRESS 20%
+[FLOW] EPOCH 60/200 PROGRESS 30%
+[FLOW] EPOCH 80/200 PROGRESS 40%
+[FLOW] EPOCH 100/200 PROGRESS 50%
+[FLOW] EPOCH 120/200 PROGRESS 60%
+[FLOW] EPOCH 140/200 PROGRESS 70%
+[FLOW] EPOCH 160/200 PROGRESS 80%
+[FLOW] EPOCH 180/200 PROGRESS 90%
+[FLOW] EPOCH 200/200 PROGRESS 100%
+2026-04-06 02:20:51,772 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase backtest ===
+2026-04-06 02:20:51,950 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for LgbmIntradayReturn12mRegimeFilteredV1Cand2, skipping hyperopt
+2026-04-06 02:20:51,950 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for LgbmIntradayReturn12mRegimeFilteredV1Cand2 (attempt 0/0)
+2026-04-06 02:20:56,985 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-1.54% trades=226
+2026-04-06 02:20:56,990 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase evaluation ===
+2026-04-06 02:21:08,299 agent_market.strategy_miner._evaluation INFO Walk-forward instability penalty for LgbmIntradayReturn12mRegimeFilteredV1Cand2: std=1.7015
+2026-04-06 02:21:08,299 agent_market.strategy_miner._evaluation INFO Risk constraints violated for LgbmIntradayReturn12mRegimeFilteredV1Cand2: ['min_profit_factor:0.6266<1.0', 'min_positive_days_ratio:0.0714<0.4500', 'min_return_over_drawdown:-0.9046<0.3500']
+2026-04-06 02:21:08,300 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: LgbmIntradayReturn12mRegimeFilteredV1Cand2 sharpe=-0.7316 native_sharpe=-54.3635 sortino=-0.9299 native_sortino=-69.1906 calmar=-0.9046 native_calmar=-123.4303 profit_factor=0.6266 profit=-1.54% trades=226 winrate=0.4646 pos_days=0.07 max_dd=1.70% rod=-0.9046 sqn=-2.6441 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+2026-04-06 02:21:08,306 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase backtest ===
+2026-04-06 02:21:08,324 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_03/coder/sandbox
+2026-04-06 02:21:32,830 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for IntradayTrendPullbackBreakoutV1_cand3.py: normalize_order_tif_values,normalize_order_tif_values,add_can_short_false
+2026-04-06 02:21:32,842 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for IntradayTrendPullbackBreakoutV1_cand3 (attempt 1/5)
+2026-04-06 02:21:36,742 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-0.18% trades=8
+2026-04-06 02:21:36,747 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase evaluation ===
+2026-04-06 02:21:46,610 agent_market.strategy_miner._evaluation INFO Risk constraints violated for IntradayTrendPullbackBreakoutV1_cand3: ['min_winrate:0.2500<0.42', 'min_profit_factor:0.0369<1.0', 'min_positive_days_ratio:0.1250<0.4500', 'min_return_over_drawdown:-0.1800<0.3500']
+2026-04-06 02:21:46,612 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: IntradayTrendPullbackBreakoutV1_cand3 sharpe=-0.7510 native_sharpe=-13.9608 sortino=-0.9019 native_sortino=-23.0529 calmar=-0.1800 native_calmar=-136.4641 profit_factor=0.0369 profit=-0.18% trades=8 winrate=0.2500 pos_days=0.12 max_dd=0.18% rod=-0.1800 sqn=-3.3834 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+2026-04-06 02:21:46,619 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase backtest ===
+2026-04-06 02:21:46,629 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox
+2026-04-06 02:22:14,048 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for VwapCciObvBreakout_cand4.py: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:22:14,061 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for VwapCciObvBreakout_cand4 (attempt 1/5)
+2026-04-06 02:22:16,885 agent_market.strategy_miner._backtest WARNING [backtest.unknown] Backtest failed (rc=1 tail=cand4
+2026-04-06 02:22:16,464 - freqtrade - ERROR - Fatal exception!
+Traceback (most recent call last):
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/main.py", line 53, in main
+    return_code = args["func"](args)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/commands/optimize_commands.py", line 61, in start_backtesting
+    backtesting.start()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1851, in start
+    min_date, max_date = self.backtest_one_strategy(strat, data, timerange)
+                         ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1761, in backtest_one_strategy
+    preprocessed = self.strategy.advise_all_indicators(data)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1749, in advise_all_indicators
+    res[pair] = self.advise_indicators(pair_data.copy(), {"pair": pair}).copy()
+                ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1811, in advise_indicators
+    dataframe = self.populate_indicators(dataframe, metadata)
+  File "/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox/user_data/strategies/VwapCciObvBreakout_cand4.py", line 68, in 
+populate_indicators
+    vwap = ta.vwap(high=dataframe['high'], low=dataframe['low'], close=dataframe['close'], volume=dataframe['volume'])
+  File "/Users/shatianming/Downloads/Agent_market/.venv/lib/python3.14/site-packages/pandas_ta/overlap/vwap.py", line 23, in vwap
+    vwap  = wp.groupby(wp.index.to_period(anchor)).cumsum()
+                       ^^^^^^^^^^^^^^^^^^
+AttributeError: 'RangeIndex' object has no attribute 'to_period'. Did you mean: 'to_series'?
+)
+2026-04-06 02:22:16,886 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox
+2026-04-06 02:22:38,793 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for VwapCciObvBreakout_cand4.py: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:22:38,810 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox
+2026-04-06 02:22:59,171 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for VwapCciObvBreakout_cand4.py: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:22:59,185 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for VwapCciObvBreakout_cand4 (attempt 3/5)
+2026-04-06 02:23:03,725 agent_market.strategy_miner._backtest WARNING [backtest.unknown] Backtest failed (rc=1 tail=d4
+2026-04-06 02:23:01,205 - freqtrade - ERROR - Fatal exception!
+Traceback (most recent call last):
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/main.py", line 53, in main
+    return_code = args["func"](args)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/commands/optimize_commands.py", line 61, in start_backtesting
+    backtesting.start()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1851, in start
+    min_date, max_date = self.backtest_one_strategy(strat, data, timerange)
+                         ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1761, in backtest_one_strategy
+    preprocessed = self.strategy.advise_all_indicators(data)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1749, in advise_all_indicators
+    res[pair] = self.advise_indicators(pair_data.copy(), {"pair": pair}).copy()
+                ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1811, in advise_indicators
+    dataframe = self.populate_indicators(dataframe, metadata)
+  File "/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox/user_data/strategies/VwapCciObvBreakout_cand4.py", line 45, in 
+populate_indicators
+    vwap_df = ta.vwap(high=dataframe['high'], low=dataframe['low'], close=dataframe['close'], volume=dataframe['volume'])
+  File "/Users/shatianming/Downloads/Agent_market/.venv/lib/python3.14/site-packages/pandas_ta/overlap/vwap.py", line 23, in vwap
+    vwap  = wp.groupby(wp.index.to_period(anchor)).cumsum()
+                       ^^^^^^^^^^^^^^^^^^
+AttributeError: 'RangeIndex' object has no attribute 'to_period'. Did you mean: 'to_series'?
+)
+2026-04-06 02:23:03,731 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_04/coder/sandbox
+2026-04-06 02:23:24,858 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for VwapCciObvBreakout_cand4.py: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:23:24,872 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for VwapCciObvBreakout_cand4 (attempt 4/5)
+2026-04-06 02:23:27,898 agent_market.strategy_miner._backtest INFO Backtest completed: profit=0.00% trades=0
+2026-04-06 02:23:27,913 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase evaluation ===
+2026-04-06 02:23:39,074 agent_market.strategy_miner._evaluation INFO Risk constraints violated for VwapCciObvBreakout_cand4: ['min_trades:0<8', 'min_winrate:0.0000<0.42', 'min_profit_factor:0.0000<1.0', 'min_positive_days_ratio:0.0000<0.4500', 'min_return_over_drawdown:0.0000<0.3500']
+2026-04-06 02:23:39,075 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: VwapCciObvBreakout_cand4 sharpe=0.0000 native_sharpe=0.0000 sortino=0.0000 native_sortino=0.0000 calmar=0.0000 native_calmar=0.0000 profit_factor=0.0000 profit=0.00% trades=0 winrate=0.0000 pos_days=0.00 max_dd=0.00% rod=0.0000 sqn=0.0000 flags=- (best_score=-inf)
+2026-04-06 02:23:39,082 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase backtest ===
+2026-04-06 02:23:39,216 agent_market.strategy_miner._backtest INFO Smoke backtest crashed for VolatilitySqueezeBreakout_cand5, skipping hyperopt
+2026-04-06 02:23:39,216 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for VolatilitySqueezeBreakout_cand5 (attempt 0/5)
+2026-04-06 02:23:42,114 agent_market.strategy_miner._backtest WARNING [backtest.unknown] Backtest failed (rc=1 tail=oads/Agent_market/freqtrade/freqtrade/main.py", line 53, in main
+    return_code = args["func"](args)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/commands/optimize_commands.py", line 61, in start_backtesting
+    backtesting.start()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1851, in start
+    min_date, max_date = self.backtest_one_strategy(strat, data, timerange)
+                         ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1779, in backtest_one_strategy
+    results = self.backtest(
+        processed=preprocessed,
+        start_date=min_date,
+        end_date=max_date,
+    )
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1711, in backtest
+    data: dict = self._get_ohlcv_as_lists(processed)
+                 ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 492, in _get_ohlcv_as_lists
+    df_analyzed = self.strategy.ft_advise_signals(pair_data, {"pair": pair})
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1763, in ft_advise_signals
+    dataframe = self.advise_entry(dataframe, metadata)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1832, in advise_entry
+    df = self.populate_entry_trend(dataframe, metadata)
+  File "/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/coder/sandbox/user_data/strategies/VolatilitySqueezeBreakout_cand5.py", line 166, in 
+populate_entry_trend
+    (dataframe.get("adx_1h") >= int(self.adx_min_1h.value))
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: '>=' not supported between instances of 'NoneType' and 'int'
+)
+2026-04-06 02:23:42,115 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/coder/sandbox
+2026-04-06 02:24:03,904 agent_market.strategy_miner._backtest INFO Compliance auto-fix applied (repair) for VolatilitySqueezeBreakout_cand5.py: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:24:03,919 agent_market.strategy_miner._backtest INFO Phase BACKTEST: running freqtrade backtesting for VolatilitySqueezeBreakout_cand5 (attempt 1/5)
+2026-04-06 02:24:07,901 agent_market.strategy_miner._backtest INFO Backtest completed: profit=-0.22% trades=16
+2026-04-06 02:24:07,912 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase evaluation ===
+2026-04-06 02:24:16,983 agent_market.strategy_miner._evaluation INFO Risk constraints violated for VolatilitySqueezeBreakout_cand5: ['min_winrate:0.0000<0.42', 'min_profit_factor:0.0000<1.0', 'min_positive_days_ratio:0.0000<0.4500', 'min_return_over_drawdown:-0.2200<0.3500']
+2026-04-06 02:24:16,984 agent_market.strategy_miner._evaluation INFO Phase EVALUATION: VolatilitySqueezeBreakout_cand5 sharpe=-0.9687 native_sharpe=-69.4990 sortino=-1.0635 native_sortino=-69.4990 calmar=-0.2200 native_calmar=-136.4641 profit_factor=0.0000 profit=-0.22% trades=16 winrate=0.0000 pos_days=0.00 max_dd=0.22% rod=-0.2200 sqn=-12.3278 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+2026-04-06 02:24:16,991 agent_market.strategy_miner.runner INFO === Iteration 1 | Phase analysis ===
+2026-04-06 02:24:16,994 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_1/cand_05/coder/sandbox
+2026-04-06 02:24:28,871 agent_market.strategy_miner._evaluation INFO Phase ANALYSIS complete: The backtest is currently invalid for performance assessment because the strategy generated zero trades (likely due to an always-false entry gate or informative-merge/NaN issue), and the reported nega
+2026-04-06 02:24:28,879 agent_market.strategy_miner.runner INFO === Iteration 2 | Phase strategy_gen ===
+2026-04-06 02:24:28,881 agent_market.strategy_miner._generation INFO Bandit selected families: ['rule/trend-pullback', 'rl/ppo', 'rule/basket-rotation', 'rule/trend-following', 'dl/pytorch_mlp', 'ml/xgboost']
+2026-04-06 02:24:32,011 agent_market.strategy_miner.research INFO Market research completed in 3.1s (5 sources)
+2026-04-06 02:24:32,016 agent_market.strategy_miner._generation INFO Market research injected (950 chars)
+2026-04-06 02:24:32,022 agent_market.strategy_miner._generation INFO Phase STRATEGY_GEN: iteration=2 generating 6 candidates (parallel)
+2026-04-06 02:24:32,058 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_01/model/sandbox
+2026-04-06 02:24:32,083 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_05/model/sandbox
+2026-04-06 02:24:32,087 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_01/model/sandbox
+2026-04-06 02:24:32,091 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/coder/sandbox
+2026-04-06 02:24:32,096 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/coder/sandbox
+2026-04-06 02:24:32,105 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_05/model/sandbox
+2026-04-06 02:24:32,110 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_04/model/sandbox
+2026-04-06 02:24:32,111 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/coder/sandbox
+2026-04-06 02:24:32,117 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_04/model/sandbox
+2026-04-06 02:24:32,121 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/planner/sandbox
+2026-04-06 02:24:32,122 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/planner/sandbox
+2026-04-06 02:24:32,123 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/planner/sandbox
+2026-04-06 02:24:32,124 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/planner/sandbox
+2026-04-06 02:24:32,131 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/planner/sandbox
+2026-04-06 02:24:32,134 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/planner/sandbox
+2026-04-06 02:24:38,692 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_04/model/sandbox
+2026-04-06 02:24:38,736 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_01/model/sandbox
+2026-04-06 02:24:39,261 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_05/model/sandbox
+2026-04-06 02:24:41,484 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/coder/sandbox
+2026-04-06 02:24:41,485 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/coder/sandbox
+2026-04-06 02:24:41,998 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/coder/sandbox
+2026-04-06 02:25:04,971 agent_market.strategy_miner._generation INFO Candidate 2 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:25:05,023 agent_market.strategy_miner._generation INFO Compliance auto-fix applied (gen) for candidate 2: normalize_order_tif_values,normalize_order_tif_values
+2026-04-06 02:25:05,031 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/reviewer/sandbox
+2026-04-06 02:25:05,034 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/backtester/sandbox
+2026-04-06 02:25:05,041 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/reviewer/sandbox
+2026-04-06 02:25:07,265 agent_market.strategy_miner._generation INFO Candidate 3 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:25:07,299 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/reviewer/sandbox
+2026-04-06 02:25:07,304 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/backtester/sandbox
+2026-04-06 02:25:07,308 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/reviewer/sandbox
+2026-04-06 02:25:08,476 agent_market.strategy_miner._generation INFO Candidate 0 normalized: normalize_future_annotations,rename_file_to_match_class
+2026-04-06 02:25:08,585 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/reviewer/sandbox
+2026-04-06 02:25:08,592 agent_market.strategy_miner.sandbox INFO Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/backtester/sandbox
+2026-04-06 02:25:08,593 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/reviewer/sandbox
+2026-04-06 02:25:09,974 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_02/backtester/sandbox
+2026-04-06 02:25:38,156 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_00/backtester/sandbox
+2026-04-06 02:25:38,168 agent_market.strategy_miner.agent_adapter INFO StrategyAgent provider=openai_compatible workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/16bfe7c63054/strategy_miner/iter_2/cand_03/backtester/sandbox

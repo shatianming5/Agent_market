@@ -1,0 +1,158 @@
+{
+  "experiment": {
+    "experiment_id": "strategy-factory-real-spot-opencode-smoke",
+    "owner": "shatianming",
+    "hypothesis": "A real factor-memory-guided intraday breakout smoke on gate spot data should produce end-to-end strategy-factory artifacts with strategy-side factor retrieval references.",
+    "budget": {
+      "micro_feature": {
+        "cpu_minutes": 5
+      },
+      "factor_compile": {
+        "cpu_minutes": 2
+      },
+      "factor_eval": {
+        "cpu_minutes": 5
+      },
+      "strategy_miner": {
+        "llm_budget_usd": 15,
+        "backtest_cpu_minutes": 30
+      },
+      "report": {
+        "cpu_minutes": 2
+      }
+    }
+  },
+  "micro_feature": {
+    "config": "user_data/config_freqai_gate_spot_core_alpha.json",
+    "timeframe": "5m",
+    "pairs": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT"
+    ],
+    "timerange": "20260312-20260318"
+  },
+  "factor_compile": {
+    "spec": {
+      "name": "real_smoke_breakout_range_vol",
+      "version": "1.0",
+      "hypothesis": "Intraday breakout expansion factor combining candle range and abnormal volume.",
+      "expr": {
+        "op": "mul",
+        "args": [
+          {
+            "op": "zscore",
+            "args": [
+              {
+                "op": "var",
+                "args": [
+                  "range_pct"
+                ]
+              },
+              24
+            ]
+          },
+          {
+            "op": "tanh",
+            "args": [
+              {
+                "op": "zscore",
+                "args": [
+                  {
+                    "op": "var",
+                    "args": [
+                      "vol_z_24"
+                    ]
+                  },
+                  24
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "meta": {
+        "timeframe": "5m",
+        "universe": [
+          "BTC/USDT",
+          "ETH/USDT",
+          "SOL/USDT"
+        ],
+        "data_sources": [
+          "ohlcv_micro_features"
+        ]
+      }
+    }
+  },
+  "factor_eval": {
+    "enabled": true,
+    "rows": 4096,
+    "seed": 7
+  },
+  "strategy_miner": {
+    "provider": "opencode",
+    "model": "github-copilot/gpt-5-mini",
+    "freqtrade_config": "user_data/config_freqai_gate_spot_core_alpha.json",
+    "timerange": "20260312-20260318",
+    "selection_timerange": "20260312-20260318",
+    "holdout_timerange": "20260319-20260321",
+    "train_timerange": "20260301-20260311",
+    "benchmark_suite": "benchmark_pack/default",
+    "candidates_per_iteration": 1,
+    "max_iterations": 1,
+    "max_turns": 10,
+    "max_retries": 2,
+    "stale_timeout": 180.0,
+    "repair_attempts": 2,
+    "max_parallel_candidates": 1,
+    "max_parallel_roles": 1,
+    "enable_quick_funnel": true,
+    "quick_backtest_pairs": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT"
+    ],
+    "quick_backtest_timeout": 90,
+    "backtest_timeout": 300,
+    "candidate_types": [
+      "rule"
+    ],
+    "search_families": [
+      "rule/breakout",
+      "rule/trend-pullback"
+    ],
+    "max_strategy_timeframe": "1h",
+    "allowed_informative_timeframes": [
+      "15m",
+      "1h"
+    ],
+    "min_trades": 4,
+    "max_abs_drawdown": 80.0,
+    "max_drawdown_pct": 25.0,
+    "min_winrate": 0.0,
+    "min_profit_factor": 0.0,
+    "min_profit_pct": -5.0,
+    "min_positive_days_ratio": 0.0,
+    "min_return_over_drawdown": -5.0,
+    "min_pair_profit_pct": -10.0,
+    "target_trades": 10,
+    "min_acceptable_trades": 1,
+    "hyperopt_enabled": false,
+    "walkforward_enabled": false,
+    "strategy_profile": {
+      "roi_target_min_pct": 0.4,
+      "roi_target_max_pct": 2.0,
+      "stoploss_min_pct": 0.8,
+      "stoploss_max_pct": 3.0,
+      "preferred_patterns": [
+        "5m breakout continuation with 1h regime filter",
+        "5m pullback into 15m and 1h trend context with explicit risk exits"
+      ],
+      "avoid_patterns": [
+        "mean reversion that fights strong trend",
+        "ultra-high-frequency fee-sensitive scalp logic"
+      ]
+    }
+  },
+  "report": {}
+}

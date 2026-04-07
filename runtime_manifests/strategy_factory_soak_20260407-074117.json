@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0",
+  "mode": "soak",
+  "generated_at": "2026-04-07T07:48:46+00:00",
+  "base_config": "/Users/shatianming/Downloads/Agent_market/configs/agent_flow_strategy_factory_acceptance_ml.json",
+  "pythonpath": "src:.",
+  "runs_requested": 5,
+  "results": [
+    {
+      "run_id": "f251b8bdca87",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/f251b8bdca87",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-074117/agent_flow_20260407-154117.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "FiveMinLgbmIntradayRegV0Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 6.06,
+        "trades": 175,
+        "realistic_sharpe": 0.540345,
+        "profit_factor": 14.448447318699023,
+        "winrate": 0.9142857142857143,
+        "max_drawdown_pct": 0.216674
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 119.577766,
+        "total_seconds": 119.912432,
+        "by_step_seconds": {
+          "micro_feature": 1.009109,
+          "factor_compile": 0.218226,
+          "factor_eval": 0.821134,
+          "strategy_miner": 117.582821,
+          "report": 0.280069
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 1,
+        "output_tail": "Traceback (most recent call last):\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 143, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 68, in main\n    if not math.isfinite(float(state.best_reward)) or float(state.best_reward) == float(\"-inf\"):\n                               ^^^^^^^^^^^^^^^^^\nAttributeError: 'MinerState' object has no attribute 'best_reward'"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/f251b8bdca87/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/f251b8bdca87/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-074117-00",
+      "returncode": 0,
+      "wall_seconds": 123.77452898025513
+    },
+    {
+      "run_id": "0c2c6f193a65",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/0c2c6f193a65",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-074117/agent_flow_20260407-154321.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": null,
+        "candidate_type": null,
+        "candidate_family": null,
+        "profit_total_pct": null,
+        "trades": null,
+        "realistic_sharpe": null,
+        "profit_factor": null,
+        "winrate": null,
+        "max_drawdown_pct": null
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 75.599314,
+        "total_seconds": 75.653741,
+        "by_step_seconds": {
+          "micro_feature": 0.573432,
+          "factor_compile": 0.18851,
+          "factor_eval": 0.65957,
+          "strategy_miner": 73.945848,
+          "report": 0.285012
+        }
+      },
+      "provider_flakes": {
+        "http_503": 1,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 1,
+        "output_tail": "Traceback (most recent call last):\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 143, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 68, in main\n    if not math.isfinite(float(state.best_reward)) or float(state.best_reward) == float(\"-inf\"):\n                               ^^^^^^^^^^^^^^^^^\nAttributeError: 'MinerState' object has no attribute 'best_reward'"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/0c2c6f193a65/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/0c2c6f193a65/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-074117-01",
+      "returncode": 0,
+      "wall_seconds": 79.75182271003723
+    },
+    {
+      "run_id": "6dbfe1de6125",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/6dbfe1de6125",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-074117/agent_flow_20260407-154441.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": null,
+        "candidate_type": null,
+        "candidate_family": null,
+        "profit_total_pct": null,
+        "trades": null,
+        "realistic_sharpe": null,
+        "profit_factor": null,
+        "winrate": null,
+        "max_drawdown_pct": null
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 90.626339,
+        "total_seconds": 91.183794,
+        "by_step_seconds": {
+          "micro_feature": 0.557395,
+          "factor_compile": 0.173638,
+          "factor_eval": 1.265521,
+          "strategy_miner": 88.871235,
+          "report": 0.315115
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 1,
+        "output_tail": "Traceback (most recent call last):\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 143, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 68, in main\n    if not math.isfinite(float(state.best_reward)) or float(state.best_reward) == float(\"-inf\"):\n                               ^^^^^^^^^^^^^^^^^\nAttributeError: 'MinerState' object has no attribute 'best_reward'"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/6dbfe1de6125/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/6dbfe1de6125/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-074117-02",
+      "returncode": 0,
+      "wall_seconds": 98.04012513160706
+    },
+    {
+      "run_id": "4783e30829e3",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/4783e30829e3",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-074117/agent_flow_20260407-154619.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": null,
+        "candidate_type": null,
+        "candidate_family": null,
+        "profit_total_pct": null,
+        "trades": null,
+        "realistic_sharpe": null,
+        "profit_factor": null,
+        "winrate": null,
+        "max_drawdown_pct": null
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 65.041936,
+        "total_seconds": 65.838843,
+        "by_step_seconds": {
+          "micro_feature": 1.598778,
+          "factor_compile": 0.342658,
+          "factor_eval": 0.877007,
+          "strategy_miner": 62.75713,
+          "report": 0.262258
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 1,
+        "output_tail": "Traceback (most recent call last):\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 143, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 68, in main\n    if not math.isfinite(float(state.best_reward)) or float(state.best_reward) == float(\"-inf\"):\n                               ^^^^^^^^^^^^^^^^^\nAttributeError: 'MinerState' object has no attribute 'best_reward'"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/4783e30829e3/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/4783e30829e3/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-074117-03",
+      "returncode": 0,
+      "wall_seconds": 69.39190602302551
+    },
+    {
+      "run_id": "50e5363750fd",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/50e5363750fd",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-074117/agent_flow_20260407-154729.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "IntradayBreakoutLGBM5mV1Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 8.43,
+        "trades": 284,
+        "realistic_sharpe": 0.631546,
+        "profit_factor": 7.895330867833655,
+        "winrate": 0.8802816901408451,
+        "max_drawdown_pct": 0.242131
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 73.508786,
+        "total_seconds": 74.408196,
+        "by_step_seconds": {
+          "micro_feature": 0.570355,
+          "factor_compile": 0.178408,
+          "factor_eval": 0.73433,
+          "strategy_miner": 72.659736,
+          "report": 0.264822
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 1,
+        "output_tail": "Traceback (most recent call last):\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 143, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/Users/shatianming/Downloads/Agent_market/scripts/verify_strategy_miner_run.py\", line 68, in main\n    if not math.isfinite(float(state.best_reward)) or float(state.best_reward) == float(\"-inf\"):\n                               ^^^^^^^^^^^^^^^^^\nAttributeError: 'MinerState' object has no attribute 'best_reward'"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/50e5363750fd/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/50e5363750fd/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-074117-04",
+      "returncode": 0,
+      "wall_seconds": 77.35073709487915
+    }
+  ],
+  "summary": {
+    "runs_total": 5,
+    "runs_success": 2,
+    "freqtrade_ok": 5,
+    "verify_ok": 0,
+    "provider_503_total": 1,
+    "wall_seconds": {
+      "min": 69.39190602302551,
+      "p50": 79.75182271003723,
+      "p90": 123.77452898025513,
+      "max": 123.77452898025513,
+      "mean": 89.66182398796082
+    },
+    "full_run_seconds": {
+      "min": 65.041936,
+      "p50": 75.599314,
+      "p90": 119.577766,
+      "max": 119.577766,
+      "mean": 84.8708282
+    },
+    "failures": [
+      "strategy-factory-acceptance-ml-soak-20260407-074117-00: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-074117-01: best_candidate=null",
+      "strategy-factory-acceptance-ml-soak-20260407-074117-01: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-074117-02: best_candidate=null",
+      "strategy-factory-acceptance-ml-soak-20260407-074117-02: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-074117-03: best_candidate=null",
+      "strategy-factory-acceptance-ml-soak-20260407-074117-03: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-074117-04: verify_failed"
+    ]
+  },
+  "paths": {
+    "config_dir": "/Users/shatianming/Downloads/Agent_market/runtime_configs/strategy_factory_soak_20260407-074117",
+    "log_dir": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-074117"
+  }
+}

@@ -1,0 +1,127 @@
+[2026-04-07 03:11:05,277] INFO - Agent Flow log file: /Users/shatianming/Downloads/Agent_market/runtime_logs/agent_flow_20260407-031105.log
+[2026-04-07 03:11:05,278] INFO - [FLOW] RUN_ID d42a550ef19a
+[2026-04-07 03:11:05,279] INFO - [FLOW] STEP_START micro_feature
+[2026-04-07 03:11:05,279] INFO - [FLOW] PHASE micro_feature prepare
+[2026-04-07 03:11:05,279] INFO - [FLOW] PHASE micro_feature execute
+[2026-04-07 03:11:05,905] INFO - NumExpr defaulting to 8 threads.
+[2026-04-07 03:11:06,286] INFO - [FLOW] PHASE micro_feature summarize
+[2026-04-07 03:11:06,286] INFO - [FLOW] STEP_OK micro_feature
+[2026-04-07 03:11:06,286] INFO - [FLOW] STEP_START factor_compile
+[2026-04-07 03:11:06,286] INFO - [FLOW] PHASE factor_compile prepare
+[2026-04-07 03:11:06,286] INFO - [FLOW] PHASE factor_compile execute
+[2026-04-07 03:11:06,286] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_compile.py --spec /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/factor_compile/input_factor_spec.json --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/factor_compile
+[2026-04-07 03:11:06,588] INFO - [FLOW] PHASE factor_compile summarize
+[2026-04-07 03:11:06,589] INFO - [FLOW] STEP_OK factor_compile
+[2026-04-07 03:11:06,589] INFO - [FLOW] STEP_START factor_eval
+[2026-04-07 03:11:06,589] INFO - [FLOW] PHASE factor_eval prepare
+[2026-04-07 03:11:06,589] INFO - [FLOW] PHASE factor_eval execute
+[2026-04-07 03:11:06,591] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_eval.py --expression-path /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/factor_compile/compiled_expression.txt --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/factor_eval --rows 4096 --seed 7 --features-parquet /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/micro_feature/features.parquet
+[2026-04-07 03:11:07,253] INFO - [FLOW] PHASE factor_eval summarize
+[2026-04-07 03:11:07,253] INFO - [FLOW] STEP_OK factor_eval
+[2026-04-07 03:11:07,253] INFO - [FLOW] STEP_START strategy_miner
+[2026-04-07 03:11:07,253] INFO - [FLOW] PHASE strategy_miner prepare
+[2026-04-07 03:11:07,253] INFO - [FLOW] PHASE strategy_miner execute
+[2026-04-07 03:11:07,358] INFO - Starting new mining run: run_id=d42a550ef19a
+[2026-04-07 03:11:07,362] INFO - Starting deep strategy research pipeline...
+[2026-04-07 03:11:20,691] INFO - R0 Market Regime: trending_down (13.0s)
+[2026-04-07 03:11:21,840] INFO - arXiv [rl_trading]: found 3 papers
+[2026-04-07 03:11:23,039] INFO - arXiv [dl_prediction]: found 3 papers
+[2026-04-07 03:11:24,137] INFO - arXiv [ml_features]: found 3 papers
+[2026-04-07 03:11:25,258] INFO - arXiv [alpha_mining]: found 3 papers
+[2026-04-07 03:11:26,485] INFO - arXiv [quant_strategy]: found 3 papers
+[2026-04-07 03:11:26,486] INFO - R1 Literature: found 15 papers across 5 topics (5.8s)
+[2026-04-07 03:11:26,486] INFO - R2 Blueprints: generated 5 blueprints (0.0s)
+[2026-04-07 03:11:26,486] INFO - Deep research complete: regime=trending_down, papers=15, blueprints=5 (19.1s total)
+[2026-04-07 03:11:26,488] INFO - Deep research saved to /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/deep_research.json
+[2026-04-07 03:11:26,488] INFO - === Iteration 0 | Phase strategy_gen ===
+[2026-04-07 03:11:26,489] INFO - Bandit selected families: ['rule/trend-pullback']
+[2026-04-07 03:11:28,000] INFO - Market research completed in 1.5s (5 sources)
+[2026-04-07 03:11:28,000] INFO - Market research injected (950 chars)
+[2026-04-07 03:11:28,002] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/factor_memory/factor_memory.json
+[2026-04-07 03:11:28,002] INFO - Phase STRATEGY_GEN: iteration=0 generating 1 candidates (candidate_workers=1 role_workers=1)
+[2026-04-07 03:11:28,005] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/coder/sandbox
+[2026-04-07 03:11:28,006] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/planner/sandbox
+[2026-04-07 03:11:31,747] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/planner/sandbox
+[2026-04-07 03:11:49,062] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/coder/sandbox
+[2026-04-07 03:12:46,810] INFO - Candidate 0 normalized: strip_tool_lines,normalize_future_annotations
+[2026-04-07 03:12:46,823] INFO - Compliance auto-fix applied (gen) for candidate 0: normalize_order_tif_values,normalize_order_tif_values,add_can_short_false
+[2026-04-07 03:12:46,825] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/reviewer/sandbox
+[2026-04-07 03:12:46,826] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/backtester/sandbox
+[2026-04-07 03:12:52,173] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/reviewer/sandbox
+[2026-04-07 03:14:47,574] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/backtester/sandbox
+[2026-04-07 03:15:18,239] INFO - Candidate 0 re-normalized after review: strip_tool_lines,normalize_future_annotations
+[2026-04-07 03:15:18,255] INFO - Generated 1 candidates for iteration 0
+[2026-04-07 03:15:18,259] INFO - === Iteration 0 | Phase backtest ===
+[2026-04-07 03:15:22,395] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/coder/sandbox
+[2026-04-07 03:16:47,998] INFO - Phase BACKTEST: running freqtrade backtesting for SmokeBreakout5m_cand0 (attempt 1/2)
+[2026-04-07 03:16:51,793] WARNING - [backtest.unknown] Backtest failed (rc=1 tail=  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1811, in advise_indicators
+    dataframe = self.populate_indicators(dataframe, metadata)
+  File "/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/coder/sandbox/user_data/strategies/SmokeBreakout5m_cand0.py", line 149, in 
+populate_indicators
+    tmp = pd.merge_asof(
+        df.sort_values("date"),
+    ...<2 lines>...
+        direction="backward",
+    )
+  File "/opt/homebrew/lib/python3.14/site-packages/pandas/core/reshape/merge.py", line 691, in merge_asof
+    op = _AsOfMerge(
+        left,
+    ...<13 lines>...
+        direction=direction,
+    )
+  File "/opt/homebrew/lib/python3.14/site-packages/pandas/core/reshape/merge.py", line 2000, in __init__
+    _OrderedMerge.__init__(
+    ~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<9 lines>...
+        fill_method=None,
+        ^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/lib/python3.14/site-packages/pandas/core/reshape/merge.py", line 1912, in __init__
+    _MergeOperation.__init__(
+    ~~~~~~~~~~~~~~~~~~~~~~~~^
+        self,
+        ^^^^^
+    ...<9 lines>...
+        sort=True,  # factorize sorts
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/opt/homebrew/lib/python3.14/site-packages/pandas/core/reshape/merge.py", line 802, in __init__
+    self._maybe_require_matching_dtypes(self.left_join_keys, self.right_join_keys)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.14/site-packages/pandas/core/reshape/merge.py", line 2125, in _maybe_require_matching_dtypes
+    _check_dtype_match(lk, rk, i)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/opt/homebrew/lib/python3.14/site-packages/pandas/core/reshape/merge.py", line 2121, in _check_dtype_match
+    raise MergeError(msg)
+pandas.errors.MergeError: incompatible merge keys [0] datetime64[ns, UTC] and dtype('<M8[ns]'), must be the same type
+)
+[2026-04-07 03:16:55,675] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/coder/sandbox
+[2026-04-07 03:17:53,720] INFO - Phase BACKTEST: running freqtrade backtesting for SmokeBreakout5m_cand0 (attempt 2/2)
+[2026-04-07 03:17:57,903] INFO - Backtest completed: profit=0.27% trades=74
+[2026-04-07 03:17:57,905] INFO - === Iteration 0 | Phase evaluation ===
+[2026-04-07 03:17:57,905] INFO - Phase EVALUATION: SmokeBreakout5m_cand0 sharpe=0.1637 native_sharpe=20.4657 sortino=0.4300 native_sortino=19.4233 calmar=0.2700 native_calmar=207.4432 profit_factor=1.2719 profit=0.27% trades=74 winrate=0.7162 pos_days=0.43 max_dd=0.41% rod=0.2700 sqn=0.7421 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+[2026-04-07 03:17:57,905] INFO - New best candidate: SmokeBreakout5m_cand0 with effective_sharpe=0.7974 (score_sharpe=0.1637, native_sharpe=20.4657, trades=74)
+[2026-04-07 03:17:57,914] INFO - === Iteration 0 | Phase analysis ===
+[2026-04-07 03:18:01,277] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/d42a550ef19a/strategy_miner/iter_0/cand_00/coder/sandbox
+[2026-04-07 03:18:31,468] INFO - Phase ANALYSIS complete: 策略在交易频次与胜率上表现良好且未出现大回撤，但风险调整后的收益（Sharpe/Profit Factor）偏低、总体净利微薄且对品种敏感，需通过改进退出/仓位规则与更严格的入场筛选或扩展超参搜索提升稳健性与回报。
+[2026-04-07 03:18:31,539] INFO - Running sealed holdout for SmokeBreakout5m_cand0 on 20260319-20260321
+[2026-04-07 03:18:31,654] WARNING - Sealed holdout failed (rc=1): ade/freqtrade/__main__.py", line 9, in <module>
+    from freqtrade import main
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/main.py", line 16, in <module>
+    from freqtrade import __version__
+ImportError: cannot import name '__version__' from 'freqtrade' (unknown location)
+
+[2026-04-07 03:18:33,250] INFO - Mining complete: run_id=d42a550ef19a iterations=0 best_sharpe=0.7974 best_profit=0.27%
+[2026-04-07 03:18:33,251] INFO - Best strategy: SmokeBreakout5m_cand0 (sharpe=0.7974)
+[2026-04-07 03:18:33,253] INFO - [FLOW] PHASE strategy_miner summarize
+[2026-04-07 03:18:33,253] INFO - [FLOW] STEP_OK strategy_miner
+[2026-04-07 03:18:33,253] INFO - [FLOW] STEP_START report
+[2026-04-07 03:18:33,253] INFO - [FLOW] PHASE report prepare
+[2026-04-07 03:18:33,253] INFO - [FLOW] PHASE report execute
+[2026-04-07 03:18:33,297] INFO - [FLOW] PHASE report summarize
+[2026-04-07 03:18:33,297] INFO - [FLOW] STEP_OK report
+[2026-04-07 03:18:35,898] INFO - [FLOW] META_OK artifacts/run_meta.json

@@ -1,0 +1,142 @@
+[2026-04-07 17:26:42,905] INFO - Agent Flow log file: /Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_matrix_20260407-091959/agent_flow_20260407-172642.log
+[2026-04-07 17:26:42,906] INFO - [FLOW] RUN_ID 969b5c923941
+[2026-04-07 17:26:42,906] INFO - [FLOW] STEP_START micro_feature
+[2026-04-07 17:26:42,906] INFO - [FLOW] PHASE micro_feature prepare
+[2026-04-07 17:26:42,906] INFO - [FLOW] PHASE micro_feature execute
+[2026-04-07 17:26:43,093] INFO - NumExpr defaulting to 8 threads.
+[2026-04-07 17:26:43,364] INFO - [FLOW] PHASE micro_feature summarize
+[2026-04-07 17:26:43,364] INFO - [FLOW] STEP_OK micro_feature
+[2026-04-07 17:26:43,364] INFO - [FLOW] STEP_START factor_compile
+[2026-04-07 17:26:43,364] INFO - [FLOW] PHASE factor_compile prepare
+[2026-04-07 17:26:43,364] INFO - [FLOW] PHASE factor_compile execute
+[2026-04-07 17:26:43,364] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_compile.py --spec /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/factor_compile/input_factor_spec.json --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/factor_compile
+[2026-04-07 17:26:43,489] INFO - [FLOW] PHASE factor_compile summarize
+[2026-04-07 17:26:43,490] INFO - [FLOW] STEP_OK factor_compile
+[2026-04-07 17:26:43,490] INFO - [FLOW] STEP_START factor_eval
+[2026-04-07 17:26:43,490] INFO - [FLOW] PHASE factor_eval prepare
+[2026-04-07 17:26:43,490] INFO - [FLOW] PHASE factor_eval execute
+[2026-04-07 17:26:43,491] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_eval.py --expression-path /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/factor_compile/compiled_expression.txt --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/factor_eval --rows 4096 --seed 7 --features-parquet /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/micro_feature/features.parquet
+[2026-04-07 17:26:44,032] INFO - [FLOW] PHASE factor_eval summarize
+[2026-04-07 17:26:44,032] INFO - [FLOW] STEP_OK factor_eval
+[2026-04-07 17:26:44,032] INFO - [FLOW] STEP_START strategy_miner
+[2026-04-07 17:26:44,032] INFO - [FLOW] PHASE strategy_miner prepare
+[2026-04-07 17:26:44,032] INFO - [FLOW] PHASE strategy_miner execute
+[2026-04-07 17:26:44,102] INFO - Starting new mining run: run_id=969b5c923941
+[2026-04-07 17:26:44,114] INFO - Loaded global strategy knowledge base: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/strategy_memory/knowledge_base.json
+[2026-04-07 17:26:44,351] INFO - Backfilled global strategy knowledge base: runs=86 merged=86 strategy_cards +0 => 266, failure_cards +0 => 300
+[2026-04-07 17:26:44,353] INFO - Starting deep strategy research pipeline...
+[2026-04-07 17:26:47,169] INFO - R0 Market Regime: trending_down (2.5s)
+[2026-04-07 17:26:58,281] INFO - arXiv [dl_prediction]: found 3 papers
+[2026-04-07 17:26:59,364] INFO - arXiv [ml_features]: found 3 papers
+[2026-04-07 17:27:01,821] INFO - R1 Literature: found 6 papers across 5 topics (14.7s)
+[2026-04-07 17:27:01,822] INFO - R2 Blueprints: generated 5 blueprints (0.0s)
+[2026-04-07 17:27:01,822] INFO - Deep research complete: regime=trending_down, papers=6, blueprints=5 (17.5s total)
+[2026-04-07 17:27:01,822] INFO - Deep research saved to /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/deep_research.json
+[2026-04-07 17:27:01,823] INFO - === Iteration 0 | Phase strategy_gen ===
+[2026-04-07 17:27:01,823] INFO - Bandit selected families: ['rule/mean-reversion']
+[2026-04-07 17:27:11,843] INFO - Market research completed in 10.0s (5 sources)
+[2026-04-07 17:27:11,844] INFO - Market research injected (661 chars)
+[2026-04-07 17:27:11,848] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/factor_memory/factor_memory.json
+[2026-04-07 17:27:11,852] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/factor_memory/factor_memory.json
+[2026-04-07 17:27:11,852] INFO - Phase STRATEGY_GEN: iteration=0 generating 1 candidates (candidate_workers=1 role_workers=1)
+[2026-04-07 17:27:11,856] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/iter_0/sandbox
+[2026-04-07 17:27:14,930] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/iter_0/sandbox
+[2026-04-07 17:28:08,064] INFO - Candidate 0 normalized: strip_tool_lines,normalize_future_annotations
+[2026-04-07 17:28:08,075] INFO - Compliance auto-fix applied (gen) for candidate 0: normalize_order_tif_values,normalize_order_tif_values,add_can_short_false,add_ohlcv_suffix_guard
+[2026-04-07 17:28:08,122] INFO - Generated 1 candidates for iteration 0
+[2026-04-07 17:28:08,124] INFO - === Iteration 0 | Phase backtest ===
+[2026-04-07 17:28:10,348] INFO - Phase BACKTEST: running freqtrade backtesting for MeanReversion5m_cand0 (attempt 0/4)
+[2026-04-07 17:28:12,158] WARNING - [backtest.unknown] Backtest failed (rc=1 tail=_data'),
+     'exportdirectory': PosixPath('/Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/iter_0/sandbox/user_data/backtest_results'),
+     'exportfilename': None,
+     'backtest_cache': 'day',
+     'candle_type_def': <CandleType.SPOT: 'spot'>,
+     'margin_mode': <MarginMode.NONE: ''>,
+     'pairs': ['AVAX/USDT',
+               'BTC/USDT',
+               'DOGE/USDT',
+               'ETH/USDT',
+               'SOL/USDT',
+               'XRP/USDT'],
+     'amend_last_stake_amount': False,
+     'last_stake_amount_min_ratio': 0.5,
+     'reduce_df_footprint': False,
+     'minimum_trade_amount': 10,
+     'targeted_trade_amount': 20,
+     'startup_candle': [199, 399, 499, 999, 1999],
+     'spaces': ['default'],
+     'print_all': False,
+     'hyperopt_jobs': -1,
+     'custom_price_max_distance_ratio': 0.02,
+     'export': 'trades',
+     'dataformat_trades': 'feather',
+     'new_pairs_days': 30,
+     'minimal_roi': {'0': 0.01, '30': 0.005, '120': 0.0},
+     'trailing_stop': False,
+     'trailing_stop_positive_offset': 0.0,
+     'trailing_only_offset_is_reached': False,
+     'use_custom_stoploss': False,
+     'process_only_new_candles': True,
+     'order_types': {'entry': 'market',
+                     'exit': 'market',
+                     'stoploss': 'market',
+                     'stoploss_on_exchange': False,
+                     'emergency_exit': 'market'},
+     'order_time_in_force': {'entry': 'GTC', 'exit': 'GTC'},
+     'startup_candle_count': 240,
+     'use_exit_signal': True,
+     'exit_profit_only': False,
+     'ignore_roi_if_entry_signal': False,
+     'exit_profit_offset': 0.0,
+     'disable_dataframe_checks': False,
+     'ignore_buying_expired_candle_after': 0,
+     'position_adjustment_enable': False,
+     'max_entry_position_adjustment': -1}
+2026-04-07 17:28:11,830 - freqtrade - ERROR - Configuration error: 'stoploss' is a required property
+Please make sure to review the documentation at https://www.freqtrade.io/en/stable.
+)
+[2026-04-07 17:28:14,544] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/iter_0/sandbox
+[2026-04-07 17:29:11,067] INFO - Phase BACKTEST: running freqtrade backtesting for MeanReversion5m_cand0 (attempt 1/4)
+[2026-04-07 17:29:13,981] WARNING - [backtest.unknown] Backtest failed (rc=1 tail=445 - freqtrade.strategy.hyper - INFO - Strategy Parameter(default): exit_rsi = 65
+2026-04-07 17:29:13,445 - freqtrade.strategy.hyper - INFO - Strategy Parameter(default): stoploss_param = -0.01
+2026-04-07 17:29:13,445 - freqtrade.strategy.hyper - INFO - Strategy Parameter(default): take_profit = 0.005
+2026-04-07 17:29:13,584 - freqtrade - ERROR - Fatal exception!
+Traceback (most recent call last):
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/main.py", line 53, in main
+    return_code = args["func"](args)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/commands/optimize_commands.py", line 61, in start_backtesting
+    backtesting.start()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1851, in start
+    min_date, max_date = self.backtest_one_strategy(strat, data, timerange)
+                         ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/optimize/backtesting.py", line 1761, in backtest_one_strategy
+    preprocessed = self.strategy.advise_all_indicators(data)
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1749, in advise_all_indicators
+    res[pair] = self.advise_indicators(pair_data.copy(), {"pair": pair}).copy()
+                ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/shatianming/Downloads/Agent_market/freqtrade/freqtrade/strategy/interface.py", line 1811, in advise_indicators
+    dataframe = self.populate_indicators(dataframe, metadata)
+  File "/Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/iter_0/sandbox/user_data/strategies/MeanReversion5m_cand0.py", line 74, in populate_indicators
+    bb_std_default = float(self.bb_std.default)
+                           ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'DecimalParameter' object has no attribute 'default'
+)
+[2026-04-07 17:29:16,371] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/iter_0/sandbox
+[2026-04-07 17:30:10,949] INFO - Phase BACKTEST: running freqtrade backtesting for MeanReversion5m_cand0 (attempt 2/4)
+[2026-04-07 17:30:14,487] INFO - Backtest completed: profit=-6.16% trades=699
+[2026-04-07 17:30:14,489] INFO - === Iteration 0 | Phase evaluation ===
+[2026-04-07 17:30:14,489] INFO - Risk constraints violated for MeanReversion5m_cand0: ['pair:TOTAL profit=-6.16%', 'min_profit_factor:0.5014<0.8']
+[2026-04-07 17:30:14,490] INFO - Phase EVALUATION: MeanReversion5m_cand0 sharpe=-0.7772 native_sharpe=-113.1299 sortino=-0.8442 native_sortino=-118.8419 calmar=-0.9913 native_calmar=-70.1503 profit_factor=0.5014 profit=-6.16% trades=699 winrate=0.5122 pos_days=0.25 max_dd=6.21% rod=-0.9913 sqn=-6.0429 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+[2026-04-07 17:30:14,499] INFO - === Iteration 0 | Phase analysis ===
+[2026-04-07 17:30:16,876] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/969b5c923941/strategy_miner/iter_0/sandbox
+[2026-04-07 17:30:33,855] INFO - Phase ANALYSIS complete: 策略生成大量交易且胜率接近中位，但因信号噪声、固定止损与缺乏质量筛选导致净利为负、利润因子远低于1且回撤巨大，需优先改进入场过滤和基于波动率的风控（可辅以轻量监督模型做二次筛选）。
+[2026-04-07 17:30:33,919] INFO - Mining complete: run_id=969b5c923941 iterations=0 best_sharpe=-inf best_profit=0.00%
+[2026-04-07 17:30:33,923] INFO - [FLOW] PHASE strategy_miner summarize
+[2026-04-07 17:30:33,923] INFO - [FLOW] STEP_OK strategy_miner
+[2026-04-07 17:30:33,924] INFO - [FLOW] STEP_START report
+[2026-04-07 17:30:33,924] INFO - [FLOW] PHASE report prepare
+[2026-04-07 17:30:33,924] INFO - [FLOW] PHASE report execute
+[2026-04-07 17:30:34,202] INFO - [FLOW] PHASE report summarize
+[2026-04-07 17:30:34,203] INFO - [FLOW] STEP_OK report
+[2026-04-07 17:30:36,629] INFO - [FLOW] META_OK artifacts/run_meta.json

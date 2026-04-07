@@ -1,0 +1,179 @@
+{
+  "version": "2.0",
+  "description": "Strategy Research Standard Operating Procedure",
+
+  "strategy_types": {
+    "A_trend": {
+      "name": "Trend Following",
+      "data_min_days": 365,
+      "recommended_timeframe": ["4h", "1d"],
+      "min_trades_per_window": 10,
+      "backtest_level": 2,
+      "example": "EMA crossover, Donchian breakout, ADX filter"
+    },
+    "B_meanrev": {
+      "name": "Mean Reversion",
+      "data_min_days": 180,
+      "recommended_timeframe": ["1h", "4h"],
+      "min_trades_per_window": 15,
+      "backtest_level": 2,
+      "example": "RSI+BB oversold bounce, z-score reversion"
+    },
+    "C_pairs": {
+      "name": "Pairs / Statistical Arbitrage",
+      "data_min_days": 365,
+      "recommended_timeframe": ["1h"],
+      "min_trades_per_window": 5,
+      "backtest_level": 1,
+      "example": "Cointegrated pairs, spread z-score"
+    },
+    "D_momentum": {
+      "name": "Cross-Sectional Momentum",
+      "data_min_days": 365,
+      "recommended_timeframe": ["1d", "1w"],
+      "min_trades_per_window": 4,
+      "backtest_level": 1,
+      "example": "Buy top-N momentum, rebalance weekly"
+    },
+    "E_hft": {
+      "name": "High Frequency / Microstructure",
+      "data_min_days": 30,
+      "recommended_timeframe": ["1m", "5m"],
+      "min_trades_per_window": 100,
+      "backtest_level": 3,
+      "example": "Order flow imbalance, LOB pressure"
+    },
+    "F_ml": {
+      "name": "ML Prediction Driven",
+      "data_min_days": 730,
+      "recommended_timeframe": ["1h", "4h"],
+      "min_trades_per_window": 20,
+      "backtest_level": 2,
+      "example": "LightGBM return prediction, LSTM signal"
+    },
+    "G_event": {
+      "name": "Event Driven",
+      "data_min_days": 365,
+      "recommended_timeframe": ["varies"],
+      "min_trades_per_window": 5,
+      "backtest_level": 1,
+      "example": "Funding rate signal, on-chain whale alert"
+    }
+  },
+
+  "gates": {
+    "gate_0_hypothesis": {
+      "name": "Hypothesis",
+      "inputs": ["strategy idea", "market analysis"],
+      "outputs": ["hypothesis document"],
+      "criteria": "Clear alpha source identified",
+      "auto_checkable": false
+    },
+    "gate_1_signal": {
+      "name": "Signal Validation",
+      "inputs": ["raw signal code"],
+      "outputs": ["IC", "hit_rate", "signal_frequency"],
+      "criteria": {
+        "IC_abs_min": 0.02,
+        "hit_rate_min": 0.52,
+        "min_signals": 30
+      },
+      "auto_checkable": true
+    },
+    "gate_2_backtest": {
+      "name": "Backtest",
+      "inputs": ["strategy code", "config"],
+      "outputs": ["backtest result (sharpe, dd, pf, etc.)"],
+      "criteria": {
+        "sharpe_min": 0.5,
+        "max_drawdown_pct": 20.0,
+        "min_trades": 30,
+        "win_rate_min": 0.40,
+        "profit_factor_min": 1.1,
+        "lookahead_critical": 0
+      },
+      "auto_checkable": true
+    },
+    "gate_3_robustness": {
+      "name": "Robustness (Walk-Forward)",
+      "inputs": ["strategy code"],
+      "outputs": ["walk-forward report"],
+      "criteria": {
+        "min_windows": 4,
+        "profitable_windows_pct": 0.60,
+        "mean_sharpe_min": 0.0,
+        "max_single_window_loss_pct": 15.0
+      },
+      "auto_checkable": true
+    },
+    "gate_4_paper": {
+      "name": "Paper Trading",
+      "inputs": ["validated strategy"],
+      "outputs": ["paper trading log"],
+      "criteria": {
+        "min_days": 14,
+        "backtest_deviation_max_pct": 30.0,
+        "cumulative_pnl_positive": true
+      },
+      "auto_checkable": true
+    },
+    "gate_5_live": {
+      "name": "Live Trading",
+      "inputs": ["paper-validated strategy"],
+      "outputs": ["live trading log"],
+      "criteria": {
+        "human_approval": true,
+        "max_allocation_pct": 10.0,
+        "monitoring_required": true
+      },
+      "auto_checkable": false
+    }
+  },
+
+  "backtest_levels": {
+    "L1_signal_sim": {
+      "name": "Signal Simulator",
+      "engine": "pairs_engine / custom",
+      "features": ["fast", "parameter sweep"],
+      "limitations": ["no slippage", "no partial fills", "simplified"],
+      "trust_level": 2,
+      "use_for": ["C_pairs", "D_momentum", "G_event", "quick screening"]
+    },
+    "L2_freqtrade": {
+      "name": "Freqtrade Backtest",
+      "engine": "freqtrade backtesting",
+      "features": ["candle-level sim", "ROI/stoploss", "multi-pair"],
+      "limitations": ["no orderbook", "1-candle resolution"],
+      "trust_level": 3,
+      "use_for": ["A_trend", "B_meanrev", "F_ml", "full validation"]
+    },
+    "L3_event_driven": {
+      "name": "Event-Driven Backtest",
+      "engine": "custom event engine (TODO)",
+      "features": ["tick-level", "orderbook sim", "partial fills"],
+      "limitations": ["slow", "needs L2 data"],
+      "trust_level": 4,
+      "use_for": ["E_hft", "precise pairs execution"]
+    },
+    "L4_paper": {
+      "name": "Paper Trading (Real Data)",
+      "engine": "paper_trader + live WebSocket",
+      "features": ["real market data", "real latency"],
+      "trust_level": 5,
+      "use_for": ["final validation before live"]
+    }
+  },
+
+  "cost_models": {
+    "maker": {"fee_bps": 1.0, "slippage_bps": 0.0, "description": "Limit orders, best case"},
+    "taker": {"fee_bps": 10.0, "slippage_bps": 5.0, "description": "Market orders, realistic"},
+    "conservative": {"fee_bps": 10.0, "slippage_bps": 10.0, "description": "Worst case assumption"}
+  },
+
+  "data_requirements": {
+    "min_bars_per_window": 500,
+    "min_oos_windows": 4,
+    "time_granularities": ["1m", "5m", "15m", "1h", "4h", "1d"],
+    "supported_exchanges": ["gate", "kucoin", "binance", "okx"]
+  }
+}

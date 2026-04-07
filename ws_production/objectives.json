@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "description": "Multi-objective optimization targets for quant strategy evaluation",
+  "targets": {
+    "sharpe": {"direction": "maximize", "min": 1.0, "weight": 0.30, "note": "Risk-adjusted return; >1 is acceptable, >2 is good"},
+    "sortino": {"direction": "maximize", "min": 1.0, "weight": 0.10, "note": "Downside-risk-adjusted return"},
+    "max_drawdown_pct": {"direction": "minimize", "max": 5.0, "weight": 0.20, "note": "Maximum peak-to-trough loss percentage"},
+    "profit_pct": {"direction": "maximize", "min": 1.0, "weight": 0.20, "note": "Total profit as percentage of starting capital"},
+    "win_rate": {"direction": "maximize", "min": 0.45, "weight": 0.10, "note": "Fraction of profitable trades"},
+    "profit_factor": {"direction": "maximize", "min": 1.1, "weight": 0.10, "note": "Gross profit / gross loss; >1.0 means profitable"}
+  },
+  "constraints": {
+    "min_trades": 30,
+    "max_avg_duration_hours": 72,
+    "min_profit_factor": 1.0
+  },
+  "data": {
+    "exchange": "kucoin",
+    "pairs": ["BTC/USDT", "ETH/USDT"],
+    "timeframe": "1h",
+    "timerange": "20251126-20260125",
+    "data_dir": "user_data/data"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "launched_at": "20260406-021123",
+  "repo": "/Users/shatianming/Downloads/Agent_market",
+  "python": "/Users/shatianming/Downloads/Agent_market/.venv/bin/python",
+  "launcher": "tmux",
+  "runs": [
+    {
+      "config": "configs/strategy_miner_alpha_spot_core.json",
+      "slug": "strategy_miner_alpha_spot_core",
+      "session": "am_spot_core_021123",
+      "log_path": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_miner_alpha_spot_core_full_20260406-021123.log",
+      "started_at": "2026-04-06T02:11:23"
+    },
+    {
+      "config": "configs/strategy_miner_alpha_spot_l1l2.json",
+      "slug": "strategy_miner_alpha_spot_l1l2",
+      "session": "am_spot_l1l2_021123",
+      "log_path": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_miner_alpha_spot_l1l2_full_20260406-021123.log",
+      "started_at": "2026-04-06T02:11:23"
+    },
+    {
+      "config": "configs/strategy_miner_alpha_spot_meme.json",
+      "slug": "strategy_miner_alpha_spot_meme",
+      "session": "am_spot_meme_021123",
+      "log_path": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_miner_alpha_spot_meme_full_20260406-021123.log",
+      "started_at": "2026-04-06T02:11:23"
+    },
+    {
+      "config": "configs/strategy_miner_alpha_futures_core.json",
+      "slug": "strategy_miner_alpha_futures_core",
+      "session": "am_futures_core_021123",
+      "log_path": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_miner_alpha_futures_core_full_20260406-021123.log",
+      "started_at": "2026-04-06T02:11:23"
+    },
+    {
+      "config": "configs/strategy_miner_alpha_futures_l1l2.json",
+      "slug": "strategy_miner_alpha_futures_l1l2",
+      "session": "am_futures_l1l2_021123",
+      "log_path": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_miner_alpha_futures_l1l2_full_20260406-021123.log",
+      "started_at": "2026-04-06T02:11:23"
+    },
+    {
+      "config": "configs/strategy_miner_alpha_futures_meme.json",
+      "slug": "strategy_miner_alpha_futures_meme",
+      "session": "am_futures_meme_021123",
+      "log_path": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_miner_alpha_futures_meme_full_20260406-021123.log",
+      "started_at": "2026-04-06T02:11:23"
+    }
+  ]
+}

@@ -1,0 +1,454 @@
+- generic [ref=e2]:
+  - region
+  - generic [ref=e3]:
+    - link "Skip to content" [ref=e4] [cursor=pointer]:
+      - /url: "#start-of-content"
+    - banner [ref=e6]:
+      - heading "Navigation Menu" [level=2] [ref=e7]
+      - generic [ref=e8]:
+        - link "Homepage" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+        - generic [ref=e13]:
+          - navigation "Global" [ref=e16]:
+            - list [ref=e17]:
+              - listitem [ref=e18]:
+                - button "Platform" [ref=e20] [cursor=pointer]:
+                  - text: Platform
+                  - img [ref=e21]
+              - listitem [ref=e23]:
+                - button "Solutions" [ref=e25] [cursor=pointer]:
+                  - text: Solutions
+                  - img [ref=e26]
+              - listitem [ref=e28]:
+                - button "Resources" [ref=e30] [cursor=pointer]:
+                  - text: Resources
+                  - img [ref=e31]
+              - listitem [ref=e33]:
+                - button "Open Source" [ref=e35] [cursor=pointer]:
+                  - text: Open Source
+                  - img [ref=e36]
+              - listitem [ref=e38]:
+                - button "Enterprise" [ref=e40] [cursor=pointer]:
+                  - text: Enterprise
+                  - img [ref=e41]
+              - listitem [ref=e43]:
+                - link "Pricing" [ref=e44] [cursor=pointer]:
+                  - /url: https://github.com/pricing
+                  - generic [ref=e45]: Pricing
+          - generic [ref=e46]:
+            - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+              - img [ref=e51]
+            - link "Sign in" [ref=e54] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FJayCheng113%3Ftab%3Drepositories
+            - link "Sign up" [ref=e55] [cursor=pointer]:
+              - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2FJayCheng113&source=header
+            - button "Appearance settings" [ref=e58] [cursor=pointer]:
+              - img
+  - main [ref=e61]:
+    - generic [ref=e64]:
+      - generic [ref=e65]:
+        - generic:
+          - generic:
+            - generic:
+              - img "@JayCheng113"
+            - generic:
+              - strong: JayCheng113
+              - generic:
+                - generic:
+                  - link "Follow":
+                    - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FJayCheng113%3Ftab%3Drepositories
+      - navigation "User profile" [ref=e68]:
+        - link "Overview" [ref=e69] [cursor=pointer]:
+          - /url: /JayCheng113
+          - img [ref=e70]
+          - text: Overview
+        - link "Repositories 19" [ref=e72] [cursor=pointer]:
+          - /url: /JayCheng113?tab=repositories
+          - img [ref=e73]
+          - text: Repositories
+          - generic "19" [ref=e75]
+        - link "Projects" [ref=e76] [cursor=pointer]:
+          - /url: /JayCheng113?tab=projects
+          - img [ref=e77]
+          - text: Projects
+        - link "Packages" [ref=e79] [cursor=pointer]:
+          - /url: /JayCheng113?tab=packages
+          - img [ref=e80]
+          - text: Packages
+        - link "Stars 9" [ref=e82] [cursor=pointer]:
+          - /url: /JayCheng113?tab=stars
+          - img [ref=e83]
+          - text: Stars
+          - generic "9" [ref=e85]
+    - generic [ref=e87]:
+      - generic [ref=e89]:
+        - generic:
+          - generic:
+            - generic:
+              - img "@JayCheng113"
+            - generic:
+              - generic:
+                - strong: JayCheng113
+            - generic:
+              - generic:
+                - generic:
+                  - link "Follow":
+                    - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FJayCheng113%3Ftab%3Drepositories
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - link "View JayCheng113's full-sized avatar" [ref=e93] [cursor=pointer]:
+              - /url: https://avatars.githubusercontent.com/u/180810420?v=4
+              - img "View JayCheng113's full-sized avatar" [ref=e94]
+            - heading "Zhan Cheng JayCheng113" [level=1] [ref=e96]:
+              - generic [ref=e97]: Zhan Cheng
+              - generic [ref=e98]: JayCheng113
+          - generic [ref=e99]:
+            - link "Follow" [ref=e106] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FJayCheng113%3Ftab%3Drepositories
+            - generic [ref=e107]:
+              - generic [ref=e109]:
+                - link "4 followers" [ref=e110] [cursor=pointer]:
+                  - /url: https://github.com/JayCheng113?tab=followers
+                  - img [ref=e111]
+                  - text: 4 followers
+                - text: ·
+                - link "1 following" [ref=e113] [cursor=pointer]:
+                  - /url: https://github.com/JayCheng113?tab=following
+              - list [ref=e114]:
+                - 'listitem "Organization: University of Wisconsin Madison" [ref=e115]':
+                  - img [ref=e116]
+                  - generic [ref=e119]: University of Wisconsin Madison
+                - 'listitem "Home location: Madison" [ref=e120]':
+                  - img [ref=e121]
+                  - generic [ref=e123]: Madison
+                - listitem [ref=e124]:
+                  - img [ref=e125]
+                  - generic [ref=e127]: 10:21 - 13h behind
+                - listitem [ref=e128]:
+                  - img "LinkedIn" [ref=e129]
+                  - link "in/zhan-cheng" [ref=e132] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/in/zhan-cheng
+          - generic [ref=e133]:
+            - heading "Achievements" [level=2] [ref=e134]:
+              - link "Achievements" [ref=e135] [cursor=pointer]:
+                - /url: /JayCheng113?tab=achievements
+            - generic [ref=e136]:
+              - 'link "Achievement: Pair Extraordinaire" [ref=e137] [cursor=pointer]':
+                - /url: /JayCheng113?achievement=pair-extraordinaire&tab=achievements
+                - 'img "Achievement: Pair Extraordinaire" [ref=e138]'
+              - 'link "Achievement: Pull Shark" [ref=e139] [cursor=pointer]':
+                - /url: /JayCheng113?achievement=pull-shark&tab=achievements
+                - 'img "Achievement: Pull Shark" [ref=e140]'
+              - 'link "Achievement: Quickdraw" [ref=e141] [cursor=pointer]':
+                - /url: /JayCheng113?achievement=quickdraw&tab=achievements
+                - 'img "Achievement: Quickdraw" [ref=e142]'
+              - 'link "Achievement: Starstruck" [ref=e143] [cursor=pointer]':
+                - /url: /JayCheng113?achievement=starstruck&tab=achievements
+                - 'img "Achievement: Starstruck" [ref=e144]'
+          - button "Block or Report" [ref=e145] [cursor=pointer]:
+            - generic [ref=e147]: Block or Report
+      - generic [ref=e150]:
+        - search "Repositories" [ref=e153]:
+          - generic [ref=e154]:
+            - searchbox "Find a repository…" [ref=e156]
+            - generic [ref=e157]:
+              - group [ref=e158]:
+                - button "Type" [ref=e159] [cursor=pointer]: Type
+              - group [ref=e161]:
+                - button "Language" [ref=e162] [cursor=pointer]: Language
+              - group [ref=e164]:
+                - button "Sort" [ref=e165] [cursor=pointer]: Sort
+        - list [ref=e168]:
+          - listitem [ref=e169]:
+            - generic [ref=e170]:
+              - heading "langchainInPractice Public" [level=3] [ref=e172]:
+                - link "langchainInPractice" [ref=e173] [cursor=pointer]:
+                  - /url: /JayCheng113/langchainInPractice
+                - generic [ref=e174]: Public
+              - generic [ref=e175]:
+                - generic [ref=e176]: Python
+                - text: Updated Mar 30, 20262 days ago
+          - listitem [ref=e179]:
+            - generic [ref=e180]:
+              - heading "ncsa-delta-guard Public" [level=3] [ref=e182]:
+                - link "ncsa-delta-guard" [ref=e183] [cursor=pointer]:
+                  - /url: /JayCheng113/ncsa-delta-guard
+                - generic [ref=e184]: Public
+              - paragraph [ref=e186]: Safety guardrails for using Claude Code on the NCSA Delta supercomputer — prevents budget waste, data loss, and shared environment harm
+              - generic [ref=e187]:
+                - generic [ref=e188]:
+                  - img [ref=e189]
+                  - text: MIT License
+                - text: Updated Mar 24, 2026last week
+          - listitem [ref=e192]:
+            - generic [ref=e193]:
+              - heading "InfiSemantic Public" [level=3] [ref=e195]:
+                - link "InfiSemantic" [ref=e196] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiSemantic
+                - generic [ref=e197]: Public
+              - generic [ref=e198]:
+                - generic [ref=e199]: Python
+                - link "star 1" [ref=e201] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiSemantic/stargazers
+                  - img "star" [ref=e202]
+                  - text: "1"
+                - text: Updated Mar 22, 2026last week
+          - listitem [ref=e205]:
+            - generic [ref=e206]:
+              - generic [ref=e207]:
+                - heading "parameter-golf Public" [level=3] [ref=e208]:
+                  - link "parameter-golf" [ref=e209] [cursor=pointer]:
+                    - /url: /JayCheng113/parameter-golf
+                  - generic [ref=e210]: Public
+                - generic [ref=e211]:
+                  - text: Forked from
+                  - link "openai/parameter-golf" [ref=e212] [cursor=pointer]:
+                    - /url: /openai/parameter-golf
+              - paragraph [ref=e214]: Train the smallest LM you can that fits in 16MB. Best model wins!
+              - generic [ref=e215]:
+                - generic [ref=e216]: Python
+                - generic [ref=e218]:
+                  - img [ref=e219]
+                  - text: MIT License
+                - text: Updated Mar 20, 20262 weeks ago
+          - listitem [ref=e222]:
+            - generic [ref=e223]:
+              - heading "jaycheng113.github.io Public" [level=3] [ref=e225]:
+                - link "jaycheng113.github.io" [ref=e226] [cursor=pointer]:
+                  - /url: /JayCheng113/jaycheng113.github.io
+                - generic [ref=e227]: Public
+              - paragraph [ref=e229]: My Academic Website
+              - generic [ref=e230]:
+                - generic [ref=e231]: CSS
+                - generic [ref=e233]:
+                  - img [ref=e234]
+                  - text: MIT License
+                - text: Updated Mar 18, 20262 weeks ago
+          - listitem [ref=e237]:
+            - generic [ref=e238]:
+              - heading "InfiEpisteme Public" [level=3] [ref=e240]:
+                - link "InfiEpisteme" [ref=e241] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiEpisteme
+                - generic [ref=e242]: Public
+              - paragraph [ref=e244]: "InfiEpisteme 📜 — Talk to Claude Code, get a research paper. 19 Markdown skills orchestrate the full pipeline: literature survey → ideation → experiments → writing → cross-model review. No framework…"
+              - generic [ref=e245]:
+                - link "machine-learning" [ref=e246] [cursor=pointer]:
+                  - /url: /topics/machine-learning
+                - link "deep-learning" [ref=e247] [cursor=pointer]:
+                  - /url: /topics/deep-learning
+                - link "paper-writing" [ref=e248] [cursor=pointer]:
+                  - /url: /topics/paper-writing
+                - link "paper-review" [ref=e249] [cursor=pointer]:
+                  - /url: /topics/paper-review
+                - link "ai-research" [ref=e250] [cursor=pointer]:
+                  - /url: /topics/ai-research
+                - link "autonomous-research" [ref=e251] [cursor=pointer]:
+                  - /url: /topics/autonomous-research
+                - link "experiment-automation" [ref=e252] [cursor=pointer]:
+                  - /url: /topics/experiment-automation
+              - generic [ref=e253]:
+                - generic [ref=e254]: Python
+                - generic [ref=e256]:
+                  - img [ref=e257]
+                  - text: MIT License
+                - text: Updated Mar 18, 20262 weeks ago
+          - listitem [ref=e260]:
+            - generic [ref=e261]:
+              - heading "JayCheng113 Public" [level=3] [ref=e263]:
+                - link "JayCheng113" [ref=e264] [cursor=pointer]:
+                  - /url: /JayCheng113/JayCheng113
+                - generic [ref=e265]: Public
+              - generic [ref=e266]: Updated Mar 18, 20262 weeks ago
+          - listitem [ref=e268]:
+            - generic [ref=e269]:
+              - heading "InfiPragma Public" [level=3] [ref=e271]:
+                - link "InfiPragma" [ref=e272] [cursor=pointer]:
+                  - /url: /JayCheng113/InfiPragma
+                - generic [ref=e273]: Public
+              - generic [ref=e274]:
+                - generic [ref=e275]: Shell
+                - text: Updated Mar 16, 20262 weeks ago
+          - listitem [ref=e278]:
+            - generic [ref=e279]:
+              - heading "AgentInfra Public" [level=3] [ref=e281]:
+                - link "AgentInfra" [ref=e282] [cursor=pointer]:
+                  - /url: /JayCheng113/AgentInfra
+                - generic [ref=e283]: Public
+              - paragraph [ref=e285]: "AgentInfra 🧠 — Give your AI agent a memory that lives with the code. Drop a .ai/ directory of structured Markdown into any repo: architecture → decisions → conventions, three-layer loading at ~3% c…"
+              - generic [ref=e286]:
+                - link "developer-tools" [ref=e287] [cursor=pointer]:
+                  - /url: /topics/developer-tools
+                - link "zero-dependency" [ref=e288] [cursor=pointer]:
+                  - /url: /topics/zero-dependency
+                - link "ai-assisted-development" [ref=e289] [cursor=pointer]:
+                  - /url: /topics/ai-assisted-development
+                - link "ai-agent" [ref=e290] [cursor=pointer]:
+                  - /url: /topics/ai-agent
+                - link "llm" [ref=e291] [cursor=pointer]:
+                  - /url: /topics/llm
+                - link "claude-code" [ref=e292] [cursor=pointer]:
+                  - /url: /topics/claude-code
+              - generic [ref=e293]:
+                - link "star 1" [ref=e294] [cursor=pointer]:
+                  - /url: /JayCheng113/AgentInfra/stargazers
+                  - img "star" [ref=e295]
+                  - text: "1"
+                - generic [ref=e297]:
+                  - img [ref=e298]
+                  - text: MIT License
+                - text: Updated Mar 15, 20262 weeks ago
+          - listitem [ref=e301]:
+            - generic [ref=e302]:
+              - generic [ref=e303]:
+                - heading "PaperFarm Public" [level=3] [ref=e304]:
+                  - link "PaperFarm" [ref=e305] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm
+                  - generic [ref=e306]: Public
+                - generic [ref=e307]:
+                  - text: Forked from
+                  - link "shatianming5/PaperFarm" [ref=e308] [cursor=pointer]:
+                    - /url: /shatianming5/PaperFarm
+              - paragraph [ref=e310]: Let AI agents run experiments in any repo while you sleep.
+              - generic [ref=e311]:
+                - generic [ref=e312]: Python
+                - generic [ref=e314]:
+                  - img [ref=e315]
+                  - text: MIT License
+                - text: Updated Mar 15, 20262 weeks ago
+          - listitem [ref=e318]:
+            - generic [ref=e319]:
+              - heading "skill-retrieval-mcp Public" [level=3] [ref=e321]:
+                - link "skill-retrieval-mcp" [ref=e322] [cursor=pointer]:
+                  - /url: /JayCheng113/skill-retrieval-mcp
+                - generic [ref=e323]: Public
+              - generic [ref=e324]:
+                - generic [ref=e325]: Python
+                - text: Updated Mar 14, 20262 weeks ago
+          - listitem [ref=e328]:
+            - generic [ref=e329]:
+              - heading "skill-finder Public" [level=3] [ref=e331]:
+                - link "skill-finder" [ref=e332] [cursor=pointer]:
+                  - /url: /JayCheng113/skill-finder
+                - generic [ref=e333]: Public
+              - generic [ref=e334]:
+                - generic [ref=e335]: Python
+                - text: Updated Mar 14, 20262 weeks ago
+          - listitem [ref=e338]:
+            - generic [ref=e339]:
+              - heading "EZVibe-Light Public" [level=3] [ref=e341]:
+                - link "EZVibe-Light" [ref=e342] [cursor=pointer]:
+                  - /url: /JayCheng113/EZVibe-Light
+                - generic [ref=e343]: Public
+              - generic [ref=e344]:
+                - generic [ref=e345]: TypeScript
+                - generic [ref=e347]:
+                  - img [ref=e348]
+                  - text: MIT License
+                - text: Updated Mar 14, 20263 weeks ago
+          - listitem [ref=e351]:
+            - generic [ref=e352]:
+              - heading "EZVibe Public" [level=3] [ref=e354]:
+                - link "EZVibe" [ref=e355] [cursor=pointer]:
+                  - /url: /JayCheng113/EZVibe
+                - generic [ref=e356]: Public
+              - generic [ref=e357]:
+                - generic [ref=e358]: TypeScript
+                - link "fork 1" [ref=e360] [cursor=pointer]:
+                  - /url: /JayCheng113/EZVibe/forks
+                  - img "fork" [ref=e361]
+                  - text: "1"
+                - text: Updated Mar 13, 20263 weeks ago
+          - listitem [ref=e364]:
+            - generic [ref=e365]:
+              - heading "terminalAgent Public" [level=3] [ref=e367]:
+                - link "terminalAgent" [ref=e368] [cursor=pointer]:
+                  - /url: /JayCheng113/terminalAgent
+                - generic [ref=e369]: Public
+              - generic [ref=e370]:
+                - generic [ref=e371]: Python
+                - text: Updated Mar 13, 20263 weeks ago
+          - listitem [ref=e374]:
+            - generic [ref=e375]:
+              - heading "SDEs Public" [level=3] [ref=e377]:
+                - link "SDEs" [ref=e378] [cursor=pointer]:
+                  - /url: /JayCheng113/SDEs
+                - generic [ref=e379]: Public
+              - generic [ref=e380]: Updated Mar 12, 20263 weeks ago
+          - listitem [ref=e382]:
+            - generic [ref=e383]:
+              - heading "AnnoyingPM Public" [level=3] [ref=e385]:
+                - link "AnnoyingPM" [ref=e386] [cursor=pointer]:
+                  - /url: /JayCheng113/AnnoyingPM
+                - generic [ref=e387]: Public
+              - generic [ref=e388]:
+                - generic [ref=e389]:
+                  - img [ref=e390]
+                  - text: MIT License
+                - text: Updated Mar 12, 20263 weeks ago
+          - listitem [ref=e393]:
+            - generic [ref=e394]:
+              - heading "Nano-LLaDA Public" [level=3] [ref=e396]:
+                - link "Nano-LLaDA" [ref=e397] [cursor=pointer]:
+                  - /url: /JayCheng113/Nano-LLaDA
+                - generic [ref=e398]: Public
+              - generic [ref=e399]:
+                - generic [ref=e400]: Python
+                - link "star 86" [ref=e402] [cursor=pointer]:
+                  - /url: /JayCheng113/Nano-LLaDA/stargazers
+                  - img "star" [ref=e403]
+                  - text: "86"
+                - link "fork 9" [ref=e405] [cursor=pointer]:
+                  - /url: /JayCheng113/Nano-LLaDA/forks
+                  - img "fork" [ref=e406]
+                  - text: "9"
+                - generic [ref=e408]:
+                  - img [ref=e409]
+                  - text: MIT License
+                - text: Updated Feb 14, 2026on Feb 15
+          - listitem [ref=e412]:
+            - generic [ref=e413]:
+              - heading "Model-Extraction-on-GNN Public" [level=3] [ref=e415]:
+                - link "Model-Extraction-on-GNN" [ref=e416] [cursor=pointer]:
+                  - /url: /JayCheng113/Model-Extraction-on-GNN
+                - generic [ref=e417]: Public
+              - paragraph [ref=e419]: An implementation of Adversarial Model Extraction on Graph Neural Networks. View it at https://arxiv.org/abs/1912.07721
+              - generic [ref=e420]:
+                - generic [ref=e421]: Jupyter Notebook
+                - text: Updated Sep 13, 2024on Sep 13, 2024
+  - contentinfo [ref=e424]:
+    - heading "Footer" [level=2] [ref=e425]
+    - generic [ref=e426]:
+      - generic [ref=e427]:
+        - link "GitHub Homepage" [ref=e428] [cursor=pointer]:
+          - /url: https://github.com
+          - img [ref=e429]
+        - generic [ref=e431]: © 2026 GitHub, Inc.
+      - navigation "Footer" [ref=e432]:
+        - heading "Footer navigation" [level=3] [ref=e433]
+        - list "Footer navigation" [ref=e434]:
+          - listitem [ref=e435]:
+            - link "Terms" [ref=e436] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+          - listitem [ref=e437]:
+            - link "Privacy" [ref=e438] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+          - listitem [ref=e439]:
+            - link "Security" [ref=e440] [cursor=pointer]:
+              - /url: https://github.com/security
+          - listitem [ref=e441]:
+            - link "Status" [ref=e442] [cursor=pointer]:
+              - /url: https://www.githubstatus.com/
+          - listitem [ref=e443]:
+            - link "Community" [ref=e444] [cursor=pointer]:
+              - /url: https://github.community/
+          - listitem [ref=e445]:
+            - link "Docs" [ref=e446] [cursor=pointer]:
+              - /url: https://docs.github.com/
+          - listitem [ref=e447]:
+            - link "Contact" [ref=e448] [cursor=pointer]:
+              - /url: https://support.github.com?tags=dotcom-footer
+          - listitem [ref=e449]:
+            - button "Manage cookies" [ref=e451] [cursor=pointer]
+          - listitem [ref=e452]:
+            - button "Do not share my personal information" [ref=e454] [cursor=pointer]
