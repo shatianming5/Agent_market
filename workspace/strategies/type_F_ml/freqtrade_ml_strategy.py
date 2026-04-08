@@ -30,6 +30,43 @@ for p in [str(_ROOT / "src"), str(_ROOT)]:
 from freqtrade.strategy import IStrategy
 
 
+def _resolve_summary_artifact(
+    raw_path: Optional[str],
+    *,
+    model_dir: Path,
+    fallback_names: Optional[List[str]] = None,
+) -> Optional[Path]:
+    """Resolve summary artifact paths across machines.
+
+    Training summaries often store absolute paths from the machine that created the
+    model. When the model directory is copied to a different host, prefer local
+    siblings in `model_dir` before failing on the stale absolute path.
+    """
+    candidates: List[Path] = []
+    if raw_path:
+        raw = Path(str(raw_path))
+        if raw.is_absolute():
+            candidates.append(model_dir / raw.name)
+            candidates.append(raw)
+        else:
+            candidates.append(_ROOT / raw)
+            candidates.append(model_dir / raw.name)
+    for fallback in fallback_names or []:
+        fallback_path = Path(str(fallback))
+        candidates.append(fallback_path if fallback_path.is_absolute() else (model_dir / fallback_path))
+
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            return candidate
+
+    return candidates[0] if candidates else None
+
+
 class FreqtradeMLStrategy(IStrategy):
     """Loads a pre-trained ML model and trades based on its predictions."""
 
@@ -81,13 +118,13 @@ class FreqtradeMLStrategy(IStrategy):
             self.timeframe = summary_timeframe
 
         # Load feature config
-        feature_file = summary.get("feature_snapshot") or summary.get("feature_file")
-        if feature_file:
-            fp = Path(feature_file)
-            if not fp.is_absolute():
-                fp = _ROOT / fp
-            if fp.exists():
-                self._feature_cfg = json.loads(fp.read_text(encoding="utf-8-sig"))
+        feature_path = _resolve_summary_artifact(
+            summary.get("feature_snapshot") or summary.get("feature_file"),
+            model_dir=model_dir,
+            fallback_names=["feature_snapshot.json"],
+        )
+        if feature_path and feature_path.exists():
+            self._feature_cfg = json.loads(feature_path.read_text(encoding="utf-8-sig"))
 
         if self._feature_cfg is None:
             for candidate in [_ROOT / "user_data" / "freqai_features_real.json",
@@ -97,14 +134,14 @@ class FreqtradeMLStrategy(IStrategy):
                     break
 
         # Load expressions
-        expr_file = summary.get("expressions_snapshot") or summary.get("expressions_file")
-        if expr_file:
-            ep = Path(expr_file)
-            if not ep.is_absolute():
-                ep = _ROOT / ep
-            if ep.exists():
-                from agent_market.freqai.expression_engine import load_expression_file
-                self._expression_specs = load_expression_file(ep)
+        expr_path = _resolve_summary_artifact(
+            summary.get("expressions_snapshot") or summary.get("expressions_file"),
+            model_dir=model_dir,
+            fallback_names=["expressions_snapshot.json"],
+        )
+        if expr_path and expr_path.exists():
+            from agent_market.freqai.expression_engine import load_expression_file
+            self._expression_specs = load_expression_file(expr_path)
 
         scaler_path = model_dir / "scaler.pkl"
         if scaler_path.exists():
@@ -114,9 +151,13 @@ class FreqtradeMLStrategy(IStrategy):
 
         # Load model
         self._model_features = [str(c) for c in (summary.get("features") or []) if str(c).strip()]
-        model_path = Path(summary.get("model_path", ""))
-        if not model_path.is_absolute():
-            model_path = _ROOT / model_path
+        model_path = _resolve_summary_artifact(
+            summary.get("model_path"),
+            model_dir=model_dir,
+            fallback_names=["lightgbm_model.txt", "model.pkl", "model.pt", "model.json"],
+        )
+        if model_path is None:
+            raise FileNotFoundError("Model file path missing in training summary")
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
