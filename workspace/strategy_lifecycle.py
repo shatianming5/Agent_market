@@ -363,11 +363,37 @@ class LifecycleManager:
             "total": len(self._strategies),
             "by_state": counts,
             "strategies": [
-                {"name": s["name"], "state": s["state"], "type": s["type"],
-                 "paper_days": s.get("paper_days", 0), "active_days": s.get("active_days", 0)}
+                {
+                    "name": s["name"],
+                    "state": s["state"],
+                    "type": s["type"],
+                    "paper_days": s.get("paper_days", 0),
+                    "active_days": s.get("active_days", 0),
+                    "paper_dates": list(s.get("paper_dates") or []),
+                    "paper_pnl": list(s.get("paper_pnl") or []),
+                    "paper_daily_equity": dict(s.get("paper_daily_equity") or {}),
+                    "paper_last_equity": s.get("paper_last_equity"),
+                    "paper_last_processed_at": s.get("paper_last_processed_at"),
+                    "paper_state_path": s.get("paper_state_path"),
+                    "cumulative_return_pct": self._cumulative_paper_return_pct(s),
+                    "latest_day_return_pct": self._latest_paper_return_pct(s),
+                }
                 for s in self._strategies.values()
             ],
         }
+
+    def _cumulative_paper_return_pct(self, entry: Dict[str, Any]) -> float:
+        initial = float(entry.get("paper_initial_equity", 1000.0) or 1000.0)
+        current = float(entry.get("paper_last_equity", initial) or initial)
+        if initial <= 0:
+            return 0.0
+        return round(((current / initial) - 1.0) * 100.0, 8)
+
+    def _latest_paper_return_pct(self, entry: Dict[str, Any]) -> Optional[float]:
+        pnl = list(entry.get("paper_pnl") or [])
+        if not pnl:
+            return None
+        return round(float(pnl[-1]), 8)
 
 
 __all__ = ["LifecycleManager", "StrategyState"]

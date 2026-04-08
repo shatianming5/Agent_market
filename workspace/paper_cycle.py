@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -75,6 +76,7 @@ class PairsPaperCycle:
         state_path = self.paper_dir / f"{name}.json"
         state = self._load_state(state_path)
         latest_closed = merged["date"].iloc[-1]
+        bootstrapped = False
         if state is None:
             trader = PaperTrader(
                 initial_equity=self.initial_equity,
@@ -97,41 +99,55 @@ class PairsPaperCycle:
                 "daily_equity": {},
                 "trader": trader.to_dict(),
             }
-            self._save_state(state_path, payload)
-            return {
-                "ok": True,
-                "strategy": name,
-                "initialized": True,
-                "new_bars": 0,
-                "daily_equity": {},
-                "current_equity": trader.total_equity(),
-                "last_processed_at": latest_closed.isoformat(),
-                "state_path": str(state_path),
-                "sync": sync_result,
-                "params": params,
-            }
-
-        trader = PaperTrader.from_dict(state.get("trader") or {})
-        last_processed_at = pd.Timestamp(state.get("last_processed_at"))
+            bootstrap_from = self._bootstrap_start(config, merged)
+            if bootstrap_from is None:
+                metrics = self._paper_metrics(
+                    daily_equity=payload.get("daily_equity") or {},
+                    current_equity=float(trader.total_equity()),
+                )
+                self._save_state(state_path, payload)
+                return {
+                    "ok": True,
+                    "strategy": name,
+                    "initialized": True,
+                    "new_bars": 0,
+                    "daily_equity": {},
+                    "current_equity": trader.total_equity(),
+                    "last_processed_at": latest_closed.isoformat(),
+                    "state_path": str(state_path),
+                    "sync": sync_result,
+                    "params": params,
+                    **metrics,
+                }
+            state = payload
+            last_processed_at = bootstrap_from - _timeframe_delta(self.timeframe)
+            bootstrapped = True
+        else:
+            trader = PaperTrader.from_dict(state.get("trader") or {})
+            last_processed_at = self._coerce_timestamp(state.get("last_processed_at"))
+            if last_processed_at is None:
+                fallback = self._bootstrap_start(config, merged)
+                last_processed_at = (fallback or latest_closed) - _timeframe_delta(self.timeframe)
         if last_processed_at.tzinfo is None:
             last_processed_at = last_processed_at.tz_localize("UTC")
 
-        new_rows = merged.loc[merged["date"] > last_processed_at].reset_index(drop=True)
+        signals = self._signals_for_frame(merged, params)
+        if "signal" not in signals.columns:
+            signals = signals.assign(signal="hold")
+        merged_with_signals = merged.merge(signals[["date", "signal"]], on="date", how="left")
+        merged_with_signals["signal"] = merged_with_signals["signal"].fillna("hold")
+        new_rows = merged_with_signals.loc[merged_with_signals["date"] > last_processed_at].reset_index(drop=True)
         orders_before = len(trader.orders)
         for row in new_rows.itertuples(index=False):
-            history = merged.loc[merged["date"] <= row.date].reset_index(drop=True)
-            if len(history) < int(params["lookback"]) + 5:
-                continue
             trader.update_prices({
                 pair_a: float(row.price_a),
                 pair_b: float(row.price_b),
             })
-            signal = self._signal_for_history(history, params)
             self._apply_signal(
                 trader=trader,
                 pair_a=pair_a,
                 pair_b=pair_b,
-                signal=signal,
+                signal=str(row.signal),
                 price_a=float(row.price_a),
                 price_b=float(row.price_b),
             )
@@ -142,10 +158,15 @@ class PairsPaperCycle:
         state["params"] = params
         state["trader"] = trader.to_dict()
         self._save_state(state_path, state)
+        metrics = self._paper_metrics(
+            daily_equity=state.get("daily_equity") or {},
+            current_equity=float(trader.total_equity()),
+        )
         return {
             "ok": True,
             "strategy": name,
             "initialized": False,
+            "bootstrapped": bootstrapped,
             "new_bars": int(len(new_rows)),
             "orders_added": int(len(trader.orders) - orders_before),
             "daily_equity": dict(state.get("daily_equity") or {}),
@@ -154,6 +175,7 @@ class PairsPaperCycle:
             "state_path": str(state_path),
             "sync": sync_result,
             "params": params,
+            **metrics,
         }
 
     def _resolve_params(self, config: Dict[str, Any]) -> Dict[str, float]:
@@ -172,6 +194,12 @@ class PairsPaperCycle:
             return None
         return json.loads(path.read_text(encoding="utf-8"))
 
+    def _coerce_timestamp(self, raw: Any) -> Optional[pd.Timestamp]:
+        if raw in (None, ""):
+            return None
+        stamp = pd.Timestamp(raw)
+        return stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp
+
     def _save_state(self, path: Path, payload: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -188,33 +216,64 @@ class PairsPaperCycle:
 
     def _sync_pair_data(self, pair: str) -> Dict[str, Any]:
         path = self._data_path(pair)
-        if path.exists() and (time.time() - path.stat().st_mtime) < self.min_refresh_interval_sec:
-            return {"ok": True, "pair": pair, "skipped": "fresh_cache"}
-
         existing = self._read_single_pair(path)
+        now = datetime.now(timezone.utc)
+        latest_expected = _closed_candle_start(now, self.timeframe) - _timeframe_delta(self.timeframe)
+        latest_existing = existing["date"].iloc[-1] if not existing.empty else None
+        stale_bars = self._stale_bars(latest_existing, latest_expected)
+        if (
+            path.exists()
+            and (time.time() - path.stat().st_mtime) < self.min_refresh_interval_sec
+            and stale_bars <= 0
+        ):
+            return {
+                "ok": True,
+                "pair": pair,
+                "rows": int(len(existing)),
+                "latest_candle": latest_existing.isoformat() if latest_existing is not None else None,
+                "skipped": "fresh_cache",
+            }
+
         since_ms = None
         if not existing.empty:
             overlap = _timeframe_delta(self.timeframe) * 4
             since = existing["date"].iloc[-1].to_pydatetime() - overlap
             since_ms = int(since.timestamp() * 1000)
+        max_batches = self._required_batches(stale_bars)
         try:
-            fetched = self._fetch_pair_data(pair=pair, since_ms=since_ms)
+            fetched = self._fetch_pair_data(pair=pair, since_ms=since_ms, max_batches=max_batches)
         except Exception as exc:
             return {"ok": False, "pair": pair, "error": str(exc)[:200]}
 
         if fetched.empty and not existing.empty:
-            return {"ok": True, "pair": pair, "rows": int(len(existing)), "skipped": "no_remote_update"}
+            return {
+                "ok": True,
+                "pair": pair,
+                "rows": int(len(existing)),
+                "latest_candle": latest_existing.isoformat() if latest_existing is not None else None,
+                "stale_bars": stale_bars,
+                "skipped": "no_remote_update",
+            }
 
         merged = pd.concat([existing, fetched], ignore_index=True) if not existing.empty else fetched
         if merged.empty:
             return {"ok": False, "pair": pair, "error": "no data"}
         merged["date"] = pd.to_datetime(merged["date"], utc=True)
-        cutoff = _closed_candle_start(datetime.now(timezone.utc), self.timeframe)
+        cutoff = _closed_candle_start(now, self.timeframe)
         merged = merged.loc[merged["date"] < cutoff]
         merged = merged.drop_duplicates(subset=["date"], keep="last").sort_values("date").reset_index(drop=True)
         path.parent.mkdir(parents=True, exist_ok=True)
         merged.to_feather(path)
-        return {"ok": True, "pair": pair, "rows": int(len(merged))}
+        latest_merged = merged["date"].iloc[-1] if not merged.empty else None
+        return {
+            "ok": True,
+            "pair": pair,
+            "rows": int(len(merged)),
+            "latest_candle": latest_merged.isoformat() if latest_merged is not None else None,
+            "stale_bars_before": stale_bars,
+            "fetched_rows": int(len(fetched)),
+            "max_batches": max_batches,
+        }
 
     def _read_single_pair(self, path: Path) -> pd.DataFrame:
         if not path.exists():
@@ -223,7 +282,7 @@ class PairsPaperCycle:
         frame["date"] = pd.to_datetime(frame["date"], utc=True)
         return frame
 
-    def _fetch_pair_data(self, *, pair: str, since_ms: Optional[int]) -> pd.DataFrame:
+    def _fetch_pair_data(self, *, pair: str, since_ms: Optional[int], max_batches: int) -> pd.DataFrame:
         import ccxt
         from workspace.download_data import download_pair
 
@@ -244,23 +303,36 @@ class PairsPaperCycle:
             self.timeframe,
             since_ms=since_ms,
             limit=1000,
-            max_batches=3,
+            max_batches=max_batches,
         )
 
     def _load_merged_frame(self, pair_a: str, pair_b: str) -> pd.DataFrame:
         return PairsEngine(pair_a, pair_b, exchange=self.exchange, timeframe=self.timeframe).load_data().copy()
 
-    def _signal_for_history(self, history: pd.DataFrame, params: Dict[str, float]) -> str:
-        pair_a = str(history["price_a"].name)
-        pair_b = str(history["price_b"].name)
+    def _signals_for_frame(self, frame: pd.DataFrame, params: Dict[str, float]) -> pd.DataFrame:
         pe = PairsEngine("A/USDT", "B/USDT", exchange=self.exchange, timeframe=self.timeframe)
-        pe._df = history.reset_index(drop=True).copy()
-        signals = pe.generate_signals(
+        pe._df = frame.reset_index(drop=True).copy()
+        return pe.generate_signals(
             lookback=int(params["lookback"]),
             entry_z=float(params["entry_z"]),
             exit_z=float(params["exit_z"]),
         )
+
+    def _signal_for_history(self, history: pd.DataFrame, params: Dict[str, float]) -> str:
+        signals = self._signals_for_frame(history, params)
         return str(signals.iloc[-1]["signal"])
+
+    def _bootstrap_start(self, config: Dict[str, Any], merged: pd.DataFrame) -> Optional[pd.Timestamp]:
+        raw = config.get("paper_started_at")
+        if not raw:
+            return None
+        stamp = self._coerce_timestamp(raw)
+        if stamp is None:
+            return None
+        eligible = merged.loc[merged["date"] >= stamp, "date"]
+        if eligible.empty:
+            return None
+        return eligible.iloc[0]
 
     def _apply_signal(
         self,
@@ -309,6 +381,37 @@ class PairsPaperCycle:
         if not pos or pos.qty <= 0 or price <= 0:
             return
         trader.submit_order(pair, "sell", size_usd=pos.qty * price, price=price)
+
+    def _stale_bars(self, latest_existing: Optional[pd.Timestamp], latest_expected: pd.Timestamp) -> int:
+        if latest_existing is None:
+            return 10_000
+        if latest_existing.tzinfo is None:
+            latest_existing = latest_existing.tz_localize("UTC")
+        if latest_existing >= latest_expected:
+            return 0
+        delta = _timeframe_delta(self.timeframe)
+        gap = latest_expected.to_pydatetime() - latest_existing.to_pydatetime()
+        return max(0, int(gap.total_seconds() // delta.total_seconds()))
+
+    def _required_batches(self, stale_bars: int) -> int:
+        if stale_bars <= 0:
+            return 3
+        return max(3, min(48, int(math.ceil((stale_bars + 96) / 1000.0))))
+
+    def _paper_metrics(self, *, daily_equity: Dict[str, float], current_equity: float) -> Dict[str, Any]:
+        ordered = sorted((str(day), float(value)) for day, value in daily_equity.items())
+        cumulative_return_pct = ((current_equity / self.initial_equity) - 1.0) * 100.0 if self.initial_equity > 0 else 0.0
+        latest_day_return_pct = None
+        if ordered:
+            previous = self.initial_equity
+            for _, equity in ordered:
+                latest_day_return_pct = 0.0 if previous <= 0 else ((equity / previous) - 1.0) * 100.0
+                previous = equity
+        return {
+            "paper_days": len(ordered),
+            "cumulative_return_pct": round(float(cumulative_return_pct), 6),
+            "latest_day_return_pct": round(float(latest_day_return_pct), 6) if latest_day_return_pct is not None else None,
+        }
 
 
 __all__ = ["PairsPaperCycle"]

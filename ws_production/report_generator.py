@@ -40,6 +40,23 @@ def generate_daily_report() -> Dict[str, Any]:
             "by_state": summary["by_state"],
             "active_names": [s["name"] for s in summary["strategies"] if s["state"] == "active"],
             "paper_names": [s["name"] for s in summary["strategies"] if s["state"] == "paper"],
+            "paper_returns": [
+                {
+                    "name": s["name"],
+                    "state": s["state"],
+                    "paper_days": s.get("paper_days", 0),
+                    "paper_dates": s.get("paper_dates", []),
+                    "paper_pnl": s.get("paper_pnl", []),
+                    "paper_daily_equity": s.get("paper_daily_equity", {}),
+                    "paper_last_equity": s.get("paper_last_equity"),
+                    "cumulative_return_pct": s.get("cumulative_return_pct", 0.0),
+                    "latest_day_return_pct": s.get("latest_day_return_pct"),
+                    "paper_last_processed_at": s.get("paper_last_processed_at"),
+                    "paper_state_path": s.get("paper_state_path"),
+                }
+                for s in summary["strategies"]
+                if s.get("paper_days", 0) > 0 or s.get("paper_state_path")
+            ],
         },
         "health": {
             "healthy": health.get("healthy", 0),

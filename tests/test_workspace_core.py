@@ -132,6 +132,34 @@ class TestStrategyLifecycle:
         assert entry["paper_pnl"][1] == pytest.approx(0.99009901)
         Path(db).unlink()
 
+    def test_summary_includes_paper_return_metrics(self):
+        from workspace.strategy_lifecycle import LifecycleManager
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            f.write(b"{}")
+            db = f.name
+        lm = LifecycleManager(db_path=db)
+        lm.register("paper", strategy_type="pairs")
+        lm.promote("paper")
+        lm.promote("paper")
+        lm.sync_paper_tracking(
+            "paper",
+            daily_equity={"2026-04-08": 1010.0, "2026-04-09": 1020.0},
+            last_processed_at="2026-04-09T23:00:00+00:00",
+            current_equity=1020.0,
+            state_path="/tmp/paper.json",
+        )
+        summary = lm.summary()
+        entry = next(item for item in summary["strategies"] if item["name"] == "paper")
+
+        assert entry["paper_daily_equity"] == {"2026-04-08": 1010.0, "2026-04-09": 1020.0}
+        assert entry["paper_last_equity"] == pytest.approx(1020.0)
+        assert entry["paper_last_processed_at"] == "2026-04-09T23:00:00+00:00"
+        assert entry["paper_state_path"] == "/tmp/paper.json"
+        assert entry["cumulative_return_pct"] == pytest.approx(2.0)
+        assert entry["latest_day_return_pct"] == pytest.approx(0.99009901)
+        Path(db).unlink()
+
     def test_auto_review_retires_health_and_guardrail_failures(self):
         from workspace.strategy_lifecycle import LifecycleManager
 

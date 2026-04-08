@@ -113,6 +113,7 @@ class ContinuousRunner:
         # Save cycle report
         report_path = self.results_dir / f"cycle_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         report_path.write_text(json.dumps(cycle_report, indent=2, ensure_ascii=False, default=str))
+        self._write_latest_cycle_artifacts(cycle_report)
         print(f"\nCycle report: {report_path}")
 
         return cycle_report
@@ -212,9 +213,14 @@ class ContinuousRunner:
         updated = 0
         initialized = 0
         total_new_bars = 0
+        strategy_results: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
 
         for strat in paper_strategies:
-            config = strat.get("config", {})
+            config = dict(strat.get("config") or {})
+            paper_started_at = self._paper_started_at(strat)
+            if paper_started_at and not config.get("paper_started_at"):
+                config["paper_started_at"] = paper_started_at
             if strat["type"] == "pairs":
                 try:
                     result = paper_cycle.run_pairs_strategy(strat["name"], config)
@@ -230,7 +236,23 @@ class ContinuousRunner:
                     initialized += int(bool(result.get("initialized")))
                     updated += int(not bool(result.get("initialized")))
                     total_new_bars += int(result.get("new_bars") or 0)
-                except Exception:
+                    strategy_results.append({
+                        "name": strat["name"],
+                        "type": strat["type"],
+                        "state": strat.get("state"),
+                        "initialized": bool(result.get("initialized")),
+                        "bootstrapped": bool(result.get("bootstrapped")),
+                        "new_bars": int(result.get("new_bars") or 0),
+                        "orders_added": int(result.get("orders_added") or 0),
+                        "paper_days": int(result.get("paper_days") or 0),
+                        "current_equity": float(result.get("current_equity") or 0.0),
+                        "cumulative_return_pct": float(result.get("cumulative_return_pct") or 0.0),
+                        "latest_day_return_pct": result.get("latest_day_return_pct"),
+                        "last_processed_at": result.get("last_processed_at"),
+                        "state_path": result.get("state_path"),
+                    })
+                except Exception as exc:
+                    errors.append({"name": strat["name"], "error": str(exc)[:200]})
                     continue
 
         return {
@@ -238,6 +260,8 @@ class ContinuousRunner:
             "initialized": initialized,
             "updated": updated,
             "new_bars": total_new_bars,
+            "strategies": strategy_results,
+            "errors": errors,
         }
 
     def _phase_performance_review(self) -> Dict[str, Any]:
@@ -263,12 +287,30 @@ class ContinuousRunner:
 
         lm = LifecycleManager()
         summary = lm.summary()
+        paper_returns = [
+            {
+                "name": item["name"],
+                "state": item["state"],
+                "paper_days": item.get("paper_days", 0),
+                "paper_dates": item.get("paper_dates", []),
+                "paper_pnl": item.get("paper_pnl", []),
+                "paper_daily_equity": item.get("paper_daily_equity", {}),
+                "paper_last_equity": item.get("paper_last_equity"),
+                "cumulative_return_pct": item.get("cumulative_return_pct", 0.0),
+                "latest_day_return_pct": item.get("latest_day_return_pct"),
+                "paper_last_processed_at": item.get("paper_last_processed_at"),
+                "paper_state_path": item.get("paper_state_path"),
+            }
+            for item in summary["strategies"]
+            if item.get("paper_days", 0) > 0 or item.get("paper_state_path")
+        ]
 
         return {
             "status": "done",
             "total_strategies": summary["total"],
             "by_state": summary["by_state"],
             "cycle_phases_completed": len(cycle_report.get("phases", {})),
+            "paper_returns": paper_returns,
         }
 
 
@@ -284,6 +326,27 @@ class ContinuousRunner:
             return result
         except Exception as e:
             return {"error": str(e)[:200]}
+
+    def _write_latest_cycle_artifacts(self, cycle_report: Dict[str, Any]) -> None:
+        (self.results_dir / "last_cycle.json").write_text(
+            json.dumps(cycle_report, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+        paper_returns = {
+            "timestamp": cycle_report.get("timestamp"),
+            "paper_trading": cycle_report.get("phases", {}).get("paper_trading", {}),
+            "summary": cycle_report.get("summary", {}).get("paper_returns", []),
+        }
+        (self.results_dir / "paper_returns_latest.json").write_text(
+            json.dumps(paper_returns, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+
+    def _paper_started_at(self, strategy: Dict[str, Any]) -> Optional[str]:
+        for row in reversed(strategy.get("history") or []):
+            if row.get("state") == "paper" and row.get("at"):
+                return str(row["at"])
+        return None
 
 
 __all__ = ["ContinuousRunner"]

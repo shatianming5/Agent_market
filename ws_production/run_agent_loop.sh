@@ -96,6 +96,13 @@ Your tasks for this iteration:
 
 Execute Python code for each step. Be thorough but efficient." 2>&1 | tee -a results/agent_loop.log
 
+    if [ -f "$REPO_ROOT/workspace/results/last_cycle.json" ]; then
+        cp "$REPO_ROOT/workspace/results/last_cycle.json" "$SCRIPT_DIR/results/last_cycle.json"
+    fi
+    if [ -f "$REPO_ROOT/workspace/results/paper_returns_latest.json" ]; then
+        cp "$REPO_ROOT/workspace/results/paper_returns_latest.json" "$SCRIPT_DIR/results/paper_returns_latest.json"
+    fi
+
     # Wait between iterations
     if [ "$MAX_ITERATIONS" -eq 0 ] || [ "$ITERATION" -lt "$MAX_ITERATIONS" ]; then
         echo "Waiting 10 seconds before next iteration..."
