@@ -76,23 +76,33 @@ while true; do
     echo "$(date '+%Y-%m-%d %H:%M:%S')"
     echo "======================================"
 
+    echo "Running factor mining/evaluation cycle..."
+    python3 "$REPO_ROOT/scripts/ws_production_factor_cycle.py" \
+        --workspace "$SCRIPT_DIR" \
+        --model "$MODEL" 2>&1 | tee -a results/agent_loop.log || true
+
     # Build context from previous results
     CONTEXT=""
     if [ -f results/last_cycle.json ]; then
         CONTEXT="Previous cycle results: $(cat results/last_cycle.json | python3 -c 'import json,sys; r=json.load(sys.stdin); print(f"strategies={r.get(\"summary\",{}).get(\"total_strategies\",\"?\")}, phases={r.get(\"summary\",{}).get(\"cycle_phases_completed\",\"?\")}")' 2>/dev/null || echo 'available'). "
     fi
+    FACTOR_CONTEXT=""
+    if [ -f results/factor_cycle_latest.json ]; then
+        FACTOR_CONTEXT="$(cat results/factor_cycle_latest.json | python3 -c 'import json,sys; r=json.load(sys.stdin); top=r.get("top_expression") or {}; print(f"Latest factor cycle ok={r.get(\"ok\")}, top={top.get(\"name\") or \"?\"}, score={top.get(\"score\")}, report={r.get(\"validation_report\") or \"n/a\"}, eval={((r.get(\"factor_eval_artifacts\") or {}).get(\"factor_scores_json\") or \"n/a\")}")' 2>/dev/null || echo 'Latest factor cycle available.'). "
+    fi
 
     # Run opencode
     opencode run -m "$MODEL" \
-        "${CONTEXT}Read GUIDE.md. You are iteration $ITERATION of a continuous research loop.
+        "${CONTEXT}${FACTOR_CONTEXT}Read GUIDE.md. You are iteration $ITERATION of a continuous research loop.
 
 Your tasks for this iteration:
-1. Run continuous_runner.ContinuousRunner(exchange='gate').run_cycle(skip_download=True)
-2. Check if any strategies need parameter recalibration (adaptive_params.AdaptiveEngine)
-3. If fewer than 3 strategies in paper/active, discover new ones
-4. Run gate_pipeline on any new strategies
-5. Generate daily report (report_generator.generate_daily_report)
-6. Save cycle summary to results/last_cycle.json
+1. Review the latest factor mining/evaluation outputs in results/factor_cycle_latest.json and use them as research input.
+2. Run continuous_runner.ContinuousRunner(exchange='gate').run_cycle(skip_download=True)
+3. Check if any strategies need parameter recalibration (adaptive_params.AdaptiveEngine)
+4. If fewer than 3 strategies in paper/active, discover new ones
+5. Run gate_pipeline on any new strategies
+6. Generate daily report (report_generator.generate_daily_report)
+7. Save cycle summary to results/last_cycle.json
 
 Execute Python code for each step. Be thorough but efficient." 2>&1 | tee -a results/agent_loop.log
 
