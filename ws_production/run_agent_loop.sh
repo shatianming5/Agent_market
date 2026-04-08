@@ -76,10 +76,16 @@ while true; do
     echo "$(date '+%Y-%m-%d %H:%M:%S')"
     echo "======================================"
 
+    FACTOR_ARGS=(--workspace "$SCRIPT_DIR")
+    if [ "${WS_FACTOR_LLM_ENABLED:-0}" = "1" ]; then
+        FACTOR_ARGS+=(--llm-enabled --model "$MODEL")
+    else
+        FACTOR_ARGS+=(--no-llm)
+    fi
+
     echo "Running factor mining/evaluation cycle..."
     python3 "$REPO_ROOT/scripts/ws_production_factor_cycle.py" \
-        --workspace "$SCRIPT_DIR" \
-        --model "$MODEL" 2>&1 | tee -a results/agent_loop.log || true
+        "${FACTOR_ARGS[@]}" 2>&1 | tee -a results/agent_loop.log || true
 
     # Build context from previous results
     CONTEXT=""

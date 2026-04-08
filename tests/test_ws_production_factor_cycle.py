@@ -148,6 +148,8 @@ def test_run_agent_loop_wires_factor_cycle() -> None:
     script = (root / "ws_production" / "run_agent_loop.sh").read_text(encoding="utf-8")
 
     assert "ws_production_factor_cycle.py" in script
+    assert 'WS_FACTOR_LLM_ENABLED:-0' in script
+    assert "--no-llm" in script
     assert "factor_cycle_latest.json" in script
     assert "Review the latest factor mining/evaluation outputs" in script
 
