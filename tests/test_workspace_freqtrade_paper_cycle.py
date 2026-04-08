@@ -119,7 +119,7 @@ def test_freqtrade_paper_cycle_uses_existing_started_at(tmp_path, monkeypatch) -
     assert state["started_at"] == "2026-04-07T00:00:00+00:00"
 
 
-@pytest.mark.parametrize("strategy_type", ["ml", "dl"])
+@pytest.mark.parametrize("strategy_type", ["ml", "dl", "rl"])
 def test_continuous_runner_routes_freqtrade_strategies_to_freqtrade_cycle(monkeypatch, strategy_type: str) -> None:
     import workspace.strategy_lifecycle as lifecycle_mod
     import workspace.freqtrade_paper_cycle as ml_cycle_mod

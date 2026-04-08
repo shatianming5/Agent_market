@@ -259,7 +259,7 @@ class ContinuousRunner:
                 except Exception as exc:
                     errors.append({"name": strat["name"], "error": str(exc)[:200]})
                     continue
-            elif strat["type"] in {"ml", "dl"}:
+            elif strat["type"] in {"ml", "dl", "rl"}:
                 try:
                     result = freqtrade_cycle.run_strategy(strat["name"], config)
                     if not result.get("ok"):
