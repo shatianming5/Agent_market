@@ -35,12 +35,14 @@ class ContinuousRunner:
         pairs: Optional[List[str]] = None,
         timeframe: str = "1h",
         maker_fee_bps: float = 10.0,
+        min_paper_pool: int = 3,
     ):
         self.exchange = exchange
         self.pairs = pairs or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT",
                                 "XRP/USDT", "AVAX/USDT", "ADA/USDT", "DOT/USDT", "LINK/USDT"]
         self.timeframe = timeframe
         self.maker_fee_bps = maker_fee_bps
+        self.min_paper_pool = max(1, int(min_paper_pool))
         self.results_dir = ROOT / "workspace" / "results"
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -136,39 +138,55 @@ class ContinuousRunner:
 
     def _phase_discovery(self) -> Dict[str, Any]:
         """Scan for new pairs and validate through the central GatePipeline."""
+        from workspace.adaptive_params import AdaptiveEngine
         from workspace.pairs_engine import scan_pairs
         from workspace.strategy_lifecycle import LifecycleManager, StrategyState
         from workspace.gate_pipeline import GatePipeline
-        from pathlib import Path
-        import tempfile
 
         lm = LifecycleManager()
         gp = GatePipeline()
+        adaptive = AdaptiveEngine(exchange=self.exchange)
         pairs = scan_pairs(exchange=self.exchange, min_correlation=0.8)
         cointegrated = [p for p in pairs if p["cointegrated"]]
 
-        new_validated = 0
-        for p in cointegrated:
-            name = f"pairs_{p['pair_a'].split('/')[0]}_{p['pair_b'].split('/')[0]}"
-            existing = lm.get(name)
-            if existing and existing["state"] != StrategyState.RETIRED.value:
-                continue
+        paper_pool_before = self._paper_pool_size(lm)
+        promoted_existing = self._top_up_paper_pool(lm)
+        paper_pool_after_existing = self._paper_pool_size(lm)
+        attempts_allowed = max(0, self.min_paper_pool - paper_pool_after_existing)
+        strategy_dir = ROOT / "workspace" / "strategies" / "type_C_pairs"
+        strategy_dir.mkdir(parents=True, exist_ok=True)
 
-            # Create a temporary strategy file with the pair config
-            strategy_dir = ROOT / "workspace" / "strategies" / "type_C_pairs"
-            strategy_dir.mkdir(parents=True, exist_ok=True)
+        candidate_rows: list[tuple[int, float, str, dict[str, Any], Optional[dict[str, Any]]]] = []
+        skipped_existing: list[dict[str, Any]] = []
+        for pair_spec in cointegrated:
+            name = f"pairs_{pair_spec['pair_a'].split('/')[0]}_{pair_spec['pair_b'].split('/')[0]}"
+            existing = lm.get(name)
+            state = str((existing or {}).get("state") or "")
+            if state in {StrategyState.PAPER.value, StrategyState.ACTIVE.value}:
+                skipped_existing.append({"name": name, "state": state, "reason": "already_in_pool"})
+                continue
+            if state == StrategyState.VALIDATED.value:
+                skipped_existing.append({"name": name, "state": state, "reason": "validated_backlog"})
+                continue
+            priority = 0 if state == StrategyState.DISCOVERED.value else (1 if state == StrategyState.RETIRED.value else 2)
+            candidate_rows.append((priority, -float(pair_spec.get("correlation") or 0.0), name, pair_spec, existing))
+
+        candidate_rows.sort(key=lambda item: (item[0], item[1], item[2]))
+
+        new_validated = 0
+        validated_names: list[str] = []
+        promoted_new: list[str] = []
+        attempts: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        for _, _, name, pair_spec, existing in candidate_rows[:attempts_allowed]:
+            adaptive_result = self._optimize_pairs_candidate(adaptive, pair_spec)
+            params = self._resolve_pairs_params(adaptive_result)
             strategy_file = strategy_dir / f"{name}.py"
             strategy_file.write_text(
-                f'"""Auto-discovered pairs strategy: {name}"""\n'
-                f'PAIR_A = "{p["pair_a"]}"\n'
-                f'PAIR_B = "{p["pair_b"]}"\n'
-                f'LOOKBACK = 80\n'
-                f'ENTRY_Z = 2.0\n'
-                f'EXIT_Z = 0.5\n',
+                self._render_pairs_strategy(name, pair_spec, params),
                 encoding="utf-8",
             )
 
-            # Route through the CENTRAL gate pipeline (Gate 1→2→3)
             try:
                 result = gp.run_gates(
                     strategy_file,
@@ -179,23 +197,64 @@ class ContinuousRunner:
             except Exception as exc:
                 import logging
                 logging.getLogger(__name__).warning("Gate validation failed for %s: %s", name, exc)
+                errors.append({"name": name, "error": str(exc)[:200]})
                 continue
 
             passed_gate3 = result.get("final_gate_passed") == "gate_3"
-            if passed_gate3:
-                lm.register(name, strategy_type="pairs", config={
-                    "pair_a": p["pair_a"], "pair_b": p["pair_b"],
-                    "exchange": self.exchange, "correlation": p["correlation"],
-                    "half_life": p["half_life"],
-                }, source="auto_discovery")
+            attempts.append(
+                {
+                    "name": name,
+                    "state_before": str((existing or {}).get("state") or "new"),
+                    "passed_gate3": bool(passed_gate3),
+                    "final_gate_passed": result.get("final_gate_passed"),
+                    "params": params,
+                }
+            )
+            if not passed_gate3:
+                continue
+
+            config = self._build_pairs_strategy_config(
+                pair_spec=pair_spec,
+                params=params,
+                adaptive_result=adaptive_result,
+                gate_result=result,
+                strategy_file=strategy_file,
+            )
+            if existing:
+                lm.update_entry(
+                    name,
+                    strategy_type="pairs",
+                    config=config,
+                    source="auto_discovery",
+                    replace_config=True,
+                )
+                if existing.get("state") == StrategyState.RETIRED.value:
+                    lm.reset_to_discovered(name, "rediscovered via auto discovery")
+            else:
+                lm.register(name, strategy_type="pairs", config=config, source="auto_discovery")
+
+            if lm.get(name) and lm.get(name)["state"] == StrategyState.DISCOVERED.value:
                 lm.promote(name, "Gate 1-3 passed via GatePipeline")
-                lm.promote(name, "auto-promote to paper")
-                new_validated += 1
+            if self._paper_pool_size(lm) < self.min_paper_pool and lm.get(name) and lm.get(name)["state"] == StrategyState.VALIDATED.value:
+                if lm.promote(name, "auto-promote to paper to maintain minimum pool"):
+                    promoted_new.append(name)
+            validated_names.append(name)
+            new_validated += 1
 
         return {
             "scanned": len(pairs),
             "cointegrated": len(cointegrated),
             "new_validated": new_validated,
+            "validated_names": validated_names,
+            "attempted": len(attempts),
+            "attempts": attempts,
+            "promoted_existing": promoted_existing,
+            "promoted_new": promoted_new,
+            "paper_pool_before": paper_pool_before,
+            "paper_pool_after": self._paper_pool_size(lm),
+            "paper_pool_target": self.min_paper_pool,
+            "skipped_existing": skipped_existing,
+            "errors": errors,
         }
 
     def _phase_paper_trading(self) -> Dict[str, Any]:
@@ -327,6 +386,7 @@ class ContinuousRunner:
 
     def _phase_report(self, cycle_report: Dict[str, Any]) -> Dict[str, Any]:
         """Generate cycle summary."""
+        from workspace.report_generator import generate_daily_report
         from workspace.strategy_lifecycle import LifecycleManager
 
         lm = LifecycleManager()
@@ -348,6 +408,14 @@ class ContinuousRunner:
             for item in summary["strategies"]
             if item.get("paper_days", 0) > 0 or item.get("paper_state_path")
         ]
+        daily_report_generated = False
+        daily_report_error = None
+        daily_report_path = ROOT / "workspace" / "reports" / f"daily_{datetime.now().strftime('%Y%m%d')}.json"
+        try:
+            generate_daily_report()
+            daily_report_generated = True
+        except Exception as exc:
+            daily_report_error = str(exc)[:200]
 
         return {
             "status": "done",
@@ -355,6 +423,9 @@ class ContinuousRunner:
             "by_state": summary["by_state"],
             "cycle_phases_completed": len(cycle_report.get("phases", {})),
             "paper_returns": paper_returns,
+            "daily_report_generated": daily_report_generated,
+            "daily_report_path": str(daily_report_path),
+            "daily_report_error": daily_report_error,
         }
 
 
@@ -391,6 +462,97 @@ class ContinuousRunner:
             if row.get("state") == "paper" and row.get("at"):
                 return str(row["at"])
         return None
+
+    def _paper_pool_size(self, lifecycle_manager: Any) -> int:
+        from workspace.strategy_lifecycle import StrategyState
+
+        return len(lifecycle_manager.list_by_state(StrategyState.PAPER)) + len(
+            lifecycle_manager.list_by_state(StrategyState.ACTIVE)
+        )
+
+    def _top_up_paper_pool(self, lifecycle_manager: Any) -> list[str]:
+        from workspace.strategy_lifecycle import StrategyState
+
+        promoted: list[str] = []
+        for entry in lifecycle_manager.list_by_state(StrategyState.VALIDATED):
+            if self._paper_pool_size(lifecycle_manager) >= self.min_paper_pool:
+                break
+            if lifecycle_manager.promote(entry["name"], "auto-promote validated backlog to maintain minimum pool"):
+                promoted.append(str(entry["name"]))
+        return promoted
+
+    def _optimize_pairs_candidate(self, adaptive_engine: Any, pair_spec: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            result = adaptive_engine.optimize_pairs(
+                str(pair_spec["pair_a"]),
+                str(pair_spec["pair_b"]),
+                cost_bps=self.maker_fee_bps,
+            )
+        except Exception as exc:
+            return {"error": str(exc)[:200]}
+        return result if isinstance(result, dict) else {}
+
+    def _resolve_pairs_params(self, adaptive_result: Dict[str, Any]) -> Dict[str, float]:
+        best_params = adaptive_result.get("best_params") if isinstance(adaptive_result, dict) else {}
+        return {
+            "lookback": int((best_params or {}).get("lookback", 80)),
+            "entry_z": float((best_params or {}).get("entry_z", 2.0)),
+            "exit_z": float((best_params or {}).get("exit_z", 0.5)),
+        }
+
+    def _render_pairs_strategy(self, name: str, pair_spec: Dict[str, Any], params: Dict[str, float]) -> str:
+        return (
+            f'"""Auto-discovered pairs strategy: {name}"""\n'
+            f'PAIR_A = "{pair_spec["pair_a"]}"\n'
+            f'PAIR_B = "{pair_spec["pair_b"]}"\n'
+            f'LOOKBACK = {int(params["lookback"])}\n'
+            f'ENTRY_Z = {float(params["entry_z"])}\n'
+            f'EXIT_Z = {float(params["exit_z"])}\n'
+        )
+
+    def _build_pairs_strategy_config(
+        self,
+        *,
+        pair_spec: Dict[str, Any],
+        params: Dict[str, float],
+        adaptive_result: Dict[str, Any],
+        gate_result: Dict[str, Any],
+        strategy_file: Path,
+    ) -> Dict[str, Any]:
+        gate_2_metrics = (((gate_result.get("gates") or {}).get("gate_2") or {}).get("metrics") or {})
+        gate_3_metrics = (((gate_result.get("gates") or {}).get("gate_3") or {}).get("metrics") or {})
+        overfit_ratio = adaptive_result.get("overfit_ratio")
+        if overfit_ratio is None:
+            gate_2_sharpe = float(gate_2_metrics.get("sharpe") or 0.0)
+            gate_3_sharpe = float(gate_3_metrics.get("mean_sharpe") or 0.0)
+            overfit_ratio = abs(gate_2_sharpe) / (abs(gate_3_sharpe) + 0.01)
+        return {
+            "pair_a": str(pair_spec["pair_a"]),
+            "pair_b": str(pair_spec["pair_b"]),
+            "exchange": self.exchange,
+            "timeframe": self.timeframe,
+            "correlation": float(pair_spec.get("correlation") or 0.0),
+            "half_life": float(pair_spec.get("half_life") or 0.0),
+            "hedge_ratio": float(pair_spec.get("hedge_ratio") or 0.0),
+            "lookback": int(params["lookback"]),
+            "entry_z": float(params["entry_z"]),
+            "exit_z": float(params["exit_z"]),
+            "params": {
+                "lookback": int(params["lookback"]),
+                "entry_z": float(params["entry_z"]),
+                "exit_z": float(params["exit_z"]),
+            },
+            "strategy_path": str(strategy_file.relative_to(ROOT)),
+            "params_train": dict(adaptive_result.get("train") or {}),
+            "params_validation": dict(gate_2_metrics),
+            "walk_forward_validation": dict(gate_3_metrics),
+            "params_overfit_ratio": float(overfit_ratio),
+            "adaptive_result": dict(adaptive_result),
+            "gate_result": {
+                "final_gate_passed": gate_result.get("final_gate_passed"),
+                "recommendation": gate_result.get("recommendation"),
+            },
+        }
 
 
 __all__ = ["ContinuousRunner"]

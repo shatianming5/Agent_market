@@ -52,13 +52,20 @@ def _file_info(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _recent_files(directory: Path, *, limit: int = 5) -> list[dict[str, Any]]:
-    if not directory.exists():
-        return []
-    items = [item for item in directory.iterdir() if item.is_file()]
-    items.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+def _recent_files(directories: list[Path], *, limit: int = 5) -> list[dict[str, Any]]:
+    items: dict[str, Path] = {}
+    for directory in directories:
+        if not directory.exists():
+            continue
+        try:
+            candidates = [item for item in directory.iterdir() if item.is_file()]
+        except OSError:
+            continue
+        for item in candidates:
+            items[str(item.resolve())] = item
+    ranked = sorted(items.values(), key=lambda item: item.stat().st_mtime, reverse=True)
     output: list[dict[str, Any]] = []
-    for item in items[:limit]:
+    for item in ranked[:limit]:
         output.append(_file_info(item))
     return output
 
@@ -104,22 +111,31 @@ def _tmux_session_info(session: str) -> dict[str, Any]:
 
 
 def gather_status(workspace: Path, *, session: str, tail_lines: int = 20) -> dict[str, Any]:
+    canonical_workspace = workspace.parent / "workspace"
     results_dir = workspace / "results"
-    reports_dir = workspace / "reports"
-    validation_dir = workspace / "validation"
-    backtests_dir = workspace / "backtests"
-    paper_dir = workspace / "paper"
-    signals_dir = workspace / "signals"
+    reports_dirs = [workspace / "reports"]
+    validation_dirs = [workspace / "validation", results_dir / "factor_validation"]
+    backtests_dirs = [workspace / "backtests"]
+    paper_dirs = [workspace / "paper"]
+    signals_dirs = [workspace / "signals"]
+    if canonical_workspace != workspace:
+        reports_dirs.append(canonical_workspace / "reports")
+        validation_dirs.append(canonical_workspace / "validation")
+        backtests_dirs.append(canonical_workspace / "backtests")
+        paper_dirs.append(canonical_workspace / "paper")
+        signals_dirs.append(canonical_workspace / "signals")
 
     loop_logs = sorted(results_dir.glob("ws_production_loop_*.log"), key=lambda item: item.stat().st_mtime, reverse=True)
     latest_loop_log = loop_logs[0] if loop_logs else None
     agent_loop_log = results_dir / "agent_loop.log"
     preflight_json = results_dir / "preflight.json"
     last_cycle_json = results_dir / "last_cycle.json"
+    factor_cycle_json = results_dir / "factor_cycle_latest.json"
 
     status = {
         "timestamp": _utc_now(),
         "workspace": str(workspace),
+        "canonical_workspace": str(canonical_workspace) if canonical_workspace.exists() else None,
         "session": _tmux_session_info(session),
         "logs": {
             "latest_loop_log": _file_info(latest_loop_log) if latest_loop_log is not None else None,
@@ -129,13 +145,14 @@ def gather_status(workspace: Path, *, session: str, tail_lines: int = 20) -> dic
         },
         "preflight": _read_json(preflight_json),
         "last_cycle": _read_json(last_cycle_json),
+        "factor_cycle": _read_json(factor_cycle_json),
         "artifacts": {
-            "results_recent": _recent_files(results_dir),
-            "reports_recent": _recent_files(reports_dir),
-            "validation_recent": _recent_files(validation_dir),
-            "backtests_recent": _recent_files(backtests_dir),
-            "paper_recent": _recent_files(paper_dir),
-            "signals_recent": _recent_files(signals_dir),
+            "results_recent": _recent_files([results_dir]),
+            "reports_recent": _recent_files(reports_dirs),
+            "validation_recent": _recent_files(validation_dirs),
+            "backtests_recent": _recent_files(backtests_dirs),
+            "paper_recent": _recent_files(paper_dirs),
+            "signals_recent": _recent_files(signals_dirs),
         },
     }
     return status

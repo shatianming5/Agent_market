@@ -145,6 +145,17 @@ class LifecycleManager:
             last_day = entry["paper_dates"][-1]
             entry["paper_last_equity"] = float(daily_equity[last_day])
 
+    def _reset_runtime_tracking(self, entry: Dict[str, Any]) -> None:
+        entry["paper_days"] = 0
+        entry["paper_pnl"] = []
+        entry["paper_dates"] = []
+        entry["paper_daily_equity"] = {}
+        entry["paper_last_equity"] = float(entry.get("paper_initial_equity", 1000.0))
+        entry.pop("paper_last_processed_at", None)
+        entry.pop("paper_state_path", None)
+        entry["active_days"] = 0
+        entry["rolling_sharpe"] = []
+
     def _save(self):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path.write_text(
@@ -189,6 +200,55 @@ class LifecycleManager:
 
     def list_by_state(self, state: StrategyState) -> List[Dict[str, Any]]:
         return [s for s in self._strategies.values() if s["state"] == state.value]
+
+    def update_entry(
+        self,
+        name: str,
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        strategy_type: Optional[str] = None,
+        source: Optional[str] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+        replace_config: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Update an existing strategy entry without changing lifecycle state."""
+        entry = self._strategies.get(name)
+        if not entry:
+            return None
+
+        if strategy_type:
+            entry["type"] = strategy_type
+        if source:
+            entry["source"] = source
+        if config is not None:
+            if replace_config:
+                entry["config"] = dict(config)
+            else:
+                merged_config = dict(entry.get("config") or {})
+                merged_config.update(config)
+                entry["config"] = merged_config
+        if metrics is not None:
+            merged_metrics = dict(entry.get("metrics") or {})
+            merged_metrics.update(metrics)
+            entry["metrics"] = merged_metrics
+
+        entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._save()
+        return entry
+
+    def reset_to_discovered(self, name: str, reason: str = "rediscovered") -> bool:
+        """Re-queue an existing strategy for discovery and reset runtime tracking."""
+        entry = self._strategies.get(name)
+        if not entry:
+            return False
+
+        now = datetime.now(timezone.utc).isoformat()
+        entry["state"] = StrategyState.DISCOVERED.value
+        entry["updated_at"] = now
+        self._reset_runtime_tracking(entry)
+        entry["history"].append({"state": StrategyState.DISCOVERED.value, "at": now, "reason": reason})
+        self._save()
+        return True
 
     def transition(self, name: str, to_state: StrategyState, reason: str = "") -> bool:
         """Transition a strategy to a new state."""

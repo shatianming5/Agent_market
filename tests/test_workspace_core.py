@@ -189,6 +189,37 @@ class TestStrategyLifecycle:
         assert lm.get("bad_guardrail")["state"] == "retired"
         Path(db).unlink()
 
+    def test_reset_to_discovered_clears_runtime_tracking(self):
+        from workspace.strategy_lifecycle import LifecycleManager
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            f.write(b"{}")
+            db = f.name
+        lm = LifecycleManager(db_path=db)
+        lm.register("paper", strategy_type="pairs")
+        lm.promote("paper")
+        lm.promote("paper")
+        lm.sync_paper_tracking(
+            "paper",
+            daily_equity={"2026-04-08": 1010.0, "2026-04-09": 1020.0},
+            last_processed_at="2026-04-09T23:00:00+00:00",
+            current_equity=1020.0,
+            state_path="/tmp/paper.json",
+        )
+        lm.retire("paper", "manual stop")
+
+        assert lm.reset_to_discovered("paper", "rediscovered for retry")
+        entry = lm.get("paper")
+        assert entry["state"] == "discovered"
+        assert entry["paper_days"] == 0
+        assert entry["paper_pnl"] == []
+        assert entry["paper_dates"] == []
+        assert entry["paper_daily_equity"] == {}
+        assert entry["rolling_sharpe"] == []
+        assert entry.get("paper_last_processed_at") is None
+        assert entry["history"][-1]["reason"] == "rediscovered for retry"
+        Path(db).unlink()
+
 
 class TestVersionManager:
     def test_dedup_same_params(self):

@@ -56,7 +56,7 @@ Your tasks for this iteration:
 2. Check if any strategies need parameter recalibration (adaptive_params.AdaptiveEngine)
 3. If fewer than 3 strategies in paper/active, discover new ones
 4. Run gate_pipeline on any new strategies
-5. Generate daily report (report_generator.generate_daily_report)
+5. Confirm the cycle generated workspace/reports/daily_YYYYMMDD.json and inspect any report errors in the cycle summary
 6. Save cycle summary to results/last_cycle.json
 
 Execute Python code for each step. Be thorough but efficient." 2>&1 | tee -a results/agent_loop.log
