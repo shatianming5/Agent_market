@@ -202,6 +202,7 @@ class ContinuousRunner:
         """Run forward-only paper trading for all PAPER strategies."""
         from workspace.strategy_lifecycle import LifecycleManager, StrategyState
         from workspace.paper_cycle import PairsPaperCycle
+        from workspace.freqtrade_paper_cycle import FreqtradePaperCycle
 
         lm = LifecycleManager()
         paper_strategies = lm.list_by_state(StrategyState.PAPER)
@@ -209,6 +210,10 @@ class ContinuousRunner:
             exchange=self.exchange,
             timeframe=self.timeframe,
             fee_bps=self.maker_fee_bps,
+        )
+        freqtrade_cycle = FreqtradePaperCycle(
+            exchange=self.exchange,
+            timeframe=self.timeframe,
         )
         updated = 0
         initialized = 0
@@ -250,6 +255,44 @@ class ContinuousRunner:
                         "latest_day_return_pct": result.get("latest_day_return_pct"),
                         "last_processed_at": result.get("last_processed_at"),
                         "state_path": result.get("state_path"),
+                    })
+                except Exception as exc:
+                    errors.append({"name": strat["name"], "error": str(exc)[:200]})
+                    continue
+            elif strat["type"] == "ml":
+                try:
+                    result = freqtrade_cycle.run_strategy(strat["name"], config)
+                    if not result.get("ok"):
+                        errors.append({"name": strat["name"], "error": str(result.get("error") or "ml paper failed")[:200]})
+                        continue
+                    lm.sync_paper_tracking(
+                        strat["name"],
+                        daily_equity=result.get("daily_equity") or {},
+                        last_processed_at=str(result.get("last_processed_at") or ""),
+                        current_equity=result.get("current_equity"),
+                        state_path=result.get("state_path"),
+                    )
+                    initialized += int(bool(result.get("initialized")))
+                    updated += int(not bool(result.get("initialized")))
+                    total_new_bars += int(result.get("new_days") or 0)
+                    strategy_results.append({
+                        "name": strat["name"],
+                        "type": strat["type"],
+                        "state": strat.get("state"),
+                        "initialized": bool(result.get("initialized")),
+                        "backfilled": bool(result.get("backfilled")),
+                        "new_bars": int(result.get("new_days") or 0),
+                        "orders_added": int(result.get("orders_added") or 0),
+                        "paper_days": int(result.get("paper_days") or 0),
+                        "current_equity": float(result.get("current_equity") or 0.0),
+                        "cumulative_return_pct": float(result.get("cumulative_return_pct") or 0.0),
+                        "latest_day_return_pct": result.get("latest_day_return_pct"),
+                        "last_processed_at": result.get("last_processed_at"),
+                        "state_path": result.get("state_path"),
+                        "strategy_path": result.get("strategy_path"),
+                        "timerange": result.get("timerange"),
+                        "backtest_run_id": result.get("backtest_run_id"),
+                        "backtest_zip": result.get("backtest_zip"),
                     })
                 except Exception as exc:
                     errors.append({"name": strat["name"], "error": str(exc)[:200]})
