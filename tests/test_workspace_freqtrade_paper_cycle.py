@@ -5,6 +5,8 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pandas as pd
+
 
 def _write_backtest_zip(tmp_path: Path, *, strategy_name: str = "FreqtradeMLStrategy") -> tuple[Path, datetime]:
     zip_path = tmp_path / "backtest-result-test.zip"
@@ -177,3 +179,45 @@ def test_continuous_runner_routes_ml_to_freqtrade_cycle(monkeypatch) -> None:
     assert payload["strategies"][0]["type"] == "ml"
     assert payload["strategies"][0]["backfilled"] is True
     assert fake_lm.synced[0][0] == "ml_demo"
+
+
+def test_freqtrade_paper_cycle_caps_timerange_to_latest_available_data(tmp_path, monkeypatch) -> None:
+    from workspace.freqtrade_paper_cycle import FreqtradePaperCycle
+
+    strategy_path = tmp_path / "my_ml.py"
+    strategy_path.write_text("class Demo: pass\n", encoding="utf-8")
+    backtest_zip, _ = _write_backtest_zip(tmp_path)
+    seen = {}
+
+    def _fake_run_backtest(*args, **kwargs):
+        seen["timerange"] = kwargs["timerange"]
+        return {
+            "ok": True,
+            "strategy": "FreqtradeMLStrategy",
+            "trades": 2,
+            "run_id": "bt_test",
+            "backtest_zip": str(backtest_zip),
+        }
+
+    monkeypatch.setattr("workspace.freqtrade_paper_cycle.run_backtest", _fake_run_backtest)
+    monkeypatch.setattr(
+        FreqtradePaperCycle,
+        "_latest_available_candle",
+        lambda self, config: pd.Timestamp("2025-04-14T09:00:00+00:00"),
+    )
+
+    cycle = FreqtradePaperCycle(exchange="gate", timeframe="1h", paper_dir=tmp_path / "paper")
+    result = cycle.run_strategy(
+        "ml_demo",
+        {
+            "strategy_path": str(strategy_path),
+            "paper_started_at": "2025-03-15T00:00:00+00:00",
+            "timeframe": "1h",
+            "exchange": "gate",
+            "pairs": ["BTC/USDT", "ETH/USDT"],
+        },
+    )
+
+    assert result["ok"] is True
+    assert seen["timerange"] == "20250315-20250414"
+    assert result["last_processed_at"].startswith("2025-04-14T09:00:00")

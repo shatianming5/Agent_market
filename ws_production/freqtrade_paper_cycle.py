@@ -59,8 +59,14 @@ class FreqtradePaperCycle:
 
         state_path = self.paper_dir / f"{name}.json"
         state = self._load_state(state_path) or {}
-        latest_closed = _closed_candle_start(datetime.now(timezone.utc), self.timeframe) - _timeframe_delta(self.timeframe)
+        effective_timeframe = str(config.get("timeframe") or self.timeframe)
+        latest_closed = _closed_candle_start(datetime.now(timezone.utc), effective_timeframe) - _timeframe_delta(effective_timeframe)
+        latest_data_candle = self._latest_available_candle(config)
+        if latest_data_candle is not None:
+            latest_closed = min(latest_closed, latest_data_candle)
         start_stamp = self._paper_start(config, state, latest_closed)
+        if latest_closed < start_stamp:
+            start_stamp = latest_closed
         start_day = start_stamp.date()
         end_day = latest_closed.date()
         if end_day < start_day:
@@ -149,6 +155,61 @@ class FreqtradePaperCycle:
         if not path.is_absolute():
             path = ROOT / path
         return path.resolve()
+
+    def _resolve_pairs(self, config: Dict[str, Any], cfg: Dict[str, Any]) -> list[str]:
+        explicit_pairs = [str(pair) for pair in (config.get("pairs") or []) if str(pair).strip()]
+        if explicit_pairs:
+            return explicit_pairs
+        exchange_cfg = cfg.get("exchange") if isinstance(cfg.get("exchange"), dict) else {}
+        return [str(pair) for pair in (exchange_cfg.get("pair_whitelist") or []) if str(pair).strip()]
+
+    def _resolve_datadir(self, raw: Any) -> Path:
+        if raw in (None, ""):
+            return ROOT / "user_data" / "data"
+        path = Path(str(raw))
+        if not path.is_absolute():
+            path = ROOT / path
+        return path.resolve()
+
+    def _data_path(self, *, pair: str, exchange_name: str, timeframe: str, datadir: Any) -> Path:
+        slug = pair.replace("/", "_")
+        return self._resolve_datadir(datadir) / exchange_name / f"{slug}-{timeframe}.feather"
+
+    def _latest_available_candle(self, config: Dict[str, Any]) -> Optional[pd.Timestamp]:
+        config_path = self._resolve_path(config.get("config_path"))
+        cfg: Dict[str, Any] = {}
+        if config_path is not None and config_path.exists():
+            try:
+                cfg = json.loads(config_path.read_text(encoding="utf-8"))
+            except Exception:
+                cfg = {}
+
+        exchange_name = str(config.get("exchange") or ((cfg.get("exchange") or {}).get("name")) or self.exchange)
+        timeframe = str(config.get("timeframe") or cfg.get("timeframe") or self.timeframe)
+        datadir = cfg.get("datadir")
+        candidates: list[pd.Timestamp] = []
+        for pair in self._resolve_pairs(config, cfg):
+            path = self._data_path(
+                pair=pair,
+                exchange_name=exchange_name,
+                timeframe=timeframe,
+                datadir=datadir,
+            )
+            if not path.exists():
+                continue
+            try:
+                frame = pd.read_feather(path, columns=["date"])
+            except Exception:
+                continue
+            if frame.empty or "date" not in frame:
+                continue
+            dates = pd.to_datetime(frame["date"], utc=True, errors="coerce").dropna()
+            if dates.empty:
+                continue
+            candidates.append(pd.Timestamp(dates.iloc[-1]))
+        if not candidates:
+            return None
+        return min(candidates)
 
     def _load_state(self, path: Path) -> Optional[Dict[str, Any]]:
         if not path.exists():
