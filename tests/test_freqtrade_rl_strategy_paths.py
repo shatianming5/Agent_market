@@ -6,6 +6,9 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 
 def _import_strategy_module():
     freqtrade_mod = types.ModuleType("freqtrade")
@@ -93,3 +96,39 @@ def test_rl_load_prefers_rl_dir_and_ignores_sidecar_zip(tmp_path, monkeypatch) -
     assert strategy._feature_cfg == {"features": ["close"]}
     assert strategy._expression_specs[1] == str(rl_dir / "expressions_snapshot.json")
     assert strategy._model["loaded"].endswith("ppo_trading_env.zip")
+
+
+def test_rl_sb3_predict_uses_env_state_dims_and_action_mapping() -> None:
+    module = _import_strategy_module()
+
+    class _FakeSB3Model:
+        policy = object()
+
+        def __init__(self) -> None:
+            self.observations = []
+
+        def predict(self, obs, deterministic=True):  # noqa: ANN001
+            self.observations.append(np.array(obs, copy=True))
+            actions = [1, 0, 2]
+            return actions[len(self.observations) - 1], None
+
+    strategy = module.FreqtradeRLStrategy(config={})
+    strategy._model = _FakeSB3Model()
+
+    features = np.asarray(
+        [
+            [10.0, 20.0],
+            [11.0, 21.0],
+            [12.0, 22.0],
+        ],
+        dtype=np.float32,
+    )
+    prices = np.asarray([100.0, 110.0, 105.0], dtype=np.float32)
+
+    preds = strategy._predict_action(features, prices)
+
+    assert preds.tolist() == [1.0, 0.0, -1.0]
+    first_obs, second_obs, third_obs = strategy._model.observations
+    assert first_obs.tolist() == [10.0, 20.0, 0.0, 0.0]
+    assert second_obs.tolist() == pytest.approx([11.0, 21.0, 1.0, 0.1])
+    assert third_obs.tolist() == pytest.approx([12.0, 22.0, 1.0, 0.05])

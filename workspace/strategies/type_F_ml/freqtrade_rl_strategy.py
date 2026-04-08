@@ -181,8 +181,47 @@ class FreqtradeRLStrategy(IStrategy):
 
         self._loaded = True
 
-    def _predict_action(self, X: np.ndarray) -> np.ndarray:
+    def _predict_sb3_actions(self, X: np.ndarray, prices: Optional[np.ndarray]) -> np.ndarray:
+        """Run PPO-style policies one candle at a time with env-compatible state."""
+        if prices is None:
+            prices = np.zeros(len(X), dtype=np.float32)
+
+        preds = np.zeros(len(X), dtype=np.float32)
+        position = 0
+        entry_price = 0.0
+
+        for idx, row in enumerate(X):
+            price = float(prices[idx]) if idx < len(prices) else 0.0
+            unrealized = 0.0
+            if position == 1 and entry_price > 0 and price > 0:
+                unrealized = (price / entry_price) - 1.0
+            obs = np.concatenate(
+                [
+                    row.astype(np.float32, copy=False),
+                    np.asarray([float(position), float(unrealized)], dtype=np.float32),
+                ]
+            )
+            action, _ = self._model.predict(obs, deterministic=True)
+            action_id = int(np.asarray(action).reshape(-1)[0])
+            if action_id == 1:
+                preds[idx] = 1.0
+                if position == 0:
+                    position = 1
+                    entry_price = price
+            elif action_id == 2:
+                preds[idx] = -1.0
+                if position == 1:
+                    position = 0
+                    entry_price = 0.0
+            else:
+                preds[idx] = 0.0
+
+        return preds
+
+    def _predict_action(self, X: np.ndarray, prices: Optional[np.ndarray] = None) -> np.ndarray:
         """Predict RL action for each row. Returns array of floats."""
+        if hasattr(self._model, "policy") and hasattr(self._model, "predict"):
+            return self._predict_sb3_actions(X, prices)
         if hasattr(self._model, "predict"):
             # Sklearn-like or custom model with predict()
             preds = self._model.predict(X)
@@ -217,7 +256,10 @@ class FreqtradeRLStrategy(IStrategy):
             if col not in dataframe.columns:
                 dataframe[col] = 0.0
         matrix = dataframe[self._features].astype(float).replace([np.inf, -np.inf], np.nan).ffill().fillna(0.0)
-        dataframe["rl_pred"] = self._predict_action(matrix.to_numpy(dtype=np.float32))
+        dataframe["rl_pred"] = self._predict_action(
+            matrix.to_numpy(dtype=np.float32),
+            dataframe["close"].to_numpy(dtype=np.float32) if "close" in dataframe.columns else None,
+        )
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
