@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 
 def _write_backtest_zip(tmp_path: Path, *, strategy_name: str = "FreqtradeMLStrategy") -> tuple[Path, datetime]:
@@ -118,7 +119,8 @@ def test_freqtrade_paper_cycle_uses_existing_started_at(tmp_path, monkeypatch) -
     assert state["started_at"] == "2026-04-07T00:00:00+00:00"
 
 
-def test_continuous_runner_routes_ml_to_freqtrade_cycle(monkeypatch) -> None:
+@pytest.mark.parametrize("strategy_type", ["ml", "dl"])
+def test_continuous_runner_routes_freqtrade_strategies_to_freqtrade_cycle(monkeypatch, strategy_type: str) -> None:
     import workspace.strategy_lifecycle as lifecycle_mod
     import workspace.freqtrade_paper_cycle as ml_cycle_mod
     from workspace.continuous_runner import ContinuousRunner
@@ -130,10 +132,10 @@ def test_continuous_runner_routes_ml_to_freqtrade_cycle(monkeypatch) -> None:
         def list_by_state(self, state):  # noqa: ANN001
             return [
                 {
-                    "name": "ml_demo",
+                    "name": f"{strategy_type}_demo",
                     "state": "paper",
-                    "type": "ml",
-                    "config": {"strategy_path": "workspace/strategies/type_F_ml/freqtrade_ml_strategy.py"},
+                    "type": strategy_type,
+                    "config": {"strategy_path": f"workspace/strategies/type_F_ml/freqtrade_{strategy_type}_strategy.py"},
                     "history": [{"state": "paper", "at": "2026-04-08T00:00:00+00:00"}],
                 }
             ]
@@ -147,6 +149,7 @@ def test_continuous_runner_routes_ml_to_freqtrade_cycle(monkeypatch) -> None:
 
         def run_strategy(self, name, config):  # noqa: ANN001
             assert config["paper_started_at"] == "2026-04-08T00:00:00+00:00"
+            assert config["strategy_path"].endswith(f"freqtrade_{strategy_type}_strategy.py")
             return {
                 "ok": True,
                 "initialized": False,
@@ -176,9 +179,9 @@ def test_continuous_runner_routes_ml_to_freqtrade_cycle(monkeypatch) -> None:
     assert payload["n_paper"] == 1
     assert payload["updated"] == 1
     assert payload["new_bars"] == 2
-    assert payload["strategies"][0]["type"] == "ml"
+    assert payload["strategies"][0]["type"] == strategy_type
     assert payload["strategies"][0]["backfilled"] is True
-    assert fake_lm.synced[0][0] == "ml_demo"
+    assert fake_lm.synced[0][0] == f"{strategy_type}_demo"
 
 
 def test_freqtrade_paper_cycle_caps_timerange_to_latest_available_data(tmp_path, monkeypatch) -> None:

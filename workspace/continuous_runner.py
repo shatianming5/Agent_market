@@ -259,11 +259,12 @@ class ContinuousRunner:
                 except Exception as exc:
                     errors.append({"name": strat["name"], "error": str(exc)[:200]})
                     continue
-            elif strat["type"] == "ml":
+            elif strat["type"] in {"ml", "dl"}:
                 try:
                     result = freqtrade_cycle.run_strategy(strat["name"], config)
                     if not result.get("ok"):
-                        errors.append({"name": strat["name"], "error": str(result.get("error") or "ml paper failed")[:200]})
+                        type_label = str(strat["type"])
+                        errors.append({"name": strat["name"], "error": str(result.get("error") or f"{type_label} paper failed")[:200]})
                         continue
                     lm.sync_paper_tracking(
                         strat["name"],
