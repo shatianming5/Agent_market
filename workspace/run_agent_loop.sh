@@ -59,6 +59,11 @@ Your tasks for this iteration:
 5. Confirm the cycle generated workspace/reports/daily_YYYYMMDD.json and inspect any report errors in the cycle summary
 6. Save cycle summary to results/last_cycle.json
 
+Constraints:
+- Do not edit tracked repository files during this loop.
+- Only execute existing Python entrypoints and write runtime artifacts/logs under results/, workspace/results/, workspace/reports/, or workspace/paper.
+- If you detect a code issue, log it and continue with the remaining safe runtime steps instead of patching files.
+
 Execute Python code for each step. Be thorough but efficient." 2>&1 | tee -a results/agent_loop.log
 
     # Wait between iterations
