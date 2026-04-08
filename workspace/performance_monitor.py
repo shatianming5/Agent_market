@@ -102,6 +102,8 @@ class PerformanceMonitor:
     def daily_check(
         self,
         strategies: Optional[List[Dict[str, Any]]] = None,
+        *,
+        apply_transitions: bool = False,
     ) -> Dict[str, Any]:
         """Run daily health checks on all monitored strategies."""
         from workspace.strategy_lifecycle import LifecycleManager, StrategyState
@@ -149,9 +151,9 @@ class PerformanceMonitor:
                             "reason": "alpha decay detected",
                         })
 
-        # Auto-review
-        review_actions = lm.auto_review()
-        report["auto_review"] = review_actions
+        if apply_transitions:
+            review_actions = lm.auto_review(health_issues=report["issues"])
+            report["auto_review"] = review_actions
 
         # Log
         self._log(report)

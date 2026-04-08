@@ -88,6 +88,10 @@ class PaperTrader:
             if pair in prices:
                 pos.update_mark_price(prices[pair])
 
+    def mark_to_market(self, timestamp: Optional[str] = None) -> None:
+        """Record an equity snapshot even when no order is executed."""
+        self._snapshot_equity(timestamp=timestamp)
+
     def submit_order(
         self,
         pair: str,
@@ -153,11 +157,11 @@ class PaperTrader:
                 pos.avg_entry_price = 0
                 pos.unrealized_pnl = 0
 
-    def _snapshot_equity(self) -> None:
+    def _snapshot_equity(self, timestamp: Optional[str] = None) -> None:
         """Record equity snapshot."""
         equity = self.total_equity()
         self.equity_history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
             "equity": equity,
             "cash": self.cash,
             "positions_value": equity - self.cash,
@@ -228,6 +232,77 @@ class PaperTrader:
         }
         path.write_text(json.dumps(log, indent=2, ensure_ascii=False), encoding="utf-8")
         return path
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize trader state for persistence."""
+        return {
+            "initial_equity": self.initial_equity,
+            "cash": self.cash,
+            "fee_bps": self.fee_bps,
+            "prices": self.prices,
+            "order_counter": self._order_counter,
+            "positions": {
+                pair: {
+                    "pair": pos.pair,
+                    "qty": pos.qty,
+                    "avg_entry_price": pos.avg_entry_price,
+                    "unrealized_pnl": pos.unrealized_pnl,
+                    "realized_pnl": pos.realized_pnl,
+                    "total_fees": pos.total_fees,
+                }
+                for pair, pos in self.positions.items()
+            },
+            "orders": [
+                {
+                    "order_id": order.order_id,
+                    "pair": order.pair,
+                    "side": order.side,
+                    "size_usd": order.size_usd,
+                    "price": order.price,
+                    "timestamp": order.timestamp,
+                    "fee_bps": order.fee_bps,
+                }
+                for order in self.orders
+            ],
+            "equity_history": self.equity_history,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "PaperTrader":
+        """Restore trader state from a persisted payload."""
+        trader = cls(
+            initial_equity=float(payload.get("initial_equity", 1000.0)),
+            fee_bps=float(payload.get("fee_bps", 10.0)),
+            pairs=[],
+        )
+        trader.cash = float(payload.get("cash", trader.initial_equity))
+        trader.prices = {str(k): float(v) for k, v in (payload.get("prices") or {}).items()}
+        trader._order_counter = int(payload.get("order_counter", 0))
+        trader.positions = {
+            str(pair): PaperPosition(
+                pair=str(pair),
+                qty=float((raw or {}).get("qty", 0.0)),
+                avg_entry_price=float((raw or {}).get("avg_entry_price", 0.0)),
+                unrealized_pnl=float((raw or {}).get("unrealized_pnl", 0.0)),
+                realized_pnl=float((raw or {}).get("realized_pnl", 0.0)),
+                total_fees=float((raw or {}).get("total_fees", 0.0)),
+            )
+            for pair, raw in (payload.get("positions") or {}).items()
+        }
+        trader.orders = [
+            PaperOrder(
+                order_id=str(raw.get("order_id", "")),
+                pair=str(raw.get("pair", "")),
+                side=str(raw.get("side", "")),
+                size_usd=float(raw.get("size_usd", 0.0)),
+                price=float(raw.get("price", 0.0)),
+                timestamp=str(raw.get("timestamp", "")),
+                fee_bps=float(raw.get("fee_bps", trader.fee_bps)),
+            )
+            for raw in (payload.get("orders") or [])
+        ]
+        trader.equity_history = list(payload.get("equity_history") or [])
+        return trader
 
 
 __all__ = ["PaperTrader", "PaperOrder", "PaperPosition"]

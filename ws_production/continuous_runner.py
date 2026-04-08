@@ -4,7 +4,7 @@ Phases:
   1. Data Refresh — download latest candles
   2. Strategy Discovery — OpenCode scans + writes strategies
   3. Validation — walk-forward test new strategies
-  4. Paper Trading — simulate validated strategies
+  4. Paper Trading — forward paper trading on fresh market data
   5. Performance Review — check health, promote/retire
   6. Report — generate daily summary
 
@@ -34,7 +34,7 @@ class ContinuousRunner:
         exchange: str = "gate",
         pairs: Optional[List[str]] = None,
         timeframe: str = "1h",
-        maker_fee_bps: float = 1.0,
+        maker_fee_bps: float = 10.0,
     ):
         self.exchange = exchange
         self.pairs = pairs or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "DOGE/USDT",
@@ -198,36 +198,47 @@ class ContinuousRunner:
         }
 
     def _phase_paper_trading(self) -> Dict[str, Any]:
-        """Simulate one day of paper trading for all PAPER strategies."""
+        """Run forward-only paper trading for all PAPER strategies."""
         from workspace.strategy_lifecycle import LifecycleManager, StrategyState
-        from workspace.pairs_engine import PairsEngine
-        import numpy as np
+        from workspace.paper_cycle import PairsPaperCycle
 
         lm = LifecycleManager()
         paper_strategies = lm.list_by_state(StrategyState.PAPER)
+        paper_cycle = PairsPaperCycle(
+            exchange=self.exchange,
+            timeframe=self.timeframe,
+            fee_bps=self.maker_fee_bps,
+        )
+        updated = 0
+        initialized = 0
+        total_new_bars = 0
 
         for strat in paper_strategies:
             config = strat.get("config", {})
             if strat["type"] == "pairs":
-                pair_a = config.get("pair_a", "")
-                pair_b = config.get("pair_b", "")
-                if not pair_a or not pair_b:
+                try:
+                    result = paper_cycle.run_pairs_strategy(strat["name"], config)
+                    if not result.get("ok"):
+                        continue
+                    lm.sync_paper_tracking(
+                        strat["name"],
+                        daily_equity=result.get("daily_equity") or {},
+                        last_processed_at=str(result.get("last_processed_at") or ""),
+                        current_equity=result.get("current_equity"),
+                        state_path=result.get("state_path"),
+                    )
+                    initialized += int(bool(result.get("initialized")))
+                    updated += int(not bool(result.get("initialized")))
+                    total_new_bars += int(result.get("new_bars") or 0)
+                except Exception:
                     continue
 
-                # Simulate latest day PnL
-                pe = PairsEngine(pair_a, pair_b, exchange=config.get("exchange", self.exchange))
-                try:
-                    df = pe.load_data()
-                    # Use last 48 bars for a "day" simulation
-                    pe_day = PairsEngine(pair_a, pair_b, exchange=config.get("exchange", self.exchange))
-                    pe_day._df = df.tail(48).reset_index(drop=True)
-                    signals = pe_day.generate_signals(lookback=30, entry_z=2.0, exit_z=0.5)
-                    bt = pe_day.backtest(signals, maker_fee_bps=self.maker_fee_bps)
-                    lm.record_paper_day(strat["name"], bt.profit_pct)
-                except Exception:
-                    lm.record_paper_day(strat["name"], 0.0)
-
-        return {"n_paper": len(paper_strategies)}
+        return {
+            "n_paper": len(paper_strategies),
+            "initialized": initialized,
+            "updated": updated,
+            "new_bars": total_new_bars,
+        }
 
     def _phase_performance_review(self) -> Dict[str, Any]:
         """Review all strategies and apply auto-transitions."""
@@ -237,8 +248,8 @@ class ContinuousRunner:
         lm = LifecycleManager()
         pm = PerformanceMonitor()
 
-        review = pm.daily_check()
-        actions = lm.auto_review()
+        review = pm.daily_check(apply_transitions=False)
+        actions = lm.auto_review(health_issues=review.get("issues"))
 
         return {
             "healthy": review.get("healthy", 0),
