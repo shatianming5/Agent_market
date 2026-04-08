@@ -7,6 +7,8 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
+
 
 def _import_strategy_module():
     freqtrade_mod = types.ModuleType("freqtrade")
@@ -73,3 +75,39 @@ def test_dl_load_uses_local_artifacts_when_summary_paths_are_stale(tmp_path, mon
     assert strategy._expression_specs[1] == str(model_dir / "expressions_snapshot.json")
     assert strategy._model["weights"] == [1.0]
     assert strategy._features == ["close"]
+
+
+def test_dl_load_ignores_appledouble_pt_sidecars(tmp_path, monkeypatch) -> None:
+    module = _import_strategy_module()
+    model_dir = tmp_path / "artifacts" / "models" / "pytorch_dl"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "._pytorch_mlp.pt").write_bytes(b"\x00bad")
+    (model_dir / "pytorch_mlp.pt").write_bytes(b"good")
+    (model_dir / "training_summary.json").write_text(
+        json.dumps(
+            {
+                "model": "pytorch_mlp",
+                "features": ["close"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _FakeTorch(types.ModuleType):
+        def __init__(self):
+            super().__init__("torch")
+
+        @staticmethod
+        def load(path, map_location="cpu", weights_only=False):  # noqa: ANN001
+            assert Path(path).name == "pytorch_mlp.pt"
+            return {"weights": np.array([1.0]), "bias": 0.0, "mean": np.array([0.0]), "std": np.array([1.0])}
+
+    sys.modules["torch"] = _FakeTorch()
+
+    monkeypatch.setattr(module, "_ROOT", tmp_path)
+
+    strategy = module.FreqtradeDLStrategy()
+    strategy._load()
+
+    assert isinstance(strategy._model, dict)
+    assert strategy._model["bias"] == 0.0

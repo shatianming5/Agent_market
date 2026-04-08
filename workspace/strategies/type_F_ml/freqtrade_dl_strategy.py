@@ -53,6 +53,16 @@ def _resolve_summary_artifact(
     return candidates[0] if candidates else None
 
 
+def _iter_model_candidates(directory: Path, *suffixes: str) -> List[Path]:
+    items: List[Path] = []
+    for suffix in suffixes:
+        items.extend(
+            path for path in directory.glob(f"*{suffix}")
+            if path.is_file() and not path.name.startswith("._")
+        )
+    return sorted(items)
+
+
 class FreqtradeDLStrategy(IStrategy):
     """PyTorch Deep Learning strategy for freqtrade."""
 
@@ -91,7 +101,7 @@ class FreqtradeDLStrategy(IStrategy):
                 continue
             # Look for pytorch files
             for ext in [".pt", ".pth"]:
-                candidates = list(d.glob(f"*{ext}"))
+                candidates = _iter_model_candidates(d, ext)
                 if candidates:
                     model_path = candidates[0]
                     model_dir = d
