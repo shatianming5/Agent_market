@@ -60,3 +60,11 @@ jobs = JobManager(
     max_running=int(os.environ.get("AGENT_MARKET_MAX_CONCURRENT_JOBS", "2") or "2"),
     max_queued=int(os.environ.get("AGENT_MARKET_MAX_QUEUED_JOBS", "50") or "50"),
 )
+
+# Optional background GC janitor for long-running single-machine deployments.
+try:  # pragma: no cover
+    from .janitor import start_janitor_thread
+
+    _JANITOR_THREAD = start_janitor_thread()
+except Exception:
+    _JANITOR_THREAD = None

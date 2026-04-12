@@ -73,6 +73,8 @@ def run_capture(req: CaptureReq = Body(...)):
     ]
     if out_dir is not None:
         cmd += ["--out-dir", str(out_dir)]
+    if req.max_reconnects is not None:
+        cmd += ["--max-reconnects", str(int(req.max_reconnects))]
     if fixture_path is not None:
         cmd += ["--fixture", str(fixture_path)]
         timeout_sec = 120
@@ -85,6 +87,9 @@ def run_capture(req: CaptureReq = Body(...)):
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC)
+    meta = {"exchange": exchange, "channels": channels}
+    if req.max_reconnects is not None:
+        meta["max_reconnects"] = int(req.max_reconnects)
     try:
         job_id = jobs.start(
             cmd,
@@ -92,7 +97,7 @@ def run_capture(req: CaptureReq = Body(...)):
             env=env,
             timeout_sec=timeout_sec,
             kind="capture",
-            meta={"exchange": exchange, "channels": channels},
+            meta=meta,
         )
     except JobQueueFullError as exc:
         return error("JOB_QUEUE_FULL", str(exc), status_code=429)

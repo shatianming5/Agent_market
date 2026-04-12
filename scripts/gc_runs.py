@@ -77,7 +77,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         ts = ended or started
         if not ts:
             try:
-                ts = meta_path.stat().st_mtime
+                # If run_meta.json isn't written yet (run in progress), fall back
+                # to the directory mtime so we don't delete active runs.
+                ts = meta_path.stat().st_mtime if meta_path.exists() else child.stat().st_mtime
             except Exception:
                 ts = 0.0
         rows.append((float(ts), child.resolve(), payload))

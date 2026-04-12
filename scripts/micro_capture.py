@@ -29,11 +29,15 @@ def _ensure_imports() -> None:
 
 async def _run_fixture(*, fixture: Path, out_dir: Path, exchange: str, channels: list[str]) -> dict:
     _ensure_imports()
-    from agent_market.microstructure.capture.kucoin import infer_channel_from_topic  # noqa: WPS433
+    from agent_market.microstructure.capture.kucoin import (  # noqa: WPS433
+        KuCoinLevel2SeqGapTracker,
+        infer_channel_from_topic,
+    )
     from agent_market.microstructure.capture.writer import CaptureWriter  # noqa: WPS433
 
     started_at = datetime.now(timezone.utc).isoformat()
     writer = CaptureWriter(out_dir, channels=channels)
+    level2_tracker = KuCoinLevel2SeqGapTracker() if "level2" in set(channels) else None
     try:
         for line in fixture.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -46,6 +50,8 @@ async def _run_fixture(*, fixture: Path, out_dir: Path, exchange: str, channels:
             ch = infer_channel_from_topic(topic) or "unknown"
             if ch not in channels:
                 continue
+            if ch == "level2" and level2_tracker is not None:
+                level2_tracker.observe(topic=topic, data=msg.get("data"))
             msg["_received_at"] = datetime.now(timezone.utc).isoformat()
             msg["_exchange"] = exchange
             msg["_channel"] = ch
@@ -62,21 +68,34 @@ async def _run_fixture(*, fixture: Path, out_dir: Path, exchange: str, channels:
         "exchange": exchange,
         "channels": channels,
         "counts": counts,
+        "level2_seq_gaps": (level2_tracker.meta() if level2_tracker is not None else None),
     }
 
 
-async def _run_live(*, out_dir: Path, exchange: str, symbols: list[str], channels: list[str], duration_sec: float) -> dict:
+async def _run_live(
+    *,
+    out_dir: Path,
+    exchange: str,
+    symbols: list[str],
+    channels: list[str],
+    duration_sec: float,
+    max_reconnects: Optional[int] = None,
+) -> dict:
     _ensure_imports()
     from agent_market.microstructure.capture.kucoin import capture_kucoin_ws  # noqa: WPS433
     from agent_market.microstructure.capture.writer import CaptureWriter  # noqa: WPS433
 
     writer = CaptureWriter(out_dir, channels=channels)
     try:
+        kwargs = {}
+        if max_reconnects is not None:
+            kwargs["max_reconnects"] = int(max_reconnects)
         meta = await capture_kucoin_ws(
             symbols=symbols,
             channels=channels,
             duration_sec=duration_sec,
             writer=writer,
+            **kwargs,
         )
         counts = {k: v.count for k, v in writer.files.items()}
         return {"mode": "live", "exchange": exchange, "counts": counts, **meta}
@@ -92,6 +111,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--duration-sec", type=float, default=60.0)
     parser.add_argument("--out-dir", default=None, help="Session output directory (default: user_data/micro_capture/<ex>/<date>/<session_id>)")
     parser.add_argument("--fixture", default=None, help="Offline replay fixture (jsonl) to avoid network")
+    parser.add_argument(
+        "--max-reconnects",
+        type=int,
+        default=None,
+        help="Max reconnect attempts for live capture (0 or negative => unlimited). Default: 3",
+    )
     args = parser.parse_args(argv)
 
     exchange = str(args.exchange or "").strip().lower()
@@ -142,6 +167,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 symbols=symbols,
                 channels=channels,
                 duration_sec=float(args.duration_sec),
+                max_reconnects=args.max_reconnects,
             )
         )
 
