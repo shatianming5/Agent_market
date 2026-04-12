@@ -36,6 +36,12 @@ artifacts/
 analysis/
 tmp_*
 *.tmp
+
+# runtime outputs (local only)
+runtime_configs/
+runtime_logs/
+runtime_manifests/
+workspace/results/
 ws_production/results/preflight.json
 ws_production/results/factor_cycle_*.json
 ws_production/results/factor_cycle_latest.json
