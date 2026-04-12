@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json as _jsonmod
+import logging
 import os
 import re
 import sys
@@ -13,15 +14,18 @@ from typing import Optional
 from fastapi import APIRouter, Body, WebSocket
 from starlette.responses import StreamingResponse
 
+from agent_market import paths  # type: ignore
+
 from ..errors import error, error_dict
 from ..models import FlowReq
 from ...runtime import ROOT, jobs
 from ...job_manager import JobQueueFullError
-from agent_market import paths  # type: ignore
 
-def _validate_config_path(config_path: str, repo_root) -> str:
+logger = logging.getLogger(__name__)
+
+
+def _validate_config_path(config_path: str, repo_root: Path) -> str:
     """Ensure config path is within the repo root (safe containment check)."""
-    from pathlib import Path
     try:
         p = paths.resolve_repo_path(str(config_path)).resolve()
     except Exception:
@@ -391,7 +395,7 @@ def flow_runs_list(limit: int = 20):
         try:
             payload = _jsonmod.loads(meta_path.read_text(encoding="utf-8"))
         except Exception as _exc:
-            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
+            logger.debug("Skipped: %s", _exc)
             continue
 
         run_id = str(payload.get("run_id") or meta_path.parent.name).strip().lower()
@@ -415,7 +419,7 @@ def flow_runs_list(limit: int = 20):
         try:
             ts = ts or meta_path.stat().st_mtime
         except Exception as _exc:
-            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
+            logger.debug("Suppressed: %s", _exc)
 
         try:
             rel_meta_path = str(meta_path.relative_to(root_resolved))
@@ -450,14 +454,14 @@ def run_flow(req: FlowReq = Body(...)):
     script = str(ROOT / "scripts" / "agent_flow.py")
     validated_config = _validate_config_path(req.config, ROOT)
     cmd = [py, script, "--config", validated_config]
+    parts: list[str] = []
     if req.steps:
-        parts: list[str] = []
         if isinstance(req.steps, str):
-            parts = [p for p in req.steps.split(" ") if p]
+            parts = [p for p in req.steps.split() if p]
         elif isinstance(req.steps, list):
             parts = [str(p) for p in req.steps if p]
     if parts:
-            cmd += ["--steps"] + parts
+        cmd += ["--steps"] + parts
 
     env = os.environ.copy()
     try:
@@ -630,7 +634,7 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                             epoch_ratio = cur_i / tot_i
                             break
                         except Exception as _exc:
-                            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
+                            logger.debug("Suppressed: %s", _exc)
                 pct_token = None
                 for raw in raw_lines[max(0, total_lines - 30) :]:
                     m2 = r_pct.search(str(raw))
@@ -640,7 +644,7 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
                             if 0 <= v <= 100:
                                 pct_token = v / 100.0
                         except Exception as _exc:
-                            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
+                            logger.debug("Suppressed: %s", _exc)
                 dyn = (
                     epoch_ratio
                     if epoch_ratio is not None
@@ -719,4 +723,4 @@ async def flow_ws(websocket: WebSocket, job_id: str):
         try:
             await websocket.close()
         except Exception as _exc:
-            import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
+            logger.debug("Suppressed: %s", _exc)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -8,6 +9,8 @@ from .job_manager import JobManager, DEFAULT_KEEP_RECENT
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+
+logger = logging.getLogger(__name__)
 
 
 def load_dotenv_into_environ(env_path: Path) -> None:
@@ -25,13 +28,16 @@ def load_dotenv_into_environ(env_path: Path) -> None:
                 continue
             if "=" not in line:
                 continue
-            key, value = line.split("=", 1)
+            key, _, value = line.partition("=")
             key = key.strip()
+            if not key:
+                continue
             value = value.strip().strip('"').strip("'")
-            if not os.environ.get(key):
-                os.environ[key] = value
+            if os.environ.get(key):
+                continue
+            os.environ[key] = value
     except Exception as _exc:
-        import logging; logging.getLogger(__name__).debug("Suppressed: %s", _exc)
+        logger.debug("Suppressed: %s", _exc)
 
 
 # Load .env from project root into process env
