@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from filelock import FileLock, Timeout as FileLockTimeout
+
+logger = logging.getLogger(__name__)
 
 def _read_json(path: Optional[Path]) -> dict[str, Any]:
     if path is None or not path.exists():
@@ -14,6 +21,39 @@ def _read_json(path: Optional[Path]) -> dict[str, Any]:
     except Exception:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
+
+
+def _factor_signature(
+    *,
+    expression: str,
+    timeframe: Any,
+    universe: list[Any],
+    target_col: str,
+) -> str:
+    """Stable signature used to deduplicate factors across runs."""
+    uni = sorted({str(x).strip().upper() for x in (universe or []) if str(x).strip()})
+    payload = {
+        "expression": str(expression or "").strip(),
+        "timeframe": str(timeframe or "").strip(),
+        "universe": list(uni),
+        "target_col": str(target_col or "").strip(),
+    }
+    return _sha256_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def _parse_iso8601(value: Any) -> float:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        # `fromisoformat` supports "+00:00" but not "Z".
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
 
 
 def _failed_gate_reasons(item: dict[str, Any]) -> list[str]:
@@ -244,10 +284,24 @@ class FactorMemoryStore:
         tmp.replace(self._path)
 
     def merge_payload(self, payload: dict[str, Any]) -> None:
+        def _factor_key(card: dict[str, Any]) -> str:
+            sig = str(card.get("signature") or "").strip()
+            if not sig:
+                try:
+                    sig = _factor_signature(
+                        expression=str(card.get("expression") or ""),
+                        timeframe=card.get("timeframe"),
+                        universe=list(card.get("universe") or []),
+                        target_col=str(card.get("target_col") or ""),
+                    )
+                except Exception:
+                    sig = ""
+            return sig or str(card.get("card_id") or "").strip()
+
         factor_index = {
-            str(card.get("card_id") or ""): idx
+            _factor_key(card): idx
             for idx, card in enumerate(self._payload.get("factor_cards") or [])
-            if str(card.get("card_id") or "")
+            if _factor_key(card)
         }
         failure_index = {
             str(card.get("failure_id") or ""): idx
@@ -265,13 +319,25 @@ class FactorMemoryStore:
         }
 
         for card in list(payload.get("factor_cards") or []):
-            card_id = str(card.get("card_id") or "").strip()
-            if not card_id:
+            merge_key = _factor_key(card)
+            if not merge_key:
                 continue
-            if card_id in factor_index:
-                existing = dict((self._payload.get("factor_cards") or [])[factor_index[card_id]])
+            if merge_key in factor_index:
+                existing = dict((self._payload.get("factor_cards") or [])[factor_index[merge_key]])
                 merged = dict(existing)
                 merged.update(card)
+                # Preserve original card_id but remember aliases when de-duping by signature.
+                existing_card_id = str(existing.get("card_id") or "").strip()
+                incoming_card_id = str(card.get("card_id") or "").strip()
+                if existing_card_id and incoming_card_id and existing_card_id != incoming_card_id:
+                    aliases = list(existing.get("source_card_ids") or [])
+                    for item in (incoming_card_id,):
+                        if item not in aliases:
+                            aliases.append(item)
+                    merged["source_card_ids"] = aliases[-20:]
+                merged["seen_count"] = int(existing.get("seen_count", 1) or 1) + 1
+                merged["last_seen_run_id"] = str(card.get("run_id") or merged.get("run_id") or "")
+
                 refs = list(existing.get("downstream_strategy_references") or [])
                 for ref in list(card.get("downstream_strategy_references") or []):
                     if ref not in refs:
@@ -281,10 +347,23 @@ class FactorMemoryStore:
                     int(existing.get("reuse_count", 0) or 0),
                     int(card.get("reuse_count", 0) or 0),
                 )
-                self._payload["factor_cards"][factor_index[card_id]] = merged
+                # Keep the best metrics snapshot (by weighted_score).
+                try:
+                    existing_score = (existing.get("metrics") or {}).get("weighted_score")
+                    incoming_score = (card.get("metrics") or {}).get("weighted_score")
+                    es = float(existing_score) if existing_score is not None else float("-inf")
+                    ins = float(incoming_score) if incoming_score is not None else float("-inf")
+                    if ins > es:
+                        merged["metrics"] = dict(card.get("metrics") or {})
+                        merged["gate_pass"] = bool(card.get("gate_pass"))
+                        merged["pareto"] = bool(card.get("pareto"))
+                except Exception:
+                    pass
+
+                self._payload["factor_cards"][factor_index[merge_key]] = merged
             else:
                 self._payload["factor_cards"].append(dict(card))
-                factor_index[card_id] = len(self._payload["factor_cards"]) - 1
+                factor_index[merge_key] = len(self._payload["factor_cards"]) - 1
 
         for card in list(payload.get("failure_cards") or []):
             failure_id = str(card.get("failure_id") or "").strip()
@@ -307,6 +386,66 @@ class FactorMemoryStore:
                 continue
             self._payload["edges"].append(dict(edge))
             edge_keys.add(edge_key)
+
+    def prune(
+        self,
+        *,
+        max_factor_cards: int = 2000,
+        max_failure_cards: int = 800,
+        max_edges: int = 5000,
+    ) -> None:
+        """Best-effort cap memory growth for long-running global stores."""
+        try:
+            max_factor_cards_i = max(1, int(max_factor_cards))
+        except Exception:
+            max_factor_cards_i = 2000
+        try:
+            max_failure_cards_i = max(1, int(max_failure_cards))
+        except Exception:
+            max_failure_cards_i = 800
+        try:
+            max_edges_i = max(1, int(max_edges))
+        except Exception:
+            max_edges_i = 5000
+
+        cards = list(self._payload.get("factor_cards") or [])
+        if len(cards) > max_factor_cards_i:
+            def _rank(card: dict[str, Any]) -> tuple:
+                metrics = card.get("metrics") or {}
+                ws = metrics.get("weighted_score")
+                try:
+                    ws_f = float(ws) if ws is not None else float("-inf")
+                except Exception:
+                    ws_f = float("-inf")
+                return (
+                    1 if bool(card.get("gate_pass")) else 0,
+                    1 if bool(card.get("pareto")) else 0,
+                    ws_f,
+                    int(card.get("reuse_count", 0) or 0),
+                    _parse_iso8601(card.get("generated_at")),
+                )
+
+            cards.sort(key=_rank, reverse=True)
+            kept = cards[:max_factor_cards_i]
+            kept_ids = {str(c.get("card_id") or "") for c in kept if str(c.get("card_id") or "")}
+            kept_names = {str(c.get("name") or "") for c in kept if str(c.get("name") or "")}
+            kept_spec = {str(c.get("spec_name") or "") for c in kept if str(c.get("spec_name") or "")}
+            keep_tokens = kept_ids | kept_names | kept_spec
+            self._payload["factor_cards"] = kept
+
+            edges = list(self._payload.get("edges") or [])
+            filtered: list[dict[str, Any]] = []
+            for edge in edges:
+                parent = str(edge.get("parent") or "")
+                child = str(edge.get("child") or "")
+                if parent in keep_tokens or child in keep_tokens:
+                    filtered.append(edge)
+            self._payload["edges"] = filtered[:max_edges_i]
+
+        failures = list(self._payload.get("failure_cards") or [])
+        if len(failures) > max_failure_cards_i:
+            failures.sort(key=lambda c: _parse_iso8601(c.get("generated_at")), reverse=True)
+            self._payload["failure_cards"] = failures[:max_failure_cards_i]
 
     def merge_from_store(self, other: "FactorMemoryStore") -> None:
         self.merge_payload(other._payload)
@@ -548,8 +687,15 @@ class FactorMemoryStore:
         for item in list(score_payload.get("items") or []):
             name = str(item.get("name") or spec_name)
             card_id = f"{run_id}:{spec_name}:{name}"
+            signature = _factor_signature(
+                expression=expression,
+                timeframe=timeframe,
+                universe=universe,
+                target_col=target_col,
+            )
             card = {
                 "card_id": card_id,
+                "signature": signature,
                 "run_id": run_id,
                 "name": name,
                 "spec_name": spec_name,
@@ -588,6 +734,8 @@ class FactorMemoryStore:
                 },
                 "generated_at": generated_at,
                 "source_artifacts": source_artifacts,
+                "seen_count": int((self._payload.get("factor_cards") or [{}])[card_index.get(card_id, 0)].get("seen_count", 1) or 1) if card_id in card_index else 1,
+                "last_seen_run_id": run_id,
             }
             if card_id in card_index:
                 self._payload["factor_cards"][card_index[card_id]] = card
@@ -611,6 +759,7 @@ class FactorMemoryStore:
                 "run_id": run_id,
                 "name": name,
                 "spec_name": spec_name,
+                "signature": signature,
                 "category": "gate_fail",
                 "subcategory": ",".join(reasons) or "gate_fail",
                 "timeframe": timeframe,
@@ -745,16 +894,24 @@ def build_factor_memory_artifacts_from_expression_output(
         if per_pair is None:
             per_pair = score_item.get("per_pair") or {}
 
+        target_col = f"future_return_{label_period}" if label_period is not None else ""
+        signature = _factor_signature(
+            expression=expr,
+            timeframe=timeframe,
+            universe=universe,
+            target_col=target_col,
+        )
         card_id = f"{run_id}:expression:{name}"
         factor_cards.append(
             {
                 "card_id": card_id,
+                "signature": signature,
                 "run_id": run_id,
                 "name": name,
                 "spec_name": "legacy_expression_mining",
                 "hypothesis": hypothesis,
                 "expression": expr,
-                "target_col": f"future_return_{label_period}" if label_period is not None else "",
+                "target_col": target_col,
                 "timeframe": timeframe,
                 "universe": universe,
                 "data_sources": [item for item in ["freqai_expression_mining", feature_file] if item],
@@ -792,6 +949,8 @@ def build_factor_memory_artifacts_from_expression_output(
                 "source_artifacts": source_artifacts,
                 "exchange": exchange,
                 "origin": item.get("origin") or score_item.get("origin") or "",
+                "seen_count": 1,
+                "last_seen_run_id": run_id,
             }
         )
         edges.append(
@@ -824,6 +983,12 @@ def build_factor_memory_artifacts_from_expression_output(
                 "run_id": run_id,
                 "name": name,
                 "spec_name": "legacy_expression_mining",
+                "signature": _factor_signature(
+                    expression=expr,
+                    timeframe=timeframe,
+                    universe=universe,
+                    target_col=f"future_return_{label_period}" if label_period is not None else "",
+                ),
                 "category": "selection_reject",
                 "subcategory": "low_score",
                 "timeframe": timeframe,
@@ -869,6 +1034,23 @@ def merge_factor_memory_artifacts(
     target_memory_dir: Path,
 ) -> FactorMemoryArtifacts:
     target_memory_dir = Path(target_memory_dir).resolve()
-    target_store = FactorMemoryStore(target_memory_dir / "factor_memory.json")
-    target_store.merge_from_path(source_memory_path)
-    return target_store.write_exports(target_memory_dir)
+    lock_path = target_memory_dir / ".factor_memory.lock"
+    timeout = float(os.environ.get("AGENT_MARKET_FACTOR_MEMORY_LOCK_TIMEOUT_SEC", "15") or "15")
+    max_factor_cards = int(os.environ.get("AGENT_MARKET_FACTOR_MEMORY_MAX_FACTOR_CARDS", "2000") or "2000")
+    max_failure_cards = int(os.environ.get("AGENT_MARKET_FACTOR_MEMORY_MAX_FAILURE_CARDS", "800") or "800")
+    max_edges = int(os.environ.get("AGENT_MARKET_FACTOR_MEMORY_MAX_EDGES", "5000") or "5000")
+
+    lock = FileLock(str(lock_path))
+    try:
+        with lock.acquire(timeout=timeout):
+            target_store = FactorMemoryStore(target_memory_dir / "factor_memory.json")
+            target_store.merge_from_path(source_memory_path)
+            target_store.prune(
+                max_factor_cards=max_factor_cards,
+                max_failure_cards=max_failure_cards,
+                max_edges=max_edges,
+            )
+            return target_store.write_exports(target_memory_dir)
+    except FileLockTimeout as exc:
+        logger.warning("Global factor memory lock timeout: %s", lock_path)
+        raise RuntimeError(f"factor_memory_lock_timeout:{lock_path}") from exc

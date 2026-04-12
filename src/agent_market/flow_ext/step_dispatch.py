@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -21,7 +22,7 @@ REPO_ROOT = paths.REPO_ROOT
 
 
 def _relpath(path: Path) -> str:
-    return paths.relpath_under_repo(path if path.is_absolute() else (REPO_ROOT / path))
+    return paths.relpath_for_meta(path if path.is_absolute() else (REPO_ROOT / path))
 
 
 def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
@@ -39,14 +40,34 @@ def _merge_into_global_factor_memory(arts: RunArtifacts) -> None:
 
     if not arts.factor_memory_json:
         return
-    merged = merge_factor_memory_artifacts(
-        source_memory_path=paths.resolve_repo_path(arts.factor_memory_json),
-        target_memory_dir=paths.global_factor_memory_dir(),
-    )
+    try:
+        merged = merge_factor_memory_artifacts(
+            source_memory_path=paths.resolve_repo_path(arts.factor_memory_json),
+            target_memory_dir=paths.global_factor_memory_dir(),
+        )
+    except Exception:
+        logger.warning("Failed to merge into global factor memory", exc_info=True)
+        return
     arts.global_factor_memory_json = _relpath(Path(merged.factor_memory_json))
     arts.global_factor_cards_json = _relpath(Path(merged.factor_cards_json))
     arts.global_factor_failure_cards_json = _relpath(Path(merged.factor_failure_cards_json))
     arts.global_factor_lineage_json = _relpath(Path(merged.factor_lineage_json))
+
+
+def _copy_into_run_dir(src: Path, dest_dir: Path, *, rename: Optional[str] = None) -> Optional[Path]:
+    """Best-effort copy *src* into *dest_dir* (used to make runs self-contained)."""
+    try:
+        src_path = Path(src).resolve()
+        if not src_path.exists():
+            return None
+        dest_dir_path = Path(dest_dir).resolve()
+        dest_dir_path.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir_path / (str(rename).strip() if rename else src_path.name)
+        shutil.copy2(str(src_path), str(dest))
+        return dest.resolve()
+    except Exception:
+        logger.debug("Failed to copy artifact %s -> %s", src, dest_dir, exc_info=True)
+        return None
 
 
 @dataclass
@@ -67,7 +88,9 @@ def _step_feature(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> 
     flow_steps.run_feature_generation(cfg)
     out = _extract_flag_value(cfg.get("args"), "--output")
     if out:
-        arts.feature_output = _relpath(paths.resolve_repo_path(out))
+        output_path = paths.resolve_repo_path(out)
+        copied = _copy_into_run_dir(output_path, (ctx.run_dir / "feature").resolve())
+        arts.feature_output = _relpath(copied or output_path)
 
 
 def _step_capture(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
@@ -182,11 +205,14 @@ def _step_expression(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) 
     if not output_path.exists():
         return
 
-    arts.expression_output = _relpath(output_path)
+    run_expr_dir = (ctx.run_dir / "expression").resolve()
+    copied_output = _copy_into_run_dir(output_path, run_expr_dir)
+    arts.expression_output = _relpath(copied_output or output_path)
 
     scored_path = output_path.with_name(output_path.stem + "_scored_all.json")
     if scored_path.exists():
-        arts.expression_scored_output = _relpath(scored_path)
+        copied_scored = _copy_into_run_dir(scored_path, run_expr_dir)
+        arts.expression_scored_output = _relpath(copied_scored or scored_path)
         factor_eval_dir = (ctx.run_dir / "factor_eval").resolve()
         factor_eval_dir.mkdir(parents=True, exist_ok=True)
         expressions_payload = json.loads(output_path.read_text(encoding="utf-8"))
@@ -284,7 +310,10 @@ def _step_factor_eval(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext)
     arts.factor_pareto_csv = _relpath(Path(out["pareto_csv"]))
     factor_spec_path = None
     if arts.factor_spec_json:
-        factor_spec_path = (REPO_ROOT / arts.factor_spec_json).resolve()
+        # arts.factor_spec_json is stored as a logical path (artifacts/...),
+        # so we must resolve it via paths.resolve_repo_path() to respect
+        # AGENT_MARKET_*_ROOT overrides.
+        factor_spec_path = paths.resolve_repo_path(arts.factor_spec_json)
     mem = build_factor_memory_artifacts(
         run_id=ctx.run_id,
         memory_dir=(ctx.run_dir / "factor_memory").resolve(),
@@ -304,6 +333,7 @@ def _step_ml(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
     configs = cfg.get("configs") or []
     if not isinstance(configs, list):
         return
+    candidates: list[Path] = []
     for item in configs:
         if not isinstance(item, dict):
             continue
@@ -314,18 +344,57 @@ def _step_ml(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
             continue
         summary_path = paths.resolve_repo_path(str(model_dir)) / "training_summary.json"
         if summary_path.exists():
-            arts.training_summary_json = _relpath(summary_path)
-            break
+            candidates.append(summary_path)
+
+    if not candidates:
+        return
+    latest = max(candidates, key=lambda p: p.stat().st_mtime)
+    copied = _copy_into_run_dir(latest, (ctx.run_dir / "ml").resolve(), rename="training_summary.json")
+    arts.training_summary_json = _relpath(copied or latest)
 
 
 def _step_rl(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
     flow_steps.run_rl_training(cfg)
+    if arts.training_summary_json:
+        return
+    config = cfg.get("config")
+    if not isinstance(config, dict):
+        return
+    model_dir = paths.resolve_repo_path(
+        (config.get("output") or {}).get("model_dir") or str(paths.models_root() / "rl_real")
+    )
+    summary = (Path(model_dir) / "training_summary.json").resolve()
+    if not summary.exists():
+        return
+    copied = _copy_into_run_dir(summary, (ctx.run_dir / "rl").resolve(), rename="training_summary.json")
+    arts.training_summary_json = _relpath(copied or summary)
 
 
 def _step_backtest(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
+    results_dir = paths.resolve_repo_path(cfg.get("results_dir") or str(paths.user_data_root() / "backtest_results"))
+    before = set(results_dir.glob("backtest-result-*.zip")) if results_dir.exists() else set()
     flow_steps.run_backtest(cfg, ctx.feedback_path)
     if ctx.feedback_path.exists():
-        arts.feedback_summary_json = _relpath(ctx.feedback_path)
+        copied_fb = _copy_into_run_dir(ctx.feedback_path, (ctx.run_dir / "backtest").resolve())
+        arts.feedback_summary_json = _relpath(copied_fb or ctx.feedback_path)
+    after = set(results_dir.glob("backtest-result-*.zip")) if results_dir.exists() else set()
+    created = list(after - before)
+    zip_path: Optional[Path] = None
+    if created:
+        zip_path = max(created, key=lambda p: p.stat().st_mtime)
+    else:
+        try:
+            from agent_market.backtest_results import find_latest_backtest_zip  # noqa: WPS433
+
+            zip_path = find_latest_backtest_zip(results_dir)
+        except Exception:
+            zip_path = None
+    if zip_path is None:
+        return
+    arts.backtest_zip = _relpath(zip_path)
+    copied = _copy_into_run_dir(zip_path, (ctx.run_dir / "backtest").resolve())
+    if copied is not None:
+        arts.backtest_zip_run = _relpath(copied)
 
 
 def _step_tca(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
@@ -337,6 +406,9 @@ def _step_tca(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None
 
 def _step_report(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> None:
     artifact_paths = {
+        "feature_output": arts.feature_output,
+        "expression_output": arts.expression_output,
+        "expression_scored_output": arts.expression_scored_output,
         "capture_manifest": arts.capture_manifest,
         "capture_match_path": arts.capture_match_path,
         "capture_level2_path": arts.capture_level2_path,
@@ -362,13 +434,15 @@ def _step_report(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> N
         "strategy_miner_summary": arts.strategy_miner_summary,
         "strategy_miner_dir": arts.strategy_miner_dir,
         "global_strategy_knowledge_base_json": arts.global_strategy_knowledge_base_json,
+        "training_summary_json": arts.training_summary_json,
+        "backtest_zip": arts.backtest_zip_run or arts.backtest_zip,
         "experiment_registry": arts.experiment_registry,
         "budget_plan_json": arts.budget_plan_json,
         "replay_manifest_json": arts.replay_manifest_json,
         "lineage_graph_json": arts.lineage_graph_json,
         "promotion_chain_json": arts.promotion_chain_json,
         "resource_dashboard_json": arts.resource_dashboard_json,
-        "feedback_summary": _relpath(ctx.feedback_path),
+        "feedback_summary": arts.feedback_summary_json or _relpath(ctx.feedback_path),
         "config_path": _relpath(ctx.config_path) if ctx.config_path else None,
     }
     out = flow_steps.run_report_bundle(

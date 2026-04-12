@@ -119,6 +119,38 @@ def relpath_under_repo(path: Path) -> str:
         return str(path.resolve())
 
 
+def relpath_for_meta(path: Path) -> str:
+    """Render a stable logical path for run_meta artifacts.
+
+    The run_meta JSON should store paths in a **root-agnostic** way so that
+    the API can later resolve them via `safe_resolve()` while respecting
+    `AGENT_MARKET_*_ROOT` overrides.
+
+    Rules:
+    - If path is under artifacts_root(): return `artifacts/<relative-to-artifacts_root>`
+    - If path is under user_data_root(): return `user_data/<relative-to-user_data_root>`
+    - Else if path is under REPO_ROOT: return repo-relative
+    - Else: return absolute
+    """
+    resolved = path.resolve()
+
+    try:
+        root = artifacts_root().resolve()
+        if resolved == root or root in resolved.parents:
+            return str(Path("artifacts") / resolved.relative_to(root))
+    except Exception:
+        pass
+
+    try:
+        root = user_data_root().resolve()
+        if resolved == root or root in resolved.parents:
+            return str(Path("user_data") / resolved.relative_to(root))
+    except Exception:
+        pass
+
+    return relpath_under_repo(resolved)
+
+
 def resolve_under_repo(path: Optional[Union[str, Path]]) -> Optional[Path]:
     if path is None:
         return None
@@ -193,5 +225,6 @@ __all__ = [
     "resolve_repo_path",
     "resolve_under_repo",
     "relpath_under_repo",
+    "relpath_for_meta",
     "safe_resolve",
 ]

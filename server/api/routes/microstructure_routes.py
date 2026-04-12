@@ -14,6 +14,7 @@ from ..errors import error
 from ..models import CaptureReq, LobRebuildReq, MicroFeatureReq
 from ..validators import validate_timeframe
 from ...runtime import ROOT, SRC, jobs
+from ...job_manager import JobQueueFullError
 from ._helpers import parse_csv as _parse_csv
 from ._run_common import detect_kucoin_level2_sequence_gaps
 
@@ -84,14 +85,17 @@ def run_capture(req: CaptureReq = Body(...)):
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC)
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=timeout_sec,
-        kind="capture",
-        meta={"exchange": exchange, "channels": channels},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=timeout_sec,
+            kind="capture",
+            meta={"exchange": exchange, "channels": channels},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "capture", "cmd": cmd}
 
 
@@ -192,14 +196,17 @@ def run_lob_rebuild(req: LobRebuildReq = Body(...)):
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC)
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=600,
-        kind="lob_rebuild",
-        meta={"exchange": exchange, "symbol": symbol, "depth": depth},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=600,
+            kind="lob_rebuild",
+            meta={"exchange": exchange, "symbol": symbol, "depth": depth},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "lob_rebuild", "cmd": cmd, "out_dir": str(out_dir)}
 
 
@@ -246,12 +253,15 @@ def run_micro_feature(req: MicroFeatureReq = Body(...)):
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC)
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=900,
-        kind="micro_feature",
-        meta={"run_id": run_id},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=900,
+            kind="micro_feature",
+            meta={"run_id": run_id},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "micro_feature", "cmd": cmd, "run_id": run_id}

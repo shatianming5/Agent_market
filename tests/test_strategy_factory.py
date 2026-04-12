@@ -385,8 +385,14 @@ def test_step_expression_builds_factor_memory_artifacts() -> None:
         with patch("agent_market.flow_ext.step_dispatch.flow_steps.run_expression_generation", side_effect=_fake_run_expression_generation):
             _step_expression(cfg, arts, ctx)
 
-        assert arts.expression_output == str(expr_out.resolve())
-        assert arts.expression_scored_output == str(scored_out.resolve())
+        # Expression mining outputs are copied into the run directory so the run
+        # is self-contained and can be archived/retained independently.
+        expected_expr = (run_dir / "expression" / expr_out.name).resolve()
+        expected_scored = (run_dir / "expression" / scored_out.name).resolve()
+        assert arts.expression_output == str(expected_expr)
+        assert arts.expression_scored_output == str(expected_scored)
+        assert expected_expr.exists()
+        assert expected_scored.exists()
         assert arts.factor_memory_json
         memory = json.loads(Path(arts.factor_memory_json).read_text(encoding="utf-8"))
         assert memory["factor_cards"][0]["name"] == "f001"

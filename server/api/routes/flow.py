@@ -16,12 +16,16 @@ from starlette.responses import StreamingResponse
 from ..errors import error, error_dict
 from ..models import FlowReq
 from ...runtime import ROOT, jobs
+from ...job_manager import JobQueueFullError
 from agent_market import paths  # type: ignore
 
 def _validate_config_path(config_path: str, repo_root) -> str:
     """Ensure config path is within the repo root (safe containment check)."""
     from pathlib import Path
-    p = Path(config_path).resolve()
+    try:
+        p = paths.resolve_repo_path(str(config_path)).resolve()
+    except Exception:
+        p = Path(config_path).resolve()
     root = Path(repo_root).resolve()
     try:
         p.relative_to(root)  # raises ValueError if not a sub-path
@@ -33,33 +37,22 @@ def _validate_config_path(config_path: str, repo_root) -> str:
 router = APIRouter()
 
 
-def _safe_resolve_under_root(path: str) -> Optional[Path]:
-    """Resolve *path* under ROOT with basic traversal protection.
+def _safe_resolve_artifact_path(path: str) -> Optional[Path]:
+    """Resolve artifact/config paths from run_meta safely.
 
-    Unlike ``paths.safe_resolve`` this does NOT remap ``artifacts/`` through
-    ``artifacts_root()`` — run_meta artifact paths are already correct
-    repo-relative paths and must not be double-mapped.
+    Must respect `AGENT_MARKET_*_ROOT` overrides (artifacts/user_data/runs/etc),
+    so we use `agent_market.paths.safe_resolve` rather than `ROOT / relpath`.
     """
     try:
-        p = Path(path)
-        if ".." in p.parts:
-            return None
-        if not p.is_absolute():
-            p = (ROOT / p).resolve()
-        else:
-            p = p.resolve()
-        root = ROOT.resolve()
-        if p == root or root in p.parents:
-            return p
-    except Exception:
-        pass
-    return None
+        return paths.safe_resolve(path, allow_absolute=True)
+    except ValueError:
+        return None
 
 
 def _check_path(path: Optional[str]) -> dict:
     if not path:
         return {"path": path, "exists": False}
-    resolved = _safe_resolve_under_root(path)
+    resolved = _safe_resolve_artifact_path(path)
     if resolved is None:
         return {"path": path, "exists": False, "error": "path_outside_root"}
     try:
@@ -100,6 +93,9 @@ def _build_artifact_checks(payload: dict, artifacts: dict) -> dict:
         "strategy_miner_summary": _check_path(artifacts.get("strategy_miner_summary")),
         "strategy_miner_dir": _check_path(artifacts.get("strategy_miner_dir")),
         "experiment_registry": _check_path(artifacts.get("experiment_registry")),
+        "training_summary_json": _check_path(artifacts.get("training_summary_json")),
+        "backtest_zip": _check_path(artifacts.get("backtest_zip")),
+        "backtest_zip_run": _check_path(artifacts.get("backtest_zip_run")),
         "budget_plan_json": _check_path(artifacts.get("budget_plan_json")),
         "replay_manifest_json": _check_path(artifacts.get("replay_manifest_json")),
         "lineage_graph_json": _check_path(artifacts.get("lineage_graph_json")),
@@ -129,7 +125,7 @@ def _pick_latest_existing_path(path_list: list[str]) -> Optional[str]:
     for path in path_list:
         if not path:
             continue
-        resolved = _safe_resolve_under_root(path)
+        resolved = _safe_resolve_artifact_path(path)
         if resolved is None or not resolved.exists():
             continue
         try:
@@ -154,7 +150,7 @@ def flow_run_meta_latest():
 
     artifacts = payload.get("artifacts") or {}
     payload["checks"] = _build_artifact_checks(payload, artifacts)
-    payload["run_meta_path"] = str(meta_path.relative_to(ROOT.resolve()))
+    payload["run_meta_path"] = paths.relpath_under_repo(meta_path)
     return payload
 
 
@@ -173,7 +169,7 @@ def flow_run_meta(run_id: str):
 
     artifacts = payload.get("artifacts") or {}
     payload["checks"] = _build_artifact_checks(payload, artifacts)
-    payload["run_meta_path"] = str(meta_path.relative_to(ROOT.resolve()))
+    payload["run_meta_path"] = paths.relpath_under_repo(meta_path)
     return payload
 
 
@@ -186,7 +182,7 @@ def _load_portfolio_report_from_run_meta(meta_path: Path) -> dict:
         return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
     artifacts = meta.get("artifacts") or {}
     report_path = artifacts.get("portfolio_report")
-    resolved = _safe_resolve_under_root(str(report_path)) if report_path else None
+    resolved = _safe_resolve_artifact_path(str(report_path)) if report_path else None
     if resolved is None or not resolved.exists():
         return error("NOT_FOUND", f"portfolio_report not found for run_meta: {meta_path}")
     try:
@@ -210,7 +206,7 @@ def _load_json_artifact_from_run_meta(meta_path: Path, key: str) -> dict:
         return error("PARSE_ERROR", f"Failed to parse {meta_path}: {exc}")
     artifacts = meta.get("artifacts") or {}
     artifact_path = artifacts.get(key)
-    resolved = _safe_resolve_under_root(str(artifact_path)) if artifact_path else None
+    resolved = _safe_resolve_artifact_path(str(artifact_path)) if artifact_path else None
     if resolved is None or not resolved.exists():
         return error("NOT_FOUND", f"{key} not found for run_meta: {meta_path}")
     try:
@@ -460,11 +456,14 @@ def run_flow(req: FlowReq = Body(...)):
             parts = [p for p in req.steps.split(" ") if p]
         elif isinstance(req.steps, list):
             parts = [str(p) for p in req.steps if p]
-        if parts:
+    if parts:
             cmd += ["--steps"] + parts
 
     env = os.environ.copy()
-    job_id = jobs.start(cmd, cwd=ROOT, env=env, kind="flow")
+    try:
+        job_id = jobs.start(cmd, cwd=ROOT, env=env, kind="flow")
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "flow", "cmd": cmd}
 
 

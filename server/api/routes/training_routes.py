@@ -14,6 +14,7 @@ from ..errors import error
 from ..models import RLTrainReq, TrainReq
 from ..validators import validate_timeframe
 from ...runtime import ROOT, jobs
+from ...job_manager import JobQueueFullError
 
 router = APIRouter()
 
@@ -25,7 +26,10 @@ def run_rl_train(req: RLTrainReq = Body(...)):
     cmd = [py, script, "--config", req.config]
 
     env = os.environ.copy()
-    job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=7200, kind="rl_train")
+    try:
+        job_id = jobs.start(cmd, cwd=ROOT, env=env, timeout_sec=7200, kind="rl_train")
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "rl_train", "cmd": cmd}
 
 
@@ -102,5 +106,8 @@ def run_train(req: TrainReq = Body(...)):
     cmd = [py, script, "--config", str(cfg_path)]
 
     env = os.environ.copy()
-    job_id = jobs.start(cmd, cwd=ROOT, env=env, kind="train")
+    try:
+        job_id = jobs.start(cmd, cwd=ROOT, env=env, kind="train")
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "train", "cmd": cmd}

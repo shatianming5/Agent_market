@@ -74,7 +74,7 @@ def _load_jsonl(path_like: str | Path | None) -> list[dict[str, Any]]:
 def _rel(path: Path | None) -> str | None:
     if path is None:
         return None
-    return paths.relpath_under_repo(path.resolve())
+    return paths.relpath_for_meta(path.resolve())
 
 
 def _artifact_map(arts: RunArtifacts) -> dict[str, Any]:

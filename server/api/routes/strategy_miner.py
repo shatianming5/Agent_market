@@ -17,6 +17,7 @@ from agent_market import paths  # type: ignore
 
 from ..errors import error, not_found, bad_request
 from ...runtime import ROOT, jobs
+from ...job_manager import JobQueueFullError
 
 router = APIRouter(prefix="/strategy-miner", tags=["strategy-miner"])
 
@@ -109,16 +110,32 @@ def start_miner(req: StrategyMinerStartReq = Body(...)):
     py = sys.executable
     script = str(ROOT / "scripts" / "strategy_miner.py")
 
-    # Validate config path stays inside project root
-    config_path = _safe_resolve(req.config, ROOT)
-    if config_path is None or not config_path.exists():
-        return bad_request("INVALID_CONFIG", f"Config path invalid or not found: {req.config}")
+    # Validate config path stays inside project root.
+    try:
+        config_path = paths.resolve_repo_path(req.config)
+    except Exception:
+        config_path = Path(req.config)
+    try:
+        config_path = config_path.resolve()
+        config_path.relative_to(ROOT.resolve())
+    except Exception:
+        return bad_request("INVALID_CONFIG", f"Config path invalid or not under repo root: {req.config}")
+    if not config_path.exists():
+        return bad_request("INVALID_CONFIG", f"Config path not found: {req.config}")
 
     # Validate resume path if provided
     if req.resume:
-        resume_path = _safe_resolve(req.resume, ROOT)
-        if resume_path is None or not resume_path.exists():
-            return bad_request("INVALID_RESUME_PATH", f"Resume path invalid or not found: {req.resume}")
+        try:
+            resume_path = paths.resolve_repo_path(req.resume)
+        except Exception:
+            resume_path = Path(req.resume)
+        try:
+            resume_path = resume_path.resolve()
+            resume_path.relative_to(ROOT.resolve())
+        except Exception:
+            return bad_request("INVALID_RESUME_PATH", f"Resume path invalid or not under repo root: {req.resume}")
+        if not resume_path.exists():
+            return bad_request("INVALID_RESUME_PATH", f"Resume path not found: {req.resume}")
 
     run_id: Optional[str] = None
     if req.resume:
@@ -137,7 +154,10 @@ def start_miner(req: StrategyMinerStartReq = Body(...)):
         cmd += ["--resume", req.resume]
 
     env = os.environ.copy()
-    job_id = jobs.start(cmd, cwd=ROOT, env=env, kind="strategy_miner", meta={"run_id": run_id})
+    try:
+        job_id = jobs.start(cmd, cwd=ROOT, env=env, kind="strategy_miner", meta={"run_id": run_id})
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {
         "status": "started",
         "job_id": job_id,
@@ -401,7 +421,9 @@ def approve_strategy(run_id: str, req: StrategyMinerApproveReq = Body(...)):
     strat_path = Path(strat_path_raw)
     # Validate source path stays under runs root (prevent arbitrary file access)
     runs_root = paths.runs_root()
-    if _safe_resolve(strat_path_raw, runs_root) is None and _safe_resolve(strat_path_raw, ROOT / "artifacts") is None:
+    if _safe_resolve(strat_path_raw, runs_root) is None and _safe_resolve(
+        strat_path_raw, paths.artifacts_root()
+    ) is None:
         return bad_request("INVALID_PATH", f"Strategy path not under artifacts/: {strat_path}")
     if not strat_path.exists():
         return not_found("STRATEGY_NOT_FOUND", f"Strategy file not found: {strat_path}")
@@ -417,12 +439,51 @@ def approve_strategy(run_id: str, req: StrategyMinerApproveReq = Body(...)):
     except Exception as exc:
         return error("COPY_FAILED", f"Failed to copy: {exc}")
 
+    validation = None
+    try:
+        from agent_market.strategy_registry import validate_strategy_file  # type: ignore
+
+        validation = validate_strategy_file(dest_path)
+        if not bool((validation or {}).get("ok")):
+            try:
+                dest_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return bad_request("INVALID_STRATEGY", f"Approved file failed validation: {validation}")
+    except Exception:
+        validation = None
+
+    record = None
+    try:
+        from agent_market.strategy_registry import record_strategy_approval  # type: ignore
+
+        metrics: dict = {}
+        if isinstance(data.get("best_score"), (int, float)):
+            metrics["best_score"] = data.get("best_score")
+        if isinstance(chosen.get("reward"), (int, float)):
+            metrics["reward"] = chosen.get("reward")
+        if isinstance(chosen.get("validation_passed"), bool):
+            metrics["validation_passed"] = chosen.get("validation_passed")
+        if isinstance(validation, dict) and "ok" in validation:
+            metrics["syntax_ok"] = bool(validation.get("ok"))
+        record = record_strategy_approval(
+            dest_path=dest_path,
+            source_path=strat_path,
+            run_id=run_id_norm,
+            candidate=str(chosen.get("name") or ""),
+            metrics=metrics,
+        )
+    except Exception:
+        record = None
+
     return {
         "status": "ok",
         "run_id": run_id_norm,
         "candidate": chosen.get("name"),
         "source": str(strat_path),
         "dest": str(dest_path),
+        "validation": validation,
+        "registry": (record.__dict__ if record is not None else None),
     }
 
 
@@ -448,14 +509,17 @@ def backtest_candidate(run_id: str, req: StrategyMinerBacktestReq = Body(...)):
         cmd += ["--candidate", str(req.candidate)]
 
     env = os.environ.copy()
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=7200,
-        kind="strategy_miner_backtest",
-        meta={"run_id": run_id_norm, "candidate": req.candidate},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=7200,
+            kind="strategy_miner_backtest",
+            meta={"run_id": run_id_norm, "candidate": req.candidate},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {
         "status": "started",
         "job_id": job_id,

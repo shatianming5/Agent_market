@@ -23,7 +23,7 @@ REPO_ROOT = paths.REPO_ROOT
 
 
 def _relpath(path: Path) -> str:
-    return paths.relpath_under_repo(path if path.is_absolute() else (REPO_ROOT / path))
+    return paths.relpath_for_meta(path if path.is_absolute() else (REPO_ROOT / path))
 
 
 def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
@@ -348,18 +348,15 @@ class AgentFlow:
     ) -> Dict[str, Any]:
         cfg_info = _config_snapshot_info(self.config, self.config_path)
 
-        feature_out = None
-        if self.config.feature:
+        # Preserve any paths captured by step handlers (they may point to run-local copies).
+        if self.config.feature and not arts.feature_output:
             feature_out = _extract_flag_value(self.config.feature.get("args"), "--output")
             if feature_out:
-                feature_out = _relpath(paths.resolve_repo_path(feature_out))
-        expr_out = None
-        if self.config.expression:
+                arts.feature_output = _relpath(paths.resolve_repo_path(feature_out))
+        if self.config.expression and not arts.expression_output:
             expr_out = _extract_flag_value(self.config.expression.get("args"), "--output")
             if expr_out:
-                expr_out = _relpath(paths.resolve_repo_path(expr_out))
-        arts.feature_output = feature_out
-        arts.expression_output = expr_out
+                arts.expression_output = _relpath(paths.resolve_repo_path(expr_out))
 
         model_dirs: list[str] = []
         if self.config.ml_training:
@@ -380,11 +377,11 @@ class AgentFlow:
                 self.config.backtest.get("results_dir")
                 or str(paths.user_data_root() / "backtest_results")
             )
-
-        models_root = paths.models_root()
-        training_summaries = sorted(models_root.rglob("training_summary.json")) if models_root.exists() else []
-        bt_dir = paths.resolve_repo_path(results_dir or str(paths.user_data_root() / "backtest_results"))
-        bt_zips = sorted(bt_dir.glob("backtest-result-*.zip")) if bt_dir.exists() else []
+        # Avoid scanning global artifacts: record only the artifacts produced by this run.
+        training_summaries: list[str] = [arts.training_summary_json] if arts.training_summary_json else []
+        bt_zip = arts.backtest_zip_run or arts.backtest_zip
+        bt_zips: list[str] = [bt_zip] if bt_zip else []
+        feedback_summary = arts.feedback_summary_json or _relpath(self.feedback_path)
 
         return {
             "run_id": run_id,
@@ -407,11 +404,11 @@ class AgentFlow:
                 "report": _relpath((meta_run_path.parent / "preflight.json").resolve()),
             },
             "artifacts": arts.to_dict(
-                feedback_summary=_relpath(self.feedback_path),
+                feedback_summary=feedback_summary,
                 model_dirs=model_dirs,
-                training_summaries=[_relpath(p) for p in training_summaries],
+                training_summaries=training_summaries,
                 backtest_results_dir=results_dir,
-                backtest_zips=[_relpath(p) for p in bt_zips],
+                backtest_zips=bt_zips,
             ),
             "steps": steps_meta,
             "error": error_info,

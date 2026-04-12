@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -72,6 +74,59 @@ def main() -> None:
         df["y"] = df["close"].pct_change().shift(-1)
     df["factor"] = safe_eval_expression(expr, df)
 
+    # Optional: use the global factor library to penalize clones (corr-to-library + sha256 match).
+    factor_library = None
+    library_expr_sha256 = None
+    try:
+        from agent_market import paths as am_paths  # noqa: WPS433
+
+        library_path = am_paths.global_factor_memory_path()
+        if library_path.exists():
+            top_k = int(os.environ.get("AGENT_MARKET_FACTOR_LIBRARY_TOP_K", "32") or "32")
+            try:
+                payload = json.loads(library_path.read_text(encoding="utf-8"))
+            except Exception:
+                payload = {}
+            cards = list((payload.get("factor_cards") or []) if isinstance(payload, dict) else [])
+            ranked: list[tuple[float, str, str]] = []
+            for card in cards:
+                if not isinstance(card, dict):
+                    continue
+                if not bool(card.get("gate_pass")):
+                    continue
+                expr_text = str(card.get("expression") or "").strip()
+                if not expr_text:
+                    continue
+                metrics = card.get("metrics") or {}
+                ws = metrics.get("weighted_score")
+                try:
+                    ws_f = float(ws) if ws is not None else float("-inf")
+                except Exception:
+                    ws_f = float("-inf")
+                key = str(card.get("card_id") or card.get("name") or "").strip() or f"lib_{len(ranked) + 1}"
+                ranked.append((ws_f, expr_text, key))
+            ranked.sort(key=lambda x: x[0], reverse=True)
+
+            lib: dict[str, pd.Series] = {}
+            sha_list: list[str] = []
+            for _, expr_text, key in ranked[: max(0, top_k)]:
+                try:
+                    s = safe_eval_expression(expr_text, df)
+                except Exception:
+                    continue
+                try:
+                    lib[key] = pd.Series(s, copy=False).rename(key)
+                except Exception:
+                    continue
+                sha_list.append(hashlib.sha256(expr_text.encode("utf-8")).hexdigest())
+
+            if lib:
+                factor_library = lib
+                library_expr_sha256 = sha_list
+    except Exception:
+        factor_library = None
+        library_expr_sha256 = None
+
     from agent_market.factor_compiler.checks import (
         check_label_leakage_signature,
         check_permutation_leakage,
@@ -98,6 +153,8 @@ def main() -> None:
         max_nan_ratio=0.5,
         max_turnover=1e9,
         factor_exprs={"factor": expr},
+        factor_library=factor_library,
+        library_expr_sha256=library_expr_sha256,
     )
 
     meta_path = out_dir / "factor_eval_meta.json"

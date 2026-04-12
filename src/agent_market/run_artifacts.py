@@ -53,6 +53,8 @@ class RunArtifacts:
     lineage_graph_json: Optional[str] = None
     promotion_chain_json: Optional[str] = None
     resource_dashboard_json: Optional[str] = None
+    backtest_zip: Optional[str] = None
+    backtest_zip_run: Optional[str] = None
 
     # Transient state — not serialised into run_meta.
     compiled_expression_path: Optional[Path] = None
@@ -113,4 +115,6 @@ class RunArtifacts:
             "lineage_graph_json": self.lineage_graph_json,
             "promotion_chain_json": self.promotion_chain_json,
             "resource_dashboard_json": self.resource_dashboard_json,
+            "backtest_zip": self.backtest_zip,
+            "backtest_zip_run": self.backtest_zip_run,
         }

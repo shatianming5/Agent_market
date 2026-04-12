@@ -183,17 +183,21 @@ def results_bundles_list(limit: int = 20):
             continue
         try:
             stat = bundle.stat()
-            items.append(
-                {
-                    "run_id": run_id,
-                    "path": str(bundle.relative_to(ROOT.resolve())),
-                    "mtime": stat.st_mtime,
-                    "size": stat.st_size,
-                }
-            )
         except Exception as _exc:
             import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
             continue
+        try:
+            path_str = str(bundle.relative_to(ROOT.resolve()))
+        except Exception:
+            path_str = str(bundle)
+        items.append(
+            {
+                "run_id": run_id,
+                "path": path_str,
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+            }
+        )
     items.sort(key=lambda x: x.get("mtime") or 0, reverse=True)
     return {"items": items[:lim], "count": len(items), "limit": lim}
 

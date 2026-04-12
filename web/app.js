@@ -25,6 +25,9 @@ let API = (typeof location !== 'undefined' && /^https?:/i.test(location.origin |
   ? location.origin.replace(/\/$/, '')
   : 'http://127.0.0.1:8000'
 
+let API_KEY = ''
+const API_KEY_LS = 'agent_market_api_key'
+
 const GOLDEN = {
   flow_cfg: 'configs/agent_flow_kucoin_cpu_nollm.json',
   flow_steps: 'feature expression ml backtest',
@@ -38,6 +41,30 @@ function setApiUrl(url) {
   API = (url || API).replace(/\/$/, '')
   const el = document.getElementById('apiUrl')
   if (el) el.value = API
+}
+
+function loadApiKey() {
+  try { API_KEY = localStorage.getItem(API_KEY_LS) || '' } catch { API_KEY = '' }
+  const el = document.getElementById('apiKey')
+  if (el) el.value = API_KEY
+}
+
+function setApiKey(key) {
+  API_KEY = String(key || '').trim()
+  try {
+    if (API_KEY) localStorage.setItem(API_KEY_LS, API_KEY)
+    else localStorage.removeItem(API_KEY_LS)
+  } catch { }
+  const el = document.getElementById('apiKey')
+  if (el) el.value = API_KEY
+}
+
+async function apiFetch(url, options = {}) {
+  const opts = options ? { ...options } : {}
+  const headers = { ...(opts.headers || {}) }
+  if (API_KEY) headers['X-API-Key'] = API_KEY
+  opts.headers = headers
+  return fetch(url, opts)
 }
 
 // ============================================
@@ -75,7 +102,7 @@ async function pollLogs(jobId, logElId = 'logs') {
   let last = null
   while (true) {
     try {
-      const res = await fetch(`${API}/jobs/${jobId}/logs?offset=${offset}`)
+      const res = await apiFetch(`${API}/jobs/${jobId}/logs?offset=${offset}`)
       const data = await res.json()
       last = data
       const chunk = (data.logs || []).join('\n')
@@ -161,11 +188,13 @@ function initConnection() {
   const applyBtn = document.getElementById('applyApi')
   if (applyBtn) applyBtn.addEventListener('click', async () => {
     const val = (document.getElementById('apiUrl')?.value || '').trim()
+    const key = (document.getElementById('apiKey')?.value || '').trim()
     if (!val) return
     setApiUrl(val)
     const result = document.getElementById('connectionResult')
     try {
-      const r = await fetch(`${API}/health`)
+      setApiKey(key)
+      const r = await apiFetch(`${API}/settings`)
       const j = await r.json()
       if (result) result.innerHTML = `<span class="text-green">&#10003; 连接成功: ${JSON.stringify(j)}</span>`
       setGlobalStatus('就绪')
@@ -188,7 +217,7 @@ function initSettings() {
 
   if (loadBtn) loadBtn.addEventListener('click', async () => {
     try {
-      const r = await fetch(`${API}/settings`)
+      const r = await apiFetch(`${API}/settings`)
       const s = await r.json()
       document.getElementById('llmBaseUrl').value = s.llm_base_url || ''
       document.getElementById('llmModelSet').value = s.llm_model || ''
@@ -206,7 +235,7 @@ function initSettings() {
     if (model) body.llm_model = model
     if (tf) body.default_timeframe = tf
     try {
-      const r = await fetch(`${API}/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const r = await apiFetch(`${API}/settings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const j = await r.json()
       if (j.status === 'ok') toast('设置已保存', 'success')
       else toast('保存失败', 'error')
@@ -245,7 +274,7 @@ function initExprBacktest() {
     }
     try {
       setGlobalStatus('表达式生成中...', 'running')
-      const r = await fetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const r = await apiFetch(`${API}/run/expression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const j = await r.json()
       if (j.job_id) {
         toast('表达式任务已启动', 'success')
@@ -269,7 +298,7 @@ function initExprBacktest() {
     }
     try {
       setGlobalStatus('回测运行中...', 'running')
-      const r = await fetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const r = await apiFetch(`${API}/run/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const j = await r.json()
       if (j.job_id) {
         toast('回测任务已启动', 'success')
@@ -292,7 +321,7 @@ function _getOrInitChart(elId) {
 
 async function showSummary() {
   try {
-    const res = await fetch(`${API}/results/latest-summary`)
+    const res = await apiFetch(`${API}/results/latest-summary`)
     const data = await res.json()
     const summaryEl = document.getElementById('summary')
     if (summaryEl) summaryEl.textContent = JSON.stringify(data, null, 2)
@@ -327,7 +356,7 @@ async function showSummary() {
 
     // Try to get training info
     try {
-      const tr = await fetch(`${API}/results/latest-training`)
+      const tr = await apiFetch(`${API}/results/latest-training`)
       const tj = await tr.json()
       if (tj && !tj.status) {
         setMetric('metricModel', tj.model ?? '--')
@@ -377,7 +406,7 @@ function initResults() {
   if (btnFeatTop) btnFeatTop.addEventListener('click', async () => {
     try {
       const file = document.getElementById('featureFile')?.value || 'user_data/freqai_features.json'
-      const res = await fetch(`${API}/features/top?file=${encodeURIComponent(file)}&limit=10`)
+      const res = await apiFetch(`${API}/features/top?file=${encodeURIComponent(file)}&limit=10`)
       const data = await res.json()
       const el = document.getElementById('featTop')
       if (el) el.textContent = JSON.stringify(data, null, 2)
@@ -411,7 +440,7 @@ function initResults() {
   const btnList = document.getElementById('btnList')
   if (btnList) btnList.addEventListener('click', async () => {
     try {
-      const res = await fetch(`${API}/results/list`)
+      const res = await apiFetch(`${API}/results/list`)
       const data = await res.json()
       const el = document.getElementById('comparePanel')
       if (el) {
@@ -433,8 +462,8 @@ function initResults() {
     if (!a || !b) { toast('请输入结果 A 与 B', 'error'); return }
     try {
       const [ra, rb] = await Promise.all([
-        fetch(`${API}/results/summary?name=${encodeURIComponent(a)}`),
-        fetch(`${API}/results/summary?name=${encodeURIComponent(b)}`),
+        apiFetch(`${API}/results/summary?name=${encodeURIComponent(a)}`),
+        apiFetch(`${API}/results/summary?name=${encodeURIComponent(b)}`),
       ])
       const [sa, sb] = [await ra.json(), await rb.json()]
       const toM = (s) => {
@@ -459,7 +488,7 @@ function initResults() {
   const btnGallery = document.getElementById('btnGallery')
   if (btnGallery) btnGallery.addEventListener('click', async () => {
     await runWithLoading(btnGallery, async () => {
-      const res = await fetch(`${API}/results/gallery?limit=100`)
+      const res = await apiFetch(`${API}/results/gallery?limit=100`)
       const data = await res.json()
       const gp = document.getElementById('galleryPanel')
       if (!gp) return
@@ -486,7 +515,7 @@ function initResults() {
     await runWithLoading(btnAgg, async () => {
       const names = (document.getElementById('aggNames')?.value || '').trim()
       if (!names) { toast('请输入结果名称', 'error'); return }
-      const res = await fetch(`${API}/results/aggregate?names=${encodeURIComponent(names)}`)
+      const res = await apiFetch(`${API}/results/aggregate?names=${encodeURIComponent(names)}`)
       const data = await res.json()
       const ap = document.getElementById('aggPanel')
       if (!ap) return
@@ -547,7 +576,7 @@ async function renderFlowArtifactsCheck(runIdOverride) {
   el.innerHTML = `<div class="text-sm text-muted">加载产物检查…</div>`
   let meta = null
   try {
-    const r = await fetch(`${API}/flow/run-meta/${encodeURIComponent(runId)}`)
+    const r = await apiFetch(`${API}/flow/run-meta/${encodeURIComponent(runId)}`)
     meta = await r.json()
   } catch (e) {
     el.innerHTML = `<div class="text-sm text-red">加载失败: ${_escapeHtml(e)}</div>`
@@ -595,7 +624,7 @@ async function loadRunHistory() {
   el.innerHTML = `<div class="text-sm text-muted">加载中…</div>`
   let data = null
   try {
-    const r = await fetch(`${API}/flow/runs/list?limit=${limit}`)
+    const r = await apiFetch(`${API}/flow/runs/list?limit=${limit}`)
     data = await r.json()
   } catch (e) {
     el.innerHTML = `<div class="text-sm text-red">加载失败: ${_escapeHtml(e)}</div>`
@@ -663,7 +692,7 @@ function initAgentFlow() {
 
       try {
         setGlobalStatus('Flow 运行中...', 'running')
-        const r = await fetch(`${API}/flow/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        const r = await apiFetch(`${API}/flow/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
         const j = await r.json()
         if (j.job_id) {
           toast('Flow 已启动', 'success')
@@ -695,29 +724,18 @@ function initAgentFlow() {
             } catch { }
           }
 
-          // SSE
-          let es = null, timer = null
-          try {
-            es = new EventSource(`${API}/flow/stream/${j.job_id}?steps=${encodeURIComponent(stepsCsv)}`)
-            es.onmessage = (ev) => {
-              try { const pj = JSON.parse(ev.data); applyProgress(pj); if (pj && pj.running === false) { try { es.close() } catch { } } } catch { }
-            }
-            es.onerror = () => { try { es.close() } catch { } }
-          } catch { es = null }
-
-          if (!es) {
-            timer = setInterval(async () => {
-              try {
-                const pr = await fetch(`${API}/flow/progress/${j.job_id}?steps=${encodeURIComponent(stepsCsv)}`)
-                const pj = await pr.json()
-                applyProgress(pj)
-                if (!pj.running) { clearInterval(timer); timer = null }
-              } catch { }
-            }, 1000)
-          }
+          // Note: EventSource cannot set headers, so with API key auth enabled we
+          // prefer polling via fetch (which includes X-API-Key).
+          let timer = setInterval(async () => {
+            try {
+              const pr = await apiFetch(`${API}/flow/progress/${j.job_id}?steps=${encodeURIComponent(stepsCsv)}`)
+              const pj = await pr.json()
+              applyProgress(pj)
+              if (!pj.running) { clearInterval(timer); timer = null }
+            } catch { }
+          }, 1000)
 
           await pollLogs(j.job_id)
-          if (es) try { es.close() } catch { }
           if (timer) { clearInterval(timer); timer = null }
           setGlobalStatus('就绪')
           try { await renderFlowArtifactsCheck() } catch { }
@@ -769,7 +787,7 @@ function initStrategyMiner() {
 
     try {
       setGlobalStatus('策略挖掘运行中...', 'running')
-      const r = await fetch(`${API}/strategy-miner/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const r = await apiFetch(`${API}/strategy-miner/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const j = await r.json()
       if (j.job_id) {
         currentMinerJobId = j.job_id
@@ -780,7 +798,7 @@ function initStrategyMiner() {
         // Poll status
         const pollStatus = setInterval(async () => {
           try {
-            const sr = await fetch(`${API}/strategy-miner/status/${currentMinerJobId}`)
+            const sr = await apiFetch(`${API}/strategy-miner/status/${currentMinerJobId}`)
             const sd = await sr.json()
             const iterEl = document.getElementById('minerIterCurrent')
             const barEl = document.getElementById('minerProgressBar')
@@ -789,7 +807,7 @@ function initStrategyMiner() {
             const cur = sd.iteration || 0
             if (iterEl) iterEl.textContent = `${cur} / ${maxIters}`
             if (barEl) barEl.style.width = `${Math.min(100, Math.round((cur / maxIters) * 100))}%`
-            if (rewardEl && sd.best_reward != null) rewardEl.textContent = sd.best_reward.toFixed(4)
+            if (rewardEl && sd.best_score != null) rewardEl.textContent = Number(sd.best_score).toFixed(4)
             if (sd.last_lines) {
               const logsEl = document.getElementById('minerLogs')
               if (logsEl) {
@@ -822,7 +840,7 @@ function initStrategyMiner() {
     const el = document.getElementById('minerRunsList')
     if (!el) return
     try {
-      const r = await fetch(`${API}/strategy-miner/runs?limit=10`)
+      const r = await apiFetch(`${API}/strategy-miner/runs?limit=10`)
       const data = await r.json()
       const items = data.items || []
       if (!items.length) { el.innerHTML = '<div class="text-sm text-muted">暂无运行记录</div>'; return }
@@ -832,7 +850,7 @@ function initStrategyMiner() {
             <div class="text-sm text-mono text-blue">${_escapeHtml(String(it.run_id).slice(0, 12))}</div>
             <div class="text-xs text-muted">Iter ${it.iteration || 0} | ${it.candidates_count || 0} candidates</div>
           </div>
-          <div class="text-sm text-mono text-green">${it.best_reward != null ? Number(it.best_reward).toFixed(3) : '--'}</div>
+          <div class="text-sm text-mono text-green">${it.best_score != null ? Number(it.best_score).toFixed(3) : '--'}</div>
         </div>
       `).join('')
       el.querySelectorAll('[data-runid]').forEach(row => {
@@ -845,7 +863,7 @@ function initStrategyMiner() {
     const el = document.getElementById('minerLeaderboard')
     if (!el) return
     try {
-      const r = await fetch(`${API}/strategy-miner/runs/${encodeURIComponent(runId)}/candidates`)
+      const r = await apiFetch(`${API}/strategy-miner/runs/${encodeURIComponent(runId)}/candidates`)
       const data = await r.json()
       const items = data.items || []
       if (!items.length) { el.innerHTML = '<div class="empty-state text-sm">暂无候选</div>'; return }
@@ -896,7 +914,7 @@ function initStrategyMiner() {
   // Expose for inline onclick
   window.approveCandidate = async (runId, name) => {
     try {
-      const r = await fetch(`${API}/strategy-miner/runs/${encodeURIComponent(runId)}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate: name }) })
+      const r = await apiFetch(`${API}/strategy-miner/runs/${encodeURIComponent(runId)}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate: name }) })
       const j = await r.json()
       if (j.status === 'ok') toast(`已采纳: ${j.dest}`, 'success')
       else toast(JSON.stringify(j), 'error')
@@ -906,7 +924,7 @@ function initStrategyMiner() {
   window.backtestCandidate = async (runId, name) => {
     try {
       setGlobalStatus('回测候选中...', 'running')
-      const r = await fetch(`${API}/strategy-miner/runs/${encodeURIComponent(runId)}/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate: name }) })
+      const r = await apiFetch(`${API}/strategy-miner/runs/${encodeURIComponent(runId)}/backtest`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidate: name }) })
       const j = await r.json()
       if (j.job_id) { toast('回测已启动', 'success'); await pollLogs(j.job_id, 'minerLogs'); setGlobalStatus('就绪') }
       else { toast(JSON.stringify(j), 'error'); setGlobalStatus('就绪') }
@@ -1031,6 +1049,7 @@ function FlowApp() {
 // Boot
 // ============================================
 function boot() {
+  loadApiKey()
   // Tab navigation
   initTabNav()
   initSettingsNav()

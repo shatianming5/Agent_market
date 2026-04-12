@@ -33,8 +33,10 @@ def test_flow_portfolio_step_produces_report_and_api_can_read_latest() -> None:
     weights_rel = artifacts.get("portfolio_weights")
     assert isinstance(report_rel, str) and report_rel
     assert isinstance(weights_rel, str) and weights_rel
-    assert (root / report_rel).exists()
-    assert (root / weights_rel).exists()
+    report_path = paths.safe_resolve(report_rel)
+    weights_path = paths.safe_resolve(weights_rel)
+    assert report_path.exists()
+    assert weights_path.exists()
 
     import server.main as srv  # type: ignore
 

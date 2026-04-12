@@ -93,6 +93,7 @@ def test_agent_flow_run_records_preflight_metadata(tmp_path: Path) -> None:
         mock_paths.models_root.return_value = Path(tmp_path) / "models"
         mock_paths.resolve_repo_path.side_effect = lambda x: Path(tmp_path) / str(x)
         mock_paths.relpath_under_repo.side_effect = lambda x: str(x)
+        mock_paths.relpath_for_meta.side_effect = lambda x: str(x)
         mock_paths.default_feedback_path.return_value = "feedback.json"
         with patch("agent_market.agent_flow.run_agent_flow_preflight", return_value=report_payload):
             with patch("agent_market.agent_flow.STEP_HANDLERS", {"report": lambda cfg, arts, ctx: None}):

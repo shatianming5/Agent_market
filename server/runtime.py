@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from .job_manager import JobManager
+from .job_manager import JobManager, DEFAULT_KEEP_RECENT
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -45,8 +45,18 @@ try:
     from agent_market import paths as _am_paths  # type: ignore
 
     SETTINGS_PATH = (_am_paths.user_data_root() / "server_settings.json").resolve()
+    _JOB_LOG_DIR = (_am_paths.user_data_root() / "job_logs").resolve()
+    _JOB_REGISTRY_DIR = (_am_paths.user_data_root() / "job_registry").resolve()
 except Exception:  # pragma: no cover
     SETTINGS_PATH = (ROOT / "user_data" / "server_settings.json").resolve()
+    _JOB_LOG_DIR = (ROOT / "user_data" / "job_logs").resolve()
+    _JOB_REGISTRY_DIR = (ROOT / "user_data" / "job_registry").resolve()
 
 
-jobs = JobManager()
+jobs = JobManager(
+    log_dir=_JOB_LOG_DIR,
+    registry_dir=_JOB_REGISTRY_DIR,
+    keep_recent=int(os.environ.get("AGENT_MARKET_KEEP_RECENT_JOBS", str(DEFAULT_KEEP_RECENT)) or DEFAULT_KEEP_RECENT),
+    max_running=int(os.environ.get("AGENT_MARKET_MAX_CONCURRENT_JOBS", "2") or "2"),
+    max_queued=int(os.environ.get("AGENT_MARKET_MAX_QUEUED_JOBS", "50") or "50"),
+)

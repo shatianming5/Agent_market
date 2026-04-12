@@ -205,6 +205,7 @@ def test_agent_flow_skips_unconfigured_steps():
             mock_paths.models_root.return_value = Path(td) / "models"
             mock_paths.resolve_repo_path.side_effect = lambda x: Path(td) / str(x)
             mock_paths.relpath_under_repo.side_effect = lambda x: str(x)
+            mock_paths.relpath_for_meta.side_effect = lambda x: str(x)
             mock_paths.default_feedback_path.return_value = "feedback.json"
             # flow.run should complete without error (no steps configured)
             flow.run(steps=["feature"])
@@ -224,6 +225,7 @@ def test_agent_flow_runs_empty_dict_step_config():
             mock_paths.models_root.return_value = Path(td) / "models"
             mock_paths.resolve_repo_path.side_effect = lambda x: Path(td) / str(x)
             mock_paths.relpath_under_repo.side_effect = lambda x: str(x)
+            mock_paths.relpath_for_meta.side_effect = lambda x: str(x)
             mock_paths.default_feedback_path.return_value = "feedback.json"
             with patch("agent_market.agent_flow.STEP_HANDLERS", {"report": lambda cfg, arts, ctx: None}):
                 run_id = flow.run(steps=["report"])
