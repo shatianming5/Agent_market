@@ -1,0 +1,305 @@
+{
+  "version": "lab-researcher_R5_xsranker",
+  "expressions": [
+    {
+      "name": "f001",
+      "expression": "tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24))",
+      "origin": "py_loop22",
+      "train_ic": -0.0029588679012931382,
+      "oos_ic": -0.06844168565747819,
+      "sign_agree": 10,
+      "combined": 0.06820275949273374,
+      "loop_found": 22
+    },
+    {
+      "name": "f002",
+      "expression": "(ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))",
+      "origin": "py_loop27",
+      "train_ic": 0.016208577326767434,
+      "oos_ic": 0.06649696494057952,
+      "sign_agree": 10,
+      "combined": 0.06627708449579806,
+      "loop_found": 27
+    },
+    {
+      "name": "f003",
+      "expression": "((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))",
+      "origin": "py_loop5",
+      "train_ic": -0.003922486281466558,
+      "oos_ic": 0.07113696885834761,
+      "sign_agree": 9,
+      "combined": 0.0638143823876927,
+      "loop_found": 5
+    },
+    {
+      "name": "f004",
+      "expression": "sign((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24)))",
+      "origin": "py_loop31",
+      "train_ic": 0.018315352178138948,
+      "oos_ic": 0.061625258472988845,
+      "sign_agree": 10,
+      "combined": 0.06145007629822925,
+      "loop_found": 31
+    },
+    {
+      "name": "f005",
+      "expression": "z(sign((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))))",
+      "origin": "py_loop33",
+      "train_ic": 0.018315352178138948,
+      "oos_ic": 0.061625258472988845,
+      "sign_agree": 10,
+      "combined": 0.06145007629822925,
+      "loop_found": 33
+    },
+    {
+      "name": "f006",
+      "expression": "-(sign((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))))",
+      "origin": "py_loop58",
+      "train_ic": -0.018315352178138948,
+      "oos_ic": -0.061625258472988845,
+      "sign_agree": 10,
+      "combined": 0.06145007629822925,
+      "loop_found": 58
+    },
+    {
+      "name": "f007",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))",
+      "origin": "py_loop5",
+      "train_ic": 0.019515655591895567,
+      "oos_ic": 0.058936541757501494,
+      "sign_agree": 10,
+      "combined": 0.058736894573792615,
+      "loop_found": 5
+    },
+    {
+      "name": "f008",
+      "expression": "(ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))) + (ifelse(funding_cumsum_72 > 0, (tanh(z(mtf4h_minus_di_14))), (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)))))",
+      "origin": "py_loop9",
+      "train_ic": 0.024183281892970743,
+      "oos_ic": 0.05893655118552105,
+      "sign_agree": 10,
+      "combined": 0.0587350215580591,
+      "loop_found": 9
+    },
+    {
+      "name": "f009",
+      "expression": "z(ema(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 24), 12) - ema(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 24), 48))",
+      "origin": "py_loop44",
+      "train_ic": 0.010024329919508489,
+      "oos_ic": -0.05812421449091828,
+      "sign_agree": 10,
+      "combined": 0.05801975423890645,
+      "loop_found": 44
+    },
+    {
+      "name": "f010",
+      "expression": "z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)",
+      "origin": "seed",
+      "train_ic": 0.013344734490301527,
+      "oos_ic": 0.05685874399010001,
+      "sign_agree": 10,
+      "combined": 0.05653019959410567,
+      "loop_found": 0
+    },
+    {
+      "name": "f011",
+      "expression": "ema((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24)), 24)",
+      "origin": "py_loop55",
+      "train_ic": 0.016840160912088852,
+      "oos_ic": 0.06252188084477533,
+      "sign_agree": 9,
+      "combined": 0.056203178319588515,
+      "loop_found": 55
+    },
+    {
+      "name": "f012",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20)))",
+      "origin": "py_loop12",
+      "train_ic": -0.012671836462994778,
+      "oos_ic": -0.05497093293713101,
+      "sign_agree": 10,
+      "combined": 0.054830676200641665,
+      "loop_found": 12
+    },
+    {
+      "name": "f013",
+      "expression": "(ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))) / ((abs(z(ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 12) - ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 48)))) + 1e-6)",
+      "origin": "py_loop29",
+      "train_ic": 0.012558365684008612,
+      "oos_ic": 0.05485852142263927,
+      "sign_agree": 10,
+      "combined": 0.05476745082123472,
+      "loop_found": 29
+    },
+    {
+      "name": "f014",
+      "expression": "(rolling_min((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))), 24)) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))",
+      "origin": "py_loop17",
+      "train_ic": 0.005462324932436744,
+      "oos_ic": 0.06762279264134499,
+      "sign_agree": 8,
+      "combined": 0.054042627382012313,
+      "loop_found": 17
+    },
+    {
+      "name": "f015",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (z(ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 12) - ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 48))), (z(mtf4h_cmf_20)))",
+      "origin": "py_loop21",
+      "train_ic": -0.010681752555755623,
+      "oos_ic": -0.05353268017513616,
+      "sign_agree": 10,
+      "combined": 0.053390906731798665,
+      "loop_found": 21
+    },
+    {
+      "name": "f016",
+      "expression": "ifelse(di_spread < 0, (((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (rolling_min(rolling_min(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24), 24), 24)))",
+      "origin": "py_loop45",
+      "train_ic": -0.006637606996183004,
+      "oos_ic": 0.05760134470988247,
+      "sign_agree": 9,
+      "combined": 0.05159821936510985,
+      "loop_found": 45
+    },
+    {
+      "name": "f017",
+      "expression": "(z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))",
+      "origin": "py_loop2",
+      "train_ic": 0.005887777776256678,
+      "oos_ic": -0.056498971022976505,
+      "sign_agree": 9,
+      "combined": 0.05073834137682114,
+      "loop_found": 2
+    },
+    {
+      "name": "f018",
+      "expression": "z(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 12) - ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 48))",
+      "origin": "py_loop34",
+      "train_ic": 0.00039850602233567625,
+      "oos_ic": -0.04991110257652549,
+      "sign_agree": 10,
+      "combined": 0.04978314418238421,
+      "loop_found": 34
+    },
+    {
+      "name": "f019",
+      "expression": "ifelse(adx_14 > 25, ((ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))) / ((abs(z(ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 12) - ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 48)))) + 1e-6)), (z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)))",
+      "origin": "py_loop48",
+      "train_ic": 0.005660653320448296,
+      "oos_ic": 0.04905334372054937,
+      "sign_agree": 10,
+      "combined": 0.04897600841923612,
+      "loop_found": 48
+    },
+    {
+      "name": "f020",
+      "expression": "tanh(rolling_max(ifelse(mtf4h_rsi_14 > 60, (z(ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 12) - ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 48))), (z(mtf4h_cmf_20))), 24) - rolling_min(ifelse(mtf4h_rsi_14 > 60, (z(ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 12) - ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 48))), (z(mtf4h_cmf_20))), 24))",
+      "origin": "py_loop37",
+      "train_ic": -0.005658133352901509,
+      "oos_ic": -0.04794554114987458,
+      "sign_agree": 10,
+      "combined": 0.04779552197112045,
+      "loop_found": 37
+    },
+    {
+      "name": "f021",
+      "expression": "ema((ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20)))) / ((abs(z(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 12) - ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 48)))) + 1e-6), 12)",
+      "origin": "py_loop38",
+      "train_ic": -0.004186875241054295,
+      "oos_ic": -0.059579950385069094,
+      "sign_agree": 8,
+      "combined": 0.04762257847646858,
+      "loop_found": 38
+    },
+    {
+      "name": "f022",
+      "expression": "sign((rolling_min((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))), 24)) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24)))",
+      "origin": "py_loop33",
+      "train_ic": 0.002041810551161034,
+      "oos_ic": 0.05877571937150159,
+      "sign_agree": 8,
+      "combined": 0.04698243372851234,
+      "loop_found": 33
+    },
+    {
+      "name": "f023",
+      "expression": "-(sign((rolling_min((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))), 24)) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))))",
+      "origin": "py_loop55",
+      "train_ic": -0.002041810551161034,
+      "oos_ic": -0.05877571937150159,
+      "sign_agree": 8,
+      "combined": 0.04698243372851234,
+      "loop_found": 55
+    },
+    {
+      "name": "f024",
+      "expression": "(z(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 12) - ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 48))) + (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24))",
+      "origin": "py_loop35",
+      "train_ic": 0.015355679907353259,
+      "oos_ic": -0.05231833672456103,
+      "sign_agree": 9,
+      "combined": 0.04682952262703633,
+      "loop_found": 35
+    },
+    {
+      "name": "f025",
+      "expression": "rolling_min(rolling_min(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24), 24), 24)",
+      "origin": "py_loop32",
+      "train_ic": -0.021483839261180044,
+      "oos_ic": 0.0520348451030397,
+      "sign_agree": 9,
+      "combined": 0.046793493037550406,
+      "loop_found": 32
+    },
+    {
+      "name": "f026",
+      "expression": "z(ema(roll_std(ifelse(mtf4h_rsi_14 < 40, -z(mtf4h_realized_vol_24), z(mtf4h_adx_14)), 24), 12) - ema(roll_std(ifelse(mtf4h_rsi_14 < 40, -z(mtf4h_realized_vol_24), z(mtf4h_adx_14)), 24), 48))",
+      "origin": "py_loop19",
+      "train_ic": -0.004282156619708996,
+      "oos_ic": -0.057879440789411304,
+      "sign_agree": 8,
+      "combined": 0.046236762750368046,
+      "loop_found": 19
+    },
+    {
+      "name": "f027",
+      "expression": "rolling_max(rolling_min(rolling_min(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24), 24), 24), 24)",
+      "origin": "py_loop58",
+      "train_ic": -0.02055001658302518,
+      "oos_ic": 0.057824056757925256,
+      "sign_agree": 8,
+      "combined": 0.04622308075996558,
+      "loop_found": 58
+    },
+    {
+      "name": "f028",
+      "expression": "(-(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)))) / ((abs(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)))) + 1e-6)",
+      "origin": "py_loop36",
+      "train_ic": -0.011750211216963364,
+      "oos_ic": -0.051558058257407405,
+      "sign_agree": 9,
+      "combined": 0.04611213401078541,
+      "loop_found": 36
+    },
+    {
+      "name": "f029",
+      "expression": "ifelse(adx_14 > 25, (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24))), (ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))))",
+      "origin": "py_loop19",
+      "train_ic": 0.016147245654917534,
+      "oos_ic": 0.04591717262314244,
+      "sign_agree": 10,
+      "combined": 0.04568401516930967,
+      "loop_found": 19
+    },
+    {
+      "name": "f030",
+      "expression": "((ifelse(funding_cumsum_72 > 0, (tanh(z(mtf4h_minus_di_14))), (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24))))) * ((sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24))) / ((abs(z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48)))) + 1e-6))) * (z(ema(mtf4h_ema_pct_12, 12)))",
+      "origin": "py_loop8",
+      "train_ic": 0.018060238858405967,
+      "oos_ic": 0.04532437686750542,
+      "sign_agree": 10,
+      "combined": 0.04524607391824752,
+      "loop_found": 8
+    }
+  ]
+}

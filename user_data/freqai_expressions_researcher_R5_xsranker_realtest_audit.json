@@ -1,0 +1,355 @@
+{
+  "tag": "researcher_R5_xsranker",
+  "timeframe": "1h",
+  "train3": [
+    "2023-05-15",
+    "2025-07-01"
+  ],
+  "val3": [
+    "2025-07-01",
+    "2025-12-01"
+  ],
+  "real_test3": [
+    "2025-12-01",
+    "2026-04-12"
+  ],
+  "per_factor": [
+    {
+      "name": "f001",
+      "expression": "tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24))",
+      "train3_ic": -0.0029588679012931382,
+      "val3_ic": -0.07561981764565488,
+      "real_test3_ic": -0.010957497080587231,
+      "train3_sign": 6,
+      "val3_sign": 10,
+      "real_test3_sign": 7,
+      "decay_val_to_rt": 0.1449024511938161
+    },
+    {
+      "name": "f002",
+      "expression": "(ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))",
+      "train3_ic": 0.016208577326767434,
+      "val3_ic": 0.029495031801810827,
+      "real_test3_ic": 0.04133538256077495,
+      "train3_sign": 9,
+      "val3_sign": 8,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 1.4014353819683563
+    },
+    {
+      "name": "f003",
+      "expression": "((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))",
+      "train3_ic": -0.003922486281466558,
+      "val3_ic": 0.025461202084982527,
+      "real_test3_ic": 0.05194864871103892,
+      "train3_sign": 6,
+      "val3_sign": 7,
+      "real_test3_sign": 10,
+      "decay_val_to_rt": 2.0403061291977664
+    },
+    {
+      "name": "f004",
+      "expression": "sign((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24)))",
+      "train3_ic": 0.018315352178138948,
+      "val3_ic": 0.0296481670716212,
+      "real_test3_ic": 0.042364192019435726,
+      "train3_sign": 9,
+      "val3_sign": 9,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 1.4288974589288745
+    },
+    {
+      "name": "f005",
+      "expression": "z(sign((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))))",
+      "train3_ic": 0.018315352178138948,
+      "val3_ic": 0.0296481670716212,
+      "real_test3_ic": 0.042364192019435726,
+      "train3_sign": 9,
+      "val3_sign": 9,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 1.4288974589288745
+    },
+    {
+      "name": "f006",
+      "expression": "-(sign((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))))",
+      "train3_ic": -0.018315352178138948,
+      "val3_ic": -0.0296481670716212,
+      "real_test3_ic": -0.042364192019435726,
+      "train3_sign": 9,
+      "val3_sign": 9,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 1.4288974589288745
+    },
+    {
+      "name": "f007",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))",
+      "train3_ic": 0.019515655591895567,
+      "val3_ic": 0.029535045882332366,
+      "real_test3_ic": 0.02857415632508975,
+      "train3_sign": 8,
+      "val3_sign": 9,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 0.9674660899956988
+    },
+    {
+      "name": "f008",
+      "expression": "(ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))) + (ifelse(funding_cumsum_72 > 0, (tanh(z(mtf4h_minus_di_14))), (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)))))",
+      "train3_ic": 0.024183281892970743,
+      "val3_ic": 0.0017260501820522516,
+      "real_test3_ic": 0.048069278568845374,
+      "train3_sign": 9,
+      "val3_sign": 6,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 27.84927762784627
+    },
+    {
+      "name": "f009",
+      "expression": "z(ema(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 24), 12) - ema(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 24), 48))",
+      "train3_ic": 0.010024329919508489,
+      "val3_ic": -0.06681314551941542,
+      "real_test3_ic": 0.02305242252679817,
+      "train3_sign": 7,
+      "val3_sign": 10,
+      "real_test3_sign": 7,
+      "decay_val_to_rt": 0.3450282426093988
+    },
+    {
+      "name": "f010",
+      "expression": "z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)",
+      "train3_ic": 0.013344734490301527,
+      "val3_ic": 0.02033314468334457,
+      "real_test3_ic": 0.04230604159481892,
+      "train3_sign": 7,
+      "val3_sign": 7,
+      "real_test3_sign": 10,
+      "decay_val_to_rt": 2.080644198082589
+    },
+    {
+      "name": "f011",
+      "expression": "ema((ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24)), 24)",
+      "train3_ic": 0.016840160912088852,
+      "val3_ic": 0.013017833071028323,
+      "real_test3_ic": 0.07189756155988926,
+      "train3_sign": 9,
+      "val3_sign": 5,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 5.523004915226257
+    },
+    {
+      "name": "f012",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20)))",
+      "train3_ic": -0.012671836462994778,
+      "val3_ic": -0.034300883620978544,
+      "real_test3_ic": -0.10126348807046164,
+      "train3_sign": 9,
+      "val3_sign": 8,
+      "real_test3_sign": 10,
+      "decay_val_to_rt": 2.9522121423226655
+    },
+    {
+      "name": "f013",
+      "expression": "(ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))) / ((abs(z(ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 12) - ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 48)))) + 1e-6)",
+      "train3_ic": 0.012558365684008612,
+      "val3_ic": 0.03940564895169574,
+      "real_test3_ic": -0.004208560054537395,
+      "train3_sign": 7,
+      "val3_sign": 9,
+      "real_test3_sign": 6,
+      "decay_val_to_rt": 0.1068009298081959
+    },
+    {
+      "name": "f014",
+      "expression": "(rolling_min((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))), 24)) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))",
+      "train3_ic": 0.005462324932436744,
+      "val3_ic": 0.008677290437613486,
+      "real_test3_ic": 0.008775292205248706,
+      "train3_sign": 6,
+      "val3_sign": 6,
+      "real_test3_sign": 8,
+      "decay_val_to_rt": 1.0112939352492434
+    },
+    {
+      "name": "f015",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (z(ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 12) - ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 48))), (z(mtf4h_cmf_20)))",
+      "train3_ic": -0.010681752555755623,
+      "val3_ic": -0.02445499376382071,
+      "real_test3_ic": -0.12349824758597079,
+      "train3_sign": 7,
+      "val3_sign": 7,
+      "real_test3_sign": 10,
+      "decay_val_to_rt": 5.05002142828822
+    },
+    {
+      "name": "f016",
+      "expression": "ifelse(di_spread < 0, (((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (rolling_min(rolling_min(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24), 24), 24)))",
+      "train3_ic": -0.006637606996183004,
+      "val3_ic": -0.002561040761166797,
+      "real_test3_ic": 0.059660520213235944,
+      "train3_sign": 7,
+      "val3_sign": 6,
+      "real_test3_sign": 10,
+      "decay_val_to_rt": 23.295410921395884
+    },
+    {
+      "name": "f017",
+      "expression": "(z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))",
+      "train3_ic": 0.005887777776256678,
+      "val3_ic": -0.02281102616889105,
+      "real_test3_ic": -0.08553618718699361,
+      "train3_sign": 6,
+      "val3_sign": 6,
+      "real_test3_sign": 10,
+      "decay_val_to_rt": 3.749773587734144
+    },
+    {
+      "name": "f018",
+      "expression": "z(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 12) - ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 48))",
+      "train3_ic": 0.00039850602233567625,
+      "val3_ic": -0.10478174987331154,
+      "real_test3_ic": -0.02977727134992016,
+      "train3_sign": 5,
+      "val3_sign": 10,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 0.2841837543440457
+    },
+    {
+      "name": "f019",
+      "expression": "ifelse(adx_14 > 25, ((ifelse(mtf4h_rsi_14 < 40, (tanh(z(mtf4h_minus_di_14))), (sign(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))) * roll_std(z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6)), 24)))) / ((abs(z(ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 12) - ema(ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20))), 48)))) + 1e-6)), (z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)))",
+      "train3_ic": 0.005660653320448296,
+      "val3_ic": 0.024885876995687933,
+      "real_test3_ic": 0.03601748641621651,
+      "train3_sign": 6,
+      "val3_sign": 10,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 1.4473062361897535
+    },
+    {
+      "name": "f020",
+      "expression": "tanh(rolling_max(ifelse(mtf4h_rsi_14 > 60, (z(ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 12) - ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 48))), (z(mtf4h_cmf_20))), 24) - rolling_min(ifelse(mtf4h_rsi_14 > 60, (z(ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 12) - ema(sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24), 48))), (z(mtf4h_cmf_20))), 24))",
+      "train3_ic": -0.005658133352901509,
+      "val3_ic": -0.047208924210785555,
+      "real_test3_ic": -0.04445409390379764,
+      "train3_sign": 5,
+      "val3_sign": 9,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 0.9416459643025609
+    },
+    {
+      "name": "f021",
+      "expression": "ema((ifelse(mtf4h_rsi_14 > 60, (tanh(z(mtf4h_minus_di_14))), (z(mtf4h_cmf_20)))) / ((abs(z(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 12) - ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 48)))) + 1e-6), 12)",
+      "train3_ic": -0.004186875241054295,
+      "val3_ic": -0.023863031739237824,
+      "real_test3_ic": -0.07985035061700073,
+      "train3_sign": 6,
+      "val3_sign": 8,
+      "real_test3_sign": 10,
+      "decay_val_to_rt": 3.3461945717278145
+    },
+    {
+      "name": "f022",
+      "expression": "sign((rolling_min((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))), 24)) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24)))",
+      "train3_ic": 0.002041810551161034,
+      "val3_ic": 0.005274592775604945,
+      "real_test3_ic": 0.011236794490661901,
+      "train3_sign": 5,
+      "val3_sign": 6,
+      "real_test3_sign": 8,
+      "decay_val_to_rt": 2.130362065536156
+    },
+    {
+      "name": "f023",
+      "expression": "-(sign((rolling_min((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14)))), 24)) - (rolling_min(ifelse(funding_cumsum_72 < 0, (ifelse(volume_zscore_24 > 1, (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))), (tanh(z(mtf4h_minus_di_14))))), (z(mtf4h_cmf_20))), 24))))",
+      "train3_ic": -0.002041810551161034,
+      "val3_ic": -0.005274592775604945,
+      "real_test3_ic": -0.011236794490661901,
+      "train3_sign": 5,
+      "val3_sign": 6,
+      "real_test3_sign": 8,
+      "decay_val_to_rt": 2.130362065536156
+    },
+    {
+      "name": "f024",
+      "expression": "(z(ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 12) - ema(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)), 48))) + (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24))",
+      "train3_ic": 0.015355679907353259,
+      "val3_ic": -0.04905369768934827,
+      "real_test3_ic": 0.005221954488044885,
+      "train3_sign": 8,
+      "val3_sign": 9,
+      "real_test3_sign": 7,
+      "decay_val_to_rt": 0.10645383788722954
+    },
+    {
+      "name": "f025",
+      "expression": "rolling_min(rolling_min(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24), 24), 24)",
+      "train3_ic": -0.021483839261180044,
+      "val3_ic": 0.00923692434309785,
+      "real_test3_ic": 0.002803320849158175,
+      "train3_sign": 8,
+      "val3_sign": 5,
+      "real_test3_sign": 6,
+      "decay_val_to_rt": 0.3034906903575781
+    },
+    {
+      "name": "f026",
+      "expression": "z(ema(roll_std(ifelse(mtf4h_rsi_14 < 40, -z(mtf4h_realized_vol_24), z(mtf4h_adx_14)), 24), 12) - ema(roll_std(ifelse(mtf4h_rsi_14 < 40, -z(mtf4h_realized_vol_24), z(mtf4h_adx_14)), 24), 48))",
+      "train3_ic": -0.004282156619708996,
+      "val3_ic": 0.006766850426968117,
+      "real_test3_ic": -0.008637934098152675,
+      "train3_sign": 6,
+      "val3_sign": 5,
+      "real_test3_sign": 6,
+      "decay_val_to_rt": 1.2765071305877473
+    },
+    {
+      "name": "f027",
+      "expression": "rolling_max(rolling_min(rolling_min(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)) * roll_std(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24), 24), 24), 24), 24)",
+      "train3_ic": -0.02055001658302518,
+      "val3_ic": -0.000824441574764059,
+      "real_test3_ic": 0.0020987835161230583,
+      "train3_sign": 10,
+      "val3_sign": 6,
+      "real_test3_sign": 5,
+      "decay_val_to_rt": 2.54570006494836
+    },
+    {
+      "name": "f028",
+      "expression": "(-(sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)))) / ((abs(tanh(rolling_max((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24) - rolling_min((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 24)))) + 1e-6)",
+      "train3_ic": -0.011750211216963364,
+      "val3_ic": -0.0064935650448731536,
+      "real_test3_ic": -0.029073513735678604,
+      "train3_sign": 7,
+      "val3_sign": 6,
+      "real_test3_sign": 8,
+      "decay_val_to_rt": 4.477280054559995
+    },
+    {
+      "name": "f029",
+      "expression": "ifelse(adx_14 > 25, (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24))), (ifelse(mtf4h_rsi_14 > 60, ((z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48))) - ((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))))), (z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))))))",
+      "train3_ic": 0.016147245654917534,
+      "val3_ic": 0.031203925098847764,
+      "real_test3_ic": 0.006103583061279954,
+      "train3_sign": 8,
+      "val3_sign": 9,
+      "real_test3_sign": 7,
+      "decay_val_to_rt": 0.19560304821723493
+    },
+    {
+      "name": "f030",
+      "expression": "((ifelse(funding_cumsum_72 > 0, (tanh(z(mtf4h_minus_di_14))), (sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24))))) * ((sign(z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24))) / ((abs(z(ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 12) - ema((z(mtf4h_cmf_20)) + (tanh(z(mtf4h_minus_di_14))), 48)))) + 1e-6))) * (z(ema(mtf4h_ema_pct_12, 12)))",
+      "train3_ic": 0.018060238858405967,
+      "val3_ic": -0.0008821704545863868,
+      "real_test3_ic": 0.05735369568261852,
+      "train3_sign": 9,
+      "val3_sign": 5,
+      "real_test3_sign": 9,
+      "decay_val_to_rt": 65.01422754549371
+    }
+  ],
+  "summary": {
+    "val3_median_abs_ic": 0.024670435379754323,
+    "real_test3_median_abs_ic": 0.038676434488495726,
+    "val_to_rt_median_decay": 1.438101847559314,
+    "sign_consistent": 23,
+    "n": 30
+  }
+}

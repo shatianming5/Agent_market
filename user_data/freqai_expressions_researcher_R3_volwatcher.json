@@ -1,0 +1,305 @@
+{
+  "version": "lab-researcher_R3_volwatcher",
+  "expressions": [
+    {
+      "name": "f001",
+      "expression": "(ifelse(di_spread > 0, (z(atr_norm_7)), ((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))))) + (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)))",
+      "origin": "py_loop48",
+      "train_ic": 0.01357250747070921,
+      "oos_ic": -0.13500233019579724,
+      "sign_agree": 10,
+      "combined": 0.13427064109156622,
+      "loop_found": 48
+    },
+    {
+      "name": "f002",
+      "expression": "ema(((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48)))) + (sign(z(ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 12) - ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 48)))), 12)",
+      "origin": "py_loop53",
+      "train_ic": 0.03922959799113327,
+      "oos_ic": -0.13137190552711656,
+      "sign_agree": 10,
+      "combined": 0.13108773113370456,
+      "loop_found": 53
+    },
+    {
+      "name": "f003",
+      "expression": "(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)) - (sign((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48)))) * roll_std((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48))), 24))",
+      "origin": "py_loop42",
+      "train_ic": -0.032789120659199346,
+      "oos_ic": 0.129469513950034,
+      "sign_agree": 10,
+      "combined": 0.12892401055546635,
+      "loop_found": 42
+    },
+    {
+      "name": "f004",
+      "expression": "((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48)))) + (sign(z(ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 12) - ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 48))))",
+      "origin": "py_loop45",
+      "train_ic": 0.0382284143782619,
+      "oos_ic": -0.12927038595590123,
+      "sign_agree": 10,
+      "combined": 0.12882032946826769,
+      "loop_found": 45
+    },
+    {
+      "name": "f005",
+      "expression": "(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)) - (sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12)))",
+      "origin": "py_loop30",
+      "train_ic": -0.02496142490540486,
+      "oos_ic": 0.12678594376275898,
+      "sign_agree": 10,
+      "combined": 0.12630998747418146,
+      "loop_found": 30
+    },
+    {
+      "name": "f006",
+      "expression": "ifelse(di_spread > 0, (z(ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 12) - ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 48))), ((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))))",
+      "origin": "py_loop33",
+      "train_ic": 0.020735022110221303,
+      "oos_ic": -0.12104156052297914,
+      "sign_agree": 10,
+      "combined": 0.12045765378560426,
+      "loop_found": 33
+    },
+    {
+      "name": "f007",
+      "expression": "((sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)) - (sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12)))) - (z(ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 12) - ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 48)))",
+      "origin": "py_loop42",
+      "train_ic": -0.02537056660150433,
+      "oos_ic": 0.11760553392736676,
+      "sign_agree": 10,
+      "combined": 0.11715119065390232,
+      "loop_found": 42
+    },
+    {
+      "name": "f008",
+      "expression": "(-(sign(ema(ifelse(mtf4h_rsi_14 > 60, ((z(vol_term_structure)) + (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)))), (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)))), 12)))) + (sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24))",
+      "origin": "py_loop45",
+      "train_ic": -0.017029666025733435,
+      "oos_ic": 0.11739614304211166,
+      "sign_agree": 10,
+      "combined": 0.11706098943422305,
+      "loop_found": 45
+    },
+    {
+      "name": "f009",
+      "expression": "ifelse(funding_cumsum_72 < 0, ((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))), (z(ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 12) - ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 48))))",
+      "origin": "py_loop50",
+      "train_ic": 0.018078086923137122,
+      "oos_ic": -0.11647658888865746,
+      "sign_agree": 10,
+      "combined": 0.11617131276203033,
+      "loop_found": 50
+    },
+    {
+      "name": "f010",
+      "expression": "ifelse(funding_z_200 > 1, (sign(minus_di_14) * roll_std(minus_di_14, 24)), ((ifelse(mtf4h_rsi_14 > 60, ((z(vol_term_structure)) + (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)))), (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24))))) + (ema(tanh(z(realized_vol_24) - z(dx_14)), 12))))",
+      "origin": "py_loop19",
+      "train_ic": 0.023649111780291564,
+      "oos_ic": -0.11644920201485535,
+      "sign_agree": 10,
+      "combined": 0.1160621697598377,
+      "loop_found": 19
+    },
+    {
+      "name": "f011",
+      "expression": "z(ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 12) - ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 48))",
+      "origin": "py_loop12",
+      "train_ic": 0.016361231053743108,
+      "oos_ic": -0.11606546677678527,
+      "sign_agree": 10,
+      "combined": 0.11581008265974033,
+      "loop_found": 12
+    },
+    {
+      "name": "f012",
+      "expression": "ema((ifelse(mtf4h_rsi_14 > 60, ((z(vol_term_structure)) + (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)))), (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24))))) + (ema(tanh(z(realized_vol_24) - z(dx_14)), 12)), 12)",
+      "origin": "py_loop55",
+      "train_ic": 0.034005330523101944,
+      "oos_ic": -0.11269273439658552,
+      "sign_agree": 10,
+      "combined": 0.11244597114650472,
+      "loop_found": 55
+    },
+    {
+      "name": "f013",
+      "expression": "sign((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48)))) * roll_std((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48))), 24)",
+      "origin": "py_loop29",
+      "train_ic": 0.03393668992086304,
+      "oos_ic": -0.1125131167473635,
+      "sign_agree": 10,
+      "combined": 0.11213973050106742,
+      "loop_found": 29
+    },
+    {
+      "name": "f014",
+      "expression": "sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)",
+      "origin": "py_loop7",
+      "train_ic": -0.010011685234517276,
+      "oos_ic": 0.10978371961685207,
+      "sign_agree": 10,
+      "combined": 0.10938333900095755,
+      "loop_found": 7
+    },
+    {
+      "name": "f015",
+      "expression": "-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24))",
+      "origin": "py_loop14",
+      "train_ic": 0.010011685234517276,
+      "oos_ic": -0.10978371961685207,
+      "sign_agree": 10,
+      "combined": 0.10938333900095755,
+      "loop_found": 14
+    },
+    {
+      "name": "f016",
+      "expression": "((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))) - (sign(z(return_skew_48) - z(vol_term_structure)))",
+      "origin": "py_loop15",
+      "train_ic": 0.01733223951937264,
+      "oos_ic": -0.10966175597583543,
+      "sign_agree": 10,
+      "combined": 0.1092200188582087,
+      "loop_found": 15
+    },
+    {
+      "name": "f017",
+      "expression": "(ifelse(mtf4h_rsi_14 > 60, ((z(vol_term_structure)) + (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)))), (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24))))) + (ema(tanh(z(realized_vol_24) - z(dx_14)), 12))",
+      "origin": "py_loop18",
+      "train_ic": 0.031972168207932895,
+      "oos_ic": -0.10733907585380842,
+      "sign_agree": 10,
+      "combined": 0.10692038388432112,
+      "loop_found": 18
+    },
+    {
+      "name": "f018",
+      "expression": "z(ema((sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)) - (sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))), 12) - ema((sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)) - (sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))), 48))",
+      "origin": "py_loop34",
+      "train_ic": -0.02718436813282698,
+      "oos_ic": 0.10722456896727331,
+      "sign_agree": 10,
+      "combined": 0.10689258958418209,
+      "loop_found": 34
+    },
+    {
+      "name": "f019",
+      "expression": "ifelse(adx_14 > 25, (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24))), (sign((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48)))) * roll_std((sign(ema(tanh(z(realized_vol_24) - z(dx_14)), 12))) + (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48))), 24)))",
+      "origin": "py_loop48",
+      "train_ic": 0.01831260681666554,
+      "oos_ic": -0.10622085374250387,
+      "sign_agree": 10,
+      "combined": 0.10573884151398492,
+      "loop_found": 48
+    },
+    {
+      "name": "f020",
+      "expression": "ifelse(di_spread > 0, (z(atr_norm_7)), ((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))))",
+      "origin": "py_loop26",
+      "train_ic": 0.011552781038707806,
+      "oos_ic": -0.10562309019588952,
+      "sign_agree": 10,
+      "combined": 0.10508566246876863,
+      "loop_found": 26
+    },
+    {
+      "name": "f021",
+      "expression": "ema(ifelse(di_spread > 0, (z(ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 12) - ema(-(sign(z(return_skew_48) - z(vol_term_structure))), 48))), ((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24))))), 12)",
+      "origin": "py_loop39",
+      "train_ic": 0.02241067283273874,
+      "oos_ic": -0.10378760289993039,
+      "sign_agree": 10,
+      "combined": 0.10353198062002847,
+      "loop_found": 39
+    },
+    {
+      "name": "f022",
+      "expression": "ema(ifelse(di_spread > 0, (z(atr_norm_7)), ((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24))))), 12)",
+      "origin": "py_loop52",
+      "train_ic": 0.015049785760368833,
+      "oos_ic": -0.10364612423567166,
+      "sign_agree": 10,
+      "combined": 0.10341763382801053,
+      "loop_found": 52
+    },
+    {
+      "name": "f023",
+      "expression": "z(ema(ifelse(realized_vol_24 > realized_vol_72, (tanh(z(realized_vol_24) - z(dx_14))), (ifelse(adx_14 < 20, (tanh(z(realized_vol_24) - z(dx_14))), (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48)))))), 12) - ema(ifelse(realized_vol_24 > realized_vol_72, (tanh(z(realized_vol_24) - z(dx_14))), (ifelse(adx_14 < 20, (tanh(z(realized_vol_24) - z(dx_14))), (z(ema(z(atr_norm_7), 12) - ema(z(atr_norm_7), 48)))))), 48))",
+      "origin": "py_loop33",
+      "train_ic": 0.023468122959752057,
+      "oos_ic": -0.10373930876402901,
+      "sign_agree": 10,
+      "combined": 0.10337070654020424,
+      "loop_found": 33
+    },
+    {
+      "name": "f024",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, ((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))), ((z(vol_term_structure)) + (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)))))",
+      "origin": "py_loop30",
+      "train_ic": 0.019358857810478802,
+      "oos_ic": -0.10337198155242582,
+      "sign_agree": 10,
+      "combined": 0.10296952204661942,
+      "loop_found": 30
+    },
+    {
+      "name": "f025",
+      "expression": "(sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))",
+      "origin": "py_loop8",
+      "train_ic": 0.012513476532310264,
+      "oos_ic": -0.10237487680129698,
+      "sign_agree": 10,
+      "combined": 0.10199715063825011,
+      "loop_found": 8
+    },
+    {
+      "name": "f026",
+      "expression": "z(ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 12) - ema(-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)), 48))",
+      "origin": "py_loop31",
+      "train_ic": 0.013421177941246093,
+      "oos_ic": -0.1013228711987337,
+      "sign_agree": 10,
+      "combined": 0.1010374020811882,
+      "loop_found": 31
+    },
+    {
+      "name": "f027",
+      "expression": "ema(ifelse(mtf4h_rsi_14 > 60, ((z(vol_term_structure)) + (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)))), (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)))), 12)",
+      "origin": "py_loop34",
+      "train_ic": 0.02178357984586133,
+      "oos_ic": -0.10090751113883467,
+      "sign_agree": 10,
+      "combined": 0.10067357447825508,
+      "loop_found": 34
+    },
+    {
+      "name": "f028",
+      "expression": "sign(((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24)))) - (sign(z(return_skew_48) - z(vol_term_structure))))",
+      "origin": "py_loop57",
+      "train_ic": 0.016198882501207896,
+      "oos_ic": -0.10074695566914812,
+      "sign_agree": 10,
+      "combined": 0.10041190356058867,
+      "loop_found": 57
+    },
+    {
+      "name": "f029",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, (z(ema(ema(tanh(z(realized_vol_24) - z(dx_14)), 12), 12) - ema(ema(tanh(z(realized_vol_24) - z(dx_14)), 12), 48))), (ema(ifelse(mtf4h_rsi_14 > 60, ((z(vol_term_structure)) + (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)))), (-(sign(sign(z(return_skew_48) - z(vol_term_structure))) * roll_std(sign(z(return_skew_48) - z(vol_term_structure)), 24)))), 12)))",
+      "origin": "py_loop48",
+      "train_ic": 0.02218328901208479,
+      "oos_ic": -0.09875781682400275,
+      "sign_agree": 10,
+      "combined": 0.09842993164717355,
+      "loop_found": 48
+    },
+    {
+      "name": "f030",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))), (ema((sign(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48))) * roll_std(z(ema(tanh(z(realized_vol_24) - z(dx_14)), 12) - ema(tanh(z(realized_vol_24) - z(dx_14)), 48)), 24)) + (z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24))), 12)))",
+      "origin": "py_loop44",
+      "train_ic": 0.00956185485694359,
+      "oos_ic": -0.09701177065235851,
+      "sign_agree": 10,
+      "combined": 0.09672751274038532,
+      "loop_found": 44
+    }
+  ]
+}

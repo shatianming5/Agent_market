@@ -1,0 +1,305 @@
+{
+  "version": "lab-researcher_R2_reverter",
+  "expressions": [
+    {
+      "name": "f001",
+      "expression": "ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 12)",
+      "origin": "py_loop38",
+      "train_ic": 0.01167056498434577,
+      "oos_ic": -0.09447349232010979,
+      "sign_agree": 10,
+      "combined": 0.0942796550006337,
+      "loop_found": 38
+    },
+    {
+      "name": "f002",
+      "expression": "(sign(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24))) * roll_std(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 24)) / ((abs(rolling_max(z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48)), 24))) + 1e-6)",
+      "origin": "py_loop44",
+      "train_ic": -0.012791482832773376,
+      "oos_ic": 0.08594966258646138,
+      "sign_agree": 10,
+      "combined": 0.08584516779838,
+      "loop_found": 44
+    },
+    {
+      "name": "f003",
+      "expression": "z(ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 12) - ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 48))",
+      "origin": "py_loop5",
+      "train_ic": 0.014391527598202628,
+      "oos_ic": -0.08988895283887319,
+      "sign_agree": 9,
+      "combined": 0.08070003081740654,
+      "loop_found": 5
+    },
+    {
+      "name": "f004",
+      "expression": "ema(sign(rsi_14) * roll_std(rsi_14, 24), 24)",
+      "origin": "py_loop54",
+      "train_ic": 0.011199398981112368,
+      "oos_ic": -0.08003662414743176,
+      "sign_agree": 10,
+      "combined": 0.07989278769506229,
+      "loop_found": 54
+    },
+    {
+      "name": "f005",
+      "expression": "z(ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12) - ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 48))",
+      "origin": "py_loop19",
+      "train_ic": 0.016826671437452614,
+      "oos_ic": -0.07667047277253587,
+      "sign_agree": 10,
+      "combined": 0.07638694478400197,
+      "loop_found": 19
+    },
+    {
+      "name": "f006",
+      "expression": "sign(rsi_14) * roll_std(rsi_14, 24)",
+      "origin": "seed",
+      "train_ic": 0.018857768660553536,
+      "oos_ic": -0.07597481610589316,
+      "sign_agree": 10,
+      "combined": 0.07570893213159839,
+      "loop_found": 0
+    },
+    {
+      "name": "f007",
+      "expression": "ema(ifelse(funding_z_200 < -1, (rolling_max(z(ema(rsi_divergence, 24) - ema(rsi_divergence, 6)), 24)), (ifelse(funding_z_200 < -1, (sign(rsi_14) * roll_std(rsi_14, 24)), (tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)))))), 12)",
+      "origin": "py_loop27",
+      "train_ic": 0.024151698604211326,
+      "oos_ic": -0.071742925557952,
+      "sign_agree": 10,
+      "combined": 0.07160727282155449,
+      "loop_found": 27
+    },
+    {
+      "name": "f008",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, (rolling_max(z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48)), 24)), (z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))))",
+      "origin": "py_loop42",
+      "train_ic": 0.01765659003922128,
+      "oos_ic": -0.07137939861180242,
+      "sign_agree": 10,
+      "combined": 0.07119588448257808,
+      "loop_found": 42
+    },
+    {
+      "name": "f009",
+      "expression": "rolling_max(z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48)), 24)",
+      "origin": "py_loop8",
+      "train_ic": 0.0014769821483005335,
+      "oos_ic": -0.07080618018404247,
+      "sign_agree": 10,
+      "combined": 0.0707018698509492,
+      "loop_found": 8
+    },
+    {
+      "name": "f010",
+      "expression": "(rolling_max(z(rsi_14), 24)) + (ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12))",
+      "origin": "py_loop34",
+      "train_ic": 0.007745668453636126,
+      "oos_ic": -0.06712152863380211,
+      "sign_agree": 10,
+      "combined": 0.0669084644537341,
+      "loop_found": 34
+    },
+    {
+      "name": "f011",
+      "expression": "ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12)",
+      "origin": "py_loop28",
+      "train_ic": 0.020599626183134125,
+      "oos_ic": -0.06617470378592097,
+      "sign_agree": 10,
+      "combined": 0.06596066048950272,
+      "loop_found": 28
+    },
+    {
+      "name": "f012",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14))), (ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 12)))",
+      "origin": "py_loop50",
+      "train_ic": 0.0062776388765647066,
+      "oos_ic": -0.06535046685239795,
+      "sign_agree": 10,
+      "combined": 0.06501103046760832,
+      "loop_found": 50
+    },
+    {
+      "name": "f013",
+      "expression": "ifelse(funding_cumsum_72 > 0, (sign(rsi_14) * roll_std(rsi_14, 24)), (ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12)))",
+      "origin": "py_loop37",
+      "train_ic": -0.0017278716035092612,
+      "oos_ic": -0.06378523425129853,
+      "sign_agree": 10,
+      "combined": 0.06362454101520122,
+      "loop_found": 37
+    },
+    {
+      "name": "f014",
+      "expression": "z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))",
+      "origin": "py_loop1",
+      "train_ic": 0.014706398022610524,
+      "oos_ic": -0.07054160590658479,
+      "sign_agree": 9,
+      "combined": 0.06331677311188899,
+      "loop_found": 1
+    },
+    {
+      "name": "f015",
+      "expression": "sign((rolling_max(z(rsi_14), 24)) + (ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12))) * roll_std((rolling_max(z(rsi_14), 24)) + (ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12)), 24)",
+      "origin": "py_loop40",
+      "train_ic": -0.0029759985542446533,
+      "oos_ic": -0.06313154371637258,
+      "sign_agree": 10,
+      "combined": 0.06292581693791698,
+      "loop_found": 40
+    },
+    {
+      "name": "f016",
+      "expression": "sign(z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48)))",
+      "origin": "py_loop44",
+      "train_ic": 0.013674079859368854,
+      "oos_ic": -0.06947010087597619,
+      "sign_agree": 9,
+      "combined": 0.06238525204700953,
+      "loop_found": 44
+    },
+    {
+      "name": "f017",
+      "expression": "(z(rsi_14)) * (rolling_max(z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48)), 24))",
+      "origin": "py_loop15",
+      "train_ic": -0.011749086266649828,
+      "oos_ic": -0.06968564965107152,
+      "sign_agree": 9,
+      "combined": 0.06234557975306042,
+      "loop_found": 15
+    },
+    {
+      "name": "f018",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, (rolling_min(rolling_max(z(rsi_14), 24), 24)), (z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))))",
+      "origin": "py_loop53",
+      "train_ic": 0.02001622149199261,
+      "oos_ic": -0.06878122736342546,
+      "sign_agree": 9,
+      "combined": 0.06170240908734684,
+      "loop_found": 53
+    },
+    {
+      "name": "f019",
+      "expression": "ifelse(adx_14 > 25, (rolling_min(rolling_max(z(rsi_14), 24), 24)), (z(ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12) - ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 48))))",
+      "origin": "py_loop54",
+      "train_ic": 0.018130242832467804,
+      "oos_ic": -0.06112133939365647,
+      "sign_agree": 10,
+      "combined": 0.06092614429357273,
+      "loop_found": 54
+    },
+    {
+      "name": "f020",
+      "expression": "ema(sign((rolling_max(z(rsi_14), 24)) + (ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12))) * roll_std((rolling_max(z(rsi_14), 24)) + (ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12)), 24), 12)",
+      "origin": "py_loop49",
+      "train_ic": -0.0069807647638691645,
+      "oos_ic": -0.05784971382183701,
+      "sign_agree": 10,
+      "combined": 0.05772131153243663,
+      "loop_found": 49
+    },
+    {
+      "name": "f021",
+      "expression": "tanh(rolling_max(z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48)), 24) - rolling_min(z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48)), 24))",
+      "origin": "py_loop9",
+      "train_ic": -0.004751530630847352,
+      "oos_ic": -0.07167976971947228,
+      "sign_agree": 8,
+      "combined": 0.05719548997147433,
+      "loop_found": 9
+    },
+    {
+      "name": "f022",
+      "expression": "ifelse(rsi_14 > 70, (ifelse(rsi_14 > 70, (sign(vwap_pct_20 - roll_mean(vwap_pct_20, 24))), (z(ema(vwap_pct_20, 24) - ema(vwap_pct_20, 6))))), (tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24))))",
+      "origin": "py_loop24",
+      "train_ic": 0.001997536571534497,
+      "oos_ic": -0.057033360682760194,
+      "sign_agree": 10,
+      "combined": 0.05679414219413855,
+      "loop_found": 24
+    },
+    {
+      "name": "f023",
+      "expression": "sign(z(ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 12) - ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 48)))",
+      "origin": "py_loop49",
+      "train_ic": 0.01557857862271548,
+      "oos_ic": -0.06321300079288449,
+      "sign_agree": 9,
+      "combined": 0.05677553954168016,
+      "loop_found": 49
+    },
+    {
+      "name": "f024",
+      "expression": "-(sign(z(ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 12) - ema(tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)), 48))))",
+      "origin": "py_loop59",
+      "train_ic": -0.01557857862271548,
+      "oos_ic": 0.06321300079288449,
+      "sign_agree": 9,
+      "combined": 0.05677553954168016,
+      "loop_found": 59
+    },
+    {
+      "name": "f025",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (sign(ema(z(rsi_divergence) - z(price_zscore_48), 24)) * roll_std(ema(z(rsi_divergence) - z(price_zscore_48), 24), 24)), (ifelse(funding_z_200 < -1, (sign(rsi_14) * roll_std(rsi_14, 24)), (tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24))))))",
+      "origin": "py_loop36",
+      "train_ic": 0.0005894436139757067,
+      "oos_ic": -0.054535283490812346,
+      "sign_agree": 10,
+      "combined": 0.05442182336420459,
+      "loop_found": 36
+    },
+    {
+      "name": "f026",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, (sign(rsi_14) * roll_std(rsi_14, 24)), (ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12)))",
+      "origin": "py_loop47",
+      "train_ic": 0.02835709431519622,
+      "oos_ic": -0.0543386689442257,
+      "sign_agree": 10,
+      "combined": 0.054168521483552744,
+      "loop_found": 47
+    },
+    {
+      "name": "f027",
+      "expression": "rolling_max(z(ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12) - ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 48)), 24)",
+      "origin": "py_loop26",
+      "train_ic": -0.005137960021068989,
+      "oos_ic": -0.05306095810920257,
+      "sign_agree": 10,
+      "combined": 0.052975657694662066,
+      "loop_found": 26
+    },
+    {
+      "name": "f028",
+      "expression": "rolling_min(rolling_max(z(rsi_14), 24), 24)",
+      "origin": "py_loop32",
+      "train_ic": 0.011749041699654678,
+      "oos_ic": -0.05268969791326046,
+      "sign_agree": 10,
+      "combined": 0.05260852158838504,
+      "loop_found": 32
+    },
+    {
+      "name": "f029",
+      "expression": "sign(z(ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 12) - ema((z(ema(sign(rsi_14) * roll_std(rsi_14, 24), 12) - ema(sign(rsi_14) * roll_std(rsi_14, 24), 48))) + (ifelse(volume_zscore_24 > 1, (z(stochf_k)), (-z(mfi_14)))), 48)))",
+      "origin": "py_loop31",
+      "train_ic": 0.016558686500262473,
+      "oos_ic": -0.05226964972370227,
+      "sign_agree": 10,
+      "combined": 0.05210496408850955,
+      "loop_found": 31
+    },
+    {
+      "name": "f030",
+      "expression": "(sign(z(rsi_14))) / ((abs(ifelse(funding_z_200 < -1, (sign(rsi_14) * roll_std(rsi_14, 24)), (tanh(rolling_max(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24) - rolling_min(ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14)), 24)))))) + 1e-6)",
+      "origin": "py_loop40",
+      "train_ic": -0.010437433317491935,
+      "oos_ic": -0.05240950488672268,
+      "sign_agree": 10,
+      "combined": 0.052043048215329964,
+      "loop_found": 40
+    }
+  ]
+}

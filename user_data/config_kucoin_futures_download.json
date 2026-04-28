@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.freqtrade.io/schema.json",
+  "trading_mode": "futures",
+  "margin_mode": "isolated",
+  "dry_run": true,
+  "max_open_trades": 4,
+  "stake_currency": "USDT",
+  "stake_amount": 75,
+  "tradable_balance_ratio": 1,
+  "timeframe": "1h",
+  "dry_run_wallet": 1000,
+  "fee": 0.0005,
+  "exchange": {
+    "name": "kucoinfutures",
+    "key": "",
+    "secret": "",
+    "password": "",
+    "pair_whitelist": [
+      "BTC/USDT:USDT",
+      "ETH/USDT:USDT",
+      "SOL/USDT:USDT",
+      "XRP/USDT:USDT",
+      "DOGE/USDT:USDT",
+      "ADA/USDT:USDT",
+      "AVAX/USDT:USDT",
+      "LINK/USDT:USDT",
+      "DOT/USDT:USDT"
+    ],
+    "pair_blacklist": [],
+    "ccxt_config": {"timeout": 30000},
+    "ccxt_async_config": {"timeout": 30000}
+  },
+  "pairlists": [{"method": "StaticPairList"}],
+  "entry_pricing": {"price_side": "same", "use_order_book": false, "order_book_top": 1},
+  "exit_pricing": {"price_side": "same", "use_order_book": false, "order_book_top": 1},
+  "internals": {"process_throttle_secs": 5},
+  "user_data_dir": "user_data"
+}

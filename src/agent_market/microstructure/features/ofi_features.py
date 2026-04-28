@@ -162,13 +162,29 @@ def compute_l2_delta_ofi(lob: Any, *, windows_sec: Sequence[int] = (), eps: floa
 
     Requires columns: bid1, ask1, bid_sz (list of level sizes), ask_sz (list of level sizes).
     """
-    pd = _ensure_pandas()
+    pd = ensure_pandas()
     import numpy as np  # noqa: PLC0415
 
     bid1 = lob["bid1"].astype("float64")
     ask1 = lob["ask1"].astype("float64")
-    bid_sz1 = lob["bid_sz"].apply(lambda xs: float(xs[0]) if isinstance(xs, list) and len(xs) > 0 and xs[0] is not None else np.nan)
-    ask_sz1 = lob["ask_sz"].apply(lambda xs: float(xs[0]) if isinstance(xs, list) and len(xs) > 0 and xs[0] is not None else np.nan)
+
+    def _lvl0(x: Any) -> float:
+        try:
+            if isinstance(x, (list, tuple)) and len(x) > 0 and x[0] is not None:
+                return float(x[0])
+        except Exception:
+            pass
+        try:  # pragma: no cover - optional dependency
+            import numpy as _np  # noqa: PLC0415
+
+            if isinstance(x, _np.ndarray) and x.size > 0 and x[0] is not None:
+                return float(x[0])
+        except Exception:
+            pass
+        return float(np.nan)
+
+    bid_sz1 = lob["bid_sz"].apply(_lvl0)
+    ask_sz1 = lob["ask_sz"].apply(_lvl0)
 
     # Price changes
     bid1_prev = bid1.shift(1)

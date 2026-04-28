@@ -1,0 +1,351 @@
+{
+  "version": 1,
+  "persona": "R5_xsranker",
+  "generated_at": "gen_researcher_seeds.py",
+  "feature_cols": [
+    "xs_ret_24h",
+    "xs_ret_72h",
+    "xs_vol_24h",
+    "xs_volume_24h",
+    "xs_momentum_168h",
+    "xs_ret_vs_btc",
+    "xs_mtf_rsi_rank",
+    "mtf4h_rsi_14",
+    "mtf4h_adx_14",
+    "mtf4h_cmf_20",
+    "mtf4h_ema_pct_12",
+    "mtf4h_ema_pct_48",
+    "mtf4h_plus_di_14",
+    "mtf4h_minus_di_14",
+    "mtf4h_return_zscore_24",
+    "mtf4h_realized_vol_24"
+  ],
+  "regimes": [
+    "xs_ret_vs_btc > 0.5",
+    "xs_ret_vs_btc < -0.5",
+    "mtf4h_rsi_14 > 60",
+    "mtf4h_rsi_14 < 40"
+  ],
+  "expressions": [
+    {
+      "name": "R5_xsranker_s001",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, -z(xs_vol_24h), z(xs_volume_24h))"
+    },
+    {
+      "name": "R5_xsranker_s002",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, z(xs_momentum_168h), -z(xs_ret_24h))"
+    },
+    {
+      "name": "R5_xsranker_s003",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, -z(xs_ret_24h), z(mtf4h_minus_di_14))"
+    },
+    {
+      "name": "R5_xsranker_s004",
+      "expression": "tanh(z(xs_ret_72h))"
+    },
+    {
+      "name": "R5_xsranker_s005",
+      "expression": "z(ema(mtf4h_cmf_20, 24) - ema(mtf4h_cmf_20, 6))"
+    },
+    {
+      "name": "R5_xsranker_s006",
+      "expression": "ifelse(xs_ret_vs_btc > 0.5, z(mtf4h_ema_pct_48), -z(xs_momentum_168h))"
+    },
+    {
+      "name": "R5_xsranker_s007",
+      "expression": "sign(mtf4h_adx_14 - roll_mean(mtf4h_adx_14, 24))"
+    },
+    {
+      "name": "R5_xsranker_s008",
+      "expression": "sign(xs_ret_72h - roll_mean(xs_ret_72h, 24))"
+    },
+    {
+      "name": "R5_xsranker_s009",
+      "expression": "z(mtf4h_ema_pct_48) - z(mtf4h_return_zscore_24)"
+    },
+    {
+      "name": "R5_xsranker_s010",
+      "expression": "z(xs_vol_24h)"
+    },
+    {
+      "name": "R5_xsranker_s011",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, z(xs_vol_24h), -z(xs_volume_24h))"
+    },
+    {
+      "name": "R5_xsranker_s012",
+      "expression": "z(rolling_max(xs_vol_24h, 24) - rolling_min(xs_vol_24h, 24))"
+    },
+    {
+      "name": "R5_xsranker_s013",
+      "expression": "z(xs_ret_24h) - z(xs_mtf_rsi_rank)"
+    },
+    {
+      "name": "R5_xsranker_s014",
+      "expression": "sign(mtf4h_realized_vol_24) * roll_std(mtf4h_realized_vol_24, 24)"
+    },
+    {
+      "name": "R5_xsranker_s015",
+      "expression": "z(xs_ret_vs_btc)"
+    },
+    {
+      "name": "R5_xsranker_s016",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, -z(mtf4h_realized_vol_24), z(xs_ret_24h))"
+    },
+    {
+      "name": "R5_xsranker_s017",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, z(mtf4h_cmf_20), -z(xs_volume_24h))"
+    },
+    {
+      "name": "R5_xsranker_s018",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, -z(mtf4h_plus_di_14), z(xs_ret_vs_btc))"
+    },
+    {
+      "name": "R5_xsranker_s019",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, z(mtf4h_realized_vol_24), -z(xs_ret_24h))"
+    },
+    {
+      "name": "R5_xsranker_s020",
+      "expression": "sign(xs_ret_vs_btc) * roll_std(xs_ret_vs_btc, 24)"
+    },
+    {
+      "name": "R5_xsranker_s021",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, z(mtf4h_cmf_20), -z(mtf4h_minus_di_14))"
+    },
+    {
+      "name": "R5_xsranker_s022",
+      "expression": "z(ema(xs_vol_24h, 24) - ema(xs_vol_24h, 6))"
+    },
+    {
+      "name": "R5_xsranker_s023",
+      "expression": "z(ema(xs_volume_24h, 12))"
+    },
+    {
+      "name": "R5_xsranker_s024",
+      "expression": "z(ema(mtf4h_realized_vol_24, 24) - ema(mtf4h_realized_vol_24, 6))"
+    },
+    {
+      "name": "R5_xsranker_s025",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, z(mtf4h_return_zscore_24), -z(mtf4h_ema_pct_12))"
+    },
+    {
+      "name": "R5_xsranker_s026",
+      "expression": "z(xs_volume_24h)"
+    },
+    {
+      "name": "R5_xsranker_s027",
+      "expression": "z(mtf4h_rsi_14)"
+    },
+    {
+      "name": "R5_xsranker_s028",
+      "expression": "ifelse(xs_ret_vs_btc < -0.5, z(xs_volume_24h), -z(xs_momentum_168h))"
+    },
+    {
+      "name": "R5_xsranker_s029",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, -z(mtf4h_return_zscore_24), z(mtf4h_ema_pct_12))"
+    },
+    {
+      "name": "R5_xsranker_s030",
+      "expression": "z(xs_momentum_168h) - z(xs_vol_24h)"
+    },
+    {
+      "name": "R5_xsranker_s031",
+      "expression": "z(mtf4h_ema_pct_12) - z(mtf4h_return_zscore_24)"
+    },
+    {
+      "name": "R5_xsranker_s032",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, z(mtf4h_cmf_20), -z(xs_mtf_rsi_rank))"
+    },
+    {
+      "name": "R5_xsranker_s033",
+      "expression": "-z(mtf4h_ema_pct_48)"
+    },
+    {
+      "name": "R5_xsranker_s034",
+      "expression": "ifelse(xs_ret_vs_btc > 0.5, z(mtf4h_cmf_20), -z(mtf4h_ema_pct_12))"
+    },
+    {
+      "name": "R5_xsranker_s035",
+      "expression": "tanh(z(xs_ret_vs_btc) - z(xs_ret_24h))"
+    },
+    {
+      "name": "R5_xsranker_s036",
+      "expression": "z(mtf4h_plus_di_14)"
+    },
+    {
+      "name": "R5_xsranker_s037",
+      "expression": "tanh(z(xs_ret_24h) - z(mtf4h_minus_di_14))"
+    },
+    {
+      "name": "R5_xsranker_s038",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, -z(mtf4h_cmf_20), z(xs_volume_24h))"
+    },
+    {
+      "name": "R5_xsranker_s039",
+      "expression": "z(mtf4h_ema_pct_12)"
+    },
+    {
+      "name": "R5_xsranker_s040",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, -z(mtf4h_minus_di_14), z(mtf4h_realized_vol_24))"
+    },
+    {
+      "name": "R5_xsranker_s041",
+      "expression": "ifelse(xs_ret_vs_btc < -0.5, -z(xs_vol_24h), z(xs_ret_72h))"
+    },
+    {
+      "name": "R5_xsranker_s042",
+      "expression": "tanh(z(xs_ret_24h) - z(xs_volume_24h))"
+    },
+    {
+      "name": "R5_xsranker_s043",
+      "expression": "z(mtf4h_return_zscore_24)"
+    },
+    {
+      "name": "R5_xsranker_s044",
+      "expression": "z(mtf4h_cmf_20)"
+    },
+    {
+      "name": "R5_xsranker_s045",
+      "expression": "z(mtf4h_ema_pct_48)"
+    },
+    {
+      "name": "R5_xsranker_s046",
+      "expression": "z(xs_ret_24h) - z(mtf4h_minus_di_14)"
+    },
+    {
+      "name": "R5_xsranker_s047",
+      "expression": "ifelse(xs_ret_vs_btc < -0.5, z(mtf4h_return_zscore_24), -z(xs_volume_24h))"
+    },
+    {
+      "name": "R5_xsranker_s048",
+      "expression": "z(xs_mtf_rsi_rank)"
+    },
+    {
+      "name": "R5_xsranker_s049",
+      "expression": "z(ema(xs_ret_72h, 12))"
+    },
+    {
+      "name": "R5_xsranker_s050",
+      "expression": "ifelse(xs_ret_vs_btc < -0.5, -z(xs_ret_24h), z(mtf4h_realized_vol_24))"
+    },
+    {
+      "name": "R5_xsranker_s051",
+      "expression": "-z(mtf4h_ema_pct_12)"
+    },
+    {
+      "name": "R5_xsranker_s052",
+      "expression": "z(xs_ret_72h) - z(mtf4h_cmf_20)"
+    },
+    {
+      "name": "R5_xsranker_s053",
+      "expression": "z(ema(xs_momentum_168h, 24) - ema(xs_momentum_168h, 6))"
+    },
+    {
+      "name": "R5_xsranker_s054",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, z(xs_ret_24h), -z(mtf4h_minus_di_14))"
+    },
+    {
+      "name": "R5_xsranker_s055",
+      "expression": "z(ema(mtf4h_plus_di_14, 24) - ema(mtf4h_plus_di_14, 6))"
+    },
+    {
+      "name": "R5_xsranker_s056",
+      "expression": "z(ema(mtf4h_rsi_14, 24) - ema(mtf4h_rsi_14, 6))"
+    },
+    {
+      "name": "R5_xsranker_s057",
+      "expression": "tanh(z(mtf4h_ema_pct_48) - z(mtf4h_cmf_20))"
+    },
+    {
+      "name": "R5_xsranker_s058",
+      "expression": "z(ema(mtf4h_ema_pct_12, 24) - ema(mtf4h_ema_pct_12, 6))"
+    },
+    {
+      "name": "R5_xsranker_s059",
+      "expression": "sign(mtf4h_minus_di_14) * roll_std(mtf4h_minus_di_14, 24)"
+    },
+    {
+      "name": "R5_xsranker_s060",
+      "expression": "tanh(z(xs_momentum_168h) - z(xs_vol_24h))"
+    },
+    {
+      "name": "R5_xsranker_s061",
+      "expression": "z(mtf4h_ema_pct_48) - z(xs_momentum_168h)"
+    },
+    {
+      "name": "R5_xsranker_s062",
+      "expression": "ifelse(xs_ret_vs_btc < -0.5, z(xs_vol_24h), -z(xs_ret_vs_btc))"
+    },
+    {
+      "name": "R5_xsranker_s063",
+      "expression": "z(xs_ret_72h)"
+    },
+    {
+      "name": "R5_xsranker_s064",
+      "expression": "z(ema(mtf4h_adx_14, 12))"
+    },
+    {
+      "name": "R5_xsranker_s065",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, z(mtf4h_adx_14), -z(xs_ret_72h))"
+    },
+    {
+      "name": "R5_xsranker_s066",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, z(xs_ret_72h), -z(xs_mtf_rsi_rank))"
+    },
+    {
+      "name": "R5_xsranker_s067",
+      "expression": "ifelse(xs_ret_vs_btc < -0.5, -z(xs_volume_24h), z(xs_momentum_168h))"
+    },
+    {
+      "name": "R5_xsranker_s068",
+      "expression": "tanh(z(xs_mtf_rsi_rank) - z(mtf4h_adx_14))"
+    },
+    {
+      "name": "R5_xsranker_s069",
+      "expression": "tanh(z(mtf4h_minus_di_14) - z(mtf4h_rsi_14))"
+    },
+    {
+      "name": "R5_xsranker_s070",
+      "expression": "z(mtf4h_rsi_14) - z(mtf4h_plus_di_14)"
+    },
+    {
+      "name": "R5_xsranker_s071",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, -z(xs_momentum_168h), z(xs_ret_24h))"
+    },
+    {
+      "name": "R5_xsranker_s072",
+      "expression": "tanh(z(mtf4h_minus_di_14))"
+    },
+    {
+      "name": "R5_xsranker_s073",
+      "expression": "z(ema(mtf4h_adx_14, 24) - ema(mtf4h_adx_14, 6))"
+    },
+    {
+      "name": "R5_xsranker_s074",
+      "expression": "ifelse(xs_ret_vs_btc < -0.5, z(xs_vol_24h), -z(xs_ret_72h))"
+    },
+    {
+      "name": "R5_xsranker_s075",
+      "expression": "tanh(z(xs_volume_24h) - z(mtf4h_return_zscore_24))"
+    },
+    {
+      "name": "R5_xsranker_s076",
+      "expression": "z(ema(mtf4h_ema_pct_12, 12))"
+    },
+    {
+      "name": "R5_xsranker_s077",
+      "expression": "sign(xs_ret_vs_btc - roll_mean(xs_ret_vs_btc, 24))"
+    },
+    {
+      "name": "R5_xsranker_s078",
+      "expression": "-z(xs_ret_24h)"
+    },
+    {
+      "name": "R5_xsranker_s079",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, -z(mtf4h_realized_vol_24), z(mtf4h_adx_14))"
+    },
+    {
+      "name": "R5_xsranker_s080",
+      "expression": "z(ema(mtf4h_ema_pct_48, 24) - ema(mtf4h_ema_pct_48, 6))"
+    }
+  ]
+}

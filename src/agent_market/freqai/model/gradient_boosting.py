@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from agent_market.freqai.model.base import BaseModelAdapter, ModelRegistry, TrainResult
-from agent_market.freqai.model.metrics import rmse
+from agent_market.freqai.model.metrics import rmse, multiclass_metrics
 from agent_market.freqai.runtime_threads import resolve_num_threads
 
 logger = logging.getLogger(__name__)
@@ -50,9 +50,21 @@ class LightGBMAdapter(BaseModelAdapter):
                 logger.debug("LightGBM progress callback error", exc_info=True)
         booster = lgb.train(params, dtrain, num_boost_round=num_boost_round, valid_sets=valid_sets, callbacks=[_progress_cb])
         self.model = booster
-        metrics = {'rmse_train': rmse(booster.predict(X_train), y_train)}
-        if X_valid is not None and X_valid.size:
-            metrics['rmse_valid'] = rmse(booster.predict(X_valid), y_valid)
+        is_multiclass = str(params.get('objective', '')).lower() == 'multiclass'
+        if is_multiclass:
+            cls_train = multiclass_metrics(booster.predict(X_train), y_train)
+            metrics = {f'{k}_train': v for k, v in cls_train.items()}
+            # Keep rmse_train/rmse_valid keys present for downstream compatibility (as 0.0).
+            metrics['rmse_train'] = 0.0
+            if X_valid is not None and X_valid.size:
+                cls_valid = multiclass_metrics(booster.predict(X_valid), y_valid)
+                for k, v in cls_valid.items():
+                    metrics[f'{k}_valid'] = v
+                metrics['rmse_valid'] = 0.0
+        else:
+            metrics = {'rmse_train': rmse(booster.predict(X_train), y_train)}
+            if X_valid is not None and X_valid.size:
+                metrics['rmse_valid'] = rmse(booster.predict(X_valid), y_valid)
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / 'lightgbm_model.txt'
         booster.save_model(str(model_path))
@@ -93,6 +105,17 @@ class XGBoostAdapter(BaseModelAdapter):
 
         params = dict(self.config)
         params['nthread'] = resolve_num_threads(params)
+        # lgb-style verbosity=-1 means silent; xgboost requires 0-3.
+        if int(params.get('verbosity', 1)) < 0:
+            params['verbosity'] = 0
+        # translate lgb objective → xgboost equivalent
+        if params.get('objective') == 'multiclass':
+            params['objective'] = 'multi:softprob'
+        elif params.get('objective') == 'binary':
+            params['objective'] = 'binary:logistic'
+        # drop lgb-only keys that xgboost doesn't recognise
+        for k in ('num_leaves', 'min_child_samples', 'metric', 'n_estimators'):
+            params.pop(k, None)
         model_dir = Path(params.pop('model_dir', 'artifacts/models/xgboost'))
         num_boost_round = int(params.pop('num_boost_round', 300))
         dtrain = xgb.DMatrix(X_train, label=y_train)
@@ -119,9 +142,20 @@ class XGBoostAdapter(BaseModelAdapter):
             callbacks = []
         booster = xgb.train(params, dtrain, num_boost_round=num_boost_round, evals=evals, verbose_eval=False, callbacks=callbacks)
         self.model = booster
-        metrics = {'rmse_train': rmse(booster.predict(dtrain), y_train)}
-        if dvalid is not None:
-            metrics['rmse_valid'] = rmse(booster.predict(dvalid), y_valid)
+        is_multiclass = str(params.get('objective', '')).startswith('multi:')
+        if is_multiclass:
+            cls_train = multiclass_metrics(booster.predict(dtrain), y_train)
+            metrics = {f'{k}_train': v for k, v in cls_train.items()}
+            metrics['rmse_train'] = 0.0
+            if dvalid is not None:
+                cls_valid = multiclass_metrics(booster.predict(dvalid), y_valid)
+                for k, v in cls_valid.items():
+                    metrics[f'{k}_valid'] = v
+                metrics['rmse_valid'] = 0.0
+        else:
+            metrics = {'rmse_train': rmse(booster.predict(dtrain), y_train)}
+            if dvalid is not None:
+                metrics['rmse_valid'] = rmse(booster.predict(dvalid), y_valid)
         model_dir.mkdir(parents=True, exist_ok=True)
         model_path = model_dir / 'xgboost_model.json'
         booster.save_model(str(model_path))

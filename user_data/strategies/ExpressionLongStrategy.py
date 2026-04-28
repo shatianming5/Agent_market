@@ -51,21 +51,30 @@ class ExpressionLongStrategy(IStrategy):
     """
 
     timeframe = "1h"
-    minimal_roi = {"0": 0.1, "240": -1}
-    stoploss = -0.05
+    minimal_roi = {"0": 0.20, "2880": -1}   # 48h 与 label_period 对齐；期间只在 20% ROI 出场
+    stoploss = -0.10                          # 放宽止损，给 48h 预测留足空间
+    trailing_stop = True                      # 盈利后跟踪止损锁利
+    trailing_stop_positive = 0.04             # 盈利 4% 后激活跟踪
+    trailing_stop_positive_offset = 0.06      # 盈利超 6% 才开始跟踪
+    trailing_only_offset_is_reached = True
     use_exit_signal = True
     process_only_new_candles = True
     startup_candle_count: int = 60
     can_short = False
 
-    ml_enter_threshold = 0.003
+    ml_enter_threshold = 0.008               # 提高入场阈值，减少噪声交易
     ml_exit_threshold = 0.0
     rl_long_prob_threshold = 0.55
     rl_short_prob_exit_threshold = 0.55
 
+    # ensemble_mode: "lgb_only" | "xgb_only" | "and_gate" | "soft_vote"
+    ensemble_mode: str = "lgb_only"
+
     _feature_cfg: Optional[Dict[str, Any]] = None
     _model: Any = None
     _model_features: Optional[List[str]] = None
+    _xgb_model: Any = None
+    _xgb_features: Optional[List[str]] = None
     _rl_signals: Dict[str, DataFrame] = {}
     _training_summary: Optional[Dict[str, Any]] = None
     _expressions_file: Optional[Path] = None
@@ -179,6 +188,24 @@ class ExpressionLongStrategy(IStrategy):
         df, _cols = apply_expressions(df, self._expression_specs, on_error="raise")
         return df
 
+    def _load_xgb_model(self) -> Tuple[Any, List[str]]:
+        if self._xgb_model is not None and self._xgb_features is not None:
+            return self._xgb_model, self._xgb_features
+        import xgboost as xgb  # type: ignore
+
+        xgb_dir = _paths().models_root() / "xgboost_real"
+        model_path = xgb_dir / "xgboost_model.json"
+        summary_path = xgb_dir / "training_summary.json"
+        if not model_path.exists() or not summary_path.exists():
+            return None, []
+        summary = _read_json(summary_path)
+        features = [str(c) for c in (summary.get("features") or []) if str(c).strip()]
+        booster = xgb.Booster()
+        booster.load_model(str(model_path))
+        self._xgb_model = booster
+        self._xgb_features = features
+        return booster, features
+
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         from agent_market.freqai.features import apply_configured_features  # noqa: WPS433
 
@@ -199,7 +226,36 @@ class ExpressionLongStrategy(IStrategy):
             .bfill()
             .fillna(0.0)
         )
-        df["ml_pred"] = model.predict(matrix.to_numpy(dtype=np.float32))
+        lgb_pred = model.predict(matrix.to_numpy(dtype=np.float32))
+        df["lgb_pred"] = lgb_pred
+
+        # XGBoost prediction (optional, used for ensemble)
+        xgb_pred_arr = None
+        if self.ensemble_mode in ("xgb_only", "and_gate", "soft_vote"):
+            try:
+                import xgboost as xgb  # type: ignore
+                xgb_model, xgb_cols = self._load_xgb_model()
+                if xgb_model is not None and xgb_cols:
+                    xgb_matrix = (
+                        df[xgb_cols]
+                        .astype(float)
+                        .replace([np.inf, -np.inf], np.nan)
+                        .ffill()
+                        .bfill()
+                        .fillna(0.0)
+                    )
+                    xgb_pred_arr = xgb_model.predict(xgb.DMatrix(xgb_matrix.to_numpy(dtype=np.float32)))
+                    df["xgb_pred"] = xgb_pred_arr
+            except Exception:
+                pass
+
+        # Combine into ml_pred based on ensemble_mode
+        if self.ensemble_mode == "xgb_only" and xgb_pred_arr is not None:
+            df["ml_pred"] = xgb_pred_arr
+        elif self.ensemble_mode == "soft_vote" and xgb_pred_arr is not None:
+            df["ml_pred"] = 0.5 * lgb_pred + 0.5 * xgb_pred_arr
+        else:
+            df["ml_pred"] = lgb_pred
 
         try:
             pair = metadata.get("pair") if isinstance(metadata, dict) else None
@@ -230,6 +286,9 @@ class ExpressionLongStrategy(IStrategy):
 
     def populate_entry_trend(self, df: DataFrame, metadata: dict) -> DataFrame:
         cond = (df["volume"] > 0) & (df["ml_pred"] > float(self.ml_enter_threshold))
+        # AND gate: require XGBoost agreement as additional filter
+        if self.ensemble_mode == "and_gate" and "xgb_pred" in df.columns:
+            cond &= df["xgb_pred"] > float(self.ml_enter_threshold)
         if "rl_action" in df.columns:
             cond &= df["rl_action"] == 1
         elif "rl_long_prob" in df.columns:

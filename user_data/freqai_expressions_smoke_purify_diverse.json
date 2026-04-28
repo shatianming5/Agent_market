@@ -1,0 +1,70 @@
+{
+  "version": "lab-smoke_purify-diverse",
+  "diverse": true,
+  "corr_gate": 0.65,
+  "score_mode": "combined",
+  "expressions": [
+    {
+      "name": "f001",
+      "expression": "(z(sign(ema(z(ema_spread) - z(di_spread), 12)))) + (ifelse(funding_cumsum_72 < 0, (tanh(rolling_max(ema(z(obv_delta_20) - z(range_pct), 12), 24) - rolling_min(ema(z(obv_delta_20) - z(range_pct), 12), 24))), ((z(realized_vol_24) - z(realized_vol_72)) + (ema(z(ema_spread) - z(di_spread), 12)))))",
+      "origin": "seed",
+      "train_ic": 0.00515046969687666,
+      "oos_ic": -0.025634179373460804,
+      "sign_agree": 2,
+      "combined": 0.0051268358746921604,
+      "fitness": 0.0051268358746921604,
+      "stability_ic": -0.025634179373460804,
+      "loop_found": 0,
+      "primary_family": "funding",
+      "family_tags": [
+        "trend",
+        "volatility",
+        "micro",
+        "funding",
+        "regime"
+      ],
+      "canonical_signature": "lin(ifelse(cmp(funding_cumsum_72,lt,num),lin(rolling_max(lin(obv_delta_20,range_pct),num),rolling_min(lin(obv_delta_20,range_pct),num)),lin(lin(di_spread,ema_spread),lin(realized_vol_24,realized_vol_72))),lin(di_spread,ema_spread))",
+      "max_corr_to_kept": 0.0,
+      "cluster_id": 1,
+      "raw_ic": -0.09025361110397473,
+      "clean_ic": -0.018454242514514812,
+      "neutralized_ic": -0.018454242514514812,
+      "residual_ic_ratio": 0.9999999458119213,
+      "exposure_r2": 0.0,
+      "max_exposure_corr": 0.0,
+      "exposure_count": 110,
+      "purify_mode": "blend"
+    },
+    {
+      "name": "f002",
+      "expression": "sign(ifelse(mtf4h_rsi_14 < 40, ((ema(ema(z(range_pct) + z(diff(atr_norm_14, 3)) - z(return_zscore_24), 12), 12)) - (rolling_min(ema(ifelse(di_spread > 0, (ifelse(adx_14 > 25, (ema((z(kama_pct_20) > 0) * z(ema_spread), 24)), ((z(kama_pct_20) > 0) * z(ema_spread)))), ((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12)))), 24), 24))), (ema(z(ema_spread) - z(di_spread), 12))))",
+      "origin": "seed",
+      "train_ic": 0.009162868478876245,
+      "oos_ic": -0.028088336514815838,
+      "sign_agree": 2,
+      "combined": 0.005617667302963167,
+      "fitness": 0.005617667302963167,
+      "stability_ic": -0.028088336514815838,
+      "loop_found": 0,
+      "primary_family": "micro",
+      "family_tags": [
+        "trend",
+        "volatility",
+        "micro",
+        "mtf",
+        "regime"
+      ],
+      "canonical_signature": "ifelse(cmp(mtf4h_rsi_14,lt,num),lin(lin(lin(diff(atr_norm_14,num),range_pct),return_zscore_24),rolling_min(ifelse(cmp(di_spread,gt,num),ifelse(cmp(adx_14,gt,num),mul(cmp(kama_pct_20,gt,num),ema_spread),mul(cmp(kama_pct_20,gt,num),ema_spread",
+      "max_corr_to_kept": 0.6294022317292582,
+      "cluster_id": 0,
+      "raw_ic": -0.0497090449749755,
+      "clean_ic": -0.025686035574798094,
+      "neutralized_ic": -0.025686035574798094,
+      "residual_ic_ratio": 0.9999999610683417,
+      "exposure_r2": 0.0,
+      "max_exposure_corr": 0.0,
+      "exposure_count": 110,
+      "purify_mode": "blend"
+    }
+  ]
+}

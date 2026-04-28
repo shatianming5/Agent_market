@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import shutil
+import threading
 import textwrap
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -82,22 +85,36 @@ DEFAULT_AGENT_URL = os.environ.get("OPENCODE_URL") or ""
 DEFAULT_WORKSPACE = os.environ.get("LLM_WORKSPACE") or str(PROJECT_ROOT)
 DEFAULT_AGENT_MAX_TURNS = int(os.environ.get("LLM_AGENT_MAX_TURNS", "12"))
 DEFAULT_AGENT_STALE_TIMEOUT = float(os.environ.get("LLM_AGENT_STALE_TIMEOUT", "180"))
+DEFAULT_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT") or os.environ.get("OPENAI_REASONING_EFFORT") or ""
+DEFAULT_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "4096"))
 
 ALLOWED_FUNCTIONS = [
-    ("z(column)", "z-score ???"),
+    ("z(column)", "z-score normalization"),
     ("ts_z(series, window)", "time-series z-score over a rolling window"),
-    ("abs(series)", "????"),
-    ("shift(series, n)", "???? n ?"),
-    ("roll_mean(series, window)", "????"),
-    ("roll_std(series, window)", "?????"),
-    ("pct_change(series, n)", "n ???????"),
-    ("sign(series)", "???? -1/0/1"),
-    ("clip(series, lower, upper)", "??????"),
-    ("ema(series, span)", "??????"),
-    ("rolling_max(series, window)", "?????"),
-    ("rolling_min(series, window)", "?????"),
-    ("log1p(series)", "log(1+x)"),
-    ("tanh(series)", "??????"),
+    ("abs(series)", "absolute value"),
+    ("shift(series, n)", "shift series by n bars"),
+    ("diff(series, n)", "difference: series - shift(series, n)"),
+    ("roll_mean(series, window)", "rolling mean"),
+    ("roll_std(series, window)", "rolling standard deviation"),
+    ("rolling_mean(series, window)", "rolling mean (alias for roll_mean)"),
+    ("rolling_max(series, window)", "rolling maximum"),
+    ("rolling_min(series, window)", "rolling minimum"),
+    ("rolling_sum(series, window)", "rolling sum"),
+    ("pct_change(series, n)", "n-bar percentage change"),
+    ("sign(series)", "sign function: -1/0/1"),
+    ("clip(series, lower, upper)", "clip to [lower, upper]"),
+    ("ema(series, span)", "exponential moving average"),
+    ("log1p(series)", "log(1+x), safe for near-zero values"),
+    ("log(series)", "natural log (use log1p for near-zero safety)"),
+    ("sqrt(series)", "square root"),
+    ("exp(series)", "exponential"),
+    ("tanh(series)", "hyperbolic tangent squash to [-1, 1]"),
+    ("decay_linear(series, window)", "linearly-weighted rolling mean (recent bars weighted more)"),
+    ("robust_z(series, window)", "robust z-score using median/MAD instead of mean/std"),
+    ("winsorize(series, lower_pct, upper_pct)", "winsorize outliers at given percentiles"),
+    ("rank_xs(series)", "cross-sectional rank in [0, 1]"),
+    ("zscore(series)", "z-score (1 arg) or time-series z-score (2 args with window)"),
+    ("ifelse(condition, true_val, false_val)", "conditional: like np.where"),
 ]
 
 
@@ -112,12 +129,13 @@ class LLMConfig:
     provider: str = DEFAULT_PROVIDER
     workspace: str = DEFAULT_WORKSPACE
     temperature: float = 0.2
-    max_tokens: int = 1024
+    max_tokens: int = DEFAULT_MAX_TOKENS
     count: int = 50
     retries: int = 3
     timeout: float = DEFAULT_TIMEOUT
     max_turns: int = DEFAULT_AGENT_MAX_TURNS
     stale_timeout: float = DEFAULT_AGENT_STALE_TIMEOUT
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT
 
     @classmethod
     def from_args(cls, args: Any) -> "LLMConfig":
@@ -129,12 +147,16 @@ class LLMConfig:
             provider=getattr(args, "llm_provider", DEFAULT_PROVIDER) or DEFAULT_PROVIDER,
             workspace=getattr(args, "llm_workspace", DEFAULT_WORKSPACE) or DEFAULT_WORKSPACE,
             temperature=float(getattr(args, "llm_temperature", 0.2)),
-            max_tokens=int(getattr(args, "llm_max_tokens", 1024)),
+            max_tokens=int(getattr(args, "llm_max_tokens", DEFAULT_MAX_TOKENS)),
             count=int(getattr(args, "llm_count", 50)),
             retries=int(getattr(args, "llm_retries", 3)),
             timeout=float(getattr(args, "llm_timeout", DEFAULT_TIMEOUT)),
             max_turns=int(getattr(args, "llm_max_turns", DEFAULT_AGENT_MAX_TURNS)),
             stale_timeout=float(getattr(args, "llm_stale_timeout", DEFAULT_AGENT_STALE_TIMEOUT)),
+            reasoning_effort=(
+                getattr(args, "llm_reasoning_effort", DEFAULT_REASONING_EFFORT)
+                or DEFAULT_REASONING_EFFORT
+            ),
         )
 
 
@@ -199,7 +221,7 @@ def build_feature_glossary(
     feature_cfg: Dict,
     feature_cols: Sequence[str],
     combos: Sequence[Dict],
-    max_items: int = 60,
+    max_items: int = 200,
 ) -> str:
     meta_map = _feature_metadata_map(feature_cfg)
     lines: List[str] = []
@@ -243,6 +265,96 @@ def _format_allowed_functions() -> str:
     return "\n".join(f"- {name}: {desc}" for name, desc in ALLOWED_FUNCTIONS)
 
 
+def _content_to_text(content: Any) -> str:
+    """Normalize OpenAI/Claude-compatible content payloads into plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                text = block.get("text") or block.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(part for part in parts if part).strip()
+    return ""
+
+
+def _extract_choice_text(choice: Dict[str, Any]) -> str:
+    msg = choice.get("message") or {}
+    if not isinstance(msg, dict):
+        msg = {}
+    content = _content_to_text(msg.get("content"))
+    if content:
+        return content
+    for key in ("reasoning_content", "reasoning", "text"):
+        content = _content_to_text(msg.get(key))
+        if '"expressions"' in content:
+            return content
+    return _content_to_text(choice.get("text"))
+
+
+def _token_fallbacks(max_tokens: int) -> List[int]:
+    values = [max(1, int(max_tokens))]
+    for value in (20000, 16000, 12000, 8192, 4096):
+        if 0 < value < values[0] and value not in values:
+            values.append(value)
+    return values
+
+
+@contextmanager
+def _wall_timeout(seconds: float):
+    seconds = float(seconds or 0)
+    if seconds <= 0 or threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    old_handler = signal.getsignal(signal.SIGALRM)
+    old_timer = signal.setitimer(signal.ITIMER_REAL, 0)
+
+    def _raise_timeout(_signum: int, _frame: Any) -> None:
+        raise TimeoutError(f"LLM request exceeded wall timeout {seconds:.1f}s")
+
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
+        if old_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, *old_timer)
+
+
+def _post_chat_with_token_fallback(
+    url: str,
+    headers: Dict[str, str],
+    payload: Dict[str, Any],
+    timeout: float,
+) -> Response:
+    response: Optional[Response] = None
+    for max_tokens in _token_fallbacks(int(payload.get("max_tokens") or 4096)):
+        req_payload = {**payload, "max_tokens": max_tokens}
+        with _wall_timeout(float(timeout) + 5.0):
+            response = requests.post(
+                url,
+                headers=headers,
+                json=req_payload,
+                timeout=timeout,
+                proxies={"http": None, "https": None},
+            )
+        if response.status_code < 400:
+            if max_tokens != int(payload.get("max_tokens") or max_tokens):
+                print(f"[llm] max_tokens fallback accepted: {payload.get('max_tokens')} -> {max_tokens}", flush=True)
+            return response
+        text = response.text[:500].lower()
+        if not any(marker in text for marker in ("max_tokens", "maximum", "too many", "context", "token")):
+            return response
+    assert response is not None
+    return response
+
+
 def build_prompt(
     feature_cfg: Dict,
     feature_cols: Sequence[str],
@@ -252,12 +364,30 @@ def build_prompt(
     request_count: int,
     avoid_expressions: Optional[Sequence[str]] = None,
     feedback: Optional[str] = None,
+    loop_feedback: Optional[Dict[str, Any]] = None,
 ) -> str:
     glossary = build_feature_glossary(feature_cfg, feature_cols, combos)
     functions_doc = _format_allowed_functions()
     pairs = feature_cfg.get("pairs", [])
     exchange = feature_cfg.get("exchange", "unknown")
     selection_methods = feature_cfg.get("selection_methods", [])
+
+    # Category quota guidance from loop_feedback
+    category_guidance = ""
+    if loop_feedback:
+        cat_dist = loop_feedback.get("category_distribution", {})
+        if cat_dist:
+            total = sum(cat_dist.values())
+            saturated = [c for c, n in cat_dist.items() if n / max(total, 1) > 0.3]
+            starved = [c for c in ["trend", "momentum", "volatility", "volume", "mean_reversion"]
+                       if cat_dist.get(c, 0) / max(total, 1) < 0.1]
+            if saturated or starved:
+                category_guidance = "\n        Category balance guidance:\n"
+                if saturated:
+                    category_guidance += f"        - SATURATED (already have many): {', '.join(saturated)}. Generate fewer of these.\n"
+                if starved:
+                    category_guidance += f"        - NEEDED (under-represented): {', '.join(starved)}. Prioritize these categories.\n"
+
     prompt = textwrap.dedent(
         f"""
         Role: Senior quantitative factor engineer responsible for discovering predictive expressions.
@@ -289,18 +419,48 @@ def build_prompt(
             * category: choose one of ['trend','momentum','volatility','volume','mean_reversion','other'].
         - Expressions should remain numerically stable (avoid divide by zero, use +1e-6 if needed).
         - Prefer combinations that complement each other (diversified signals).
-        """
+        {category_guidance}"""
     )
 
+    # Smart avoid: sample diverse subset instead of truncating to first 50
     if avoid_expressions:
-        avoid_list = [expr for expr in avoid_expressions if expr]
+        avoid_list = list(expr for expr in avoid_expressions if expr)
         if avoid_list:
-            listed = '\n'.join(f'- {expr}' for expr in avoid_list[:50])
+            if len(avoid_list) <= 80:
+                sampled = avoid_list
+            else:
+                # Take recent 30 + random 30 from the rest for diversity
+                import random as _rng
+                recent = avoid_list[-30:]
+                older = avoid_list[:-30]
+                random_sample = _rng.sample(older, min(30, len(older)))
+                sampled = random_sample + recent
+            listed = '\n'.join(f'- {expr}' for expr in sampled)
             prompt += (
-                '\n\n        Previously generated expressions to avoid:'
+                f'\n\n        Previously generated expressions ({len(avoid_list)} total, showing {len(sampled)} samples) — do NOT repeat these or trivial variants:'
                 f'\n{listed}'
-                '\n        - ??????????'
             )
+
+    # Dynamic loop feedback: show top performers + what worked
+    if loop_feedback:
+        top_factors = loop_feedback.get("top_factors", [])
+        if top_factors:
+            top_lines = '\n'.join(
+                f'- IC={f["ic"]:.3f} category={f["category"]} expr={f["expression"]}'
+                for f in top_factors[:10]
+            )
+            prompt += textwrap.dedent(
+                f"""
+
+        Current top-performing factors (learn from these patterns and create DIFFERENT but similarly effective expressions):
+{top_lines}
+        - Focus on finding NEW signal sources, not minor variations of the above.
+        """
+            )
+        weak_categories = loop_feedback.get("weak_categories", [])
+        if weak_categories:
+            prompt += f"\n        Categories needing more exploration: {', '.join(weak_categories)}\n"
+
     if feedback:
         prompt += textwrap.dedent(
             f"""
@@ -309,6 +469,95 @@ def build_prompt(
         """
         )
     return prompt.strip()
+
+
+def build_refine_prompt(
+    *,
+    factor: Dict[str, Any],
+    feature_cols: Sequence[str],
+    feature_cfg: Dict,
+    per_pair_ic: Dict[str, float],
+    timeframe: str,
+    label_period: int,
+    autocorr: float = 0.0,
+    turnover: float = 0.0,
+) -> str:
+    """Build a prompt that asks the LLM to improve a specific factor."""
+    glossary = build_feature_glossary(feature_cfg, list(feature_cols), feature_cfg.get("feature_combos", []))
+    functions_doc = _format_allowed_functions()
+    expr = factor.get("expression", "")
+    ic = factor.get("metric_abs_ic", 0)
+    category = factor.get("category", "other")
+
+    # Per-pair analysis
+    pair_lines = []
+    strong_pairs = []
+    weak_pairs = []
+    for pair, pic in sorted(per_pair_ic.items()):
+        tag = "✅" if abs(pic) > 0.1 else "⚠️" if abs(pic) > 0.05 else "❌"
+        pair_lines.append(f"  {pair}: IC={pic:+.4f} {tag}")
+        if abs(pic) > 0.1:
+            strong_pairs.append(pair)
+        elif abs(pic) < 0.05:
+            weak_pairs.append(pair)
+
+    pair_report = "\n".join(pair_lines)
+
+    # Diagnose issues
+    issues = []
+    if weak_pairs:
+        issues.append(f"Weak on {len(weak_pairs)} pairs: {', '.join(weak_pairs[:5])}")
+    if autocorr > 0.95:
+        issues.append(f"Signal changes too slowly (autocorr={autocorr:.3f}), need more responsive signal")
+    if autocorr < 0.1:
+        issues.append(f"Signal too noisy (autocorr={autocorr:.3f}), need more smoothing")
+    if turnover > 0.4:
+        issues.append(f"Too many trades (turnover={turnover:.2f}), add regime filter or smoothing")
+    if turnover < 0.05:
+        issues.append(f"Too few trades (turnover={turnover:.2f}), signal barely changes")
+
+    issues_text = "\n".join(f"  - {i}" for i in issues) if issues else "  - No critical issues, but room for improvement"
+
+    return textwrap.dedent(f"""
+        Role: Senior quantitative factor engineer specializing in factor refinement.
+        Task: Improve the following factor expression to achieve better cross-asset consistency and higher IC.
+
+        ORIGINAL FACTOR:
+          Expression: {expr}
+          Category: {category}
+          Mean |IC|: {ic:.4f}
+          Autocorrelation(1): {autocorr:.3f}
+          Turnover: {turnover:.2f}
+
+        PER-PAIR IC BREAKDOWN:
+        {pair_report}
+
+        DIAGNOSED ISSUES:
+        {issues_text}
+
+        Available feature columns:
+        {glossary}
+
+        Allowed helper functions:
+        {functions_doc}
+
+        INSTRUCTIONS:
+        Generate 5 improved variants of this factor. Each variant should:
+        1. Address the diagnosed issues (especially weak pairs)
+        2. Maintain the core signal idea but improve robustness
+        3. Try different normalization, window sizes, or regime filters
+        4. Keep expressions numerically stable
+
+        Strategies to try:
+        - If weak on some pairs: add cross-asset normalization (ts_z, robust_z, rank_xs)
+        - If autocorrelation too high: use shorter windows or pct_change
+        - If autocorrelation too low: add ema smoothing
+        - If turnover too high: add regime filter (adx > threshold)
+        - Combine with orthogonal signals (volume, volatility) for confirmation
+
+        Respond with a single JSON object: {{"expressions": [...]}}
+        Each item: name, expression, description, reason, category
+    """).strip()
 
 
 def request_completion(
@@ -359,14 +608,17 @@ def request_completion(
         "temperature": config.temperature,
         "max_tokens": config.max_tokens,
     }
+    if str(config.reasoning_effort or "").strip():
+        payload["reasoning_effort"] = str(config.reasoning_effort).strip()
     payload_json_mode = {**payload, "response_format": {"type": "json_object"}}
 
     last_exc: Optional[Exception] = None
     json_mode_supported = True
-    for attempt in range(1, max(config.retries, 1) + 1):
+    retries = max(int(config.retries), 1)
+    for attempt in range(1, retries + 1):
         try:
             req_payload = payload_json_mode if json_mode_supported else payload
-            response: Response = requests.post(url, headers=headers, json=req_payload, timeout=config.timeout)
+            response: Response = _post_chat_with_token_fallback(url, headers, req_payload, config.timeout)
             if response.status_code >= 400:
                 text = response.text[:400]
                 if (
@@ -381,14 +633,25 @@ def request_completion(
             choices = data.get("choices") or []
             if not choices:
                 raise ValueError("LLM response missing choices")
-            content = choices[0].get("message", {}).get("content")
+            content = _extract_choice_text(choices[0])
             if not content:
-                raise ValueError("LLM response missing message.content")
+                if json_mode_supported and req_payload is payload_json_mode:
+                    json_mode_supported = False
+                    response = _post_chat_with_token_fallback(url, headers, payload, config.timeout)
+                    if response.status_code >= 400:
+                        raise ValueError(f"LLM request failed {response.status_code}: {response.text[:400]}")
+                    data = response.json()
+                    choices = data.get("choices") or []
+                    if choices:
+                        content = _extract_choice_text(choices[0])
+                if not content:
+                    finish_reason = choices[0].get("finish_reason") if choices else None
+                    raise ValueError(f"LLM response missing message.content finish_reason={finish_reason!r}")
             return content, data.get("usage")
-        except (RequestException, ValueError, json.JSONDecodeError) as exc:
+        except (RequestException, TimeoutError, ValueError, json.JSONDecodeError) as exc:
             last_exc = exc
-            print(f"[llm] call failed ({attempt}/{config.retries}): {exc}")
-            if attempt == config.retries:
+            print(f"[llm] call failed ({attempt}/{retries}): {exc}")
+            if attempt == retries:
                 raise
             time.sleep(min(2 ** attempt, 8))
     raise last_exc  # type: ignore[misc]

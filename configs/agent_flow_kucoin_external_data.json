@@ -1,0 +1,117 @@
+{
+  "feature": {
+    "args": [
+      "--config",
+      "user_data/config_freqai_kucoin.json",
+      "--output",
+      "user_data/freqai_features_real.json"
+    ],
+    "script": "scripts/freqai_feature_agent.py"
+  },
+  "expression": {
+    "args": [
+      "--config",
+      "user_data/config_freqai_kucoin.json",
+      "--output",
+      "user_data/freqai_expressions_selected.json",
+      "--timeframe",
+      "1h",
+      "--mine",
+      "--top-n",
+      "30",
+      "--no-llm"
+    ],
+    "feedback_top": 8,
+    "script": "scripts/freqai_expression_agent.py"
+  },
+  "ml_training": {
+    "configs": [
+      {
+        "data": {
+          "feature_file": "user_data/freqai_features_real.json",
+          "expressions_file": "user_data/freqai_expressions_selected.json",
+          "data_dir": "user_data/data",
+          "exchange": "kucoin",
+          "pairs": [
+            "BTC/USDT",
+            "ETH/USDT"
+          ],
+          "timeframe": "1h",
+          "label_period": 12,
+          "external_data": {
+            "cache_dir": "user_data/external_data",
+            "fear_greed": {
+              "enabled": true,
+              "shift_periods": 1,
+              "zscore_window": 30,
+              "max_age_hours": 23
+            },
+            "lunarcrush": {
+              "enabled": false,
+              "api_key": "",
+              "symbol": "BTC",
+              "interval": "hour",
+              "shift_periods": 1,
+              "max_age_hours": 1.5,
+              "metrics": [
+                "galaxy_score",
+                "alt_rank",
+                "sentiment"
+              ]
+            },
+            "santiment": {
+              "enabled": false,
+              "api_key": "",
+              "slug": "bitcoin",
+              "interval": "1d",
+              "shift_periods": 1,
+              "max_age_hours": 23,
+              "metrics": [
+                {
+                  "name": "sentiment_balance_total",
+                  "col": "san_sentiment"
+                },
+                {
+                  "name": "social_volume_total",
+                  "col": "san_social_vol"
+                }
+              ]
+            }
+          }
+        },
+        "model": {
+          "name": "lightgbm",
+          "params": {
+            "objective": "regression",
+            "metric": "rmse",
+            "learning_rate": 0.045,
+            "num_leaves": 63,
+            "subsample": 0.85,
+            "feature_fraction": 0.85,
+            "num_boost_round": 220,
+            "model_dir": "artifacts/models/lightgbm_real"
+          }
+        },
+        "training": {
+          "validation_ratio": 0.2
+        },
+        "output": {
+          "model_dir": "artifacts/models/lightgbm_real"
+        }
+      }
+    ]
+  },
+  "backtest": {
+    "binary": "freqtrade",
+    "generate_rl_signals": false,
+    "config": "user_data/config_freqai_kucoin.json",
+    "strategy": "ExpressionLongStrategy",
+    "strategy_path": "user_data/strategies",
+    "timerange": "20251126-20260125",
+    "extra_args": [
+      "--cache",
+      "none"
+    ],
+    "results_dir": "user_data/backtest_results"
+  }
+}

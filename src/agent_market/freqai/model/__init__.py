@@ -6,8 +6,19 @@ try:
 except Exception:  # pragma: no cover - 环境无 torch 时跳过
     torch_models = None  # type: ignore
 
+try:
+    from . import stacked  # noqa: F401
+except Exception:  # pragma: no cover - 需要 scikit-learn + lightgbm
+    stacked = None  # type: ignore
+
+try:
+    from . import ridge as ridge_model  # noqa: F401
+except Exception:  # pragma: no cover - 需要 scikit-learn
+    ridge_model = None  # type: ignore
+
 __all__ = [
     'gradient_boosting',
     'torch_models',
+    'stacked',
 ]
 

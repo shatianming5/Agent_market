@@ -1,0 +1,346 @@
+{
+  "version": 1,
+  "persona": "R4_funding",
+  "generated_at": "gen_researcher_seeds.py",
+  "feature_cols": [
+    "funding_rate",
+    "funding_abs_ma24",
+    "funding_cumsum_72",
+    "funding_shift_8h",
+    "funding_z_200",
+    "rsi_7",
+    "rsi_14",
+    "rsi_28",
+    "mfi_7",
+    "mfi_14",
+    "mfi_28"
+  ],
+  "regimes": [
+    "funding_z_200 > 1",
+    "funding_z_200 < -1",
+    "funding_cumsum_72 > 0",
+    "abs(funding_rate) > 0.0002"
+  ],
+  "expressions": [
+    {
+      "name": "R4_funding_s001",
+      "expression": "tanh(z(funding_rate))"
+    },
+    {
+      "name": "R4_funding_s002",
+      "expression": "-z(mfi_28)"
+    },
+    {
+      "name": "R4_funding_s003",
+      "expression": "z(ema(rsi_28, 24) - ema(rsi_28, 6))"
+    },
+    {
+      "name": "R4_funding_s004",
+      "expression": "tanh(z(funding_z_200))"
+    },
+    {
+      "name": "R4_funding_s005",
+      "expression": "z(rsi_7) - z(funding_z_200)"
+    },
+    {
+      "name": "R4_funding_s006",
+      "expression": "z(rsi_14)"
+    },
+    {
+      "name": "R4_funding_s007",
+      "expression": "ifelse(abs(funding_rate) > 0.0002, z(funding_shift_8h), -z(mfi_28))"
+    },
+    {
+      "name": "R4_funding_s008",
+      "expression": "z(mfi_28) - z(rsi_14)"
+    },
+    {
+      "name": "R4_funding_s009",
+      "expression": "ifelse(funding_cumsum_72 > 0, -z(mfi_7), z(rsi_7))"
+    },
+    {
+      "name": "R4_funding_s010",
+      "expression": "z(funding_abs_ma24) - z(funding_rate)"
+    },
+    {
+      "name": "R4_funding_s011",
+      "expression": "ifelse(funding_z_200 < -1, -z(funding_shift_8h), z(rsi_28))"
+    },
+    {
+      "name": "R4_funding_s012",
+      "expression": "ifelse(funding_cumsum_72 > 0, -z(funding_cumsum_72), z(funding_z_200))"
+    },
+    {
+      "name": "R4_funding_s013",
+      "expression": "ifelse(abs(funding_rate) > 0.0002, z(funding_rate), -z(rsi_14))"
+    },
+    {
+      "name": "R4_funding_s014",
+      "expression": "ifelse(abs(funding_rate) > 0.0002, z(funding_shift_8h), -z(rsi_7))"
+    },
+    {
+      "name": "R4_funding_s015",
+      "expression": "z(mfi_7) - z(funding_z_200)"
+    },
+    {
+      "name": "R4_funding_s016",
+      "expression": "z(mfi_14) - z(funding_cumsum_72)"
+    },
+    {
+      "name": "R4_funding_s017",
+      "expression": "z(ema(rsi_14, 12))"
+    },
+    {
+      "name": "R4_funding_s018",
+      "expression": "tanh(z(rsi_28))"
+    },
+    {
+      "name": "R4_funding_s019",
+      "expression": "ifelse(funding_z_200 < -1, z(funding_abs_ma24), -z(rsi_28))"
+    },
+    {
+      "name": "R4_funding_s020",
+      "expression": "tanh(z(funding_cumsum_72))"
+    },
+    {
+      "name": "R4_funding_s021",
+      "expression": "z(funding_shift_8h)"
+    },
+    {
+      "name": "R4_funding_s022",
+      "expression": "tanh(z(funding_abs_ma24) - z(rsi_7))"
+    },
+    {
+      "name": "R4_funding_s023",
+      "expression": "z(rolling_max(funding_abs_ma24, 24) - rolling_min(funding_abs_ma24, 24))"
+    },
+    {
+      "name": "R4_funding_s024",
+      "expression": "z(rsi_28)"
+    },
+    {
+      "name": "R4_funding_s025",
+      "expression": "ifelse(funding_cumsum_72 > 0, z(funding_cumsum_72), -z(funding_z_200))"
+    },
+    {
+      "name": "R4_funding_s026",
+      "expression": "ifelse(funding_cumsum_72 > 0, -z(funding_z_200), z(rsi_14))"
+    },
+    {
+      "name": "R4_funding_s027",
+      "expression": "z(mfi_7) - z(mfi_28)"
+    },
+    {
+      "name": "R4_funding_s028",
+      "expression": "ifelse(abs(funding_rate) > 0.0002, -z(funding_shift_8h), z(rsi_7))"
+    },
+    {
+      "name": "R4_funding_s029",
+      "expression": "z(ema(mfi_14, 24) - ema(mfi_14, 6))"
+    },
+    {
+      "name": "R4_funding_s030",
+      "expression": "z(ema(funding_z_200, 12))"
+    },
+    {
+      "name": "R4_funding_s031",
+      "expression": "z(ema(funding_rate, 12))"
+    },
+    {
+      "name": "R4_funding_s032",
+      "expression": "ifelse(funding_z_200 < -1, -z(rsi_7), z(funding_rate))"
+    },
+    {
+      "name": "R4_funding_s033",
+      "expression": "ifelse(funding_z_200 > 1, -z(mfi_14), z(rsi_14))"
+    },
+    {
+      "name": "R4_funding_s034",
+      "expression": "ifelse(abs(funding_rate) > 0.0002, -z(mfi_7), z(mfi_14))"
+    },
+    {
+      "name": "R4_funding_s035",
+      "expression": "z(rolling_max(mfi_28, 24) - rolling_min(mfi_28, 24))"
+    },
+    {
+      "name": "R4_funding_s036",
+      "expression": "-z(mfi_7)"
+    },
+    {
+      "name": "R4_funding_s037",
+      "expression": "z(funding_rate)"
+    },
+    {
+      "name": "R4_funding_s038",
+      "expression": "z(ema(funding_cumsum_72, 12))"
+    },
+    {
+      "name": "R4_funding_s039",
+      "expression": "tanh(z(mfi_28) - z(rsi_14))"
+    },
+    {
+      "name": "R4_funding_s040",
+      "expression": "z(funding_rate) - z(funding_abs_ma24)"
+    },
+    {
+      "name": "R4_funding_s041",
+      "expression": "z(ema(rsi_28, 12))"
+    },
+    {
+      "name": "R4_funding_s042",
+      "expression": "tanh(z(funding_shift_8h) - z(funding_abs_ma24))"
+    },
+    {
+      "name": "R4_funding_s043",
+      "expression": "z(ema(rsi_7, 12))"
+    },
+    {
+      "name": "R4_funding_s044",
+      "expression": "-z(mfi_14)"
+    },
+    {
+      "name": "R4_funding_s045",
+      "expression": "z(funding_cumsum_72)"
+    },
+    {
+      "name": "R4_funding_s046",
+      "expression": "ifelse(funding_cumsum_72 > 0, z(funding_z_200), -z(rsi_14))"
+    },
+    {
+      "name": "R4_funding_s047",
+      "expression": "sign(rsi_28 - roll_mean(rsi_28, 24))"
+    },
+    {
+      "name": "R4_funding_s048",
+      "expression": "sign(mfi_14) * roll_std(mfi_14, 24)"
+    },
+    {
+      "name": "R4_funding_s049",
+      "expression": "tanh(z(funding_abs_ma24))"
+    },
+    {
+      "name": "R4_funding_s050",
+      "expression": "z(ema(funding_cumsum_72, 24) - ema(funding_cumsum_72, 6))"
+    },
+    {
+      "name": "R4_funding_s051",
+      "expression": "tanh(z(funding_abs_ma24) - z(funding_rate))"
+    },
+    {
+      "name": "R4_funding_s052",
+      "expression": "ifelse(funding_cumsum_72 > 0, z(rsi_7), -z(rsi_14))"
+    },
+    {
+      "name": "R4_funding_s053",
+      "expression": "z(ema(funding_abs_ma24, 12))"
+    },
+    {
+      "name": "R4_funding_s054",
+      "expression": "sign(funding_abs_ma24) * roll_std(funding_abs_ma24, 24)"
+    },
+    {
+      "name": "R4_funding_s055",
+      "expression": "ifelse(funding_cumsum_72 > 0, z(mfi_7), -z(funding_rate))"
+    },
+    {
+      "name": "R4_funding_s056",
+      "expression": "z(ema(mfi_28, 12))"
+    },
+    {
+      "name": "R4_funding_s057",
+      "expression": "ifelse(funding_z_200 > 1, -z(funding_rate), z(funding_shift_8h))"
+    },
+    {
+      "name": "R4_funding_s058",
+      "expression": "tanh(z(rsi_28) - z(funding_z_200))"
+    },
+    {
+      "name": "R4_funding_s059",
+      "expression": "ifelse(funding_cumsum_72 > 0, -z(mfi_14), z(funding_rate))"
+    },
+    {
+      "name": "R4_funding_s060",
+      "expression": "ifelse(funding_cumsum_72 > 0, z(funding_shift_8h), -z(mfi_7))"
+    },
+    {
+      "name": "R4_funding_s061",
+      "expression": "z(mfi_28) - z(funding_rate)"
+    },
+    {
+      "name": "R4_funding_s062",
+      "expression": "z(mfi_7)"
+    },
+    {
+      "name": "R4_funding_s063",
+      "expression": "ifelse(funding_z_200 < -1, z(funding_cumsum_72), -z(mfi_7))"
+    },
+    {
+      "name": "R4_funding_s064",
+      "expression": "z(mfi_28)"
+    },
+    {
+      "name": "R4_funding_s065",
+      "expression": "ifelse(funding_z_200 < -1, -z(funding_abs_ma24), z(rsi_28))"
+    },
+    {
+      "name": "R4_funding_s066",
+      "expression": "z(mfi_7) - z(funding_abs_ma24)"
+    },
+    {
+      "name": "R4_funding_s067",
+      "expression": "ifelse(funding_z_200 < -1, -z(rsi_28), z(mfi_7))"
+    },
+    {
+      "name": "R4_funding_s068",
+      "expression": "ifelse(funding_cumsum_72 > 0, z(mfi_14), -z(funding_rate))"
+    },
+    {
+      "name": "R4_funding_s069",
+      "expression": "sign(funding_cumsum_72) * roll_std(funding_cumsum_72, 24)"
+    },
+    {
+      "name": "R4_funding_s070",
+      "expression": "z(ema(mfi_28, 24) - ema(mfi_28, 6))"
+    },
+    {
+      "name": "R4_funding_s071",
+      "expression": "sign(mfi_14 - roll_mean(mfi_14, 24))"
+    },
+    {
+      "name": "R4_funding_s072",
+      "expression": "ifelse(funding_z_200 < -1, z(rsi_7), -z(funding_rate))"
+    },
+    {
+      "name": "R4_funding_s073",
+      "expression": "tanh(z(mfi_14))"
+    },
+    {
+      "name": "R4_funding_s074",
+      "expression": "ifelse(funding_cumsum_72 > 0, -z(rsi_7), z(rsi_14))"
+    },
+    {
+      "name": "R4_funding_s075",
+      "expression": "-z(rsi_14)"
+    },
+    {
+      "name": "R4_funding_s076",
+      "expression": "-z(funding_rate)"
+    },
+    {
+      "name": "R4_funding_s077",
+      "expression": "z(rolling_max(funding_cumsum_72, 24) - rolling_min(funding_cumsum_72, 24))"
+    },
+    {
+      "name": "R4_funding_s078",
+      "expression": "sign(mfi_28) * roll_std(mfi_28, 24)"
+    },
+    {
+      "name": "R4_funding_s079",
+      "expression": "ifelse(funding_z_200 < -1, -z(funding_z_200), z(mfi_14))"
+    },
+    {
+      "name": "R4_funding_s080",
+      "expression": "z(mfi_14) - z(mfi_28)"
+    }
+  ]
+}

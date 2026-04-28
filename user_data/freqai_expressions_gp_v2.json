@@ -1,0 +1,155 @@
+{
+  "version": "gp_v2",
+  "gp_config": {
+    "n_gen": 80,
+    "pop_size": 200,
+    "elite_k": 30,
+    "cx_rate": 0.7,
+    "mut_rate": 0.15,
+    "seed": 42,
+    "max_depth": 3,
+    "fitness": "multi-window-TRAIN3"
+  },
+  "fitness_windows": [
+    [
+      "2024-01-01",
+      "2024-07-01"
+    ],
+    [
+      "2024-07-01",
+      "2025-01-01"
+    ],
+    [
+      "2025-01-01",
+      "2025-07-01"
+    ]
+  ],
+  "val3_gate": {
+    "min_ic": 0.01
+  },
+  "novelty_thr": 0.8,
+  "n_candidates_total": 128,
+  "n_val3_passed": 127,
+  "expressions": [
+    {
+      "name": "gp2_001",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, ifelse(realized_vol_24 > realized_vol_72, hv7_025, ifelse(rsi_14 < 30, (ema_pct_48) - (linearreg_slope_48), hv7_011)), (roll_std(sign(hv7_025), 24)) - (sign(z(sma_pct_20)))), rolling_min((ifelse(rsi_14 > 70, ifelse(rsi_14 > 70, roll_mean(hv7_031, 6), trend_strength_conf), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.496538,
+      "_val3_ic": -0.0761
+    },
+    {
+      "name": "gp2_002",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, sign(tanh(ifelse(rsi_14 < 30, hv7_011, rsi_28))), (rolling_max(roll_std(ifelse(macd_diff > 0, sign(-((ifelse(funding_z_200 < -1, mtf4h_atr_norm_14, hv7_022)) + ((ifelse(funding_z_200 > 1, rsi_divergence, volume_momentum)) - (sign(vol_skew_signal))))), rolling_min(rolling_max(mtf4h_ema_pct_12, 24), 24)), 24), 12)) - (roll_mean(ema(hv7_015, 12), 24))), rolling_min(vol_price_div, 12))) + (hv7_034)",
+      "_gp_fitness": 0.422204,
+      "_val3_ic": -0.0543
+    },
+    {
+      "name": "gp2_003",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, sign(tanh(ifelse(rsi_14 < 30, hv7_011, (ifelse(rsi_14 < 30, tanh(dema_pct_20), tanh(hv7_018))) - (z((funding_shift_8h) - (funding_cumsum_72)))))), (rolling_max(roll_std(hv7_030, 24), 12)) - (roll_mean(ema(tanh((ifelse(rsi_14 < 30, dx_14, rsi_7)) + ((momentum_12) + (mtf4h_ema_pct_48))), 12), 24))), rolling_min(vol_price_div, 12))) + (hv7_034)",
+      "_gp_fitness": 0.422204,
+      "_val3_ic": -0.0543
+    },
+    {
+      "name": "gp2_004",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, sign(tanh(ifelse(rsi_14 < 30, hv7_011, rsi_28))), (rolling_max(roll_std(vol_price_asym, 24), 12)) - (ifelse(ema_pct_48 > 0, momentum_quality, (roc_48) + (vol_skew_signal)))), (roll_std(rsi_divergence, 24)) + ((rsi_28) - (ema_pct_48)))) + (ifelse(adx_14 > 25, hv7_034, range_pct))",
+      "_gp_fitness": 0.409468,
+      "_val3_ic": -0.0554
+    },
+    {
+      "name": "gp2_005",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(roll_std(tanh(cci_10), 24), 12)) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(hv7_002, 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_006",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(ifelse(macd_diff > 0, (rsi_divergence) - (hv7_005), ema_pct_12), 12)) - (roll_mean(rolling_min(rolling_max(mtf4h_ema_pct_12, 24), 24), 24))), rolling_min(price_zscore_48, 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_007",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (ifelse(rsi_14 > 70, (hv7_014) - (hv7_018), (roc_48) + (linreg_angle_14))) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(hv7_002, 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_008",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(z(adx_14), 12)) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(hv7_002, 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_009",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(roll_std(ifelse(macd_diff > 0, (hv7_003) + (psar_ratio), funding_shift_8h), 24), 12)) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(hv7_002, 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_010",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (roll_mean(rolling_min(stochf_k, 12), 6)) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(hv7_002, 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_011",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (ifelse(rsi_14 > 70, (rolling_max(z(rolling_max(stochrsi_spread, 24)), 12)) - (sign(roll_mean(ifelse(funding_z_200 > 1, cmf_20, z(hv7_003)), 6))), (roc_48) + (linreg_angle_14))) - (roll_mean(rolling_min(rolling_max(ifelse(realized_vol_24 > realized_vol_72, hv7_028, ema_pct_12), 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, linreg_angle_14, angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_012",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (ifelse(rsi_14 > 70, (hv7_014) - (hv7_018), (roc_48) + ((-(-(dema_pct_20))) + ((rsi_7) - (hv7_027))))) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(roll_std(sma_pct_20, 24), 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_013",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (ifelse(rsi_14 > 70, (hv7_014) - (hv7_018), (((z(mtf4h_minus_di_14)) + (ifelse(macd_diff > 0, mtf4h_donchian_width_48, (rsi_vel) - (volume_momentum)))) + (roll_std(tanh(mfi_28), 12))) + (linreg_angle_14))) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(linreg_angle_14, 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_014",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(ifelse(macd_diff > 0, multi_tf_vol, sign(z(z(multi_tf_vol)))), 12)) - (roll_mean(rolling_min(ifelse(funding_z_200 < -1, adx_14, sign(linearreg_slope_20)), 24), 24))), rolling_min(price_zscore_48, 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_015",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(roll_std(ifelse(macd_diff > 0, (mtf4h_return_zscore_24) + (psar_ratio), funding_shift_8h), 24), 12)) - (roll_mean(rolling_min(rolling_max(rsi_14, 24), 24), 24))), rolling_min(-(mtf4h_ema_pct_48), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_016",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(roll_std(ifelse(macd_diff > 0, sign(-(hv7_028)), funding_shift_8h), 24), 12)) - (roll_mean(ema(hv7_015, 12), 24))), rolling_min(vol_price_div, 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_017",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(hv7_036, 12)) - ((body_ratio) + (stochrsi_d))), rolling_min(price_zscore_48, 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_018",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(rsi_14, 12)) - (roll_mean(ema(sign(ifelse(realized_vol_24 > realized_vol_72, (hv7_031) + (realized_vol_72), z(ema_pct_48))), 12), 24))), rolling_min(vol_price_div, 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_019",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (roll_mean(funding_rate, 24)) - (roll_mean(rolling_min(z(multi_tf_vol), 24), 24))), rolling_min((ifelse(rsi_14 > 70, rolling_min(hv7_002, 12), angle_spread)) - (hv7_024), 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    },
+    {
+      "name": "gp2_020",
+      "expression": "(ifelse(rsi_14 < 30, ifelse(funding_z_200 < -1, mtf4h_return_zscore_24, (rolling_max(hv7_004, 12)) - (roll_mean(ema(hv7_015, 12), 24))), rolling_min(vol_price_div, 12))) + (hv7_034)",
+      "_gp_fitness": 0.374542,
+      "_val3_ic": -0.0677
+    }
+  ]
+}

@@ -205,6 +205,80 @@ def apply_configured_features(dataframe: DataFrame, feature_cfg: Dict) -> DataFr
                 volume_sum = dataframe['volume'].rolling(period, min_periods=max(1, period // 2)).sum()
                 vwap = price_volume / (volume_sum + 1e-9)
                 dataframe[name] = vwap.diff().rolling(period, min_periods=max(1, period // 2)).mean()
+            # ── Advanced TA-Lib indicators ──
+            elif kind == 'plus_di':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.PLUS_DI(dataframe['high'].values, dataframe['low'].values, dataframe['close'].values, timeperiod=period)
+            elif kind == 'minus_di':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.MINUS_DI(dataframe['high'].values, dataframe['low'].values, dataframe['close'].values, timeperiod=period)
+            elif kind == 'dx':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.DX(dataframe['high'].values, dataframe['low'].values, dataframe['close'].values, timeperiod=period)
+            elif kind == 'ppo':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.PPO(dataframe['close'].values, fastperiod=12, slowperiod=26)
+            elif kind == 'stochrsi_k':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    k, _ = _ta.STOCHRSI(dataframe['close'].values, timeperiod=period, fastk_period=5, fastd_period=3)
+                    dataframe[name] = k
+            elif kind == 'stochrsi_d':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    _, d = _ta.STOCHRSI(dataframe['close'].values, timeperiod=period, fastk_period=5, fastd_period=3)
+                    dataframe[name] = d
+            elif kind == 'stochf_k':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    k, _ = _ta.STOCHF(dataframe['high'].values, dataframe['low'].values, dataframe['close'].values, fastk_period=period, fastd_period=3)
+                    dataframe[name] = k
+            elif kind == 'ht_dcperiod':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.HT_DCPERIOD(dataframe['close'].values)
+            elif kind == 'ht_sine':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    sine, _ = _ta.HT_SINE(dataframe['close'].values)
+                    dataframe[name] = sine
+            elif kind == 'ht_leadsine':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    _, leadsine = _ta.HT_SINE(dataframe['close'].values)
+                    dataframe[name] = leadsine
+            elif kind == 'linearreg_angle':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.LINEARREG_ANGLE(dataframe['close'].values, timeperiod=period)
+            elif kind == 'trange_norm':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.TRANGE(dataframe['high'].values, dataframe['low'].values, dataframe['close'].values) / (dataframe['close'] + 1e-9)
+            elif kind == 'dema_pct':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.DEMA(dataframe['close'].values, timeperiod=period) / (dataframe['close'].values + 1e-9) - 1
+                elif pta is not None:
+                    dataframe[name] = pta.dema(dataframe['close'], length=period) / (dataframe['close'] + 1e-9) - 1
+            elif kind == 't3_pct':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    dataframe[name] = _ta.T3(dataframe['close'].values, timeperiod=period) / (dataframe['close'].values + 1e-9) - 1
+            elif kind == 'mama_pct':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    mama, _ = _ta.MAMA(dataframe['close'].values)
+                    dataframe[name] = mama / (dataframe['close'].values + 1e-9) - 1
+            elif kind == 'fama_pct':
+                if _HAS_TALIB:
+                    import talib as _ta
+                    _, fama = _ta.MAMA(dataframe['close'].values)
+                    dataframe[name] = fama / (dataframe['close'].values + 1e-9) - 1
             else:
                 continue
         except Exception:
@@ -214,13 +288,31 @@ def apply_configured_features(dataframe: DataFrame, feature_cfg: Dict) -> DataFr
 
     combos = feature_cfg.get('feature_combos', [])
     local_dict = {col: dataframe[col] for col in dataframe.columns}
+    # Inject helper functions so combo formulas can use shift(), abs(), pct_change() etc.
+    local_dict.update({
+        'abs': np.abs,
+        'shift': lambda s, n: s.shift(int(n)),
+        'pct_change': lambda s, n: s.pct_change(periods=int(n)),
+        'sign': lambda s: np.sign(s),
+        'log1p': lambda s: np.log1p(s),
+        'tanh': lambda s: np.tanh(s),
+        'clip': lambda s, lo, hi: s.clip(float(lo), float(hi)),
+        'roll_mean': lambda s, w: s.rolling(int(w)).mean(),
+        'roll_std': lambda s, w: s.rolling(int(w)).std(ddof=0),
+        'ema': lambda s, w: s.ewm(span=int(w), adjust=False).mean(),
+        'rolling_max': lambda s, w: s.rolling(int(w)).max(),
+        'rolling_min': lambda s, w: s.rolling(int(w)).min(),
+        'np': np,
+        'max': max,
+        'min': min,
+    })
     for combo in combos:
         name = combo.get('name')
         formula = combo.get('formula')
         if not name or name in dataframe.columns or not formula:
             continue
         try:
-            result = safe_eval(formula, local_dict, allowed_calls=set())
+            result = safe_eval(formula, local_dict)
             series = _ensure_series(result, dataframe.index).astype(float)
             series = series.replace([np.inf, -np.inf], np.nan)
             dataframe[name] = series

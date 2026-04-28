@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.freqtrade.io/schema.json",
+  "trading_mode": "spot",
+  "dry_run": true,
+  "max_open_trades": 4,
+  "stake_currency": "USDT",
+  "stake_amount": 75,
+  "tradable_balance_ratio": 1,
+  "fiat_display_currency": "USD",
+  "timeframe": "1h",
+  "dry_run_wallet": 1000,
+  "fee": 0.0005,
+  "cancel_open_orders_on_exit": true,
+  "unfilledtimeout": {
+    "entry": 15,
+    "exit": 15
+  },
+  "exchange": {
+    "name": "kucoin",
+    "key": "",
+    "secret": "",
+    "password": "",
+    "pair_whitelist": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "BNB/USDT",
+      "XRP/USDT",
+      "DOGE/USDT",
+      "ADA/USDT",
+      "AVAX/USDT",
+      "LINK/USDT",
+      "DOT/USDT"
+    ],
+    "pair_blacklist": [],
+    "ccxt_config": {},
+    "ccxt_async_config": {}
+  },
+  "pairlists": [
+    {
+      "method": "StaticPairList"
+    }
+  ],
+  "entry_pricing": {
+    "price_side": "same",
+    "use_order_book": false,
+    "price_last_balance": 0.0,
+    "check_depth_of_market": {
+      "enabled": false
+    }
+  },
+  "exit_pricing": {
+    "price_side": "same",
+    "use_order_book": false,
+    "price_last_balance": 0.0
+  },
+  "datadir": "user_data/data_clean"
+}

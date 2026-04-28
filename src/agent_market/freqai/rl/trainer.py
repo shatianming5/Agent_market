@@ -14,6 +14,11 @@ try:
 except ImportError:  # pragma: no cover
     PPO = None  # type: ignore
 
+try:
+    from sb3_contrib import RecurrentPPO
+except ImportError:  # pragma: no cover
+    RecurrentPPO = None  # type: ignore
+
 from agent_market.freqai.rl.env import TradingEnv, TradingEnvConfig
 from agent_market.freqai.runtime_threads import resolve_num_threads
 from agent_market.freqai.training.pipeline import FeatureDatasetBuilder
@@ -146,19 +151,81 @@ class RLTrainer:
         builder = FeatureDatasetBuilder(data_cfg)
         dataset = builder.build()
         reward_cfg = self.config.get('reward') if isinstance(self.config.get('reward'), dict) else {}
-        env_cfg = TradingEnvConfig(
-            data=data_cfg,
-            fee_bps=float(reward_cfg.get('fee_bps', 10.0)),
-            holding_penalty_bps=float(reward_cfg.get('holding_penalty_bps', 0.2)),
-            drawdown_penalty=float(reward_cfg.get('drawdown_penalty', 0.05)),
-            invalid_action_penalty=float(reward_cfg.get('invalid_action_penalty', 0.0005)),
-        )
-        env = TradingEnv(dataset, env_cfg)
+        window_size = int(reward_cfg.get('window_size', 0))
+        env_class = str(self.config.get('env_class', 'trading')).lower()
+        if env_class == 'target_position':
+            from agent_market.freqai.rl.target_pos_env import (
+                TargetPositionEnv, TargetPosEnvConfig,
+            )
+            tp_cfg = TargetPosEnvConfig(
+                data=data_cfg,
+                fee_bps=float(reward_cfg.get('fee_bps', 25.0)),
+                holding_penalty_bps=float(reward_cfg.get('holding_penalty_bps', 0.1)),
+                drawdown_penalty=float(reward_cfg.get('drawdown_penalty', 0.15)),
+                allow_short=bool(reward_cfg.get('allow_short', True)),
+            )
+            env = TargetPositionEnv(dataset, tp_cfg)
+        elif env_class == 'threshold':
+            from agent_market.freqai.rl.threshold_env import (
+                ThresholdPolicyEnv, ThresholdEnvConfig,
+            )
+            th_cfg = ThresholdEnvConfig(
+                data=data_cfg,
+                fee_bps=float(reward_cfg.get('fee_bps', 25.0)),
+                holding_penalty_bps=float(reward_cfg.get('holding_penalty_bps', 0.1)),
+                drawdown_penalty=float(reward_cfg.get('drawdown_penalty', 0.15)),
+                allow_short=bool(reward_cfg.get('allow_short', True)),
+            )
+            env = ThresholdPolicyEnv(dataset, th_cfg)
+        elif env_class == 'trade':
+            from agent_market.freqai.rl.trade_env import (
+                TradeLevelEnv, TradeEnvConfig,
+            )
+            te_cfg = TradeEnvConfig(
+                data=data_cfg,
+                fee_bps=float(reward_cfg.get('fee_bps', 8.0)),
+                stop_loss_pct=float(reward_cfg.get('stop_loss_pct', 0.015)),
+                take_profit_pct=float(reward_cfg.get('take_profit_pct', 0.03)),
+                max_hold_bars=int(reward_cfg.get('max_hold_bars', 24)),
+                allow_short=bool(reward_cfg.get('allow_short', True)),
+                no_trade_penalty_bps=float(reward_cfg.get('no_trade_penalty_bps', 0.0)),
+            )
+            env = TradeLevelEnv(dataset, te_cfg)
+        else:
+            env_cfg = TradingEnvConfig(
+                data=data_cfg,
+                fee_bps=float(reward_cfg.get('fee_bps', 10.0)),
+                holding_penalty_bps=float(reward_cfg.get('holding_penalty_bps', 0.2)),
+                drawdown_penalty=float(reward_cfg.get('drawdown_penalty', 0.05)),
+                invalid_action_penalty=float(reward_cfg.get('invalid_action_penalty', 0.0005)),
+                reward_horizon=int(reward_cfg.get('reward_horizon', 1)),
+                window_size=window_size,
+            )
+            env = TradingEnv(dataset, env_cfg)
         algo_params = self._sanitize_algo_params(self.algo_params)
         algo_params.setdefault('verbose', 0)
-        algo_params = self._filter_kwargs_for_callable(PPO.__init__, algo_params)
+        if window_size > 0:
+            from agent_market.freqai.rl.cnn_extractor import CandleCNNExtractor  # noqa: WPS433
+            indicator_dim = int(dataset.features.shape[1]) + 2
+            policy_kwargs = dict(algo_params.get('policy_kwargs') or {})
+            policy_kwargs['features_extractor_class'] = CandleCNNExtractor
+            policy_kwargs['features_extractor_kwargs'] = {
+                'indicator_dim': indicator_dim,
+                'window_size': window_size,
+            }
+            algo_params['policy_kwargs'] = policy_kwargs
+        algo_name = str(self.config.get("algo_class", "ppo")).lower()
+        if algo_name == "recurrent_ppo":
+            if RecurrentPPO is None:
+                raise ImportError("sb3-contrib not installed; pip install sb3-contrib")
+            algo_cls = RecurrentPPO
+            if not self.policy or self.policy == "MlpPolicy":
+                self.policy = "MlpLstmPolicy"
+        else:
+            algo_cls = PPO
+        algo_params = self._filter_kwargs_for_callable(algo_cls.__init__, algo_params)
         policy = self.policy
-        model = PPO(policy, env, **algo_params)
+        model = algo_cls(policy, env, **algo_params)
         model.learn(total_timesteps=self.total_timesteps)
         self.model_dir.mkdir(parents=True, exist_ok=True)
         model_path = self.model_dir / 'ppo_trading_env.zip'
@@ -171,6 +238,7 @@ class RLTrainer:
             'model_path': str(model_path),
             'data': data_cfg,
             'reward': reward_cfg,
+            'window_size': window_size,
             'feature_file': data_cfg.get('feature_file'),
             'expressions_file': data_cfg.get('expressions_file'),
             'policy': policy,

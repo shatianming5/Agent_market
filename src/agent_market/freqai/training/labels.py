@@ -17,5 +17,20 @@ def future_return(close: Any, horizon: int) -> Any:
     return (close.shift(-h) / close) - 1.0
 
 
-__all__ = ["future_return"]
+def future_classify_3way(close: Any, horizon: int, threshold: float = 0.005) -> Any:
+    """
+    Three-way classification label: 0=down (<-threshold), 1=flat, 2=up (>+threshold).
+
+    Returns integer-valued series (with NaN preserved for rows without enough lookahead).
+    """
+    ret = future_return(close, horizon)
+    import numpy as np  # local to avoid circular/eager imports
+    out = ret.copy() * 0.0 + 1.0  # default flat
+    out = out.where(~(ret > float(threshold)), 2.0)
+    out = out.where(~(ret < -float(threshold)), 0.0)
+    out = out.where(~ret.isna(), np.nan)
+    return out
+
+
+__all__ = ["future_return", "future_classify_3way"]
 

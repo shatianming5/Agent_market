@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import agent_market.freqai.model  # noqa: F401
 import numpy as np
@@ -16,13 +16,15 @@ logger = logging.getLogger(__name__)
 from agent_market.utils import sha256_bytes
 from agent_market.freqai.expression_engine import apply_expressions, load_expression_file
 from agent_market.freqai.features import apply_configured_features
+from agent_market.freqai.external_data import apply_external_features
 from agent_market.freqai.model.base import ModelRegistry, TrainResult
-from agent_market.freqai.training.labels import future_return
+from agent_market.freqai.training.labels import future_return, future_classify_3way
 from agent_market import paths
 
 try:  # optional deps
     from sklearn.model_selection import TimeSeriesSplit
     from sklearn.preprocessing import StandardScaler, RobustScaler
+    from sklearn.decomposition import PCA as _PCA
     _HAS_SKLEARN = True
 except Exception:
     _HAS_SKLEARN = False
@@ -47,6 +49,7 @@ class Dataset:
     prices: np.ndarray
     pair_ids: np.ndarray
     dates: np.ndarray
+    ohlcv: Optional[np.ndarray] = None  # shape (N, 5): open, high, low, close, volume
 
 
 def _parse_timerange_bounds(timerange: str) -> tuple:
@@ -82,16 +85,19 @@ class FeatureDatasetBuilder:
         )
         self.train_timerange = str(config.get("train_timerange") or "").strip()
         self.test_timerange = str(config.get("test_timerange") or "").strip()
+        self.task = str(config.get("task") or "regression").strip().lower()
+        self.class_threshold = float(config.get("class_threshold", 0.005))
 
     def build(self) -> Dataset:
         feature_cfg = json.loads(self.feature_file.read_text(encoding="utf-8-sig"))
-        datasets: List[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
+        datasets: List[Tuple] = []
         feature_cols: List[str] = []
         for pair in self.pairs:
             df = self._load_pair_dataframe(pair)
             df = apply_configured_features(df, feature_cfg)
             if self._expression_specs:
                 df, _added = apply_expressions(df, self._expression_specs, on_error='raise')
+            df = apply_external_features(df, self.config)
             # Filter to train_timerange if specified (strict training/backtest separation)
             if self.train_timerange:
                 start_ts, end_ts = _parse_timerange_bounds(self.train_timerange)
@@ -104,7 +110,10 @@ class FeatureDatasetBuilder:
             columns = self._select_feature_columns(df)
             if not columns:
                 continue
-            labels = future_return(df["close"], self.label_period)
+            if self.task in {"classify_3way", "classify", "classification"}:
+                labels = future_classify_3way(df["close"], self.label_period, self.class_threshold)
+            else:
+                labels = future_return(df["close"], self.label_period)
             features = df[columns]
             prices = df["close"]
             dates = df["date"]
@@ -114,11 +123,23 @@ class FeatureDatasetBuilder:
                 extras={
                     "__price__": prices,
                     "__date__": dates,
+                    "__open__": df["open"],
+                    "__high__": df["high"],
+                    "__low__": df["low"],
+                    "__close__": df["close"],
+                    "__volume__": df["volume"],
                 },
             )
             if features.empty:
                 continue
             pair_ids = np.asarray([pair] * len(features), dtype=object)
+            ohlcv_arr = np.stack([
+                extras["__open__"].to_numpy(dtype=np.float32),
+                extras["__high__"].to_numpy(dtype=np.float32),
+                extras["__low__"].to_numpy(dtype=np.float32),
+                extras["__close__"].to_numpy(dtype=np.float32),
+                extras["__volume__"].to_numpy(dtype=np.float32),
+            ], axis=1)  # (N, 5)
             datasets.append(
                 (
                     features.to_numpy(dtype=np.float32),
@@ -126,6 +147,7 @@ class FeatureDatasetBuilder:
                     extras["__price__"].to_numpy(dtype=np.float32),
                     pair_ids,
                     extras["__date__"].to_numpy(dtype="datetime64[ns]"),
+                    ohlcv_arr,
                 )
             )
             feature_cols = columns
@@ -136,7 +158,8 @@ class FeatureDatasetBuilder:
         prices = np.concatenate([item[2] for item in datasets])
         pair_ids = np.concatenate([item[3] for item in datasets])
         dates = np.concatenate([item[4] for item in datasets])
-        return Dataset(X, y, feature_cols, prices, pair_ids, dates)
+        ohlcv = np.vstack([item[5] for item in datasets])
+        return Dataset(X, y, feature_cols, prices, pair_ids, dates, ohlcv=ohlcv)
 
     def _load_pair_dataframe(self, pair: str) -> pd.DataFrame:
         sanitized = pair.replace('/', '_')
@@ -223,6 +246,35 @@ class TrainingPipeline:
             X_train = scaler_obj.fit_transform(X_train)
             X_valid = scaler_obj.transform(X_valid)
 
+        # Optional PCA on expression-derived features (fit on TRAIN ONLY).
+        # Activated when training config contains: "pca": {"n_components": 0.95}
+        pca_obj = None
+        pca_col_names: List[str] = []
+        pca_expr_cols: List[str] = []
+        pca_n_components = (self.training_cfg.get('pca') or {}).get('n_components')
+        if _HAS_SKLEARN and pca_n_components and builder.expressions_file:
+            try:
+                _ed = json.loads(builder.expressions_file.read_text(encoding='utf-8-sig'))
+                _expr_set = {e['name'] for e in _ed.get('expressions', [])}
+            except Exception:
+                _expr_set = set()
+            _expr_idx = [i for i, c in enumerate(dataset.columns) if c in _expr_set]
+            if _expr_idx:
+                _non_idx = [i for i in range(X_train.shape[1]) if i not in set(_expr_idx)]
+                pca_obj = _PCA(n_components=pca_n_components, random_state=42)
+                _Xe_tr = pca_obj.fit_transform(X_train[:, _expr_idx])
+                _Xe_vl = pca_obj.transform(X_valid[:, _expr_idx])
+                k_pca = _Xe_tr.shape[1]
+                X_train = np.hstack([X_train[:, _non_idx], _Xe_tr.astype(np.float32)])
+                X_valid = np.hstack([X_valid[:, _non_idx], _Xe_vl.astype(np.float32)])
+                pca_expr_cols = [dataset.columns[i] for i in _expr_idx]
+                pca_col_names = [f'pca_{i+1:03d}' for i in range(k_pca)]
+                _non_cols = [dataset.columns[i] for i in _non_idx]
+                dataset.columns = _non_cols + pca_col_names
+                _var_pct = round(float(np.sum(pca_obj.explained_variance_ratio_)) * 100, 1)
+                logger.info("[PCA] %d expr cols → %d components (%.1f%% variance)",
+                            len(_expr_idx), k_pca, _var_pct)
+
         raw_model_dir = (
             self.output_cfg.get("model_dir")
             or (self.model_cfg.get("params") or {}).get("model_dir")
@@ -307,12 +359,28 @@ class TrainingPipeline:
             except Exception:
                 logger.warning("Failed to persist scaler to %s", model_dir / 'scaler.pkl', exc_info=True)
 
+        # Persist PCA
+        if pca_obj is not None:
+            try:
+                import pickle  # noqa: PLC0415
+                model_dir.mkdir(parents=True, exist_ok=True)
+                with open(model_dir / 'pca.pkl', 'wb') as f:
+                    pickle.dump({
+                        'pca': pca_obj,
+                        'expr_cols': pca_expr_cols,
+                        'pca_col_names': pca_col_names,
+                    }, f)
+            except Exception:
+                logger.warning("Failed to persist PCA to %s", model_dir / 'pca.pkl', exc_info=True)
+
         # Summary
         summary_path = model_dir / 'training_summary.json'
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         feature_snapshot_info = _snapshot_file(builder.feature_file, model_dir / 'feature_snapshot.json')
         summary = {
             'model': self.model_cfg.get('name', 'lightgbm'),
+            'task': str(builder.task),
+            'class_threshold': float(builder.class_threshold),
             'features': dataset.columns,
             'data': {
                 'data_dir': str(builder.data_dir),
@@ -334,6 +402,13 @@ class TrainingPipeline:
             summary['expressions_file'] = str(builder.expressions_file)
             summary['expressions_snapshot'] = expressions_snapshot_info.get('path')
             summary['expressions_sha256'] = expressions_snapshot_info.get('sha256')
+        if pca_obj is not None:
+            summary['pca'] = {
+                'n_components': len(pca_col_names),
+                'n_original': len(pca_expr_cols),
+                'explained_variance_pct': round(
+                    float(np.sum(pca_obj.explained_variance_ratio_)) * 100, 1),
+            }
         if rolling_metrics:
             summary['rolling'] = rolling_metrics
         summary_path.write_text(

@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "persona": "R3_volwatcher",
+  "generated_at": "gen_researcher_seeds.py",
+  "feature_cols": [
+    "atr_norm_7",
+    "atr_norm_14",
+    "atr_norm_48",
+    "realized_vol_24",
+    "realized_vol_72",
+    "donchian_width_20",
+    "donchian_width_48",
+    "range_pct",
+    "adx_7",
+    "adx_14",
+    "adx_28",
+    "dx_14",
+    "return_skew_48",
+    "return_skew_96",
+    "plus_di_14",
+    "minus_di_14",
+    "vol_term_structure",
+    "adx_regime_shift"
+  ],
+  "regimes": [
+    "atr_norm_14 > 0.02",
+    "realized_vol_24 > realized_vol_72",
+    "adx_14 < 20",
+    "donchian_width_48 > 0.05"
+  ],
+  "expressions": [
+    {
+      "name": "R3_volwatcher_s001",
+      "expression": "z(donchian_width_20)"
+    },
+    {
+      "name": "R3_volwatcher_s002",
+      "expression": "z(rolling_max(plus_di_14, 24) - rolling_min(plus_di_14, 24))"
+    },
+    {
+      "name": "R3_volwatcher_s003",
+      "expression": "z(donchian_width_48)"
+    },
+    {
+      "name": "R3_volwatcher_s004",
+      "expression": "ifelse(donchian_width_48 > 0.05, z(atr_norm_7), -z(realized_vol_24))"
+    },
+    {
+      "name": "R3_volwatcher_s005",
+      "expression": "z(rolling_max(atr_norm_48, 24) - rolling_min(atr_norm_48, 24))"
+    },
+    {
+      "name": "R3_volwatcher_s006",
+      "expression": "ifelse(donchian_width_48 > 0.05, z(atr_norm_48), -z(adx_7))"
+    },
+    {
+      "name": "R3_volwatcher_s007",
+      "expression": "z(return_skew_48) - z(vol_term_structure)"
+    },
+    {
+      "name": "R3_volwatcher_s008",
+      "expression": "ifelse(adx_14 < 20, z(adx_14), -z(atr_norm_14))"
+    },
+    {
+      "name": "R3_volwatcher_s009",
+      "expression": "z(atr_norm_14) - z(return_skew_96)"
+    },
+    {
+      "name": "R3_volwatcher_s010",
+      "expression": "ifelse(donchian_width_48 > 0.05, z(realized_vol_24), -z(adx_7))"
+    },
+    {
+      "name": "R3_volwatcher_s011",
+      "expression": "tanh(z(realized_vol_24) - z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s012",
+      "expression": "sign(realized_vol_72) * roll_std(realized_vol_72, 24)"
+    },
+    {
+      "name": "R3_volwatcher_s013",
+      "expression": "ifelse(atr_norm_14 > 0.02, z(adx_regime_shift), -z(atr_norm_14))"
+    },
+    {
+      "name": "R3_volwatcher_s014",
+      "expression": "ifelse(donchian_width_48 > 0.05, -z(range_pct), z(atr_norm_14))"
+    },
+    {
+      "name": "R3_volwatcher_s015",
+      "expression": "ifelse(atr_norm_14 > 0.02, -z(adx_regime_shift), z(atr_norm_14))"
+    },
+    {
+      "name": "R3_volwatcher_s016",
+      "expression": "z(ema(donchian_width_48, 24) - ema(donchian_width_48, 6))"
+    },
+    {
+      "name": "R3_volwatcher_s017",
+      "expression": "z(atr_norm_7)"
+    },
+    {
+      "name": "R3_volwatcher_s018",
+      "expression": "tanh(z(adx_regime_shift))"
+    },
+    {
+      "name": "R3_volwatcher_s019",
+      "expression": "ifelse(donchian_width_48 > 0.05, z(donchian_width_20), -z(adx_regime_shift))"
+    },
+    {
+      "name": "R3_volwatcher_s020",
+      "expression": "tanh(z(adx_28) - z(return_skew_96))"
+    },
+    {
+      "name": "R3_volwatcher_s021",
+      "expression": "z(range_pct) - z(adx_regime_shift)"
+    },
+    {
+      "name": "R3_volwatcher_s022",
+      "expression": "tanh(z(return_skew_96))"
+    },
+    {
+      "name": "R3_volwatcher_s023",
+      "expression": "z(realized_vol_72) - z(adx_28)"
+    },
+    {
+      "name": "R3_volwatcher_s024",
+      "expression": "z(ema(adx_7, 12))"
+    },
+    {
+      "name": "R3_volwatcher_s025",
+      "expression": "z(ema(atr_norm_48, 24) - ema(atr_norm_48, 6))"
+    },
+    {
+      "name": "R3_volwatcher_s026",
+      "expression": "z(adx_14)"
+    },
+    {
+      "name": "R3_volwatcher_s027",
+      "expression": "tanh(z(range_pct) - z(adx_regime_shift))"
+    },
+    {
+      "name": "R3_volwatcher_s028",
+      "expression": "sign(adx_regime_shift - roll_mean(adx_regime_shift, 24))"
+    },
+    {
+      "name": "R3_volwatcher_s029",
+      "expression": "z(rolling_max(realized_vol_72, 24) - rolling_min(realized_vol_72, 24))"
+    },
+    {
+      "name": "R3_volwatcher_s030",
+      "expression": "-z(adx_7)"
+    },
+    {
+      "name": "R3_volwatcher_s031",
+      "expression": "z(rolling_max(atr_norm_7, 24) - rolling_min(atr_norm_7, 24))"
+    },
+    {
+      "name": "R3_volwatcher_s032",
+      "expression": "ifelse(atr_norm_14 > 0.02, -z(atr_norm_48), z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s033",
+      "expression": "ifelse(atr_norm_14 > 0.02, z(realized_vol_24), -z(atr_norm_7))"
+    },
+    {
+      "name": "R3_volwatcher_s034",
+      "expression": "z(range_pct)"
+    },
+    {
+      "name": "R3_volwatcher_s035",
+      "expression": "ifelse(atr_norm_14 > 0.02, -z(return_skew_96), z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s036",
+      "expression": "ifelse(atr_norm_14 > 0.02, z(donchian_width_48), -z(realized_vol_72))"
+    },
+    {
+      "name": "R3_volwatcher_s037",
+      "expression": "ifelse(atr_norm_14 > 0.02, -z(realized_vol_24), z(atr_norm_7))"
+    },
+    {
+      "name": "R3_volwatcher_s038",
+      "expression": "sign(atr_norm_7) * roll_std(atr_norm_7, 24)"
+    },
+    {
+      "name": "R3_volwatcher_s039",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, z(atr_norm_7), -z(atr_norm_48))"
+    },
+    {
+      "name": "R3_volwatcher_s040",
+      "expression": "ifelse(donchian_width_48 > 0.05, z(donchian_width_48), -z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s041",
+      "expression": "z(realized_vol_24) - z(range_pct)"
+    },
+    {
+      "name": "R3_volwatcher_s042",
+      "expression": "ifelse(adx_14 < 20, -z(adx_14), z(atr_norm_14))"
+    },
+    {
+      "name": "R3_volwatcher_s043",
+      "expression": "ifelse(donchian_width_48 > 0.05, z(adx_7), -z(realized_vol_72))"
+    },
+    {
+      "name": "R3_volwatcher_s044",
+      "expression": "-z(atr_norm_48)"
+    },
+    {
+      "name": "R3_volwatcher_s045",
+      "expression": "ifelse(adx_14 < 20, -z(range_pct), z(adx_7))"
+    },
+    {
+      "name": "R3_volwatcher_s046",
+      "expression": "z(ema(adx_7, 24) - ema(adx_7, 6))"
+    },
+    {
+      "name": "R3_volwatcher_s047",
+      "expression": "ifelse(atr_norm_14 > 0.02, z(realized_vol_72), -z(adx_28))"
+    },
+    {
+      "name": "R3_volwatcher_s048",
+      "expression": "z(adx_regime_shift) - z(adx_7)"
+    },
+    {
+      "name": "R3_volwatcher_s049",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, z(adx_28), -z(atr_norm_7))"
+    },
+    {
+      "name": "R3_volwatcher_s050",
+      "expression": "sign(realized_vol_72 - roll_mean(realized_vol_72, 24))"
+    },
+    {
+      "name": "R3_volwatcher_s051",
+      "expression": "z(ema(return_skew_96, 12))"
+    },
+    {
+      "name": "R3_volwatcher_s052",
+      "expression": "ifelse(atr_norm_14 > 0.02, z(atr_norm_48), -z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s053",
+      "expression": "sign(return_skew_96 - roll_mean(return_skew_96, 24))"
+    },
+    {
+      "name": "R3_volwatcher_s054",
+      "expression": "z(adx_regime_shift) - z(donchian_width_48)"
+    },
+    {
+      "name": "R3_volwatcher_s055",
+      "expression": "ifelse(adx_14 < 20, -z(return_skew_96), z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s056",
+      "expression": "z(ema(plus_di_14, 12))"
+    },
+    {
+      "name": "R3_volwatcher_s057",
+      "expression": "z(ema(range_pct, 12))"
+    },
+    {
+      "name": "R3_volwatcher_s058",
+      "expression": "ifelse(atr_norm_14 > 0.02, -z(vol_term_structure), z(range_pct))"
+    },
+    {
+      "name": "R3_volwatcher_s059",
+      "expression": "ifelse(atr_norm_14 > 0.02, z(vol_term_structure), -z(range_pct))"
+    },
+    {
+      "name": "R3_volwatcher_s060",
+      "expression": "z(ema(plus_di_14, 24) - ema(plus_di_14, 6))"
+    },
+    {
+      "name": "R3_volwatcher_s061",
+      "expression": "ifelse(atr_norm_14 > 0.02, z(return_skew_96), -z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s062",
+      "expression": "tanh(z(adx_regime_shift) - z(dx_14))"
+    },
+    {
+      "name": "R3_volwatcher_s063",
+      "expression": "ifelse(donchian_width_48 > 0.05, -z(donchian_width_48), z(return_skew_48))"
+    },
+    {
+      "name": "R3_volwatcher_s064",
+      "expression": "tanh(z(adx_regime_shift) - z(donchian_width_48))"
+    },
+    {
+      "name": "R3_volwatcher_s065",
+      "expression": "ifelse(donchian_width_48 > 0.05, -z(atr_norm_48), z(adx_7))"
+    },
+    {
+      "name": "R3_volwatcher_s066",
+      "expression": "sign(minus_di_14) * roll_std(minus_di_14, 24)"
+    },
+    {
+      "name": "R3_volwatcher_s067",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, -z(adx_7), z(atr_norm_14))"
+    },
+    {
+      "name": "R3_volwatcher_s068",
+      "expression": "z(ema(dx_14, 12))"
+    },
+    {
+      "name": "R3_volwatcher_s069",
+      "expression": "z(vol_term_structure)"
+    },
+    {
+      "name": "R3_volwatcher_s070",
+      "expression": "z(dx_14) - z(adx_28)"
+    },
+    {
+      "name": "R3_volwatcher_s071",
+      "expression": "ifelse(adx_14 < 20, -z(range_pct), z(realized_vol_72))"
+    },
+    {
+      "name": "R3_volwatcher_s072",
+      "expression": "tanh(z(dx_14) - z(plus_di_14))"
+    },
+    {
+      "name": "R3_volwatcher_s073",
+      "expression": "-z(dx_14)"
+    },
+    {
+      "name": "R3_volwatcher_s074",
+      "expression": "z(ema(dx_14, 24) - ema(dx_14, 6))"
+    },
+    {
+      "name": "R3_volwatcher_s075",
+      "expression": "z(return_skew_96)"
+    },
+    {
+      "name": "R3_volwatcher_s076",
+      "expression": "-z(return_skew_96)"
+    },
+    {
+      "name": "R3_volwatcher_s077",
+      "expression": "z(adx_regime_shift) - z(dx_14)"
+    },
+    {
+      "name": "R3_volwatcher_s078",
+      "expression": "-z(adx_14)"
+    },
+    {
+      "name": "R3_volwatcher_s079",
+      "expression": "ifelse(adx_14 < 20, z(range_pct), -z(adx_7))"
+    },
+    {
+      "name": "R3_volwatcher_s080",
+      "expression": "ifelse(donchian_width_48 > 0.05, -z(adx_7), z(realized_vol_72))"
+    }
+  ]
+}

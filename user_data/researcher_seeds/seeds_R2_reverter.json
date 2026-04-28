@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "persona": "R2_reverter",
+  "generated_at": "gen_researcher_seeds.py",
+  "feature_cols": [
+    "rsi_7",
+    "rsi_14",
+    "rsi_28",
+    "mfi_7",
+    "mfi_14",
+    "mfi_28",
+    "stochrsi_k",
+    "stochrsi_d",
+    "stochf_k",
+    "stoch_k_14",
+    "stoch_d_14",
+    "cci_10",
+    "cci_20",
+    "return_zscore_24",
+    "price_zscore_48",
+    "vwap_pct_20",
+    "stoch_diff",
+    "rsi_divergence"
+  ],
+  "regimes": [
+    "rsi_14 > 70",
+    "rsi_14 < 30",
+    "cci_20 > 100",
+    "cci_20 < -100"
+  ],
+  "expressions": [
+    {
+      "name": "R2_reverter_s001",
+      "expression": "z(stoch_k_14)"
+    },
+    {
+      "name": "R2_reverter_s002",
+      "expression": "-z(mfi_28)"
+    },
+    {
+      "name": "R2_reverter_s003",
+      "expression": "z(ema(rsi_28, 24) - ema(rsi_28, 6))"
+    },
+    {
+      "name": "R2_reverter_s004",
+      "expression": "z(cci_20) - z(stoch_d_14)"
+    },
+    {
+      "name": "R2_reverter_s005",
+      "expression": "ifelse(cci_20 > 100, -z(stoch_d_14), z(mfi_14))"
+    },
+    {
+      "name": "R2_reverter_s006",
+      "expression": "ifelse(rsi_14 > 70, -z(stochrsi_d), z(rsi_7))"
+    },
+    {
+      "name": "R2_reverter_s007",
+      "expression": "ifelse(cci_20 > 100, -z(vwap_pct_20), z(rsi_7))"
+    },
+    {
+      "name": "R2_reverter_s008",
+      "expression": "tanh(z(cci_20) - z(rsi_7))"
+    },
+    {
+      "name": "R2_reverter_s009",
+      "expression": "ifelse(cci_20 > 100, z(stochrsi_k), -z(rsi_divergence))"
+    },
+    {
+      "name": "R2_reverter_s010",
+      "expression": "z(rsi_14)"
+    },
+    {
+      "name": "R2_reverter_s011",
+      "expression": "sign(vwap_pct_20 - roll_mean(vwap_pct_20, 24))"
+    },
+    {
+      "name": "R2_reverter_s012",
+      "expression": "ifelse(rsi_14 > 70, z(stoch_d_14), -z(stochrsi_k))"
+    },
+    {
+      "name": "R2_reverter_s013",
+      "expression": "ifelse(rsi_14 < 30, z(mfi_7), -z(vwap_pct_20))"
+    },
+    {
+      "name": "R2_reverter_s014",
+      "expression": "ifelse(rsi_14 > 70, z(stochrsi_d), -z(rsi_7))"
+    },
+    {
+      "name": "R2_reverter_s015",
+      "expression": "tanh(z(stochrsi_k) - z(rsi_28))"
+    },
+    {
+      "name": "R2_reverter_s016",
+      "expression": "z(ema(cci_20, 24) - ema(cci_20, 6))"
+    },
+    {
+      "name": "R2_reverter_s017",
+      "expression": "z(rsi_divergence) - z(price_zscore_48)"
+    },
+    {
+      "name": "R2_reverter_s018",
+      "expression": "tanh(z(stoch_d_14) - z(cci_20))"
+    },
+    {
+      "name": "R2_reverter_s019",
+      "expression": "z(rolling_max(cci_20, 24) - rolling_min(cci_20, 24))"
+    },
+    {
+      "name": "R2_reverter_s020",
+      "expression": "ifelse(cci_20 < -100, -z(stochrsi_k), z(mfi_7))"
+    },
+    {
+      "name": "R2_reverter_s021",
+      "expression": "-z(price_zscore_48)"
+    },
+    {
+      "name": "R2_reverter_s022",
+      "expression": "z(mfi_7) - z(rsi_7)"
+    },
+    {
+      "name": "R2_reverter_s023",
+      "expression": "ifelse(rsi_14 > 70, z(stochrsi_d), -z(vwap_pct_20))"
+    },
+    {
+      "name": "R2_reverter_s024",
+      "expression": "tanh(z(rsi_28) - z(stoch_diff))"
+    },
+    {
+      "name": "R2_reverter_s025",
+      "expression": "tanh(z(stochrsi_k))"
+    },
+    {
+      "name": "R2_reverter_s026",
+      "expression": "ifelse(rsi_14 > 70, z(rsi_7), -z(cci_10))"
+    },
+    {
+      "name": "R2_reverter_s027",
+      "expression": "z(ema(rsi_14, 12))"
+    },
+    {
+      "name": "R2_reverter_s028",
+      "expression": "tanh(z(rsi_28))"
+    },
+    {
+      "name": "R2_reverter_s029",
+      "expression": "z(ema(stochrsi_k, 12))"
+    },
+    {
+      "name": "R2_reverter_s030",
+      "expression": "z(mfi_14) - z(rsi_divergence)"
+    },
+    {
+      "name": "R2_reverter_s031",
+      "expression": "ifelse(cci_20 > 100, z(stochf_k), -z(stoch_d_14))"
+    },
+    {
+      "name": "R2_reverter_s032",
+      "expression": "ifelse(rsi_14 > 70, z(cci_20), -z(rsi_14))"
+    },
+    {
+      "name": "R2_reverter_s033",
+      "expression": "-z(cci_20)"
+    },
+    {
+      "name": "R2_reverter_s034",
+      "expression": "tanh(z(stoch_diff) - z(return_zscore_24))"
+    },
+    {
+      "name": "R2_reverter_s035",
+      "expression": "ifelse(rsi_14 < 30, z(mfi_7), -z(rsi_14))"
+    },
+    {
+      "name": "R2_reverter_s036",
+      "expression": "ifelse(rsi_14 > 70, -z(stochf_k), z(mfi_7))"
+    },
+    {
+      "name": "R2_reverter_s037",
+      "expression": "z(rsi_28)"
+    },
+    {
+      "name": "R2_reverter_s038",
+      "expression": "-z(stoch_d_14)"
+    },
+    {
+      "name": "R2_reverter_s039",
+      "expression": "ifelse(rsi_14 > 70, -z(stochrsi_d), z(vwap_pct_20))"
+    },
+    {
+      "name": "R2_reverter_s040",
+      "expression": "-z(stoch_diff)"
+    },
+    {
+      "name": "R2_reverter_s041",
+      "expression": "z(rsi_14) - z(rsi_divergence)"
+    },
+    {
+      "name": "R2_reverter_s042",
+      "expression": "ifelse(cci_20 < -100, -z(mfi_28), z(mfi_14))"
+    },
+    {
+      "name": "R2_reverter_s043",
+      "expression": "ifelse(cci_20 > 100, z(vwap_pct_20), -z(rsi_divergence))"
+    },
+    {
+      "name": "R2_reverter_s044",
+      "expression": "sign(stochrsi_k) * roll_std(stochrsi_k, 24)"
+    },
+    {
+      "name": "R2_reverter_s045",
+      "expression": "z(stochf_k)"
+    },
+    {
+      "name": "R2_reverter_s046",
+      "expression": "z(return_zscore_24)"
+    },
+    {
+      "name": "R2_reverter_s047",
+      "expression": "ifelse(rsi_14 > 70, -z(stoch_d_14), z(stochrsi_k))"
+    },
+    {
+      "name": "R2_reverter_s048",
+      "expression": "z(ema(price_zscore_48, 24) - ema(price_zscore_48, 6))"
+    },
+    {
+      "name": "R2_reverter_s049",
+      "expression": "z(stoch_d_14)"
+    },
+    {
+      "name": "R2_reverter_s050",
+      "expression": "ifelse(rsi_14 < 30, -z(rsi_28), z(mfi_28))"
+    },
+    {
+      "name": "R2_reverter_s051",
+      "expression": "ifelse(cci_20 > 100, z(rsi_14), -z(vwap_pct_20))"
+    },
+    {
+      "name": "R2_reverter_s052",
+      "expression": "z(stochrsi_k) - z(mfi_14)"
+    },
+    {
+      "name": "R2_reverter_s053",
+      "expression": "-z(mfi_7)"
+    },
+    {
+      "name": "R2_reverter_s054",
+      "expression": "z(stochrsi_k) - z(return_zscore_24)"
+    },
+    {
+      "name": "R2_reverter_s055",
+      "expression": "-z(cci_10)"
+    },
+    {
+      "name": "R2_reverter_s056",
+      "expression": "z(ema(rsi_28, 12))"
+    },
+    {
+      "name": "R2_reverter_s057",
+      "expression": "ifelse(rsi_14 > 70, z(cci_10), -z(vwap_pct_20))"
+    },
+    {
+      "name": "R2_reverter_s058",
+      "expression": "ifelse(cci_20 > 100, z(mfi_7), -z(stoch_diff))"
+    },
+    {
+      "name": "R2_reverter_s059",
+      "expression": "z(cci_10) - z(stochrsi_d)"
+    },
+    {
+      "name": "R2_reverter_s060",
+      "expression": "ifelse(cci_20 > 100, z(stoch_k_14), -z(mfi_28))"
+    },
+    {
+      "name": "R2_reverter_s061",
+      "expression": "ifelse(cci_20 > 100, -z(vwap_pct_20), z(rsi_divergence))"
+    },
+    {
+      "name": "R2_reverter_s062",
+      "expression": "z(ema(rsi_divergence, 24) - ema(rsi_divergence, 6))"
+    },
+    {
+      "name": "R2_reverter_s063",
+      "expression": "z(ema(rsi_7, 12))"
+    },
+    {
+      "name": "R2_reverter_s064",
+      "expression": "ifelse(cci_20 < -100, z(rsi_divergence), -z(price_zscore_48))"
+    },
+    {
+      "name": "R2_reverter_s065",
+      "expression": "-z(mfi_14)"
+    },
+    {
+      "name": "R2_reverter_s066",
+      "expression": "sign(stochrsi_d) * roll_std(stochrsi_d, 24)"
+    },
+    {
+      "name": "R2_reverter_s067",
+      "expression": "ifelse(rsi_14 > 70, -z(cci_20), z(rsi_14))"
+    },
+    {
+      "name": "R2_reverter_s068",
+      "expression": "sign(rsi_28 - roll_mean(rsi_28, 24))"
+    },
+    {
+      "name": "R2_reverter_s069",
+      "expression": "sign(mfi_14) * roll_std(mfi_14, 24)"
+    },
+    {
+      "name": "R2_reverter_s070",
+      "expression": "z(ema(vwap_pct_20, 12))"
+    },
+    {
+      "name": "R2_reverter_s071",
+      "expression": "z(ema(vwap_pct_20, 24) - ema(vwap_pct_20, 6))"
+    },
+    {
+      "name": "R2_reverter_s072",
+      "expression": "z(rsi_14) - z(mfi_28)"
+    },
+    {
+      "name": "R2_reverter_s073",
+      "expression": "ifelse(rsi_14 < 30, z(stochrsi_d), -z(stoch_diff))"
+    },
+    {
+      "name": "R2_reverter_s074",
+      "expression": "sign(rsi_14) * roll_std(rsi_14, 24)"
+    },
+    {
+      "name": "R2_reverter_s075",
+      "expression": "z(vwap_pct_20)"
+    },
+    {
+      "name": "R2_reverter_s076",
+      "expression": "z(cci_10) - z(mfi_14)"
+    },
+    {
+      "name": "R2_reverter_s077",
+      "expression": "z(ema(mfi_28, 12))"
+    },
+    {
+      "name": "R2_reverter_s078",
+      "expression": "z(stochrsi_k) - z(rsi_divergence)"
+    },
+    {
+      "name": "R2_reverter_s079",
+      "expression": "z(stoch_diff) - z(return_zscore_24)"
+    },
+    {
+      "name": "R2_reverter_s080",
+      "expression": "-z(stochrsi_d)"
+    }
+  ]
+}

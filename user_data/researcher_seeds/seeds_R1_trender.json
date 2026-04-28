@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "persona": "R1_trender",
+  "generated_at": "gen_researcher_seeds.py",
+  "feature_cols": [
+    "ema_pct_6",
+    "ema_pct_12",
+    "ema_pct_48",
+    "ema_pct_96",
+    "linearreg_slope_20",
+    "linearreg_slope_48",
+    "linreg_angle_14",
+    "roc_12",
+    "roc_48",
+    "kama_pct_20",
+    "tema_pct_12",
+    "dema_pct_20",
+    "momentum_12",
+    "t3_pct_10",
+    "ema_spread",
+    "sma_pct_20",
+    "macd_diff",
+    "psar_ratio"
+  ],
+  "regimes": [
+    "adx_14 > 25",
+    "di_spread > 0",
+    "macd_diff > 0",
+    "ema_pct_48 > 0"
+  ],
+  "expressions": [
+    {
+      "name": "R1_trender_s001",
+      "expression": "z(ema(ema_pct_6, 12))"
+    },
+    {
+      "name": "R1_trender_s002",
+      "expression": "z(ema_pct_12)"
+    },
+    {
+      "name": "R1_trender_s003",
+      "expression": "z(linearreg_slope_20) - z(ema_pct_12)"
+    },
+    {
+      "name": "R1_trender_s004",
+      "expression": "ifelse(di_spread > 0, z(linearreg_slope_20), -z(ema_pct_96))"
+    },
+    {
+      "name": "R1_trender_s005",
+      "expression": "z(psar_ratio) - z(linreg_angle_14)"
+    },
+    {
+      "name": "R1_trender_s006",
+      "expression": "z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))"
+    },
+    {
+      "name": "R1_trender_s007",
+      "expression": "sign(roc_48 - roll_mean(roc_48, 24))"
+    },
+    {
+      "name": "R1_trender_s008",
+      "expression": "z(ema(linearreg_slope_48, 12))"
+    },
+    {
+      "name": "R1_trender_s009",
+      "expression": "z(momentum_12)"
+    },
+    {
+      "name": "R1_trender_s010",
+      "expression": "z(rolling_max(linearreg_slope_20, 24) - rolling_min(linearreg_slope_20, 24))"
+    },
+    {
+      "name": "R1_trender_s011",
+      "expression": "z(sma_pct_20) - z(dema_pct_20)"
+    },
+    {
+      "name": "R1_trender_s012",
+      "expression": "-z(momentum_12)"
+    },
+    {
+      "name": "R1_trender_s013",
+      "expression": "ifelse(adx_14 > 25, z(macd_diff), -z(t3_pct_10))"
+    },
+    {
+      "name": "R1_trender_s014",
+      "expression": "ifelse(ema_pct_48 > 0, z(psar_ratio), -z(t3_pct_10))"
+    },
+    {
+      "name": "R1_trender_s015",
+      "expression": "z(ema(t3_pct_10, 12))"
+    },
+    {
+      "name": "R1_trender_s016",
+      "expression": "sign(ema_spread) * roll_std(ema_spread, 24)"
+    },
+    {
+      "name": "R1_trender_s017",
+      "expression": "-z(linearreg_slope_48)"
+    },
+    {
+      "name": "R1_trender_s018",
+      "expression": "z(ema_pct_48)"
+    },
+    {
+      "name": "R1_trender_s019",
+      "expression": "z(psar_ratio)"
+    },
+    {
+      "name": "R1_trender_s020",
+      "expression": "ifelse(di_spread > 0, -z(ema_pct_48), z(ema_spread))"
+    },
+    {
+      "name": "R1_trender_s021",
+      "expression": "tanh(z(roc_12) - z(macd_diff))"
+    },
+    {
+      "name": "R1_trender_s022",
+      "expression": "z(linearreg_slope_48)"
+    },
+    {
+      "name": "R1_trender_s023",
+      "expression": "ifelse(ema_pct_48 > 0, z(kama_pct_20), -z(ema_pct_12))"
+    },
+    {
+      "name": "R1_trender_s024",
+      "expression": "-z(t3_pct_10)"
+    },
+    {
+      "name": "R1_trender_s025",
+      "expression": "ifelse(ema_pct_48 > 0, -z(roc_48), z(momentum_12))"
+    },
+    {
+      "name": "R1_trender_s026",
+      "expression": "z(ema(kama_pct_20, 24) - ema(kama_pct_20, 6))"
+    },
+    {
+      "name": "R1_trender_s027",
+      "expression": "sign(linearreg_slope_48) * roll_std(linearreg_slope_48, 24)"
+    },
+    {
+      "name": "R1_trender_s028",
+      "expression": "ifelse(ema_pct_48 > 0, z(roc_48), -z(momentum_12))"
+    },
+    {
+      "name": "R1_trender_s029",
+      "expression": "-z(sma_pct_20)"
+    },
+    {
+      "name": "R1_trender_s030",
+      "expression": "sign(macd_diff - roll_mean(macd_diff, 24))"
+    },
+    {
+      "name": "R1_trender_s031",
+      "expression": "z(ema(psar_ratio, 24) - ema(psar_ratio, 6))"
+    },
+    {
+      "name": "R1_trender_s032",
+      "expression": "z(t3_pct_10)"
+    },
+    {
+      "name": "R1_trender_s033",
+      "expression": "z(ema(linearreg_slope_48, 24) - ema(linearreg_slope_48, 6))"
+    },
+    {
+      "name": "R1_trender_s034",
+      "expression": "z(ema_pct_6) - z(t3_pct_10)"
+    },
+    {
+      "name": "R1_trender_s035",
+      "expression": "ifelse(adx_14 > 25, -z(macd_diff), z(t3_pct_10))"
+    },
+    {
+      "name": "R1_trender_s036",
+      "expression": "ifelse(ema_pct_48 > 0, -z(momentum_12), z(sma_pct_20))"
+    },
+    {
+      "name": "R1_trender_s037",
+      "expression": "z(rolling_max(linreg_angle_14, 24) - rolling_min(linreg_angle_14, 24))"
+    },
+    {
+      "name": "R1_trender_s038",
+      "expression": "ifelse(macd_diff > 0, z(ema_pct_12), -z(kama_pct_20))"
+    },
+    {
+      "name": "R1_trender_s039",
+      "expression": "ifelse(macd_diff > 0, z(dema_pct_20), -z(ema_pct_12))"
+    },
+    {
+      "name": "R1_trender_s040",
+      "expression": "ifelse(macd_diff > 0, -z(kama_pct_20), z(dema_pct_20))"
+    },
+    {
+      "name": "R1_trender_s041",
+      "expression": "ifelse(di_spread > 0, z(ema_pct_48), -z(ema_spread))"
+    },
+    {
+      "name": "R1_trender_s042",
+      "expression": "tanh(z(linearreg_slope_20) - z(linreg_angle_14))"
+    },
+    {
+      "name": "R1_trender_s043",
+      "expression": "sign(psar_ratio) * roll_std(psar_ratio, 24)"
+    },
+    {
+      "name": "R1_trender_s044",
+      "expression": "tanh(z(ema_pct_12))"
+    },
+    {
+      "name": "R1_trender_s045",
+      "expression": "z(ema(ema_pct_48, 12))"
+    },
+    {
+      "name": "R1_trender_s046",
+      "expression": "z(ema(ema_pct_48, 24) - ema(ema_pct_48, 6))"
+    },
+    {
+      "name": "R1_trender_s047",
+      "expression": "ifelse(di_spread > 0, -z(roc_12), z(roc_48))"
+    },
+    {
+      "name": "R1_trender_s048",
+      "expression": "-z(tema_pct_12)"
+    },
+    {
+      "name": "R1_trender_s049",
+      "expression": "z(macd_diff)"
+    },
+    {
+      "name": "R1_trender_s050",
+      "expression": "ifelse(macd_diff > 0, -z(roc_12), z(sma_pct_20))"
+    },
+    {
+      "name": "R1_trender_s051",
+      "expression": "z(rolling_max(linearreg_slope_48, 24) - rolling_min(linearreg_slope_48, 24))"
+    },
+    {
+      "name": "R1_trender_s052",
+      "expression": "-z(ema_spread)"
+    },
+    {
+      "name": "R1_trender_s053",
+      "expression": "z(ema_pct_6)"
+    },
+    {
+      "name": "R1_trender_s054",
+      "expression": "z(ema(kama_pct_20, 12))"
+    },
+    {
+      "name": "R1_trender_s055",
+      "expression": "ifelse(adx_14 > 25, z(linearreg_slope_48), -z(tema_pct_12))"
+    },
+    {
+      "name": "R1_trender_s056",
+      "expression": "tanh(z(psar_ratio) - z(linreg_angle_14))"
+    },
+    {
+      "name": "R1_trender_s057",
+      "expression": "ifelse(macd_diff > 0, -z(linearreg_slope_48), z(linreg_angle_14))"
+    },
+    {
+      "name": "R1_trender_s058",
+      "expression": "z(ema(t3_pct_10, 24) - ema(t3_pct_10, 6))"
+    },
+    {
+      "name": "R1_trender_s059",
+      "expression": "tanh(z(dema_pct_20))"
+    },
+    {
+      "name": "R1_trender_s060",
+      "expression": "z(ema(ema_pct_6, 24) - ema(ema_pct_6, 6))"
+    },
+    {
+      "name": "R1_trender_s061",
+      "expression": "z(macd_diff) - z(sma_pct_20)"
+    },
+    {
+      "name": "R1_trender_s062",
+      "expression": "ifelse(macd_diff > 0, -z(dema_pct_20), z(ema_pct_12))"
+    },
+    {
+      "name": "R1_trender_s063",
+      "expression": "z(kama_pct_20)"
+    },
+    {
+      "name": "R1_trender_s064",
+      "expression": "-z(roc_12)"
+    },
+    {
+      "name": "R1_trender_s065",
+      "expression": "tanh(z(linearreg_slope_20) - z(t3_pct_10))"
+    },
+    {
+      "name": "R1_trender_s066",
+      "expression": "-z(macd_diff)"
+    },
+    {
+      "name": "R1_trender_s067",
+      "expression": "ifelse(di_spread > 0, -z(ema_pct_48), z(psar_ratio))"
+    },
+    {
+      "name": "R1_trender_s068",
+      "expression": "tanh(z(ema_pct_6) - z(momentum_12))"
+    },
+    {
+      "name": "R1_trender_s069",
+      "expression": "ifelse(macd_diff > 0, z(kama_pct_20), -z(dema_pct_20))"
+    },
+    {
+      "name": "R1_trender_s070",
+      "expression": "ifelse(di_spread > 0, z(roc_12), -z(roc_48))"
+    },
+    {
+      "name": "R1_trender_s071",
+      "expression": "tanh(z(ema_pct_6) - z(t3_pct_10))"
+    },
+    {
+      "name": "R1_trender_s072",
+      "expression": "ifelse(macd_diff > 0, -z(psar_ratio), z(linearreg_slope_20))"
+    },
+    {
+      "name": "R1_trender_s073",
+      "expression": "z(roc_48) - z(macd_diff)"
+    },
+    {
+      "name": "R1_trender_s074",
+      "expression": "ifelse(ema_pct_48 > 0, z(roc_48), -z(ema_pct_48))"
+    },
+    {
+      "name": "R1_trender_s075",
+      "expression": "tanh(z(roc_12) - z(ema_pct_96))"
+    },
+    {
+      "name": "R1_trender_s076",
+      "expression": "ifelse(ema_pct_48 > 0, -z(psar_ratio), z(t3_pct_10))"
+    },
+    {
+      "name": "R1_trender_s077",
+      "expression": "z(tema_pct_12) - z(momentum_12)"
+    },
+    {
+      "name": "R1_trender_s078",
+      "expression": "z(dema_pct_20)"
+    },
+    {
+      "name": "R1_trender_s079",
+      "expression": "z(tema_pct_12)"
+    },
+    {
+      "name": "R1_trender_s080",
+      "expression": "ifelse(di_spread > 0, -z(ema_pct_48), z(roc_48))"
+    }
+  ]
+}

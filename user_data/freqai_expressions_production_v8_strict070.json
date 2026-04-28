@@ -1,0 +1,62 @@
+{
+  "version": "production_v8_strict070",
+  "generated_at": "filter_v8_abs_rt3_ge_0.07",
+  "expressions": [
+    {
+      "name": "pv8_strict070_001",
+      "expression": "(ema((ema(ema(z(range_pct) + z(diff(atr_norm_14, 3)) - z(return_zscore_24), 12), 12)) + (z(ema_spread) - z(di_spread)), 24)) + (ema(ema(ifelse(mtf4h_rsi_14 < 40, (z(ema((z((z(kama_pct_20) > 0) * z(ema_spread))) + (ema(z(ema_spread) - z(mfi_28), 12)), 12) - ema((z((z(kama_pct_20) > 0) * z(ema_spread))) + (ema(z(ema_spread) - z(mfi_28), 12)), 48))), (ema(z(range_pct) + z(diff(atr_norm_14, 3)) - z(return_zscore_24), 12))), 12), 12))",
+      "origin": "v7_1h_funding:f002",
+      "rt3_ic": -0.11038684181565653,
+      "val3_ic": -0.11885710467146371,
+      "rt3_sign": 10
+    },
+    {
+      "name": "pv8_strict070_002",
+      "expression": "(ema(z(ema_spread) - z(di_spread), 12)) - (ifelse(rsi_14 < 30, (z(funding_abs_ma24) - z(rsi_14)), ((rolling_min(((range_pct * donchian_width_20) / (1e-9 + abs(z(close_to_open)))), 12)) / ((abs(z(ema_spread) - z(atr_norm_14))) + 1e-6))))",
+      "origin": "v7_1h_fund_v3:f024",
+      "rt3_ic": -0.09343614952021681,
+      "val3_ic": -0.07079133612950692,
+      "rt3_sign": 10
+    },
+    {
+      "name": "pv8_strict070_003",
+      "expression": "(ema(z(ema_spread) - z(vol_price_div), 12)) + (z(realized_vol_24) - z(realized_vol_72))",
+      "origin": "v7_1h_fund_v2:f025",
+      "rt3_ic": -0.09286043011508523,
+      "val3_ic": -0.0989627313791269,
+      "rt3_sign": 10
+    },
+    {
+      "name": "pv8_strict070_004",
+      "expression": "(ema(z(ema_spread) - z(di_spread), 12)) + (roll_std(ifelse(mtf4h_rsi_14 > 60, (z(ema_spread) - z(di_spread)), (ema(z(range_pct) + z(diff(atr_norm_14, 3)) - z(return_zscore_24), 12))), 24))",
+      "origin": "v7_1h_funding:f001",
+      "rt3_ic": -0.08889397035143524,
+      "val3_ic": -0.09960359258151039,
+      "rt3_sign": 10
+    },
+    {
+      "name": "pv8_strict070_005",
+      "expression": "ema(z(ema_spread) - z(di_spread), 12)",
+      "origin": "v7_1h_funding:f019",
+      "rt3_ic": -0.07916933394821465,
+      "val3_ic": -0.06481314837025642,
+      "rt3_sign": 10
+    },
+    {
+      "name": "pv8_strict070_006",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, (ifelse(di_spread < 0, (z(ema_spread) - z(di_spread)), (ema(z(range_pct) + z(diff(atr_norm_14, 3)) - z(return_zscore_24), 12)))), (z(ema_spread) - z(di_spread)))",
+      "origin": "v7_1h_funding:f022",
+      "rt3_ic": -0.07700354624185383,
+      "val3_ic": -0.06386449112795049,
+      "rt3_sign": 10
+    },
+    {
+      "name": "pv8_strict070_007",
+      "expression": "ema((ema(ema(z(range_pct) + z(diff(atr_norm_14, 3)) - z(return_zscore_24), 12), 12)) + (z(ema_spread) - z(di_spread)), 24)",
+      "origin": "v7_1h_funding:f020",
+      "rt3_ic": -0.07546388046342566,
+      "val3_ic": -0.09222547944551883,
+      "rt3_sign": 10
+    }
+  ]
+}

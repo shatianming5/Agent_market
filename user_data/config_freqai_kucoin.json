@@ -11,12 +11,26 @@
   "dry_run_wallet": 1000,
   "fee": 0.001,
   "cancel_open_orders_on_exit": true,
-  "unfilledtimeout": { "entry": 15, "exit": 15 },
+  "unfilledtimeout": {
+    "entry": 15,
+    "exit": 15
+  },
   "exchange": {
     "name": "kucoin",
     "key": "",
     "secret": "",
-    "pair_whitelist": ["BTC/USDT", "ETH/USDT"],
+    "pair_whitelist": [
+      "BTC/USDT",
+      "ETH/USDT",
+      "SOL/USDT",
+      "BNB/USDT",
+      "XRP/USDT",
+      "DOGE/USDT",
+      "ADA/USDT",
+      "AVAX/USDT",
+      "LINK/USDT",
+      "DOT/USDT"
+    ],
     "pair_blacklist": [],
     "ccxt_config": {
       "timeout": 60000,
@@ -30,7 +44,12 @@
       }
     }
   },
-  "pairlists": [{ "method": "StaticPairList", "allow_inactive": true }],
+  "pairlists": [
+    {
+      "method": "StaticPairList",
+      "allow_inactive": true
+    }
+  ],
   "freqai": {
     "enabled": false,
     "purge_old_models": 2,
@@ -39,18 +58,38 @@
     "live_retrain_hours": 0,
     "identifier": "freqai-real",
     "feature_parameters": {
-      "include_timeframes": ["1h"],
-      "include_corr_pairlist": ["BTC/USDT", "ETH/USDT"],
-      "label_period_candles": 12,
+      "include_timeframes": [
+        "1h"
+      ],
+      "include_corr_pairlist": [
+        "BTC/USDT",
+        "ETH/USDT",
+        "SOL/USDT",
+        "BNB/USDT",
+        "XRP/USDT",
+        "DOGE/USDT",
+        "ADA/USDT",
+        "AVAX/USDT",
+        "LINK/USDT",
+        "DOT/USDT"
+      ],
+      "label_period_candles": 48,
       "include_shifted_candles": 2,
       "DI_threshold": 0.9,
       "weight_factor": 0.85,
       "principal_component_analysis": false,
       "use_SVM_to_remove_outliers": false,
-      "indicator_periods_candles": [12, 24, 48],
+      "indicator_periods_candles": [
+        12,
+        24,
+        48
+      ],
       "plot_feature_importances": 0
     },
-    "data_split_parameters": { "test_size": 0.3, "random_state": 7 },
+    "data_split_parameters": {
+      "test_size": 0.3,
+      "random_state": 7
+    },
     "model_training_parameters": {}
   },
   "datadir": "user_data/data",
@@ -58,7 +97,9 @@
   "bot_name": "freqai-real",
   "force_entry_enable": true,
   "initial_state": "running",
-  "internals": { "process_throttle_secs": 5 },
+  "internals": {
+    "process_throttle_secs": 5
+  },
   "entry_pricing": {
     "price_side": "other",
     "use_order_book": false,

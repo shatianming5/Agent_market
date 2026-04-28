@@ -41,7 +41,7 @@ def _infer_feature_file(config_path: Path) -> Path:
 
 
 def _matrix_from_df(df: pd.DataFrame, columns: List[str]) -> np.ndarray:
-    mat = df[columns].astype(float).replace([np.inf, -np.inf], np.nan).ffill().bfill().fillna(0.0)
+    mat = df[columns].astype(float).replace([np.inf, -np.inf], np.nan).ffill().fillna(0.0)
     return mat.to_numpy(dtype=np.float32)
 
 
@@ -125,6 +125,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_exchange.mkdir(parents=True, exist_ok=True)
 
     reward_cfg = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
+    window_size = int(summary.get("window_size", 0))
 
     for pair in settings.pairs:
         sanitized = pair.replace("/", "_").replace(":", "_")
@@ -153,6 +154,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
 
         matrix = _matrix_from_df(df_feat, features)
+        ohlcv = None
+        if window_size > 0:
+            ohlcv = df[["open", "high", "low", "close", "volume"]].to_numpy(dtype=np.float32)
         dataset = Dataset(
             features=matrix,
             labels=np.zeros(matrix.shape[0], dtype=np.float32),
@@ -160,6 +164,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             prices=df["close"].to_numpy(dtype=np.float32),
             pair_ids=np.asarray([pair] * matrix.shape[0], dtype=object),
             dates=df["date"].to_numpy(dtype="datetime64[ns]"),
+            ohlcv=ohlcv,
         )
         env = TradingEnv(
             dataset,
@@ -169,6 +174,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 holding_penalty_bps=float(reward_cfg.get("holding_penalty_bps", 0.2)),
                 drawdown_penalty=float(reward_cfg.get("drawdown_penalty", 0.05)),
                 invalid_action_penalty=float(reward_cfg.get("invalid_action_penalty", 0.0005)),
+                reward_horizon=int(reward_cfg.get("reward_horizon", 1)),
+                window_size=window_size,
             ),
         )
         probs = np.zeros((matrix.shape[0], model.action_space.n), dtype=np.float32)

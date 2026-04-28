@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-import asyncio
+"""Capture microstructure data (REST polling or offline fixture).
+
+This module historically supported WebSocket capture. WS support has been removed;
+the entrypoint remains for backward compatibility but uses REST polling.
+"""
+
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
-from agent_market.microstructure.capture.kucoin import capture_kucoin_ws, infer_channel_from_topic
+from agent_market.microstructure.capture.kucoin import infer_channel_from_topic
+from agent_market.microstructure.capture.kucoin_rest import (
+    capture_kucoin_rest,
+    fetch_lob_rebuild_snapshot,
+)
 from agent_market.microstructure.capture.writer import CaptureWriter
 
 
@@ -17,7 +26,7 @@ class CaptureSession:
     out_dir: Path
     channels: list[str]
     symbols: list[str]
-    mode: str  # live|fixture
+    mode: str  # rest|fixture
     meta: Dict[str, Any]
 
 
@@ -74,28 +83,50 @@ async def _capture_fixture(
     }
 
 
-async def _capture_live(
+def _capture_rest(
     *,
     out_dir: Path,
     exchange: str,
     symbols: Sequence[str],
     channels: Sequence[str],
     duration_sec: float,
-    max_reconnects: int = 3,
+    poll_interval_sec: float = 1.0,
+    timeout_sec: float = 15.0,
 ) -> Dict[str, Any]:
-    writer = CaptureWriter(out_dir, channels=list(channels))
+    if exchange != "kucoin":
+        raise NotImplementedError(f"Unsupported exchange for rest capture: {exchange!r}")
+    syms = [str(s) for s in symbols if str(s).strip()]
+    if not syms:
+        raise ValueError("No symbols provided")
+    if len(syms) != 1:
+        raise NotImplementedError("REST capture currently supports exactly 1 symbol per session")
+
+    # Ensure a snapshot.json exists, and seed delta diffs from it.
+    snapshot_path = (Path(out_dir) / "snapshot.json").resolve()
+    seed_snapshot: Optional[Dict[str, Any]] = None
+    if snapshot_path.exists():
+        try:
+            seed_snapshot = json.loads(snapshot_path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            seed_snapshot = None
+    if not isinstance(seed_snapshot, dict):
+        seed_snapshot = fetch_lob_rebuild_snapshot(symbol=str(syms[0]), depth=20, timeout=float(timeout_sec))
+        snapshot_path.write_text(json.dumps(seed_snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    writer = CaptureWriter(Path(out_dir), channels=list(channels))
     try:
-        if exchange != "kucoin":
-            raise NotImplementedError(f"Unsupported exchange for live ws_capture: {exchange!r}")
-        meta = await capture_kucoin_ws(
-            symbols=list(symbols),
+        meta = capture_kucoin_rest(
+            symbol=str(syms[0]),
             channels=list(channels),
             duration_sec=float(duration_sec),
             writer=writer,
-            max_reconnects=int(max_reconnects),
+            poll_interval_sec=float(poll_interval_sec),
+            timeout=float(timeout_sec),
+            depth=20,
+            seed_snapshot=seed_snapshot,
         )
         counts = {k: v.count for k, v in writer.files.items()}
-        return {"mode": "live", "exchange": exchange, "counts": counts, **meta}
+        return {"mode": "rest", "exchange": exchange, "counts": counts, **meta}
     finally:
         writer.close()
 
@@ -107,14 +138,12 @@ def capture_ws(
     channels: Sequence[str] = ("match", "level2"),
     symbols: Sequence[str] = ("BTC-USDT",),
     duration_sec: float = 60.0,
-    max_reconnects: int = 3,
     fixture: Optional[Path] = None,
 ) -> CaptureSession:
     """
-    Capture microstructure data via websocket (or offline fixture replay).
+    Capture microstructure data via REST polling (or offline fixture replay).
 
-    This mirrors the behavior of `scripts/micro_capture.py` but provides a reusable
-    module path that matches plan.md (`capture/ws_capture.py`).
+    Kept as `capture_ws()` for backward compatibility.
     """
 
     ex = str(exchange or "").strip().lower() or "kucoin"
@@ -124,20 +153,14 @@ def capture_ws(
     syms = [s for s in symbols if str(s).strip()]
 
     if fixture is not None:
+        # Fixture capture is synchronous, but historically lived behind an asyncio wrapper.
+        import asyncio  # noqa: PLC0415
+
         meta = asyncio.run(_capture_fixture(fixture=Path(fixture), out_dir=out_dir, exchange=ex, channels=ch))
         mode = "fixture"
     else:
-        meta = asyncio.run(
-            _capture_live(
-                out_dir=out_dir,
-                exchange=ex,
-                symbols=syms,
-                channels=ch,
-                duration_sec=float(duration_sec),
-                max_reconnects=int(max_reconnects),
-            )
-        )
-        mode = "live"
+        meta = _capture_rest(out_dir=out_dir, exchange=ex, symbols=syms, channels=ch, duration_sec=float(duration_sec))
+        mode = "rest"
 
     return CaptureSession(exchange=ex, out_dir=out_dir, channels=ch, symbols=syms, mode=mode, meta=dict(meta))
 

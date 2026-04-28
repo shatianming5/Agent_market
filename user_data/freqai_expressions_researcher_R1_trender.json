@@ -1,0 +1,305 @@
+{
+  "version": "lab-researcher_R1_trender",
+  "expressions": [
+    {
+      "name": "f001",
+      "expression": "((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))",
+      "origin": "py_loop2",
+      "train_ic": 0.03737947871025434,
+      "oos_ic": -0.11753400144151412,
+      "sign_agree": 10,
+      "combined": 0.11727186721530139,
+      "loop_found": 2
+    },
+    {
+      "name": "f002",
+      "expression": "(z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48))) + (z(rolling_max(linreg_angle_14, 24) - rolling_min(linreg_angle_14, 24)))",
+      "origin": "py_loop15",
+      "train_ic": 0.02571756710012088,
+      "oos_ic": -0.11421143233088786,
+      "sign_agree": 10,
+      "combined": 0.1139987662985357,
+      "loop_found": 15
+    },
+    {
+      "name": "f003",
+      "expression": "((tanh(z(roc_12) - z(ema_pct_96))) + (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (sign(z(ema_pct_12)) * roll_std(z(ema_pct_12), 24)))) + (z(ema(ema((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20)), 12), 12) - ema(ema((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20)), 12), 48)))",
+      "origin": "py_loop18",
+      "train_ic": 0.04097388380988608,
+      "oos_ic": -0.11149834046572352,
+      "sign_agree": 10,
+      "combined": 0.1108285992596039,
+      "loop_found": 18
+    },
+    {
+      "name": "f004",
+      "expression": "ema(sign(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))) * roll_std(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 24), 12)",
+      "origin": "py_loop35",
+      "train_ic": 0.050749846352284314,
+      "oos_ic": -0.1091848620735981,
+      "sign_agree": 10,
+      "combined": 0.10901262376899472,
+      "loop_found": 35
+    },
+    {
+      "name": "f005",
+      "expression": "z(ema(ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24)))), 12) - ema(ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24)))), 48))",
+      "origin": "py_loop27",
+      "train_ic": 0.00730339865648168,
+      "oos_ic": -0.1089953706812183,
+      "sign_agree": 10,
+      "combined": 0.10876391090239727,
+      "loop_found": 27
+    },
+    {
+      "name": "f006",
+      "expression": "z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48))",
+      "origin": "py_loop3",
+      "train_ic": 0.027677422963315972,
+      "oos_ic": -0.10313645337421831,
+      "sign_agree": 10,
+      "combined": 0.10295384293706901,
+      "loop_found": 3
+    },
+    {
+      "name": "f007",
+      "expression": "sign(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))) * roll_std(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 24)",
+      "origin": "py_loop34",
+      "train_ic": 0.042838467220684184,
+      "oos_ic": -0.10294867273279265,
+      "sign_agree": 10,
+      "combined": 0.10268325348066451,
+      "loop_found": 34
+    },
+    {
+      "name": "f008",
+      "expression": "(ifelse(di_spread > 0, (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (sign(z(ema_pct_12)) * roll_std(z(ema_pct_12), 24))), (ifelse(di_spread > 0, z(linearreg_slope_20), -z(ema_pct_96))))) + (z(rolling_max(linreg_angle_14, 24) - rolling_min(linreg_angle_14, 24)))",
+      "origin": "py_loop18",
+      "train_ic": -0.017542247114303678,
+      "oos_ic": -0.09774305507969827,
+      "sign_agree": 10,
+      "combined": 0.09721824476657022,
+      "loop_found": 18
+    },
+    {
+      "name": "f009",
+      "expression": "sign((z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48))) + (z(rolling_max(linreg_angle_14, 24) - rolling_min(linreg_angle_14, 24))))",
+      "origin": "py_loop31",
+      "train_ic": 0.025476125406432387,
+      "oos_ic": -0.09578654743208258,
+      "sign_agree": 10,
+      "combined": 0.09563057536993556,
+      "loop_found": 31
+    },
+    {
+      "name": "f010",
+      "expression": "-(sign((z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48))) + (z(rolling_max(linreg_angle_14, 24) - rolling_min(linreg_angle_14, 24)))))",
+      "origin": "py_loop52",
+      "train_ic": -0.025476125406432387,
+      "oos_ic": 0.09578654743208258,
+      "sign_agree": 10,
+      "combined": 0.09563057536993556,
+      "loop_found": 52
+    },
+    {
+      "name": "f011",
+      "expression": "ifelse(adx_14 > 25, (ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))), (ema(sign(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))) * roll_std(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 24), 12)))",
+      "origin": "py_loop43",
+      "train_ic": 0.00986281069420561,
+      "oos_ic": -0.09563016650283068,
+      "sign_agree": 10,
+      "combined": 0.09537235229813219,
+      "loop_found": 43
+    },
+    {
+      "name": "f012",
+      "expression": "ifelse(volume_zscore_24 > 1, (sign(ema(sign(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))) * roll_std(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 24), 12))), (ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))))",
+      "origin": "py_loop56",
+      "train_ic": 0.0078639914131904,
+      "oos_ic": -0.09573776512831095,
+      "sign_agree": 10,
+      "combined": 0.09526540663387563,
+      "loop_found": 56
+    },
+    {
+      "name": "f013",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))",
+      "origin": "py_loop2",
+      "train_ic": 0.0010676007770045993,
+      "oos_ic": -0.09535216382795558,
+      "sign_agree": 10,
+      "combined": 0.09511610327801401,
+      "loop_found": 2
+    },
+    {
+      "name": "f014",
+      "expression": "ema(-(sign(ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24)))))), 12)",
+      "origin": "py_loop49",
+      "train_ic": -0.009836408167171073,
+      "oos_ic": 0.09472990843841589,
+      "sign_agree": 10,
+      "combined": 0.09459305386259753,
+      "loop_found": 49
+    },
+    {
+      "name": "f015",
+      "expression": "sign(ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24)))))",
+      "origin": "py_loop44",
+      "train_ic": 0.016720230785665743,
+      "oos_ic": -0.09468220203642237,
+      "sign_agree": 10,
+      "combined": 0.09447221436950902,
+      "loop_found": 44
+    },
+    {
+      "name": "f016",
+      "expression": "-(sign(ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))))",
+      "origin": "py_loop47",
+      "train_ic": -0.016720230785665743,
+      "oos_ic": 0.09468220203642237,
+      "sign_agree": 10,
+      "combined": 0.09447221436950902,
+      "loop_found": 47
+    },
+    {
+      "name": "f017",
+      "expression": "ema((sign(ifelse(realized_vol_24 > realized_vol_72, ((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24)))))) + (ifelse(di_spread > 0, (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (sign(z(ema_pct_12)) * roll_std(z(ema_pct_12), 24))), (ifelse(di_spread > 0, z(linearreg_slope_20), -z(ema_pct_96))))), 12)",
+      "origin": "py_loop17",
+      "train_ic": 0.0009015461923691358,
+      "oos_ic": -0.09457340261999037,
+      "sign_agree": 10,
+      "combined": 0.09437454857656014,
+      "loop_found": 17
+    },
+    {
+      "name": "f018",
+      "expression": "sign(ifelse(adx_14 > 25, (ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))), (sign(z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48))))))",
+      "origin": "py_loop32",
+      "train_ic": 0.006892413881854803,
+      "oos_ic": -0.09396333499054438,
+      "sign_agree": 10,
+      "combined": 0.09370656949769021,
+      "loop_found": 32
+    },
+    {
+      "name": "f019",
+      "expression": "-(sign(ifelse(adx_14 > 25, (ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))), (sign(z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48)))))))",
+      "origin": "py_loop58",
+      "train_ic": -0.006892413881854803,
+      "oos_ic": 0.09396333499054438,
+      "sign_agree": 10,
+      "combined": 0.09370656949769021,
+      "loop_found": 58
+    },
+    {
+      "name": "f020",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, (roll_std((z(ema(kama_pct_20, 24) - ema(kama_pct_20, 6))) + (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))), 24)), (sign(z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48)))))",
+      "origin": "py_loop38",
+      "train_ic": 0.023152241582144035,
+      "oos_ic": -0.09329791508094513,
+      "sign_agree": 10,
+      "combined": 0.09306157890954317,
+      "loop_found": 38
+    },
+    {
+      "name": "f021",
+      "expression": "(sign(ifelse(realized_vol_24 > realized_vol_72, ((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24)))))) + (ifelse(di_spread > 0, (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (sign(z(ema_pct_12)) * roll_std(z(ema_pct_12), 24))), (ifelse(di_spread > 0, z(linearreg_slope_20), -z(ema_pct_96)))))",
+      "origin": "py_loop9",
+      "train_ic": -0.0018894178731251085,
+      "oos_ic": -0.09278060558692253,
+      "sign_agree": 10,
+      "combined": 0.09208996928691886,
+      "loop_found": 9
+    },
+    {
+      "name": "f022",
+      "expression": "ifelse(di_spread < 0, (z(sign(ema(sign(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))) * roll_std(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 24), 12)))), (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))))",
+      "origin": "py_loop57",
+      "train_ic": 0.032840615576371995,
+      "oos_ic": -0.09230466166229866,
+      "sign_agree": 10,
+      "combined": 0.09206493618219826,
+      "loop_found": 57
+    },
+    {
+      "name": "f023",
+      "expression": "ifelse(di_spread > 0, (z(ema(ema((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20)), 12), 12) - ema(ema((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20)), 12), 48))), (ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))))",
+      "origin": "py_loop28",
+      "train_ic": 0.012611779973560522,
+      "oos_ic": -0.09227461132944842,
+      "sign_agree": 10,
+      "combined": 0.09188945398278951,
+      "loop_found": 28
+    },
+    {
+      "name": "f024",
+      "expression": "(rolling_min(z(ema_pct_12), 24)) * (ifelse(volume_zscore_24 < -1, (ifelse(di_spread > 0, (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (sign(z(ema_pct_12)) * roll_std(z(ema_pct_12), 24))), (ifelse(di_spread > 0, z(linearreg_slope_20), -z(ema_pct_96))))), (roll_std(tanh(z(roc_12) - z(ema_pct_96)), 24))))",
+      "origin": "py_loop13",
+      "train_ic": -0.008476920606576118,
+      "oos_ic": 0.09115622444337283,
+      "sign_agree": 10,
+      "combined": 0.09076533896887087,
+      "loop_found": 13
+    },
+    {
+      "name": "f025",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, (sign((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20)))), (ifelse(volume_zscore_24 > 1, (ifelse(adx_14 > 25, (z(ema_pct_12)), (z(ema(kama_pct_20, 24) - ema(kama_pct_20, 6))))), (ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))))))",
+      "origin": "py_loop27",
+      "train_ic": 0.03584627262720283,
+      "oos_ic": -0.09007934087665967,
+      "sign_agree": 10,
+      "combined": 0.0894007192878694,
+      "loop_found": 27
+    },
+    {
+      "name": "f026",
+      "expression": "ifelse(realized_vol_24 > realized_vol_72, (z(ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 12) - ema(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 48))), (ifelse(mtf4h_rsi_14 < 40, (tanh(z(roc_12) - z(ema_pct_96))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))))))",
+      "origin": "py_loop42",
+      "train_ic": 0.023809835540235295,
+      "oos_ic": -0.08907061869438103,
+      "sign_agree": 10,
+      "combined": 0.08882746233948342,
+      "loop_found": 42
+    },
+    {
+      "name": "f027",
+      "expression": "sign(ema(sign(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))) * roll_std(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 24), 12))",
+      "origin": "py_loop50",
+      "train_ic": 0.03725648668950556,
+      "oos_ic": -0.0867526813640027,
+      "sign_agree": 10,
+      "combined": 0.08664325266080385,
+      "loop_found": 50
+    },
+    {
+      "name": "f028",
+      "expression": "z(sign(ema(sign(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12))) * roll_std(((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (z(ema_pct_12)), 24), 12)))",
+      "origin": "py_loop51",
+      "train_ic": 0.03725648668950556,
+      "oos_ic": -0.0867526813640027,
+      "sign_agree": 10,
+      "combined": 0.08664325266080385,
+      "loop_found": 51
+    },
+    {
+      "name": "f029",
+      "expression": "sign(ema((sign(ifelse(realized_vol_24 > realized_vol_72, ((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))), (z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24)))))) + (ifelse(di_spread > 0, (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (sign(z(ema_pct_12)) * roll_std(z(ema_pct_12), 24))), (ifelse(di_spread > 0, z(linearreg_slope_20), -z(ema_pct_96))))), 12))",
+      "origin": "py_loop39",
+      "train_ic": 0.009476060552307533,
+      "oos_ic": -0.0858288536834659,
+      "sign_agree": 10,
+      "combined": 0.0856932997210519,
+      "loop_found": 39
+    },
+    {
+      "name": "f030",
+      "expression": "sign((ifelse(di_spread > 0, (((z(rolling_max(ema_pct_6, 24) - rolling_min(ema_pct_6, 24))) + (z(dema_pct_20))) - (sign(z(ema_pct_12)) * roll_std(z(ema_pct_12), 24))), (ifelse(di_spread > 0, z(linearreg_slope_20), -z(ema_pct_96))))) + (z(rolling_max(linreg_angle_14, 24) - rolling_min(linreg_angle_14, 24))))",
+      "origin": "py_loop44",
+      "train_ic": -0.004893466597524123,
+      "oos_ic": -0.08561038194528221,
+      "sign_agree": 10,
+      "combined": 0.08520813724325635,
+      "loop_found": 44
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "version": "combo_ga_rank3",
+  "generated_at": "2026-04-19T12:47:11Z",
+  "ga": {
+    "rank": 3,
+    "combo_size": 13,
+    "hold_ic": 0.048237605376123496,
+    "fit_ic": 0.07015578084903511,
+    "sign_agree": 10,
+    "pairs": 10,
+    "fitness": 0.048237605376123496
+  },
+  "expressions": [
+    {
+      "name": "c03_01",
+      "expression": "(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(ema_pct_12)), 12)) + (ifelse(adx_14 > 25, (z(ema_spread) - z(mfi_28)), (((z(ema_spread) - z(linreg_angle_48)) + (ifelse(mtf4h_rsi_14 < 40, (ema(z(ema_spread) - z(volume_ratio_20), 12)), (ema(z(ema_spread) - z(dema_pct_20), 12))))) + (ifelse(adx_14 < 20, (ema(z(ema_spread) - z(linearreg_slope_48), 12)), (ema(z(ema_spread) - z(vwap_slope_20), 12)))))))",
+      "description": "GA combo #3, source factor run500nov_loop0035_403-1",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 2908,
+      "source_oos_ic": -0.16909403173059936
+    },
+    {
+      "name": "c03_02",
+      "expression": "(ema((z(mtf4h_cmf_20) + z(obv_delta_20)) - (z(volume_ratio_20) + z(return_zscore_24)), 12)) + (rolling_min(z(ema(ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12), 12) - ema(ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12), 48)), 24))",
+      "description": "GA combo #3, source factor run500nov_loop0216_299",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 3798,
+      "source_oos_ic": -0.1580193092171576
+    },
+    {
+      "name": "c03_03",
+      "expression": "(rolling_min(z(ema(ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12), 12) - ema(ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12), 48)), 24)) + (z(ema(ema(ema((z(vwap_pct_20 - psar_ratio) + z(mtf4h_cmf_20)) - z(range_pct / (atr_norm_14 + 1e-6)), 12), 24), 12) - ema(ema(ema((z(vwap_pct_20 - psar_ratio) + z(mtf4h_cmf_20)) - z(range_pct / (atr_norm_14 + 1e-6)), 12), 24), 48)))",
+      "description": "GA combo #3, source factor run500nov_loop0199_440",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 3718,
+      "source_oos_ic": -0.157016284891444
+    },
+    {
+      "name": "c03_04",
+      "expression": "ema(z(ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 12) - ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 48)), 12)",
+      "description": "GA combo #3, source factor run500nov_loop0218_235",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 3807,
+      "source_oos_ic": -0.1564745226628636
+    },
+    {
+      "name": "c03_05",
+      "expression": "ema(ifelse(adx_14 < 20, (z(ema(ema(ema((z(vwap_pct_20 - psar_ratio) + z(mtf4h_cmf_20)) - z(range_pct / (atr_norm_14 + 1e-6)), 12), 24), 12) - ema(ema(ema((z(vwap_pct_20 - psar_ratio) + z(mtf4h_cmf_20)) - z(range_pct / (atr_norm_14 + 1e-6)), 12), 24), 48))), (ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6))), 12)",
+      "description": "GA combo #3, source factor run500nov_loop0184_367",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 3659,
+      "source_oos_ic": -0.15156960117665752
+    },
+    {
+      "name": "c03_06",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, (z(ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 12) - ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 48))), (ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6)))",
+      "description": "GA combo #3, source factor run500nov_loop0479_360-1",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 4764,
+      "source_oos_ic": -0.1490138799319639
+    },
+    {
+      "name": "c03_07",
+      "expression": "z(ema(ifelse(adx_14 < 20, (ema((z(mtf4h_rsi_14) + z(mtf4h_cmf_20)) - (z(rsi_14) + z(ema_pct_12)), 12)), (ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12))), 12) - ema(ifelse(adx_14 < 20, (ema((z(mtf4h_rsi_14) + z(mtf4h_cmf_20)) - (z(rsi_14) + z(ema_pct_12)), 12)), (ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12))), 48))",
+      "description": "GA combo #3, source factor run500nov_loop0145_388",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 3484,
+      "source_oos_ic": -0.1470983375451808
+    },
+    {
+      "name": "c03_08",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, (ifelse(adx_14 < 20, (ema((z(mtf4h_rsi_14) + z(mtf4h_cmf_20)) - (z(rsi_14) + z(ema_pct_12)), 12)), (ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12)))), (z(ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 12) - ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 48))))",
+      "description": "GA combo #3, source factor run500nov_loop0305_441",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 4125,
+      "source_oos_ic": -0.1461344269689599
+    },
+    {
+      "name": "c03_09",
+      "expression": "rolling_min((((-z(ema_spread)) + (ema(robust_z(donchian_width_48 * adx_28 / 1000 * (1 + 0.15 * (cmf_20 + mfi_14)/200) * ifelse(di_spread > 0, 1.05, 0.95), 96), 12))) * (rolling_max(rolling_min(roll_mean(dema_pct_20, 72), 12), 72))) + ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), 24)",
+      "description": "GA combo #3, source factor run500nov_loop0041_428",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 2954,
+      "source_oos_ic": 0.1460701867386203
+    },
+    {
+      "name": "c03_10",
+      "expression": "z(ema(ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12), 12) - ema(ema((z(mtf4h_cmf_20) - z(cmf_20)) - 0.5 * (z(vwap_pct_20) + z(obv_delta_20)), 12), 48))",
+      "description": "GA combo #3, source factor run500nov_loop0159_186",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 3543,
+      "source_oos_ic": -0.14542456960283826
+    },
+    {
+      "name": "c03_11",
+      "expression": "ifelse(mtf4h_rsi_14 < 40, (z(ema(ema((z(mtf4h_rsi_14) + z(mtf4h_cmf_20)) - (z(rsi_14) + z(ema_pct_12)), 12), 12) - ema(ema((z(mtf4h_rsi_14) + z(mtf4h_cmf_20)) - (z(rsi_14) + z(ema_pct_12)), 12), 48))), (ifelse(adx_14 < 20, (ema(ema(-(z(psar_ratio) + z(kama_pct_20)) / (1 + abs(z(range_pct)) + 1e-6) + 0.5 * z(mtf4h_cmf_20), 12), 12)), (ema((z(ema_spread) / (1 + abs(z(linearreg_slope_20)))) + (ema(z(ema_spread) - z(vwap_slope_20), 12)), 24)))))",
+      "description": "GA combo #3, source factor run500nov_loop0127_445",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 3410,
+      "source_oos_ic": -0.1452743975361481
+    },
+    {
+      "name": "c03_12",
+      "expression": "ifelse(adx_14 < 20, (((z(ema_spread) - z(linreg_angle_48)) + (ifelse(mtf4h_rsi_14 < 40, (ema(z(ema_spread) - z(volume_ratio_20), 12)), (ema(z(ema_spread) - z(dema_pct_20), 12))))) + (ifelse(adx_14 < 20, (ema(z(ema_spread) - z(linearreg_slope_48), 12)), (ema(z(ema_spread) - z(vwap_slope_20), 12))))), (ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(ema_pct_12)), 12)))",
+      "description": "GA combo #3, source factor run500nov_loop0026_371",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 2859,
+      "source_oos_ic": -0.14370024073358623
+    },
+    {
+      "name": "c03_13",
+      "expression": "ema(ifelse(di_spread > 0, (ema(z(ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 12) - ema(ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6), 48)), 12)), (ema((z(mtf4h_cmf_20)-z(cmf_20))-(z(vwap_pct_20)-z(return_zscore_24)),12)/(1+abs(z(atr_norm_14))+1e-6))), 12)",
+      "description": "GA combo #3, source factor run500nov_loop0484_374",
+      "category": "ga_combo",
+      "origin": "combo_ga:combo_ga:rank3",
+      "source_factor_id": 4784,
+      "source_oos_ic": -0.14328209921384732
+    }
+  ]
+}

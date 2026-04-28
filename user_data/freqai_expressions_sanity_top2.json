@@ -1,0 +1,87 @@
+{
+  "version": "sanity_rank2",
+  "generated_at": "2026-04-19T12:10:21Z",
+  "ga": {
+    "rank": 2,
+    "combo_size": 8,
+    "hold_ic": -0.047072903696166415,
+    "fit_ic": -0.0010576272575597854,
+    "sign_agree": 9,
+    "pairs": 10,
+    "fitness": 0.04236561332654978
+  },
+  "expressions": [
+    {
+      "name": "c02_01",
+      "expression": "z(ema(z(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72)))))))), 12))",
+      "description": "GA combo #2, source factor run500_loop0022_438",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 487,
+      "source_oos_ic": 0.14771072736643412
+    },
+    {
+      "name": "c02_02",
+      "expression": "-(ema(z(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72)))))))), 12))",
+      "description": "GA combo #2, source factor run500_loop0094_438",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 1065,
+      "source_oos_ic": -0.14771072736643412
+    },
+    {
+      "name": "c02_03",
+      "expression": "tanh(-(ema(z(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72)))))))), 12)))",
+      "description": "GA combo #2, source factor run500_loop0102_444",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 1133,
+      "source_oos_ic": -0.14771072736643412
+    },
+    {
+      "name": "c02_04",
+      "expression": "tanh(ema(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72))))))), 12))",
+      "description": "GA combo #2, source factor run500_loop0108_438",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 1183,
+      "source_oos_ic": 0.14771072736643412
+    },
+    {
+      "name": "c02_05",
+      "expression": "tanh(z(-(ema(z(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72)))))))), 12))))",
+      "description": "GA combo #2, source factor run500_loop0137_447",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 1395,
+      "source_oos_ic": -0.14771072736643412
+    },
+    {
+      "name": "c02_06",
+      "expression": "z(tanh(ema(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72))))))), 12)))",
+      "description": "GA combo #2, source factor run500_loop0154_441-1",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 1497,
+      "source_oos_ic": 0.14771072736643412
+    },
+    {
+      "name": "c02_07",
+      "expression": "-(tanh(ema(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72))))))), 12)))",
+      "description": "GA combo #2, source factor run500_loop0160_441",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 1533,
+      "source_oos_ic": -0.14771072736643412
+    },
+    {
+      "name": "c02_08",
+      "expression": "-(-(z(-(ema(z(ifelse(adx_14 < 20, ((ema(rolling_min(roll_mean(dema_pct_20, 48), 12), 48)) + (ifelse(adx_14 < 20, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12))))), (ifelse(adx_14 > 25, (ema(rolling_min(roll_mean(rolling_min(ema_pct_12, 3), 72), 12), 24)), (ifelse(di_spread < 0, (rolling_min(roll_mean(tema_pct_12, 24), 12)), (rolling_min(roll_mean(dema_pct_20, 72), 72)))))))), 12)))))",
+      "description": "GA combo #2, source factor run500_loop0164_447",
+      "category": "ga_combo",
+      "origin": "combo_ga:sanity:rank2",
+      "source_factor_id": 1555,
+      "source_oos_ic": -0.14771072736643412
+    }
+  ]
+}

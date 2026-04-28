@@ -1,0 +1,380 @@
+{
+  "version": 1,
+  "generated_at": "remine_clean_train3_holdout",
+  "train3": [
+    "2023-05-15",
+    "2025-07-01"
+  ],
+  "fit_frac": 0.8,
+  "label_period": 12,
+  "gate": {
+    "min_fit_ic": 0.03,
+    "min_hold_ic": 0.02,
+    "min_sign_pairs": 7,
+    "min_decay_ratio": 0.3,
+    "max_fit_ic_std": 0.1
+  },
+  "note": "NO OOS leakage \u2014 selection only used TRAIN3 chronological 80/20 split.",
+  "expressions": [
+    {
+      "name": "gc001",
+      "expression": "ifelse(di_spread > 0, (ifelse(adx_14 > 25, (ema((z(kama_pct_20) > 0) * z(ema_spread), 24)), ((z(kama_pct_20) > 0) * z(ema_spread)))), ((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))))",
+      "origin": "mining:v6:py_loop70",
+      "fit_ic": 0.03834213798112297,
+      "hold_ic": 0.09012101510135731,
+      "decay_ratio": 2.3504430763689705,
+      "category": "clean"
+    },
+    {
+      "name": "gc002",
+      "expression": "ema(ifelse(di_spread > 0, (ifelse(adx_14 > 25, (ema((z(kama_pct_20) > 0) * z(ema_spread), 24)), ((z(kama_pct_20) > 0) * z(ema_spread)))), ((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12)))), 12)",
+      "origin": "mining:v6:py_loop91",
+      "fit_ic": 0.03947396036376135,
+      "hold_ic": 0.08408792918978268,
+      "decay_ratio": 2.1302125827933427,
+      "category": "clean"
+    },
+    {
+      "name": "gc003",
+      "expression": "ema(z(roc_12)-z(return_zscore_24)*clip((25-adx_14)/10,-2,2),12)",
+      "origin": "mining:v6:llm_loop270",
+      "fit_ic": -0.031063996658434394,
+      "hold_ic": -0.0810425220968041,
+      "decay_ratio": 2.608889009969382,
+      "category": "clean"
+    },
+    {
+      "name": "gc004",
+      "expression": "ema(ifelse(di_spread > 0, (ifelse(adx_14 > 25, (ema((z(kama_pct_20) > 0) * z(ema_spread), 24)), ((z(kama_pct_20) > 0) * z(ema_spread)))), ((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12)))), 24)",
+      "origin": "mining:v6:py_loop93",
+      "fit_ic": 0.03295567075282752,
+      "hold_ic": 0.08037370993941237,
+      "decay_ratio": 2.4388430174395244,
+      "category": "clean"
+    },
+    {
+      "name": "gc005",
+      "expression": "ema(z(psar_ratio) - z(kama_pct_20) + z(cci_20) - 0.5 * z(volume_ratio_20), 12)",
+      "origin": "mining:v6:llm_loop240",
+      "fit_ic": -0.0325033982840846,
+      "hold_ic": -0.07702678026091955,
+      "decay_ratio": 2.3698069112000844,
+      "category": "clean"
+    },
+    {
+      "name": "gc006",
+      "expression": "ema((z(mtf4h_rsi_14 - 50) + z(mtf4h_ema_pct_48)) - (z(return_zscore_24) + z(cci_20)) / (1 + abs(range_pct) + 1e-6), 12)",
+      "origin": "mining:v6:llm_loop375",
+      "fit_ic": 0.03838892264019362,
+      "hold_ic": 0.07554020932797803,
+      "decay_ratio": 1.9677605456196383,
+      "category": "clean"
+    },
+    {
+      "name": "gc007",
+      "expression": "ema((z(kama_pct_20) - z(psar_ratio)) - z(return_zscore_24) - 0.5*z(cci_20), 12)",
+      "origin": "mining:v6:llm_loop489",
+      "fit_ic": 0.03183024673375658,
+      "hold_ic": 0.07245923074566359,
+      "decay_ratio": 2.276426855101702,
+      "category": "clean"
+    },
+    {
+      "name": "gc008",
+      "expression": "ema((z(ema_pct_12 - ema_pct_48) - z(rsi_14)) + 0.5*z(cmf_20), 12)",
+      "origin": "mining:v6:llm_loop135",
+      "fit_ic": -0.0314583746726909,
+      "hold_ic": -0.070409151305212,
+      "decay_ratio": 2.2381686847974915,
+      "category": "clean"
+    },
+    {
+      "name": "gc009",
+      "expression": "ema(z(mfi_14 - rsi_14) - z(range_pct), 12)",
+      "origin": "mining:v6:llm_loop451",
+      "fit_ic": -0.0387592695480289,
+      "hold_ic": -0.06890949974051244,
+      "decay_ratio": 1.7778843297662843,
+      "category": "clean"
+    },
+    {
+      "name": "gc010",
+      "expression": "(ema(rolling_min((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12)), 24), 24)) - (((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12))))",
+      "origin": "mining:v6:py_loop102",
+      "fit_ic": -0.03617652490732719,
+      "hold_ic": -0.06746466200112869,
+      "decay_ratio": 1.8648739841396547,
+      "category": "clean"
+    },
+    {
+      "name": "gc011",
+      "expression": "ema((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12)), 24)",
+      "origin": "mining:v6:py_loop50",
+      "fit_ic": 0.03386664409608488,
+      "hold_ic": 0.06660750020117362,
+      "decay_ratio": 1.9667581483845804,
+      "category": "clean"
+    },
+    {
+      "name": "gc012",
+      "expression": "ema((z(stoch_k_14) - z(rsi_14)) - z(range_pct) - 0.5*z(volume_ratio_20), 12)",
+      "origin": "mining:v6:llm_loop268",
+      "fit_ic": -0.03942309926032638,
+      "hold_ic": -0.06616207859067458,
+      "decay_ratio": 1.6782566097993337,
+      "category": "clean"
+    },
+    {
+      "name": "gc013",
+      "expression": "((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12)))",
+      "origin": "mining:v6:py_loop23",
+      "fit_ic": 0.03915171601512145,
+      "hold_ic": 0.0660313998862922,
+      "decay_ratio": 1.6865518276194398,
+      "category": "clean"
+    },
+    {
+      "name": "gc014",
+      "expression": "ema(z(range_pct) + z(diff(atr_norm_14, 3)) - z(return_zscore_24), 12)",
+      "origin": "mining:v6:llm_loop107",
+      "fit_ic": 0.039276990854359525,
+      "hold_ic": 0.06236965948108768,
+      "decay_ratio": 1.5879438963237456,
+      "category": "clean"
+    },
+    {
+      "name": "gc015",
+      "expression": "ema(((mtf4h_rsi_14 > 60) * (z(cmf_20) + z(obv_delta_20) - z(rsi_14))) + ((mtf4h_rsi_14 <= 60) * (z(cmf_20) - z(vwap_pct_20))), 12)",
+      "origin": "mining:v6:llm_loop211",
+      "fit_ic": -0.0343125198780931,
+      "hold_ic": -0.06034404938292037,
+      "decay_ratio": 1.758659749812995,
+      "category": "clean"
+    },
+    {
+      "name": "gc016",
+      "expression": "ema(z(cmf_20) + 0.5*z(obv_delta_20) - z(psar_ratio) - 0.5*z(atr_norm_14), 12)",
+      "origin": "mining:v6:llm_loop21",
+      "fit_ic": -0.04253230284905614,
+      "hold_ic": -0.05843975245108196,
+      "decay_ratio": 1.3740086278533166,
+      "category": "clean"
+    },
+    {
+      "name": "gc017",
+      "expression": "ema((z(mfi_14) - z(rsi_14)) + (z(cmf_20) - z(obv_delta_20)) - z(range_pct), 12)",
+      "origin": "mining:v6:llm_loop407",
+      "fit_ic": -0.05319250494229592,
+      "hold_ic": -0.05677635397068194,
+      "decay_ratio": 1.0673750552807915,
+      "category": "clean"
+    },
+    {
+      "name": "gc018",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, z(ema_pct_12) - z(return_zscore_24), z(cmf_20) - z(ema_pct_48))",
+      "origin": "mining:v6:llm_loop49",
+      "fit_ic": -0.031742747493609266,
+      "hold_ic": -0.05556164235631492,
+      "decay_ratio": 1.750372762065676,
+      "category": "clean"
+    },
+    {
+      "name": "gc019",
+      "expression": "ema(z(range_pct) + z(volume_ratio_20) - z(cmf_20) - z(return_zscore_24), 12)",
+      "origin": "mining:v6:llm_loop67",
+      "fit_ic": 0.05823767979955702,
+      "hold_ic": 0.053378700071948296,
+      "decay_ratio": 0.9165663765984705,
+      "category": "clean"
+    },
+    {
+      "name": "gc020",
+      "expression": "ema(z(cmf_20) - z((adx_14 * psar_ratio) / (abs(psar_ratio) + 1e-6)), 12)",
+      "origin": "mining:v6:llm_loop50",
+      "fit_ic": -0.03271000273987297,
+      "hold_ic": -0.053137092654862925,
+      "decay_ratio": 1.6244905710631168,
+      "category": "clean"
+    },
+    {
+      "name": "gc021",
+      "expression": "ema(((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12))), 12)",
+      "origin": "mining:v6:py_loop61",
+      "fit_ic": 0.04419861844935788,
+      "hold_ic": 0.053033515536588714,
+      "decay_ratio": 1.1998907702842105,
+      "category": "clean"
+    },
+    {
+      "name": "gc022",
+      "expression": "ema(z(roc_12) - z(donchian_width_20) - z(atr_norm_14) + z(mtf4h_adx_14), 12)",
+      "origin": "mining:v6:llm_loop468",
+      "fit_ic": -0.03773177737596481,
+      "hold_ic": -0.05284468959811617,
+      "decay_ratio": 1.4005353543520838,
+      "category": "clean"
+    },
+    {
+      "name": "gc023",
+      "expression": "ema(z(obv_delta_20) - z(range_pct), 12)",
+      "origin": "mining:v6:llm_loop293",
+      "fit_ic": -0.04884023077977276,
+      "hold_ic": -0.05276667747820295,
+      "decay_ratio": 1.0803936745455072,
+      "category": "clean"
+    },
+    {
+      "name": "gc024",
+      "expression": "ema((z(cmf_20) + z(mfi_14)) - (z(psar_ratio) + z(stoch_k_14)), 12)",
+      "origin": "mining:v6:llm_loop221",
+      "fit_ic": -0.03141773776484236,
+      "hold_ic": -0.05195271342795769,
+      "decay_ratio": 1.6536108412135233,
+      "category": "clean"
+    },
+    {
+      "name": "gc025",
+      "expression": "ema(z(cmf_20) - z(donchian_width_20) + 0.5*z(mtf4h_cmf_20), 12)",
+      "origin": "mining:v6:llm_loop35",
+      "fit_ic": -0.045366460965777795,
+      "hold_ic": -0.05109749800748549,
+      "decay_ratio": 1.1263275951744023,
+      "category": "clean"
+    },
+    {
+      "name": "gc026",
+      "expression": "(((z(kama_pct_20) > 0) * z(ema_spread)) + (ifelse(mtf4h_rsi_14 > 60, (z(ema(ema(z(ema_spread) - z(di_spread), 12), 12) - ema(ema(z(ema_spread) - z(di_spread), 12), 48))), (z((rolling_min(((range_pct * donchian_width_20) / (1e-9 + abs(z(close_to_open)))), 12)) / ((abs(z(ema_spread) - z(atr_norm_14))) + 1e-6)))))) * (ema((z(kama_pct_20) > 0) * z(ema_spread), 12))",
+      "origin": "mining:v6:py_loop78",
+      "fit_ic": 0.03705363974013589,
+      "hold_ic": 0.05031255612299079,
+      "decay_ratio": 1.3578303000194274,
+      "category": "clean"
+    },
+    {
+      "name": "gc027",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, ema(z(cmf_20) - z(ema_pct_12), 12), ema(z(ema_pct_12) - z(cmf_20), 12))",
+      "origin": "mining:v6:llm_loop93",
+      "fit_ic": 0.03340083125271801,
+      "hold_ic": 0.04664998005462579,
+      "decay_ratio": 1.3966711877614852,
+      "category": "clean"
+    },
+    {
+      "name": "gc028",
+      "expression": "roll_std((z(kama_pct_20) > 0) * z(ema_spread), 24)",
+      "origin": "mining:v6:py_loop73",
+      "fit_ic": 0.03001075910895301,
+      "hold_ic": 0.04634207288034625,
+      "decay_ratio": 1.5441819104915364,
+      "category": "clean"
+    },
+    {
+      "name": "gc029",
+      "expression": "ema((z(obv_delta_20) - z(atr_norm_14)) / (1 + abs(z(range_pct))), 12)",
+      "origin": "mining:v6:llm_loop41",
+      "fit_ic": -0.04409998802895161,
+      "hold_ic": -0.045313699027254475,
+      "decay_ratio": 1.027521775515773,
+      "category": "clean"
+    },
+    {
+      "name": "gc030",
+      "expression": "ifelse(mtf4h_rsi_14 > 60, ema(z(ema_pct_12) - z(rsi_14), 12), ema(z(cmf_20) - z(ema_pct_12), 12))",
+      "origin": "mining:v6:llm_loop495",
+      "fit_ic": -0.03354548856922469,
+      "hold_ic": -0.04318754673236823,
+      "decay_ratio": 1.2874322982601318,
+      "category": "clean"
+    },
+    {
+      "name": "gc031",
+      "expression": "ifelse(adx_14 < 20, ((z(kama_pct_20) > 0) * z(ema_spread)), (((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12)))))",
+      "origin": "mining:v6:py_loop43",
+      "fit_ic": 0.03689732007958247,
+      "hold_ic": 0.042175175030462954,
+      "decay_ratio": 1.1430416571299817,
+      "category": "clean"
+    },
+    {
+      "name": "gc032",
+      "expression": "rolling_min(((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12))), 24)",
+      "origin": "mining:v6:py_loop69",
+      "fit_ic": 0.03149565665280309,
+      "hold_ic": 0.041818685423814964,
+      "decay_ratio": 1.3277603498491521,
+      "category": "clean"
+    },
+    {
+      "name": "gc033",
+      "expression": "ifelse(adx_14 > 25, z(cmf_20) + z(roc_12), z(cmf_20) - z(return_zscore_24))",
+      "origin": "mining:v6:llm_loop374",
+      "fit_ic": -0.031056780967406838,
+      "hold_ic": -0.03951373236448826,
+      "decay_ratio": 1.2723060749164785,
+      "category": "clean"
+    },
+    {
+      "name": "gc034",
+      "expression": "ema(z(mtf4h_donchian_width_48) + z(cmf_20) - z(atr_norm_14), 12)",
+      "origin": "mining:v6:llm_loop456",
+      "fit_ic": -0.044994702710419276,
+      "hold_ic": -0.03850237606586919,
+      "decay_ratio": 0.8557090699755696,
+      "category": "clean"
+    },
+    {
+      "name": "gc035",
+      "expression": "ema(ifelse(adx_14 < 20, ((z(kama_pct_20) > 0) * z(ema_spread)), (((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12))))), 12)",
+      "origin": "mining:v6:py_loop123",
+      "fit_ic": 0.0393377969003988,
+      "hold_ic": 0.03834007116862399,
+      "decay_ratio": 0.9746369449987771,
+      "category": "clean"
+    },
+    {
+      "name": "gc036",
+      "expression": "ema(ifelse(adx_14 > 25, (ifelse(adx_14 < 20, ((z(kama_pct_20) > 0) * z(ema_spread)), (((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12)))))), (ema((z(vwap_pct_20) - z(return_zscore_24)) / (1 + z(atr_norm_14)), 12))), 12)",
+      "origin": "mining:v6:py_loop83",
+      "fit_ic": 0.03418697989402622,
+      "hold_ic": 0.03617198010395992,
+      "decay_ratio": 1.058063015745288,
+      "category": "clean"
+    },
+    {
+      "name": "gc037",
+      "expression": "ema(ifelse(adx_14 > 25, (ifelse(adx_14 < 20, ((z(kama_pct_20) > 0) * z(ema_spread)), (((z(ema_spread) - z(atr_norm_7)) * (ema(z(ema_spread) - z(kama_pct_20), 12))) + (ifelse(mtf4h_realized_vol_24 > roll_mean(mtf4h_realized_vol_24, 24), ema(-z(return_zscore_24) + z(mtf4h_return_skew_48), 12), ema(z(kama_pct_20) - z(cci_20), 12)))))), (ema((z(vwap_pct_20) - z(return_zscore_24)) / (1 + z(atr_norm_14)), 12))), 24)",
+      "origin": "mining:v6:py_loop87",
+      "fit_ic": 0.032127879908079346,
+      "hold_ic": 0.03165578436768761,
+      "decay_ratio": 0.9853057056037264,
+      "category": "clean"
+    },
+    {
+      "name": "gc038",
+      "expression": "ema(z(vwap_pct_20) - z(atr_norm_14) - 0.5*z(range_pct), 12)",
+      "origin": "mining:v6:llm_loop489",
+      "fit_ic": -0.040057598801189004,
+      "hold_ic": -0.029457287746395243,
+      "decay_ratio": 0.7353732598207464,
+      "category": "clean"
+    },
+    {
+      "name": "gc039",
+      "expression": "ema(z(volume_ratio_20) + z(vwap_pct_20) - z(range_pct) - z(atr_norm_14), 12)",
+      "origin": "mining:v6:llm_loop449",
+      "fit_ic": -0.03813909408490965,
+      "hold_ic": -0.028454220652387063,
+      "decay_ratio": 0.7460643884979179,
+      "category": "clean"
+    },
+    {
+      "name": "gc040",
+      "expression": "ema(ifelse(adx_14 > 25, z(roc_12) - z(atr_norm_14), z(vwap_pct_20) - z(return_zscore_24)), 12)",
+      "origin": "mining:v6:llm_loop291",
+      "fit_ic": -0.030249274717016543,
+      "hold_ic": -0.022664761851789186,
+      "decay_ratio": 0.7492662655403437,
+      "category": "clean"
+    }
+  ]
+}

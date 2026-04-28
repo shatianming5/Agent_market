@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -27,7 +26,7 @@ def _ensure_imports() -> None:
     return
 
 
-async def _run_fixture(*, fixture: Path, out_dir: Path, exchange: str, channels: list[str]) -> dict:
+def _run_fixture(*, fixture: Path, out_dir: Path, exchange: str, channels: list[str]) -> dict:
     _ensure_imports()
     from agent_market.microstructure.capture.kucoin import (  # noqa: WPS433
         KuCoinLevel2SeqGapTracker,
@@ -72,51 +71,22 @@ async def _run_fixture(*, fixture: Path, out_dir: Path, exchange: str, channels:
     }
 
 
-async def _run_live(
-    *,
-    out_dir: Path,
-    exchange: str,
-    symbols: list[str],
-    channels: list[str],
-    duration_sec: float,
-    max_reconnects: Optional[int] = None,
-) -> dict:
-    _ensure_imports()
-    from agent_market.microstructure.capture.kucoin import capture_kucoin_ws  # noqa: WPS433
-    from agent_market.microstructure.capture.writer import CaptureWriter  # noqa: WPS433
-
-    writer = CaptureWriter(out_dir, channels=channels)
-    try:
-        kwargs = {}
-        if max_reconnects is not None:
-            kwargs["max_reconnects"] = int(max_reconnects)
-        meta = await capture_kucoin_ws(
-            symbols=symbols,
-            channels=channels,
-            duration_sec=duration_sec,
-            writer=writer,
-            **kwargs,
-        )
-        counts = {k: v.count for k, v in writer.files.items()}
-        return {"mode": "live", "exchange": exchange, "counts": counts, **meta}
-    finally:
-        writer.close()
-
-
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Capture KuCoin public websocket data (match + level2).")
+    parser = argparse.ArgumentParser(description="Capture KuCoin market data (REST polling or fixture).")
     parser.add_argument("--exchange", default="kucoin")
     parser.add_argument("--symbols", default="BTC-USDT", help="Comma/space separated, e.g. BTC-USDT ETH-USDT")
     parser.add_argument("--channels", default="match,level2", help="Comma/space separated: match level2")
     parser.add_argument("--duration-sec", type=float, default=60.0)
+    parser.add_argument(
+        "--mode",
+        choices=["rest"],
+        default="rest",
+        help="Capture transport (only REST polling is supported).",
+    )
+    parser.add_argument("--poll-interval-sec", type=float, default=1.0, help="[rest] poll interval seconds")
+    parser.add_argument("--rest-timeout-sec", type=float, default=15.0, help="[rest] request timeout seconds")
     parser.add_argument("--out-dir", default=None, help="Session output directory (default: user_data/micro_capture/<ex>/<date>/<session_id>)")
     parser.add_argument("--fixture", default=None, help="Offline replay fixture (jsonl) to avoid network")
-    parser.add_argument(
-        "--max-reconnects",
-        type=int,
-        default=None,
-        help="Max reconnect attempts for live capture (0 or negative => unlimited). Default: 3",
-    )
     args = parser.parse_args(argv)
 
     exchange = str(args.exchange or "").strip().lower()
@@ -156,20 +126,48 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
 
     if fixture is not None:
-        meta = asyncio.run(_run_fixture(fixture=fixture, out_dir=out_dir, exchange=exchange, channels=channels))
+        meta = _run_fixture(fixture=fixture, out_dir=out_dir, exchange=exchange, channels=channels)
     else:
         if not symbols:
             raise SystemExit("No symbols provided")
-        meta = asyncio.run(
-            _run_live(
-                out_dir=out_dir,
-                exchange=exchange,
-                symbols=symbols,
-                channels=channels,
-                duration_sec=float(args.duration_sec),
-                max_reconnects=args.max_reconnects,
+        mode = str(args.mode or "ws").strip().lower()
+        if mode == "rest":
+            from agent_market.microstructure.capture.writer import CaptureWriter  # noqa: WPS433
+            from agent_market.microstructure.capture.kucoin_rest import (  # noqa: WPS433
+                capture_kucoin_rest,
+                fetch_lob_rebuild_snapshot,
             )
-        )
+
+            # Ensure a snapshot.json exists for lob_rebuild and to seed stable delta diffs.
+            snapshot_path = (out_dir / "snapshot.json").resolve()
+            seed_snapshot = None
+            if snapshot_path.exists():
+                try:
+                    seed_snapshot = json.loads(snapshot_path.read_text(encoding="utf-8-sig"))
+                except Exception:
+                    seed_snapshot = None
+            if not isinstance(seed_snapshot, dict):
+                seed_snapshot = fetch_lob_rebuild_snapshot(symbol=str(symbols[0]), depth=20, timeout=float(args.rest_timeout_sec))
+                snapshot_path.write_text(json.dumps(seed_snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            writer = CaptureWriter(out_dir, channels=channels)
+            try:
+                meta = capture_kucoin_rest(
+                    symbol=str(symbols[0]),
+                    channels=channels,
+                    duration_sec=float(args.duration_sec),
+                    writer=writer,
+                    poll_interval_sec=float(args.poll_interval_sec),
+                    timeout=float(args.rest_timeout_sec),
+                    depth=20,
+                    seed_snapshot=seed_snapshot if isinstance(seed_snapshot, dict) else None,
+                )
+                counts = {k: v.count for k, v in writer.files.items()}
+                meta = {"mode": "rest", "exchange": exchange, "counts": counts, **meta}
+            finally:
+                writer.close()
+        else:
+            raise SystemExit(f"Unsupported mode: {mode!r} (only 'rest' supported)")
 
     # Write manifest.
     _ensure_imports()

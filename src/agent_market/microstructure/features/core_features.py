@@ -3,6 +3,19 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
+def _is_level_sequence(value: Any) -> bool:
+    if isinstance(value, (list, tuple)):
+        return True
+    try:  # pragma: no cover - optional dependency
+        import numpy as np  # noqa: PLC0415
+
+        if isinstance(value, np.ndarray):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _ensure_pandas() -> Any:
     try:
         import pandas as pd  # noqa: PLC0415
@@ -13,7 +26,7 @@ def _ensure_pandas() -> Any:
 
 def _safe_list_n(value: Any, n: int) -> Optional[float]:
     try:
-        if not isinstance(value, list):
+        if not _is_level_sequence(value):
             return None
         if n < 0 or n >= len(value):
             return None
@@ -44,13 +57,18 @@ def compute_microprice(lob: Any, *, eps: float = 1e-12) -> Any:
 
 def _depth_from_sizes(sizes: Any, levels: int) -> float:
     total = 0.0
-    if not isinstance(sizes, list):
+    if not _is_level_sequence(sizes):
         return total
     for x in sizes[: int(levels)]:
         try:
             if x is None:
                 continue
-            total += float(x)
+            v = float(x)
+            if not (v == v):  # NaN
+                continue
+            if v <= 0:
+                continue
+            total += v
         except Exception:
             continue
     return float(total)
@@ -78,7 +96,7 @@ def _slope_size_distance(
     eps: float = 1e-12,
 ) -> Optional[float]:
     try:
-        if not isinstance(px_levels, list) or not isinstance(sz_levels, list):
+        if not _is_level_sequence(px_levels) or not _is_level_sequence(sz_levels):
             return None
         m = float(mid)
     except Exception:
@@ -96,6 +114,10 @@ def _slope_size_distance(
             dist = abs(float(m) - float(px)) / (abs(float(m)) + float(eps))
             size = float(sz)
         except Exception:
+            continue
+        if not (dist == dist) or not (size == size):  # NaN
+            continue
+        if not (size > 0):
             continue
         xs.append(float(dist))
         ys.append(float(size))
@@ -126,7 +148,7 @@ def compute_slope_bid_levels(lob: Any, *, levels: int, eps: float = 1e-12) -> An
 
 def _convexity_from_sizes(sizes: Any, *, levels: int, eps: float = 1e-12) -> Optional[float]:
     try:
-        if not isinstance(sizes, list):
+        if not _is_level_sequence(sizes):
             return None
         L = int(levels)
     except Exception:
@@ -145,6 +167,8 @@ def _convexity_from_sizes(sizes: Any, *, levels: int, eps: float = 1e-12) -> Opt
                 continue
             v = float(sz)
         except Exception:
+            continue
+        if not (v == v):  # NaN
             continue
         if not (v > 0):
             continue
