@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 
 from _lib import resolve_path  # noqa: E402
 from agent_market import paths  # noqa: E402
+from agent_market.runtime_preflight import run_tca_preflight  # noqa: E402
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -41,6 +42,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         out_path = resolve_path(str(args.out))
     else:
         out_path = (paths.run_dir(str(args.run_id)) / "tca" / "tca_report.json").resolve()
+
+    run_tca_preflight(
+        run_id=str(args.run_id),
+        backtest_zip=zip_path,
+        results_dir=resolve_path(str(args.results_dir)),
+        out_path=out_path,
+    )
 
     html_path = out_path.with_suffix(".html") if args.html else None
     payload = generate_tca_report(zip_path, run_id=str(args.run_id), out_path=out_path, root=ROOT, html_path=html_path)

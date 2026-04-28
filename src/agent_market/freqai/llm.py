@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import textwrap
 import time
 from pathlib import Path
@@ -76,6 +77,11 @@ DEFAULT_BASE_URL = os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE
 DEFAULT_MODEL = os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or "gpt-3.5-turbo"
 DEFAULT_API_KEY = os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
 DEFAULT_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "45"))
+DEFAULT_PROVIDER = os.environ.get("LLM_PROVIDER") or "openai_compatible"
+DEFAULT_AGENT_URL = os.environ.get("OPENCODE_URL") or ""
+DEFAULT_WORKSPACE = os.environ.get("LLM_WORKSPACE") or str(PROJECT_ROOT)
+DEFAULT_AGENT_MAX_TURNS = int(os.environ.get("LLM_AGENT_MAX_TURNS", "12"))
+DEFAULT_AGENT_STALE_TIMEOUT = float(os.environ.get("LLM_AGENT_STALE_TIMEOUT", "180"))
 
 ALLOWED_FUNCTIONS = [
     ("z(column)", "z-score ???"),
@@ -100,26 +106,89 @@ class LLMConfig:
     """???? LLM ?????"""
 
     base_url: str = DEFAULT_BASE_URL
+    agent_url: str = DEFAULT_AGENT_URL
     api_key: str = DEFAULT_API_KEY
     model: str = DEFAULT_MODEL
+    provider: str = DEFAULT_PROVIDER
+    workspace: str = DEFAULT_WORKSPACE
     temperature: float = 0.2
     max_tokens: int = 1024
     count: int = 50
     retries: int = 3
     timeout: float = DEFAULT_TIMEOUT
+    max_turns: int = DEFAULT_AGENT_MAX_TURNS
+    stale_timeout: float = DEFAULT_AGENT_STALE_TIMEOUT
 
     @classmethod
     def from_args(cls, args: Any) -> "LLMConfig":
         return cls(
             base_url=getattr(args, "llm_base_url", DEFAULT_BASE_URL) or DEFAULT_BASE_URL,
+            agent_url=getattr(args, "llm_agent_url", DEFAULT_AGENT_URL) or DEFAULT_AGENT_URL,
             api_key=getattr(args, "llm_api_key", DEFAULT_API_KEY) or DEFAULT_API_KEY,
             model=getattr(args, "llm_model", DEFAULT_MODEL) or DEFAULT_MODEL,
+            provider=getattr(args, "llm_provider", DEFAULT_PROVIDER) or DEFAULT_PROVIDER,
+            workspace=getattr(args, "llm_workspace", DEFAULT_WORKSPACE) or DEFAULT_WORKSPACE,
             temperature=float(getattr(args, "llm_temperature", 0.2)),
             max_tokens=int(getattr(args, "llm_max_tokens", 1024)),
             count=int(getattr(args, "llm_count", 50)),
             retries=int(getattr(args, "llm_retries", 3)),
             timeout=float(getattr(args, "llm_timeout", DEFAULT_TIMEOUT)),
+            max_turns=int(getattr(args, "llm_max_turns", DEFAULT_AGENT_MAX_TURNS)),
+            stale_timeout=float(getattr(args, "llm_stale_timeout", DEFAULT_AGENT_STALE_TIMEOUT)),
         )
+
+
+def _request_completion_via_opencode(
+    prompt: str,
+    config: LLMConfig,
+    *,
+    system_prompt: str,
+) -> Tuple[str, Optional[Dict[str, Any]]]:
+    from agent_market.agents.executor import OpenCodeExecutor  # noqa: WPS433
+
+    model = str(config.model or os.environ.get("OPENCODE_MODEL") or "").strip()
+    if not model:
+        raise ValueError("OpenCode provider requires llm_model or OPENCODE_MODEL.")
+
+    workspace = Path(str(config.workspace or DEFAULT_WORKSPACE)).expanduser()
+    if not workspace.is_absolute():
+        workspace = (PROJECT_ROOT / workspace).resolve()
+    else:
+        workspace = workspace.resolve()
+
+    if not workspace.exists():
+        raise ValueError(f"OpenCode workspace does not exist: {workspace}")
+
+    agent_url = str(config.agent_url or "").strip() or None
+    if agent_url is None and not shutil.which("opencode"):
+        raise ValueError("OpenCode provider requested but `opencode` CLI is not available and no llm_agent_url/OPENCODE_URL was provided.")
+
+    full_prompt = textwrap.dedent(
+        f"""
+        {system_prompt}
+
+        You are operating as the factor-mining agent for this repository.
+        You may inspect repo files when helpful.
+        Respond with exactly one JSON object and no surrounding prose.
+
+        User task:
+        {prompt}
+        """
+    ).strip()
+
+    executor = OpenCodeExecutor(
+        repo=workspace,
+        model=model,
+        base_url=agent_url,
+        max_turns=max(1, int(config.max_turns)),
+        stale_timeout=max(30.0, float(config.stale_timeout)),
+        max_retries=max(0, int(config.retries)),
+    )
+    try:
+        result = executor.run(full_prompt)
+        return result.assistant_text, result.usage
+    finally:
+        executor.close()
 
 
 def _feature_metadata_map(feature_cfg: Dict) -> Dict[str, Dict]:
@@ -248,6 +317,15 @@ def request_completion(
     *,
     system_prompt: str = "You are an expert quantitative factor engineer. Always reply with valid JSON.",
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
+    provider = str(config.provider or DEFAULT_PROVIDER).strip().lower() or "openai_compatible"
+
+    if provider in ("opencode", "auto"):
+        try:
+            return _request_completion_via_opencode(prompt, config, system_prompt=system_prompt)
+        except Exception:
+            if provider == "opencode":
+                raise
+
     if not config.api_key:
         raise ValueError("?? LLM ???????? API Key?")
 

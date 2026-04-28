@@ -37,6 +37,17 @@ analysis/
 tmp_*
 *.tmp
 
+# runtime outputs (local only)
+runtime_configs/
+runtime_logs/
+runtime_manifests/
+workspace/results/
+ws_production/results/preflight.json
+ws_production/results/factor_cycle_*.json
+ws_production/results/factor_cycle_latest.json
+ws_production/results/factor_validation/
+ws_production/results/factor_eval/
+
 .coverage
 htmlcov/
 

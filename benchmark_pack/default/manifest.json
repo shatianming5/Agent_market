@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "suite_id": "strategy_miner_default",
+  "description": "Frozen benchmark and challenge suite for final strategy-miner promotion.",
+  "selection_timerange": "20260312-20260323",
+  "holdout_timerange": "20260324-20260329",
+  "gates": {
+    "selection_holdout_delta_max_pct": 50.0,
+    "walkforward_min_folds_completed": 2,
+    "pair_holdout_min_profit_pct": -0.5,
+    "min_observation_days": 5,
+    "min_positive_days_ratio": 0.40,
+    "reject_metric_flags": [
+      "native_sharpe_inflated",
+      "native_sortino_inflated",
+      "native_calmar_inflated",
+      "drawdown_mismatch"
+    ]
+  },
+  "challenge_suite": [
+    {
+      "id": "no_negative_shift",
+      "type": "pattern_absent",
+      "pattern": "shift(-",
+      "description": "Reject explicit look-ahead via negative shift."
+    },
+    {
+      "id": "no_centered_rolling",
+      "type": "pattern_absent",
+      "pattern": "center=True",
+      "description": "Reject centered rolling windows that leak future information."
+    },
+    {
+      "id": "no_forward_fill_merge",
+      "type": "regex_absent",
+      "pattern": "merge_asof\\([^\\)]*direction\\s*=\\s*['\\\"]forward['\\\"]",
+      "description": "Reject forward-looking asof merges."
+    }
+  ]
+}

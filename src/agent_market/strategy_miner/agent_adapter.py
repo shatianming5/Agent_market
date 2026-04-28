@@ -27,6 +27,29 @@ from agent_market.agents.executor import (
 
 logger = logging.getLogger(__name__)
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _load_dotenv_fallback(path: Path) -> None:
+    """Load simple KEY=VALUE pairs without overriding existing env."""
+    try:
+        if not path.exists():
+            return
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, value)
+    except Exception:
+        logger.debug("Failed to load .env from %s", path, exc_info=True)
+
+
+_load_dotenv_fallback(_PROJECT_ROOT / ".env")
+
 
 def _extract_opencode_write_blocks(text: str) -> list[str]:
     """Extract bodies inside `<write ...>...</write>` blocks."""
@@ -204,7 +227,7 @@ class StrategyAgent:
                     stale_timeout=stale_timeout,
                     max_retries=max_retries,
                     tool_policy=tool_policy,
-                    permission_overrides={"external_directory": {"*": "allow"}},
+                    permission_overrides={"external_directory": {str(self._workspace): "allow"}},
                 )
                 self._executor_info = {"provider": "opencode"}
                 logger.info("StrategyAgent provider=opencode workspace=%s", self._workspace)

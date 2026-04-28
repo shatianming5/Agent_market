@@ -16,6 +16,9 @@ from ._helpers import (
     _pick_active_candidate,
     _advance_after_candidate,
     _walkforward_timeranges,
+    upsert_history,
+    update_candidate_stage,
+    safe_transition,
 )
 from ._scoring import (
     _compute_effective_score,
@@ -56,6 +59,9 @@ def _run_walkforward_backtests(
         return None
 
     sandbox = candidate.strategy_path.parent.parent.parent
+    cmd_cwd = sandbox / "user_data"
+    if not cmd_cwd.exists():
+        cmd_cwd = sandbox
     strategies_dir = sandbox / "user_data" / "strategies"
     ft_config = paths.resolve_repo_path(config.freqtrade_config)
 
@@ -88,7 +94,7 @@ def _run_walkforward_backtests(
             from ._sandbox_exec import run_sandboxed
             proc = run_sandboxed(
                 cmd,
-                cwd=paths.REPO_ROOT,
+                cwd=cmd_cwd,
                 timeout=config.backtest_timeout,
                 cpu_seconds=config.backtest_timeout + 60,
                 mem_mb=4096,
@@ -155,12 +161,18 @@ def phase_evaluation(
     config: MinerConfig,
     run_dir: Optional[Path] = None,
     kb: Optional["KnowledgeBase"] = None,
+    goal_contract: Optional[Any] = None,
 ) -> None:
-    """Score backtest results using robust daily metrics instead of native freqtrade ratios."""
+    """Score backtest results using robust daily metrics instead of native freqtrade ratios.
+
+    Args:
+        goal_contract: Optional GoalContract — if provided, overrides config
+            for hard constraint values (D1: single source of truth).
+    """
 
     candidate = _pick_active_candidate(state)
     if candidate is None:
-        state.phase = Phase.ANALYSIS
+        safe_transition(state, Phase.ANALYSIS)
         return
 
     if candidate.backtest_summary is None:
@@ -220,6 +232,33 @@ def phase_evaluation(
     )
     effective_sharpe += _training_score_adjustment(candidate)
 
+    # D1: Apply GoalContract objective weights if available
+    if goal_contract is not None:
+        ow = goal_contract.objective_weights
+        if ow and isinstance(ow, dict) and sum(ow.values()) > 0:
+            import math
+            weighted = 0.0
+            _s = max(-4.0, min(4.0, sharpe))
+            _so = max(-4.0, min(4.0, sortino))
+            _ca = max(-4.0, min(4.0, calmar))
+            _pf = max(0.0, min(5.0, profit_factor)) if math.isfinite(profit_factor) else 0.0
+            _pp = max(-50.0, min(100.0, profit_pct)) if math.isfinite(profit_pct) else 0.0
+            _wr = max(0.0, min(1.0, winrate))
+            _rod = (
+                max(0.0, min(5.0, return_over_drawdown))
+                if math.isfinite(return_over_drawdown)
+                else 0.0
+            )
+            weighted += ow.get("sharpe", 0.0) * _s
+            weighted += ow.get("sortino", 0.0) * _so
+            weighted += ow.get("profit_factor", 0.0) * _pf
+            weighted += ow.get("calmar", 0.0) * _ca
+            weighted += ow.get("profit_pct", 0.0) * (_pp / 10.0)  # normalize scale
+            weighted += ow.get("winrate", 0.0) * (_wr * 4.0)  # scale to ~sharpe range
+            weighted += ow.get("return_over_drawdown", 0.0) * _rod
+            # Blend: 60% original score + 40% objective-weighted
+            effective_sharpe = 0.6 * effective_sharpe + 0.4 * weighted
+
     # Walk-forward OOS validation (optional)
     wf_result = _run_walkforward_backtests(candidate, config)
     if wf_result is not None:
@@ -241,37 +280,46 @@ def phase_evaluation(
     candidate.reward = effective_sharpe
 
     # Risk constraint gating
+    # D1: Prefer GoalContract constraints over raw config (single source of truth)
+    def _gc_val(key: str, config_attr: str, default: float = 0.0) -> float:
+        """Get constraint value: GoalContract → config → default."""
+        if goal_contract is not None:
+            v = goal_contract.get_constraint(key, 0.0)
+            if v:
+                return v
+        return float(getattr(config, config_attr, default) or default)
+
     violations: list[str] = []
     pair_robust, pair_violations = _check_per_pair_robustness(
         summary,
-        min_pair_profit_pct=float(getattr(config, "min_pair_profit_pct", -0.5) or -0.5),
+        min_pair_profit_pct=_gc_val("min_pair_profit_pct", "min_pair_profit_pct", -0.5),
     )
     _ = pair_robust
     if pair_violations:
         violations.extend(pair_violations)
-    min_trades = int(getattr(config, "min_trades", 0) or 0)
+    min_trades = int(_gc_val("min_trades", "min_trades", 0))
     if min_trades and trades < min_trades:
         violations.append(f"min_trades:{trades}<{min_trades}")
 
-    min_winrate = float(getattr(config, "min_winrate", 0.0) or 0.0)
+    min_winrate = _gc_val("min_winrate", "min_winrate")
     if min_winrate and winrate < min_winrate:
         violations.append(f"min_winrate:{winrate:.4f}<{min_winrate}")
 
-    min_profit_factor = float(getattr(config, "min_profit_factor", 0.0) or 0.0)
+    min_profit_factor = _gc_val("min_profit_factor", "min_profit_factor")
     if min_profit_factor and profit_factor < min_profit_factor:
         violations.append(f"min_profit_factor:{profit_factor:.4f}<{min_profit_factor}")
 
-    min_profit_pct = float(getattr(config, "min_profit_pct", 0.0) or 0.0)
+    min_profit_pct = _gc_val("min_profit_pct", "min_profit_pct")
     if min_profit_pct and profit_pct < min_profit_pct:
         violations.append(f"min_profit_pct:{profit_pct:.2f}<{min_profit_pct:.2f}")
 
-    min_positive_days_ratio = float(getattr(config, "min_positive_days_ratio", 0.0) or 0.0)
+    min_positive_days_ratio = _gc_val("min_positive_days_ratio", "min_positive_days_ratio")
     if min_positive_days_ratio and positive_days_ratio < min_positive_days_ratio:
         violations.append(
             f"min_positive_days_ratio:{positive_days_ratio:.4f}<{min_positive_days_ratio:.4f}"
         )
 
-    min_return_over_drawdown = float(getattr(config, "min_return_over_drawdown", 0.0) or 0.0)
+    min_return_over_drawdown = _gc_val("min_return_over_drawdown", "min_return_over_drawdown")
     if min_return_over_drawdown and return_over_drawdown < min_return_over_drawdown:
         violations.append(
             f"min_return_over_drawdown:{return_over_drawdown:.4f}<{min_return_over_drawdown:.4f}"
@@ -281,11 +329,11 @@ def phase_evaluation(
         max_dd = abs(float(summary.get("max_drawdown_abs") or 0.0))
     except Exception:
         max_dd = 0.0
-    max_abs_dd = float(getattr(config, "max_abs_drawdown", 0.0) or 0.0)
+    max_abs_dd = _gc_val("max_abs_drawdown", "max_abs_drawdown")
     if max_abs_dd and max_dd > max_abs_dd:
         violations.append(f"max_abs_drawdown:{max_dd:.4f}>{max_abs_dd}")
 
-    max_dd_pct_limit = float(getattr(config, "max_drawdown_pct", 0.0) or 0.0)
+    max_dd_pct_limit = _gc_val("max_drawdown_pct", "max_drawdown_pct")
     if max_dd_pct_limit and max_dd_pct > max_dd_pct_limit:
         violations.append(f"max_drawdown_pct:{max_dd_pct:.2f}>{max_dd_pct_limit:.2f}")
 
@@ -329,7 +377,12 @@ def phase_evaluation(
             candidate.name, effective_sharpe, sharpe, native_sharpe, trades,
         )
 
-    state.history.append(
+    # Mark candidate stage as evaluated
+    update_candidate_stage(candidate, "evaluated")
+
+    # Idempotent history upsert (D2: safe on re-entry)
+    upsert_history(
+        state,
         {
             "iteration": state.iteration,
             "name": candidate.name,
@@ -356,17 +409,11 @@ def phase_evaluation(
             "constraints_ok": bool(candidate.constraints_ok),
             "constraint_violations": list(candidate.constraint_violations or []),
             "diagnosis": "",
-        }
+        },
     )
 
-    if kb is not None and candidate.reward is not None and candidate.constraints_ok:
-        kb.add_elite(
-            name=candidate.name,
-            code=candidate.code,
-            reward=effective_sharpe,
-            backtest_summary=candidate.backtest_summary,
-            iteration=state.iteration,
-        )
+    # KB elite writing moved to runner._update_knowledge_base() to avoid
+    # double-writes (D7).
 
     if run_dir is not None:
         try:
@@ -375,6 +422,18 @@ def phase_evaluation(
             write_leaderboard(run_dir, state, config=config)
         except Exception:
             logger.debug("Leaderboard write failed", exc_info=True)
+
+    # D13: Backtest economics aggregation now handled in _backtest.py
+    # to cover both successful and failed backtests.
+
+    # D6: Trace grading
+    try:
+        from .grading import grade_trace
+        trace_grade = grade_trace(candidate)
+        candidate.candidate_payload = candidate.candidate_payload or {}
+        candidate.candidate_payload["trace_grade"] = trace_grade
+    except Exception:
+        logger.debug("Trace grading failed", exc_info=True)
 
     _advance_after_candidate(state)
 
@@ -388,7 +447,7 @@ def phase_analysis(
     """Analyze results and produce diagnosis for next iteration."""
 
     if not state.candidates:
-        state.phase = Phase.COMPLETE
+        safe_transition(state, Phase.COMPLETE)
         return
 
     # Multi-candidate: pick best from this iteration if possible.
@@ -468,7 +527,7 @@ def phase_analysis(
                 "No candidates produced results in iteration %d — retrying (%d/2) without incrementing iteration",
                 state.iteration, state.gen_retries,
             )
-            state.phase = Phase.STRATEGY_GEN
+            safe_transition(state, Phase.STRATEGY_GEN)
             return
         else:
             logger.warning(
@@ -480,7 +539,7 @@ def phase_analysis(
     state.gen_retries = 0
 
     if state.iteration + 1 >= config.max_iterations:
-        state.phase = Phase.COMPLETE
+        safe_transition(state, Phase.COMPLETE)
     else:
         state.iteration += 1
-        state.phase = Phase.STRATEGY_GEN
+        safe_transition(state, Phase.STRATEGY_GEN)

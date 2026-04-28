@@ -1,0 +1,97 @@
+[2026-04-07 20:41:07,845] INFO - Agent Flow log file: /Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_matrix_20260407-123739/agent_flow_20260407-204107.log
+[2026-04-07 20:41:07,845] INFO - [FLOW] RUN_ID 8e08d5c12ded
+[2026-04-07 20:41:07,845] INFO - [FLOW] STEP_START micro_feature
+[2026-04-07 20:41:07,845] INFO - [FLOW] PHASE micro_feature prepare
+[2026-04-07 20:41:07,845] INFO - [FLOW] PHASE micro_feature execute
+[2026-04-07 20:41:08,036] INFO - NumExpr defaulting to 8 threads.
+[2026-04-07 20:41:08,259] INFO - [FLOW] PHASE micro_feature summarize
+[2026-04-07 20:41:08,259] INFO - [FLOW] STEP_OK micro_feature
+[2026-04-07 20:41:08,259] INFO - [FLOW] STEP_START factor_compile
+[2026-04-07 20:41:08,259] INFO - [FLOW] PHASE factor_compile prepare
+[2026-04-07 20:41:08,259] INFO - [FLOW] PHASE factor_compile execute
+[2026-04-07 20:41:08,260] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_compile.py --spec /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/factor_compile/input_factor_spec.json --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/factor_compile
+[2026-04-07 20:41:08,396] INFO - [FLOW] PHASE factor_compile summarize
+[2026-04-07 20:41:08,396] INFO - [FLOW] STEP_OK factor_compile
+[2026-04-07 20:41:08,396] INFO - [FLOW] STEP_START factor_eval
+[2026-04-07 20:41:08,396] INFO - [FLOW] PHASE factor_eval prepare
+[2026-04-07 20:41:08,396] INFO - [FLOW] PHASE factor_eval execute
+[2026-04-07 20:41:08,398] INFO - Running command: /opt/homebrew/opt/python@3.14/bin/python3.14 /Users/shatianming/Downloads/Agent_market/scripts/factor_eval.py --expression-path /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/factor_compile/compiled_expression.txt --out-dir /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/factor_eval --rows 4096 --seed 7 --features-parquet /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/micro_feature/features.parquet
+[2026-04-07 20:41:08,913] INFO - [FLOW] PHASE factor_eval summarize
+[2026-04-07 20:41:08,914] INFO - [FLOW] STEP_OK factor_eval
+[2026-04-07 20:41:08,914] INFO - [FLOW] STEP_START strategy_miner
+[2026-04-07 20:41:08,914] INFO - [FLOW] PHASE strategy_miner prepare
+[2026-04-07 20:41:08,914] INFO - [FLOW] PHASE strategy_miner execute
+[2026-04-07 20:41:08,981] INFO - Starting new mining run: run_id=8e08d5c12ded
+[2026-04-07 20:41:08,988] INFO - Loaded global strategy knowledge base: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/strategy_memory/knowledge_base.json
+[2026-04-07 20:41:09,340] INFO - Backfilled global strategy knowledge base: runs=126 merged=126 strategy_cards +0 => 301, failure_cards +0 => 300
+[2026-04-07 20:41:09,342] INFO - Starting deep strategy research pipeline...
+[2026-04-07 20:41:22,304] INFO - R0 Market Regime: trending_down (12.8s)
+[2026-04-07 20:41:23,190] INFO - arXiv [rl_trading]: found 3 papers
+[2026-04-07 20:41:24,016] INFO - arXiv [dl_prediction]: found 3 papers
+[2026-04-07 20:41:25,022] INFO - arXiv [ml_features]: found 3 papers
+[2026-04-07 20:41:25,855] INFO - arXiv [alpha_mining]: found 3 papers
+[2026-04-07 20:41:26,702] INFO - arXiv [quant_strategy]: found 3 papers
+[2026-04-07 20:41:26,702] INFO - R1 Literature: found 15 papers across 5 topics (4.4s)
+[2026-04-07 20:41:26,702] INFO - R2 Blueprints: generated 5 blueprints (0.0s)
+[2026-04-07 20:41:26,702] INFO - Deep research complete: regime=trending_down, papers=15, blueprints=5 (17.4s total)
+[2026-04-07 20:41:26,703] INFO - Deep research saved to /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/strategy_miner/deep_research.json
+[2026-04-07 20:41:26,703] INFO - === Iteration 0 | Phase strategy_gen ===
+[2026-04-07 20:41:26,703] INFO - Bandit selected families: ['ml/lightgbm']
+[2026-04-07 20:41:28,072] INFO - Market research completed in 1.4s (5 sources)
+[2026-04-07 20:41:28,073] INFO - Market research injected (947 chars)
+[2026-04-07 20:41:28,075] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/factor_memory/factor_memory.json
+[2026-04-07 20:41:28,078] INFO - Loaded factor memory for strategy generation: /Users/shatianming/Downloads/Agent_market/artifacts/control_plane/factor_memory/factor_memory.json
+[2026-04-07 20:41:28,078] INFO - Phase STRATEGY_GEN: iteration=0 generating 1 candidates (candidate_workers=1 role_workers=1)
+[2026-04-07 20:41:28,081] INFO - Sandbox prepared at /Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 20:41:30,512] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 20:41:46,445] INFO - Generated 1 candidates for iteration 0
+[2026-04-07 20:41:46,447] INFO - === Iteration 0 | Phase train_model ===
+[2026-04-07 20:41:49,731] INFO - === Iteration 0 | Phase backtest ===
+[2026-04-07 20:41:49,743] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:41:51,743] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 0/10)
+[2026-04-07 20:41:54,617] INFO - Trade calibration applied for LgbmIntraBreakoutRegressor1hV0Cand0: enter_threshold 0.002 -> 0.0014, exit_threshold -0.0008 -> -0.00056 (trades=0<min_trades=20)
+[2026-04-07 20:41:54,618] INFO - Re-running backtest after trade calibration for LgbmIntraBreakoutRegressor1hV0Cand0 (1/10)
+[2026-04-07 20:41:54,629] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:41:54,630] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 1/10)
+[2026-04-07 20:41:57,580] INFO - Trade calibration applied for LgbmIntraBreakoutRegressor1hV0Cand0: enter_threshold 0.0014 -> 0.00098, exit_threshold -0.00056 -> -0.000392 (trades=0<min_trades=20)
+[2026-04-07 20:41:57,580] INFO - Re-running backtest after trade calibration for LgbmIntraBreakoutRegressor1hV0Cand0 (2/10)
+[2026-04-07 20:41:57,593] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:41:57,594] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 2/10)
+[2026-04-07 20:42:00,329] INFO - Trade calibration applied for LgbmIntraBreakoutRegressor1hV0Cand0: enter_threshold 0.00098 -> 0.000686, exit_threshold -0.000392 -> -0.0002744 (trades=0<min_trades=20)
+[2026-04-07 20:42:00,329] INFO - Re-running backtest after trade calibration for LgbmIntraBreakoutRegressor1hV0Cand0 (3/10)
+[2026-04-07 20:42:00,342] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:42:00,343] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 3/10)
+[2026-04-07 20:42:02,943] INFO - Trade calibration applied for LgbmIntraBreakoutRegressor1hV0Cand0: enter_threshold 0.000686 -> 0.0004802, exit_threshold -0.0002744 -> -0.00019208 (trades=0<min_trades=20)
+[2026-04-07 20:42:02,943] INFO - Re-running backtest after trade calibration for LgbmIntraBreakoutRegressor1hV0Cand0 (4/10)
+[2026-04-07 20:42:02,955] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:42:02,956] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 4/10)
+[2026-04-07 20:42:05,687] INFO - Trade calibration applied for LgbmIntraBreakoutRegressor1hV0Cand0: enter_threshold 0.0004802 -> 0.00033614, exit_threshold -0.00019208 -> -0.000134456 (trades=0<min_trades=20)
+[2026-04-07 20:42:05,688] INFO - Re-running backtest after trade calibration for LgbmIntraBreakoutRegressor1hV0Cand0 (5/10)
+[2026-04-07 20:42:05,700] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:42:05,701] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 5/10)
+[2026-04-07 20:42:08,437] INFO - Trade calibration applied for LgbmIntraBreakoutRegressor1hV0Cand0: enter_threshold 0.00033614 -> 0.000235298, exit_threshold -0.000134456 -> -9.41192e-05 (trades=1<min_trades=20)
+[2026-04-07 20:42:08,437] INFO - Re-running backtest after trade calibration for LgbmIntraBreakoutRegressor1hV0Cand0 (6/10)
+[2026-04-07 20:42:08,448] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:42:08,449] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 6/10)
+[2026-04-07 20:42:11,092] INFO - Trade calibration applied for LgbmIntraBreakoutRegressor1hV0Cand0: enter_threshold 0.000235298 -> 0.000164709, exit_threshold -9.41192e-05 -> -6.58834e-05 (trades=2<min_trades=20)
+[2026-04-07 20:42:11,092] INFO - Re-running backtest after trade calibration for LgbmIntraBreakoutRegressor1hV0Cand0 (7/10)
+[2026-04-07 20:42:11,103] INFO - Compliance auto-fix applied for LgbmIntraBreakoutRegressor1hV0Cand0: fix_stoploss
+[2026-04-07 20:42:11,104] INFO - Phase BACKTEST: running freqtrade backtesting for LgbmIntraBreakoutRegressor1hV0Cand0 (attempt 7/10)
+[2026-04-07 20:42:13,977] INFO - Backtest completed: profit=-2.00% trades=56
+[2026-04-07 20:42:13,979] INFO - === Iteration 0 | Phase evaluation ===
+[2026-04-07 20:42:13,980] INFO - Phase EVALUATION: LgbmIntraBreakoutRegressor1hV0Cand0 sharpe=-0.4892 native_sharpe=-16.0294 sortino=-0.4069 native_sortino=-34.6298 calmar=-0.9485 native_calmar=-64.5916 profit_factor=0.3171 profit=-2.00% trades=56 winrate=0.4643 pos_days=0.06 max_dd=2.11% rod=-0.9485 sqn=-3.1112 flags=native_sharpe_inflated,native_sortino_inflated,native_calmar_inflated (best_score=-inf)
+[2026-04-07 20:42:13,980] INFO - New best candidate: LgbmIntraBreakoutRegressor1hV0Cand0 with effective_sharpe=-0.4170 (score_sharpe=-0.4892, native_sharpe=-16.0294, trades=56)
+[2026-04-07 20:42:13,993] INFO - === Iteration 0 | Phase analysis ===
+[2026-04-07 20:42:16,456] INFO - StrategyAgent provider=opencode workspace=/Users/shatianming/Downloads/Agent_market/artifacts/runs/8e08d5c12ded/strategy_miner/iter_0/cand_00/model/sandbox
+[2026-04-07 20:42:36,083] INFO - Phase ANALYSIS complete: 策略当前表现为明显亏损且极低稳健性（负 Sharpe、低 Profit Factor、单对 PF 为 0），需先从特征/模型分层与目标函数重设计入手，并同步加强基于波动率的仓位与止损管理以降低回撤并改善盈利能力。
+[2026-04-07 20:42:36,123] INFO - No holdout_timerange configured, skipping sealed holdout
+[2026-04-07 20:42:36,343] INFO - Mining complete: run_id=8e08d5c12ded iterations=0 best_sharpe=-0.4170 best_profit=-2.00%
+[2026-04-07 20:42:36,343] INFO - Best strategy: LgbmIntraBreakoutRegressor1hV0Cand0 (sharpe=-0.4170)
+[2026-04-07 20:42:36,347] INFO - [FLOW] PHASE strategy_miner summarize
+[2026-04-07 20:42:36,347] INFO - [FLOW] STEP_OK strategy_miner
+[2026-04-07 20:42:36,347] INFO - [FLOW] STEP_START report
+[2026-04-07 20:42:36,347] INFO - [FLOW] PHASE report prepare
+[2026-04-07 20:42:36,347] INFO - [FLOW] PHASE report execute
+[2026-04-07 20:42:36,386] INFO - [FLOW] PHASE report summarize
+[2026-04-07 20:42:36,386] INFO - [FLOW] STEP_OK report
+[2026-04-07 20:42:38,496] INFO - [FLOW] META_OK artifacts/run_meta.json

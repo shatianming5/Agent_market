@@ -165,6 +165,138 @@ def _strip_tool_lines(text: str) -> str:
 
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*$")
+_DATE_SETINDEX_RE = re.compile(
+    r"^(?P<indent>\s*)(?P<obj>[A-Za-z_][A-Za-z0-9_]*)\s*\.set_index\(\s*['\"]date['\"]\s*,\s*inplace\s*=\s*True\s*\)\s*$",
+    re.MULTILINE,
+)
+
+
+def _auto_fix_informative_merge_usage(code: str) -> tuple[str, list[str]]:
+    if "merge_informative_pair" not in code:
+        return code, []
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return code, []
+
+    class _Transformer(ast.NodeTransformer):
+        def __init__(self) -> None:
+            self.replaced_self_call = False
+            self.added_append_timeframe_false = False
+            self.saw_merge_call = False
+
+        def visit_Call(self, node: ast.Call) -> ast.AST:
+            self.generic_visit(node)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "self"
+                and node.func.attr == "merge_informative_pair"
+            ):
+                node.func = ast.Name(id="merge_informative_pair", ctx=ast.Load())
+                self.replaced_self_call = True
+
+            if isinstance(node.func, ast.Name) and node.func.id == "merge_informative_pair":
+                self.saw_merge_call = True
+                has_suffix = any(kw.arg == "suffix" for kw in node.keywords or [])
+                append_kw = next((kw for kw in node.keywords or [] if kw.arg == "append_timeframe"), None)
+                if has_suffix and append_kw is None:
+                    node.keywords.append(ast.keyword(arg="append_timeframe", value=ast.Constant(False)))
+                    self.added_append_timeframe_false = True
+            return node
+
+    transformer = _Transformer()
+    tree = transformer.visit(tree)
+    ast.fix_missing_locations(tree)
+
+    fixes: list[str] = []
+    if transformer.replaced_self_call:
+        fixes.append("rewrite_self_merge_informative_pair")
+    if transformer.added_append_timeframe_false:
+        fixes.append("force_append_timeframe_false_for_suffix")
+
+    if transformer.saw_merge_call:
+        import_added = False
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "freqtrade.strategy":
+                imported_names = {alias.name for alias in node.names}
+                if "merge_informative_pair" not in imported_names:
+                    node.names.append(ast.alias(name="merge_informative_pair", asname=None))
+                    import_added = True
+                break
+        else:
+            insert_idx = 0
+            while (
+                insert_idx < len(tree.body)
+                and isinstance(tree.body[insert_idx], ast.ImportFrom)
+                and tree.body[insert_idx].module == "__future__"
+            ):
+                insert_idx += 1
+            tree.body.insert(
+                insert_idx,
+                ast.ImportFrom(
+                    module="freqtrade.strategy",
+                    names=[ast.alias(name="merge_informative_pair", asname=None)],
+                    level=0,
+                ),
+            )
+            import_added = True
+        if import_added:
+            fixes.append("ensure_merge_informative_pair_import")
+
+    if not fixes:
+        return code, []
+
+    try:
+        updated = ast.unparse(tree).strip() + "\n"
+    except Exception:
+        return code, []
+    return updated, fixes
+
+
+def _validate_informative_merge_usage(tree: ast.AST) -> tuple[bool, str]:
+    imported_merge = False
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.ImportFrom) and node.module == "freqtrade.strategy":
+            if any(alias.name == "merge_informative_pair" for alias in node.names):
+                imported_merge = True
+                break
+
+    saw_merge_call = False
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "self"
+            and node.func.attr == "merge_informative_pair"
+        ):
+            return False, (
+                "Use merge_informative_pair(...) imported from freqtrade.strategy; "
+                "do not call self.merge_informative_pair(...)"
+            )
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id == "merge_informative_pair":
+                saw_merge_call = True
+                suffix_kw = next((kw for kw in node.keywords or [] if kw.arg == "suffix"), None)
+                append_kw = next((kw for kw in node.keywords or [] if kw.arg == "append_timeframe"), None)
+                if suffix_kw is not None:
+                    if append_kw is None:
+                        return False, (
+                            "merge_informative_pair with suffix requires append_timeframe=False"
+                        )
+                    if not (
+                        isinstance(append_kw.value, ast.Constant)
+                        and append_kw.value.value is False
+                    ):
+                        return False, (
+                            "merge_informative_pair with suffix requires append_timeframe=False"
+                        )
+
+    if saw_merge_call and not imported_merge:
+        return False, "merge_informative_pair must be imported from freqtrade.strategy"
+    return True, "Validation passed"
 
 
 def auto_fix_strategy_code(code: str) -> tuple[str, list[str]]:
@@ -268,6 +400,36 @@ def auto_fix_strategy_code(code: str) -> tuple[str, list[str]]:
         )
         fixes.append("replace_talib_with_pandas_ta")
 
+    # 7) Normalize informative merge usage.
+    rewritten_merge, merge_fixes = _auto_fix_informative_merge_usage(out)
+    if merge_fixes:
+        out = rewritten_merge
+        fixes.extend(merge_fixes)
+
+    # 8) Preserve the `date` column for merge_informative_pair while still
+    # allowing strategies to work with a DatetimeIndex for VWAP/session logic.
+    if "merge_informative_pair" in out and re.search(r"^\s*import\s+pandas\s+as\s+pd\s*$", out, re.MULTILINE):
+        def _rewrite_set_index(match: re.Match[str]) -> str:
+            indent = match.group("indent")
+            obj = match.group("obj")
+            return (
+                f'{indent}if "date" in {obj}.columns:\n'
+                f'{indent}    {obj}["date"] = pd.to_datetime({obj}["date"], utc=True, errors="coerce")\n'
+                f'{indent}    {obj}.index = pd.DatetimeIndex({obj}["date"])'
+            )
+
+        rewritten = _DATE_SETINDEX_RE.sub(_rewrite_set_index, out)
+        if rewritten != out:
+            out = rewritten
+            fixes.append("preserve_date_column_for_informative_merge")
+
+    # 9) Freqtrade hyperopt Parameters expose `.value`, not `.default`.
+    # Some LLM outputs use `.default` and crash at runtime.
+    rewritten = re.sub(r"(\bself\.[A-Za-z_]\w*)\.default\b", r"\1.value", out)
+    if rewritten != out:
+        out = rewritten
+        fixes.append("rewrite_parameter_default_to_value")
+
     return out, fixes
 
 
@@ -361,6 +523,72 @@ def ensure_freqtrade_strategy_compliance_code(
                 vals.append(ast.Constant(str(v)))
         return ast.Dict(keys=keys, values=vals)
 
+    def _inject_ohlcv_suffix_guard(fn: ast.FunctionDef) -> bool:
+        """Ensure required OHLCV columns exist after informative merges.
+
+        Some generated strategies use `pd.merge_asof` and accidentally bring an
+        informative `close` column, which results in suffixing to `close_x` /
+        `close_y` and breaks freqtrade validation (expects `close`).
+        """
+        # Idempotent: if the function already references close_x, assume guard exists.
+        for n in ast.walk(fn):
+            if isinstance(n, ast.Constant) and n.value == "close_x":
+                return False
+
+        df_name = "dataframe"
+        try:
+            # populate_indicators(self, dataframe, metadata, ...)
+            if len(fn.args.args) >= 2:
+                df_name = str(fn.args.args[1].arg or "dataframe")
+        except Exception:
+            df_name = "dataframe"
+
+        cols = ("open", "high", "low", "close", "volume")
+        guard: list[ast.stmt] = []
+        for c in cols:
+            cx = f"{c}_x"
+            cond = ast.BoolOp(
+                op=ast.And(),
+                values=[
+                    ast.Compare(
+                        left=ast.Constant(c),
+                        ops=[ast.NotIn()],
+                        comparators=[ast.Attribute(value=ast.Name(id=df_name, ctx=ast.Load()), attr="columns", ctx=ast.Load())],
+                    ),
+                    ast.Compare(
+                        left=ast.Constant(cx),
+                        ops=[ast.In()],
+                        comparators=[ast.Attribute(value=ast.Name(id=df_name, ctx=ast.Load()), attr="columns", ctx=ast.Load())],
+                    ),
+                ],
+            )
+            assign = ast.Assign(
+                targets=[
+                    ast.Subscript(
+                        value=ast.Name(id=df_name, ctx=ast.Load()),
+                        slice=ast.Constant(c),
+                        ctx=ast.Store(),
+                    )
+                ],
+                value=ast.Subscript(
+                    value=ast.Name(id=df_name, ctx=ast.Load()),
+                    slice=ast.Constant(cx),
+                    ctx=ast.Load(),
+                ),
+            )
+            guard.append(ast.If(test=cond, body=[assign], orelse=[]))
+
+        # Insert guard right before the final `return ...` if present.
+        last_ret = None
+        for i, stmt in enumerate(fn.body):
+            if isinstance(stmt, ast.Return):
+                last_ret = i
+        if last_ret is None:
+            return False
+
+        fn.body[last_ret:last_ret] = guard
+        return True
+
     class _Transformer(ast.NodeTransformer):
         def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
             is_target = any(_is_istrategy_base(b) for b in node.bases)
@@ -371,6 +599,8 @@ def ensure_freqtrade_strategy_compliance_code(
             found_order_types = False
             found_order_tif = False
             found_can_short = False
+            found_stoploss = False
+            found_minimal_roi = False
 
             for stmt in node.body:
                 if _targets_name(stmt, "timeframe"):
@@ -465,6 +695,22 @@ def ensure_freqtrade_strategy_compliance_code(
                         if not (isinstance(v, ast.Constant) and v.value is False):
                             _set_value(stmt, ast.Constant(False))
                             fixes.append("fix_can_short_false")
+                elif _targets_name(stmt, "stoploss"):
+                    found_stoploss = True
+                    v = getattr(stmt, "value", None)
+                    # Freqtrade expects a numeric stoploss (float). Some LLM outputs
+                    # incorrectly assign a HyperOpt Parameter here (DecimalParameter),
+                    # which crashes the resolver.
+                    is_numeric = isinstance(v, ast.Constant) and isinstance(v.value, (int, float))
+                    if not is_numeric:
+                        _set_value(stmt, ast.Constant(-0.02))
+                        fixes.append("fix_stoploss")
+                elif _targets_name(stmt, "minimal_roi"):
+                    found_minimal_roi = True
+                    v = getattr(stmt, "value", None)
+                    if not isinstance(v, ast.Dict):
+                        _set_value(stmt, _make_dict({"0": 0.01, "30": 0.005, "120": 0.0}))
+                        fixes.append("fix_minimal_roi")
 
             insert_at = 0
             if node.body and isinstance(node.body[0], ast.Expr):
@@ -482,6 +728,28 @@ def ensure_freqtrade_strategy_compliance_code(
                 )
                 insert_at += 1
                 fixes.append("add_can_short_false")
+
+            if not found_stoploss:
+                node.body.insert(
+                    insert_at,
+                    ast.Assign(
+                        targets=[ast.Name(id="stoploss", ctx=ast.Store())],
+                        value=ast.Constant(-0.02),
+                    ),
+                )
+                insert_at += 1
+                fixes.append("add_stoploss")
+
+            if not found_minimal_roi:
+                node.body.insert(
+                    insert_at,
+                    ast.Assign(
+                        targets=[ast.Name(id="minimal_roi", ctx=ast.Store())],
+                        value=_make_dict({"0": 0.01, "30": 0.005, "120": 0.0}),
+                    ),
+                )
+                insert_at += 1
+                fixes.append("add_minimal_roi")
 
             if not found_timeframe and timeframe:
                 node.body.insert(
@@ -514,6 +782,11 @@ def ensure_freqtrade_strategy_compliance_code(
                     ),
                 )
                 fixes.append("add_order_time_in_force")
+
+            for stmt in node.body:
+                if isinstance(stmt, ast.FunctionDef) and stmt.name == "populate_indicators":
+                    if _inject_ohlcv_suffix_guard(stmt):
+                        fixes.append("add_ohlcv_suffix_guard")
 
             return self.generic_visit(node)
 
@@ -669,6 +942,16 @@ def validate_strategy_code(code: str) -> Tuple[bool, str]:
     missing = _REQUIRED_METHODS - found_methods
     if missing:
         return False, f"Missing required methods: {', '.join(sorted(missing))}"
+
+    if "merge_informative_pair" in code and _DATE_SETINDEX_RE.search(code):
+        return False, (
+            "merge_informative_pair requires a preserved 'date' column; "
+            "do not use set_index('date', inplace=True) before merging"
+        )
+
+    merge_ok, merge_msg = _validate_informative_merge_usage(tree)
+    if not merge_ok:
+        return False, merge_msg
 
     return True, "Validation passed"
 

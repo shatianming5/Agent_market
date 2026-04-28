@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
+import json
+import shutil
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -49,3 +53,48 @@ def test_e2e_flow_produces_required_artifacts():
     runs = client.get("/flow/runs/list?limit=10").json()
     assert runs.get("items") and isinstance(runs["items"], list)
     assert any(it.get("run_id") == meta["run_id"] for it in runs["items"])
+
+
+def test_expression_strategy_prefers_lightgbm_summary(monkeypatch, tmp_path: Path):
+    root = Path(__file__).resolve().parents[1]
+    artifacts_root = tmp_path / "artifacts"
+    user_root = tmp_path / "user_data"
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(artifacts_root))
+    monkeypatch.setenv("AGENT_MARKET_USER_DATA_ROOT", str(user_root))
+
+    strategy_src = root / "user_data" / "strategies" / "ExpressionLongStrategy.py"
+    strategy_dst = user_root / "strategies" / "ExpressionLongStrategy.py"
+    strategy_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(strategy_src, strategy_dst)
+
+    rl_dir = artifacts_root / "models" / "rl_manual_sanity"
+    rl_dir.mkdir(parents=True, exist_ok=True)
+    (rl_dir / "training_summary.json").write_text(
+        json.dumps({"model": "ppo", "model_path": str(rl_dir / "ppo_trading_env.zip")}),
+        encoding="utf-8",
+    )
+
+    lgb_dir = artifacts_root / "models" / "lightgbm_real"
+    lgb_dir.mkdir(parents=True, exist_ok=True)
+    (lgb_dir / "training_summary.json").write_text(
+        json.dumps({"model": "lightgbm", "model_path": str(lgb_dir / "lightgbm_model.txt")}),
+        encoding="utf-8",
+    )
+
+    spec = importlib.util.spec_from_file_location("test_expression_strategy", strategy_dst)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    fake_freqtrade = types.ModuleType("freqtrade")
+    fake_strategy = types.ModuleType("freqtrade.strategy")
+
+    class _DummyIStrategy:  # noqa: D401
+        """Minimal stub for unit-loading the strategy module."""
+
+    fake_strategy.IStrategy = _DummyIStrategy
+    monkeypatch.setitem(sys.modules, "freqtrade", fake_freqtrade)
+    monkeypatch.setitem(sys.modules, "freqtrade.strategy", fake_strategy)
+    spec.loader.exec_module(module)
+
+    strategy = object.__new__(module.ExpressionLongStrategy)
+    resolved = strategy._resolve_model_dir()
+    assert resolved == lgb_dir.resolve()

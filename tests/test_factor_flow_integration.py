@@ -37,11 +37,20 @@ def test_flow_factor_compile_and_eval_write_run_meta_checks():
     assert checks.get("factor_expression_txt", {}).get("exists") is True
     assert checks.get("factor_scores_json", {}).get("exists") is True
     assert checks.get("factor_pareto_csv", {}).get("exists") is True
+    assert checks.get("factor_memory_json", {}).get("exists") is True
+    assert checks.get("factor_cards_json", {}).get("exists") is True
+    assert checks.get("factor_failure_cards_json", {}).get("exists") is True
+    assert checks.get("factor_lineage_json", {}).get("exists") is True
 
     scores = client.get(f"/flow/factor-scores/{run_id}").json()
     assert scores.get("status") != "error", scores
     assert isinstance(scores.get("items"), list)
     assert scores.get("_run_id") == run_id
+
+    memory = client.get(f"/flow/factor-memory/{run_id}").json()
+    assert memory.get("status") != "error", memory
+    assert isinstance(memory.get("factor_cards"), list)
+    assert memory.get("_run_id") == run_id
 
 
 def test_api_run_factor_endpoints_start_jobs():

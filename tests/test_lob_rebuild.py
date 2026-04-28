@@ -53,13 +53,19 @@ def test_lob_rebuild_from_fixture(tmp_path: Path):
 
     lob_path = out_dir / "lob_state.parquet"
     report_path = out_dir / "rebuild_report.json"
+    preflight_path = out_dir / "preflight.json"
     assert lob_path.exists()
     assert report_path.exists()
+    assert preflight_path.exists()
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["exchange"] == "kucoin"
     assert report["symbol"] == "BTC-USDT"
     assert report["gaps"]["count"] >= 0
+
+    preflight = json.loads(preflight_path.read_text(encoding="utf-8"))
+    assert preflight["kind"] == "lob_rebuild"
+    assert preflight["ok"] is True
 
     import pandas as pd
 
@@ -84,4 +90,3 @@ def test_lob_rebuild_from_fixture(tmp_path: Path):
     ]:
         assert col in df.columns
     assert df.shape[0] >= 2  # snapshot + >=1 delta
-

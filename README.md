@@ -153,6 +153,18 @@ make e2e
   - `python scripts/clean_workspace.py`
   - `python scripts/clean_workspace.py --dry-run`
 
+- 长期运行建议的定期 GC（建议用 cron/launchd 定期执行）：
+  - Flow runs（保留最近 N 次 run，可选清理无引用回测 zip）：
+    - `python scripts/gc_runs.py --keep 50 --prune-backtests --dry-run`
+    - `python scripts/gc_runs.py --keep 50 --prune-backtests`
+  - Job logs/registry（保留最近 N 个 job + 最近 X 天）：
+    - `python scripts/gc_jobs.py --keep 200 --keep-days 14 --dry-run`
+    - `python scripts/gc_jobs.py --keep 200 --keep-days 14`
+
+- 单机常驻服务的作业并发控制（可选）：
+  - `AGENT_MARKET_MAX_CONCURRENT_JOBS`：最大同时运行 job 数（默认 2；设为 0 表示不限制）
+  - `AGENT_MARKET_MAX_QUEUED_JOBS`：最大排队 job 数（默认 50；队列满时 API 返回 `JOB_QUEUE_FULL`）
+
 ## Strategy Miner（策略挖掘）
 
 通过 LLM 多 Agent 管线（planner → coder → reviewer → backtester）自动生成、回测、评估和迭代优化交易策略。

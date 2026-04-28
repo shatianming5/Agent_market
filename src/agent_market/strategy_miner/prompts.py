@@ -1,7 +1,21 @@
 """Prompt templates for the strategy mining agent."""
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Dict, List, Optional
+
+# D8: Prompt version — bump when prompt structure changes materially
+PROMPT_VERSION = "v2.2"
+
+
+def prompt_metadata(prompt_id: str, prompt_text: str) -> Dict[str, str]:
+    """Generate metadata dict for a prompt (D8: context engineering)."""
+    sha = hashlib.sha256(prompt_text.encode()).hexdigest()[:12]
+    return {
+        "prompt_id": prompt_id,
+        "prompt_version": PROMPT_VERSION,
+        "prompt_sha256": sha,
+    }
 
 
 def _fmt_pct(value: float) -> str:
@@ -71,6 +85,8 @@ def build_strategy_gen_prompt(
     market_context: Optional[str] = None,
     research_insights: Optional[str] = None,
     strategy_blueprints: Optional[str] = None,
+    factor_context: Optional[str] = None,
+    strategy_memory_context: Optional[str] = None,
     diversity_instructions: Optional[str] = None,
     previous_suggestions: Optional[List[str]] = None,
     base_timeframe: str = "1h",
@@ -170,6 +186,10 @@ def build_strategy_gen_prompt(
         research_section += "\n" + research_insights
     if strategy_blueprints:
         research_section += "\n" + strategy_blueprints
+    if factor_context:
+        research_section += "\n" + factor_context
+    if strategy_memory_context:
+        research_section += "\n" + strategy_memory_context
 
     # Diversity enforcement (P0-3)
     diversity_section = ""
@@ -191,10 +211,22 @@ def build_strategy_gen_prompt(
                 + sugg_lines + "\n"
             )
 
-    # Tooling: simplified — always request a single code block
-    tooling_section = """
+    use_tool_tags = provider in ("opencode", "auto")
+    if use_tool_tags:
+        tooling_section = f"""
+## Output / Tooling
+You MAY use tool-call tags to inspect files and write the strategy.
+- Read reference/context if useful:
+  <read filePath="{sandbox_path}/user_data/strategies/ExpressionLongStrategy_reference.py"/>
+- Write the final strategy file with a `<write ...>` tool call:
+  <write filePath="{sandbox_path}/user_data/strategies/YourStrategy.py">...python code...</write>
+- Keep the final output focused on creating the strategy file in the strategies directory.
+"""
+    else:
+        tooling_section = """
 ## Output format
-Reply with exactly one Python code block containing the complete strategy file.
+Reply with a single Python code block containing the complete strategy file.
+Do NOT use any XML tool tags.
 """
 
     trade_soft_cap = max(int(target_trades) * 2, 1200)
@@ -589,6 +621,8 @@ def build_planner_prompt(
     history: List[Dict[str, Any]],
     elite_summaries: Optional[List[Dict[str, Any]]] = None,
     failure_summary: Optional[str] = None,
+    factor_context: Optional[str] = None,
+    strategy_memory_context: Optional[str] = None,
     base_timeframe: str = "1h",
     max_strategy_timeframe: Optional[str] = None,
     allowed_informative_timeframes: Optional[List[str]] = None,
@@ -628,6 +662,10 @@ def build_planner_prompt(
 
     if failure_summary and failure_summary != "No recorded failures.":
         kb_section += "\n## Known failure patterns (avoid)\n" + failure_summary + "\n"
+    if factor_context:
+        kb_section += "\n" + factor_context + "\n"
+    if strategy_memory_context:
+        kb_section += "\n" + strategy_memory_context + "\n"
 
     timeframe_rule = _timeframe_policy_text(
         base_timeframe=base_timeframe,
@@ -695,6 +733,8 @@ def build_model_planner_prompt(
     expressions_file: Optional[str],
     pairs: List[str],
     history: List[Dict[str, Any]],
+    factor_context: Optional[str] = None,
+    strategy_memory_context: Optional[str] = None,
     target_trades: int = 20,
     min_acceptable_trades: int = 10,
 ) -> str:
@@ -747,6 +787,8 @@ def build_model_planner_prompt(
     model_families = ", ".join(f"`{item}`" for item in allowed_model_families)
     forced_family_line = f"\n- **Forced model family for this slot**: `{forced_family}`" if forced_family else ""
     forced_label_line = f"\n- **Forced label period for this slot**: {forced_label} candles" if forced_label else ""
+    factor_section = f"\n{factor_context}\n" if factor_context else ""
+    strategy_memory_section = f"\n{strategy_memory_context}\n" if strategy_memory_context else ""
 
     return f"""You are the PLANNER agent for a model-mining strategy search.
 
@@ -765,7 +807,7 @@ Design a concise experiment plan for one `{candidate_type}` candidate. Do NOT wr
 - Pairs: {", ".join(pairs)}
 - Trade objective: target >= {int(target_trades)} trades, below {int(min_acceptable_trades)} is a failure
 - Trade cap (soft upper bound): {trade_cap}
-{history_section}{rl_note}
+{history_section}{factor_section}{strategy_memory_section}{rl_note}
 ## Output
 Return 4-6 short bullet points covering:
 - chosen model family (must respect forced family if given)
@@ -789,6 +831,8 @@ def build_model_candidate_prompt(
     expressions_file: Optional[str],
     pairs: List[str],
     history: List[Dict[str, Any]],
+    factor_context: Optional[str] = None,
+    strategy_memory_context: Optional[str] = None,
     planner_notes: Optional[str] = None,
     previous_suggestions: Optional[List[str]] = None,
     base_timeframe: str = "1h",
@@ -842,6 +886,8 @@ def build_model_candidate_prompt(
     planner_section = ""
     if planner_notes:
         planner_section = f"\n## Planner notes\n{planner_notes}\n"
+    factor_section = f"\n{factor_context}\n" if factor_context else ""
+    strategy_memory_section = f"\n{strategy_memory_context}\n" if strategy_memory_context else ""
 
     expr_line = expressions_file or "null"
     families = ", ".join(f"`{item}`" for item in allowed_model_families)
@@ -953,7 +999,7 @@ The search ranks candidates by a composite score that rewards:
 - Default rolling_splits: {training_rolling_splits}
 - Default scaler: {forced_scaler}
 - Default RL total_timesteps: {forced_timesteps}
-{history_section}{planner_section}{suggestions_section}
+{history_section}{factor_section}{strategy_memory_section}{planner_section}{suggestions_section}
 ## Output schema
 {{
   "name_hint": "CamelCaseName",

@@ -15,6 +15,7 @@ from ..errors import error
 from ..models import ExpressionReq, FactorCompileReq, FactorEvalReq, FeatureReq
 from ..validators import validate_pairs_string, validate_timeframe
 from ...runtime import ROOT, SRC, jobs
+from ...job_manager import JobQueueFullError
 from ._run_common import ensure_src_on_path
 
 router = APIRouter()
@@ -97,14 +98,17 @@ def run_expression(req: ExpressionReq = Body(...)):
         env["LLM_BASE_URL"] = os.environ["LLM_BASE_URL"]
     if os.environ.get("LLM_MODEL"):
         env["LLM_MODEL"] = os.environ["LLM_MODEL"]
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=900,
-        kind="expression",
-        meta={"timeframe": req.timeframe},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=900,
+            kind="expression",
+            meta={"timeframe": req.timeframe},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "expression", "cmd": cmd}
 
 
@@ -240,14 +244,17 @@ def run_factor_compile(req: FactorCompileReq = Body(...)):
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC)
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=900,
-        kind="factor_compile",
-        meta={"run_id": run_id},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=900,
+            kind="factor_compile",
+            meta={"run_id": run_id},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "factor_compile", "cmd": cmd, "run_id": run_id, "out_dir": str(out_dir)}
 
 
@@ -334,14 +341,17 @@ def run_factor_eval(req: FactorEvalReq = Body(...)):
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC)
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=900,
-        kind="factor_eval",
-        meta={"run_id": run_id},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=900,
+            kind="factor_eval",
+            meta={"run_id": run_id},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "factor_eval", "cmd": cmd, "run_id": run_id, "out_dir": str(out_dir)}
 
 
@@ -379,11 +389,14 @@ def run_feature(req: FeatureReq = Body(...)):
             cmd += ["--pairs"] + parsed
 
     env = os.environ.copy()
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        kind="feature",
-        meta={"timeframe": req.timeframe},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            kind="feature",
+            meta={"timeframe": req.timeframe},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "feature", "cmd": cmd}

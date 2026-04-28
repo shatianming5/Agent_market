@@ -22,6 +22,47 @@ for p in [str(_ROOT / "src"), str(_ROOT)]:
 from freqtrade.strategy import IStrategy
 
 
+def _resolve_summary_artifact(
+    raw_path: Optional[str],
+    *,
+    model_dir: Path,
+    fallback_names: Optional[List[str]] = None,
+) -> Optional[Path]:
+    """Resolve copied training artifacts when summaries contain stale absolute paths."""
+    candidates: List[Path] = []
+    if raw_path:
+        raw = Path(str(raw_path))
+        if raw.is_absolute():
+            candidates.append(model_dir / raw.name)
+            candidates.append(raw)
+        else:
+            candidates.append(_ROOT / raw)
+            candidates.append(model_dir / raw.name)
+    for fallback in fallback_names or []:
+        fallback_path = Path(str(fallback))
+        candidates.append(fallback_path if fallback_path.is_absolute() else (model_dir / fallback_path))
+
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else None
+
+
+def _iter_model_candidates(directory: Path, *suffixes: str) -> List[Path]:
+    items: List[Path] = []
+    for suffix in suffixes:
+        items.extend(
+            path for path in directory.glob(f"*{suffix}")
+            if path.is_file() and not path.name.startswith("._")
+        )
+    return sorted(items)
+
+
 class FreqtradeDLStrategy(IStrategy):
     """PyTorch Deep Learning strategy for freqtrade."""
 
@@ -53,15 +94,17 @@ class FreqtradeDLStrategy(IStrategy):
         models_root = _ROOT / "artifacts" / "models"
         model_path = None
         summary = None
+        model_dir = None
 
         for d in sorted(models_root.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
             if not d.is_dir():
                 continue
             # Look for pytorch files
             for ext in [".pt", ".pth"]:
-                candidates = list(d.glob(f"*{ext}"))
+                candidates = _iter_model_candidates(d, ext)
                 if candidates:
                     model_path = candidates[0]
+                    model_dir = d
                     summary_f = d / "training_summary.json"
                     if summary_f.exists():
                         summary = json.loads(summary_f.read_text())
@@ -74,34 +117,48 @@ class FreqtradeDLStrategy(IStrategy):
             for d in sorted(models_root.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
                 if (d / "training_summary.json").exists():
                     summary = json.loads((d / "training_summary.json").read_text())
-                    mp = Path(summary.get("model_path", ""))
-                    if not mp.is_absolute():
-                        mp = _ROOT / mp
+                    model_dir = d
+                    mp = _resolve_summary_artifact(
+                        summary.get("model_path"),
+                        model_dir=d,
+                        fallback_names=["pytorch_mlp.pt", "model.pt", "model.pth", "model.pkl"],
+                    )
+                    if mp is None:
+                        continue
                     if mp.exists():
                         model_path = mp
                         break
 
-        if model_path is None or summary is None:
+        if model_path is None or summary is None or model_dir is None:
             raise FileNotFoundError("No DL model found in artifacts/models/")
 
         self._features = [str(c) for c in (summary.get("features") or []) if str(c).strip()]
 
         # Load features config
         for candidate in [
+            _resolve_summary_artifact(
+                summary.get("feature_snapshot") or summary.get("feature_file"),
+                model_dir=model_dir,
+                fallback_names=["feature_snapshot.json"],
+            ),
             _ROOT / "user_data" / "freqai_features_real.json",
             _ROOT / "user_data" / "freqai_features.json",
         ]:
+            if candidate is None:
+                continue
             if candidate.exists():
                 self._feature_cfg = json.loads(candidate.read_text(encoding="utf-8-sig"))
                 break
 
         # Load expressions
-        expr_file = summary.get("expressions_snapshot") or summary.get("expressions_file")
-        if expr_file:
-            ep = Path(expr_file) if Path(expr_file).is_absolute() else _ROOT / expr_file
-            if ep.exists():
-                from agent_market.freqai.expression_engine import load_expression_file
-                self._expression_specs = load_expression_file(ep)
+        expr_path = _resolve_summary_artifact(
+            summary.get("expressions_snapshot") or summary.get("expressions_file"),
+            model_dir=model_dir,
+            fallback_names=["expressions_snapshot.json"],
+        )
+        if expr_path and expr_path.exists():
+            from agent_market.freqai.expression_engine import load_expression_file
+            self._expression_specs = load_expression_file(expr_path)
 
         # Load model
         suffix = model_path.suffix.lower()

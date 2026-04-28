@@ -12,6 +12,7 @@ from agent_market import paths  # type: ignore
 from ..errors import error
 from ..models import BacktestReq, HyperoptReq
 from ...runtime import ROOT, jobs
+from ...job_manager import JobQueueFullError
 from ._run_common import resolve_executable
 
 router = APIRouter()
@@ -77,14 +78,17 @@ def run_backtest(req: BacktestReq = Body(...)):
         pass
 
     env = os.environ.copy()
-    job_id = jobs.start(
-        cmd,
-        cwd=job_cwd,
-        env=env,
-        timeout_sec=7200,
-        kind="backtest",
-        meta={"timerange": req.timerange},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=job_cwd,
+            env=env,
+            timeout_sec=7200,
+            kind="backtest",
+            meta={"timerange": req.timerange},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "backtest", "cmd": cmd}
 
 
@@ -114,12 +118,15 @@ def run_hyperopt(req: HyperoptReq = Body(...)):
         cmd += ["--freqaimodel", req.freqaimodel]
 
     env = os.environ.copy()
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=1800,
-        kind="hyperopt",
-        meta={"timerange": req.timerange},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=1800,
+            kind="hyperopt",
+            meta={"timerange": req.timerange},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "hyperopt", "cmd": cmd}

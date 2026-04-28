@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "loop_name": "strategy-evolution",
+  "status": "active",
+  "iteration": 0,
+  "repo_root": "/Users/shatianming/Downloads/Agent_market",
+  "loop_dir": "/Users/shatianming/Downloads/Agent_market/.codex/ralph/strategy-evolution",
+  "created_at": "2026-04-06T17:41:10+00:00",
+  "updated_at": "2026-04-06T17:41:10+00:00",
+  "current_focus": "Direct OpenCode strategy-miner runtime",
+  "last_result": "",
+  "next_action": "Read PRD.md and select one bounded task."
+}

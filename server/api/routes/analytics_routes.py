@@ -11,6 +11,7 @@ from agent_market import paths  # type: ignore
 from ..errors import error
 from ..models import TCAReq
 from ...runtime import ROOT, SRC, jobs
+from ...job_manager import JobQueueFullError
 from ._run_common import load_latest_flow_run_id
 
 router = APIRouter()
@@ -56,12 +57,15 @@ def run_tca(req: TCAReq = Body(...)):
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC)
-    job_id = jobs.start(
-        cmd,
-        cwd=ROOT,
-        env=env,
-        timeout_sec=900,
-        kind="tca",
-        meta={"run_id": run_id},
-    )
+    try:
+        job_id = jobs.start(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            timeout_sec=900,
+            kind="tca",
+            meta={"run_id": run_id},
+        )
+    except JobQueueFullError as exc:
+        return error("JOB_QUEUE_FULL", str(exc), status_code=429)
     return {"status": "started", "job_id": job_id, "kind": "tca", "cmd": cmd, "run_id": run_id}

@@ -91,6 +91,10 @@ class CaptureReq(BaseModel):
     symbols: str = Field("BTC-USDT", description="Comma/space separated symbols, e.g. BTC-USDT ETH-USDT")
     channels: str = Field("match,level2", description="Comma/space separated channels: match, level2")
     duration_sec: int = Field(60, description="Capture duration in seconds (live mode)")
+    max_reconnects: Optional[int] = Field(
+        None,
+        description="Max reconnect attempts for live capture (0 or negative => unlimited). Default is capture backend default (currently 3).",
+    )
     out_dir: Optional[str] = Field(None, description="Optional session output directory")
     fixture: Optional[str] = Field(None, description="Optional offline fixture (jsonl) to replay")
 

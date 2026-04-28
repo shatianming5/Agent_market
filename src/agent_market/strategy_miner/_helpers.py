@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from agent_market import paths
 
-from .dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
+from .dtypes import MinerConfig, MinerState, Phase, StrategyCandidate, VALID_TRANSITIONS, VALID_CANDIDATE_TRANSITIONS
 
 # ---------------------------------------------------------------------------
 # Text helpers
@@ -57,6 +57,11 @@ def _freqtrade_market_context(freqtrade_config_path: str) -> tuple[str, list[str
     timeframe = str(payload.get("timeframe") or "1h")
     datadir = str(payload.get("datadir") or "user_data/data")
     return exchange, pairs, timeframe, datadir
+
+
+def _freqtrade_trading_mode(freqtrade_config_path: str) -> str:
+    payload = _load_freqtrade_payload(freqtrade_config_path)
+    return str(payload.get("trading_mode") or "spot").strip().lower() or "spot"
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +470,99 @@ def _mark_candidate_done(state: MinerState) -> None:
 def _advance_after_candidate(state: MinerState) -> None:
     _mark_candidate_done(state)
     next_candidate = _pick_active_candidate(state) if state.active_candidate_idx is not None else None
-    state.phase = _phase_for_candidate(next_candidate) if next_candidate is not None else Phase.ANALYSIS
+    target = _phase_for_candidate(next_candidate) if next_candidate is not None else Phase.ANALYSIS
+    safe_transition(state, target)
+
+
+# ---------------------------------------------------------------------------
+# Safe phase transition (D2: explicit transition table)
+# ---------------------------------------------------------------------------
+
+import logging as _logging
+
+_phase_logger = _logging.getLogger(__name__)
+
+
+def safe_transition(state: MinerState, target: Phase) -> None:
+    """Set state.phase with transition-table validation.
+
+    Raises ValueError for invalid transitions to enforce FSM integrity.
+    """
+    allowed = VALID_TRANSITIONS.get(state.phase, [])
+    if target not in allowed:
+        _phase_logger.error(
+            "Blocked invalid phase transition %s -> %s (allowed: %s)",
+            state.phase.value, target.value,
+            [p.value for p in allowed],
+        )
+        raise ValueError(
+            f"Invalid phase transition {state.phase.value} -> {target.value}; "
+            f"allowed: {[p.value for p in allowed]}"
+        )
+    state.phase = target
+
+
+# ---------------------------------------------------------------------------
+# Idempotent history append (D2: no duplicate rows on re-entry)
+# ---------------------------------------------------------------------------
+
+def history_has_row(state: MinerState, iteration: int, name: str) -> bool:
+    """Return True if *history* already contains a row for (iteration, name)."""
+    return any(
+        r.get("iteration") == iteration and r.get("name") == name
+        for r in state.history
+    )
+
+
+def upsert_history(state: MinerState, row: Dict[str, Any]) -> None:
+    """Append *row* to history, or update in-place if (iteration, name) exists."""
+    it = row.get("iteration")
+    nm = row.get("name")
+    for i, existing in enumerate(state.history):
+        if existing.get("iteration") == it and existing.get("name") == nm:
+            state.history[i] = row
+            return
+    state.history.append(row)
+
+
+# ---------------------------------------------------------------------------
+# Candidate stage tracking (D2: per-candidate lifecycle)
+# ---------------------------------------------------------------------------
+
+import time as _time
+
+
+def update_candidate_stage(candidate: StrategyCandidate, stage: str) -> None:
+    """Update candidate stage with transition validation and history tracking.
+
+    D2: Fail-closed — raises ValueError on invalid transitions.
+    Any stage can transition to 'failed' (always allowed).
+    """
+    current = getattr(candidate, "stage", "generated") or "generated"
+
+    # Self-transition (idempotent) is always allowed
+    if stage == current:
+        candidate.stage_history.append({
+            "stage": stage,
+            "from": current,
+            "timestamp": _time.time(),
+        })
+        return
+
+    # Validate transition
+    allowed = VALID_CANDIDATE_TRANSITIONS.get(current, [])
+    if stage not in allowed:
+        raise ValueError(
+            f"Invalid candidate stage transition: {current} -> {stage}. "
+            f"Allowed: {allowed}"
+        )
+
+    candidate.stage = stage
+    candidate.stage_history.append({
+        "stage": stage,
+        "from": current,
+        "timestamp": _time.time(),
+    })
 
 
 def _walkforward_timeranges(

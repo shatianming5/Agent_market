@@ -1,0 +1,97 @@
+{
+  "experiment": {
+    "experiment_id": "strategy-factory-example",
+    "owner": "research",
+    "hypothesis": "Use factor-memory-guided breakout discovery to improve downstream strategy promotion quality.",
+    "budget": {
+      "factor_compile": {
+        "cpu_minutes": 5
+      },
+      "factor_eval": {
+        "cpu_minutes": 10
+      },
+      "strategy_miner": {
+        "llm_budget_usd": 25,
+        "backtest_cpu_minutes": 60
+      },
+      "benchmark": {
+        "cpu_minutes": 10
+      },
+      "portfolio": {
+        "cpu_minutes": 5
+      }
+    }
+  },
+  "factor_compile": {
+    "spec": {
+      "name": "demo_factor_breakout_range_close_20",
+      "version": "1.0",
+      "hypothesis": "Breakout range expansion factor for intraday trend continuation.",
+      "expr": {
+        "op": "sub",
+        "args": [
+          {
+            "op": "rolling_max",
+            "args": [
+              {
+                "op": "var",
+                "args": [
+                  "close"
+                ]
+              },
+              20
+            ]
+          },
+          {
+            "op": "rolling_min",
+            "args": [
+              {
+                "op": "var",
+                "args": [
+                  "close"
+                ]
+              },
+              20
+            ]
+          }
+        ]
+      },
+      "meta": {
+        "timeframe": "5m",
+        "universe": [
+          "BTC/USDT",
+          "ETH/USDT"
+        ],
+        "data_sources": [
+          "ohlcv"
+        ]
+      }
+    }
+  },
+  "factor_eval": {
+    "enabled": true,
+    "rows": 256,
+    "seed": 7
+  },
+  "strategy_miner": {
+    "provider": "opencode",
+    "model": "gpt-5.2",
+    "freqtrade_config": "user_data/config_freqai_gate_spot_core_alpha.json",
+    "timerange": "20260312-20260323",
+    "selection_timerange": "20260312-20260323",
+    "holdout_timerange": "20260324-20260329",
+    "benchmark_suite": "benchmark_pack/default",
+    "candidates_per_iteration": 3,
+    "max_iterations": 10,
+    "candidate_types": [
+      "rule",
+      "ml"
+    ],
+    "search_families": [
+      "rule/breakout",
+      "rule/trend-pullback",
+      "ml/lightgbm"
+    ]
+  },
+  "report": {}
+}

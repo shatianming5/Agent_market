@@ -8,6 +8,7 @@ import numpy as np
 
 from agent_market.freqai.model.base import BaseModelAdapter, ModelRegistry, TrainResult
 from agent_market.freqai.model.metrics import rmse
+from agent_market.freqai.runtime_threads import resolve_num_threads
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class LightGBMAdapter(BaseModelAdapter):
         import lightgbm as lgb  # type: ignore
 
         params = dict(self.config)
+        params['num_threads'] = resolve_num_threads(params, explicit_keys=('num_threads',))
         model_dir = Path(params.pop('model_dir', 'artifacts/models/lightgbm'))
         num_boost_round = int(params.pop('num_boost_round', 200))
         dtrain = lgb.Dataset(X_train, label=y_train)
@@ -90,6 +92,7 @@ class XGBoostAdapter(BaseModelAdapter):
         import xgboost as xgb  # type: ignore
 
         params = dict(self.config)
+        params['nthread'] = resolve_num_threads(params)
         model_dir = Path(params.pop('model_dir', 'artifacts/models/xgboost'))
         num_boost_round = int(params.pop('num_boost_round', 300))
         dtrain = xgb.DMatrix(X_train, label=y_train)

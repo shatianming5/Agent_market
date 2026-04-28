@@ -1,0 +1,657 @@
+- generic [ref=e2]:
+  - region
+  - generic [ref=e3]:
+    - link "Skip to content" [ref=e4] [cursor=pointer]:
+      - /url: "#start-of-content"
+    - banner [ref=e6]:
+      - heading "Navigation Menu" [level=2] [ref=e7]
+      - generic [ref=e8]:
+        - link "Homepage" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+        - generic [ref=e13]:
+          - navigation "Global" [ref=e16]:
+            - list [ref=e17]:
+              - listitem [ref=e18]:
+                - button "Platform" [ref=e20] [cursor=pointer]:
+                  - text: Platform
+                  - img [ref=e21]
+              - listitem [ref=e23]:
+                - button "Solutions" [ref=e25] [cursor=pointer]:
+                  - text: Solutions
+                  - img [ref=e26]
+              - listitem [ref=e28]:
+                - button "Resources" [ref=e30] [cursor=pointer]:
+                  - text: Resources
+                  - img [ref=e31]
+              - listitem [ref=e33]:
+                - button "Open Source" [ref=e35] [cursor=pointer]:
+                  - text: Open Source
+                  - img [ref=e36]
+              - listitem [ref=e38]:
+                - button "Enterprise" [ref=e40] [cursor=pointer]:
+                  - text: Enterprise
+                  - img [ref=e41]
+              - listitem [ref=e43]:
+                - link "Pricing" [ref=e44] [cursor=pointer]:
+                  - /url: https://github.com/pricing
+                  - generic [ref=e45]: Pricing
+          - generic [ref=e46]:
+            - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+              - img [ref=e51]
+            - link "Sign in" [ref=e54] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FJayCheng113%2Fskill-retrieval-mcp
+            - link "Sign up" [ref=e55] [cursor=pointer]:
+              - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&source=header-repo&source_repo=JayCheng113%2Fskill-retrieval-mcp
+            - button "Appearance settings" [ref=e58] [cursor=pointer]:
+              - img
+  - main [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e66]:
+          - img [ref=e67]
+          - link "JayCheng113" [ref=e70] [cursor=pointer]:
+            - /url: /JayCheng113
+          - generic [ref=e71]: /
+          - strong [ref=e72]:
+            - link "skill-retrieval-mcp" [ref=e73] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp
+          - generic [ref=e74]: Public
+        - generic [ref=e75]:
+          - list:
+            - listitem [ref=e76]:
+              - link "You must be signed in to change notification settings" [ref=e77] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2Fskill-retrieval-mcp
+                - img [ref=e78]
+                - text: Notifications
+            - listitem [ref=e80]:
+              - link "Fork 0" [ref=e81] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2Fskill-retrieval-mcp
+                - img [ref=e82]
+                - text: Fork
+                - generic "0" [ref=e84]
+            - listitem [ref=e85]:
+              - link "You must be signed in to star a repository" [ref=e87] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2Fskill-retrieval-mcp
+                - img [ref=e88]
+                - text: Star
+                - generic "0 users starred this repository" [ref=e90]: "0"
+      - navigation "Repository" [ref=e91]:
+        - list [ref=e92]:
+          - listitem [ref=e93]:
+            - link "Code" [ref=e94] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp
+              - img [ref=e95]
+              - generic [ref=e97]: Code
+          - listitem [ref=e98]:
+            - link "Issues" [ref=e99] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/issues
+              - img [ref=e100]
+              - generic [ref=e103]: Issues
+          - listitem [ref=e104]:
+            - link "Pull requests" [ref=e105] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/pulls
+              - img [ref=e106]
+              - generic [ref=e108]: Pull requests
+          - listitem [ref=e109]:
+            - link "Actions" [ref=e110] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/actions
+              - img [ref=e111]
+              - generic [ref=e113]: Actions
+          - listitem [ref=e114]:
+            - link "Projects" [ref=e115] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/projects
+              - img [ref=e116]
+              - generic [ref=e118]: Projects
+          - listitem [ref=e119]:
+            - link "Security" [ref=e120] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/security
+              - img [ref=e121]
+              - generic [ref=e123]: Security
+          - listitem [ref=e124]:
+            - link "Insights" [ref=e125] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/pulse
+              - img [ref=e126]
+              - generic [ref=e128]: Insights
+    - generic [ref=e141]:
+      - heading "JayCheng113/skill-retrieval-mcp" [level=1] [ref=e143]
+      - generic [ref=e144]:
+        - generic [ref=e147]:
+          - generic [ref=e148]:
+            - generic [ref=e149]:
+              - button "main branch" [ref=e151] [cursor=pointer]:
+                - generic [ref=e152]:
+                  - generic [ref=e154]:
+                    - img [ref=e156]
+                    - generic [ref=e159]: main
+                  - generic:
+                    - img
+              - generic [ref=e160]:
+                - link "Branches" [ref=e161] [cursor=pointer]:
+                  - /url: /JayCheng113/skill-retrieval-mcp/branches
+                  - generic [ref=e162]:
+                    - generic:
+                      - img
+                    - generic [ref=e163]: Branches
+                - link "Tags" [ref=e164] [cursor=pointer]:
+                  - /url: /JayCheng113/skill-retrieval-mcp/tags
+                  - generic [ref=e165]:
+                    - generic:
+                      - img
+                    - generic [ref=e166]: Tags
+            - generic [ref=e167]:
+              - generic [ref=e171]:
+                - img [ref=e173]
+                - combobox "Go to file" [ref=e175]
+              - button "Code" [ref=e176] [cursor=pointer]:
+                - generic [ref=e177]:
+                  - generic:
+                    - img
+                  - generic [ref=e178]: Code
+                  - generic:
+                    - img
+          - generic [ref=e179]:
+            - generic [ref=e180]:
+              - heading "Folders and files" [level=2] [ref=e181]
+              - table "Folders and files" [ref=e182]:
+                - rowgroup:
+                  - row "Name Last commit message Last commit date":
+                    - columnheader "Name"
+                    - columnheader "Last commit message":
+                      - generic "Last commit message"
+                    - columnheader "Last commit date":
+                      - generic "Last commit date"
+                - rowgroup [ref=e183]:
+                  - row "Latest commit History 34 Commits" [ref=e184]:
+                    - cell "Latest commit History 34 Commits" [ref=e185]:
+                      - generic [ref=e186]:
+                        - heading "Latest commit" [level=2] [ref=e187]
+                        - generic [ref=e190]:
+                          - heading "History" [level=2] [ref=e191]
+                          - link "34 Commits" [ref=e192] [cursor=pointer]:
+                            - /url: /JayCheng113/skill-retrieval-mcp/commits/main/
+                            - generic [ref=e193]:
+                              - generic:
+                                - img
+                              - generic [ref=e194]: 34 Commits
+                  - row ".github/workflows, (Directory)" [ref=e195]:
+                    - cell ".github/workflows, (Directory)" [ref=e196]:
+                      - generic [ref=e197]:
+                        - img [ref=e198]
+                        - link ".github/workflows, (Directory)" [ref=e203] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/tree/main/.github/workflows
+                          - text: .github/workflows
+                    - cell [ref=e204]
+                    - cell [ref=e206]
+                  - row "data/examples, (Directory)" [ref=e209]:
+                    - cell "data/examples, (Directory)" [ref=e210]:
+                      - generic [ref=e211]:
+                        - img [ref=e212]
+                        - link "data/examples, (Directory)" [ref=e217] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/tree/main/data/examples
+                          - text: data/examples
+                    - cell [ref=e218]
+                    - cell [ref=e220]
+                  - row "scripts, (Directory)" [ref=e223]:
+                    - cell "scripts, (Directory)" [ref=e224]:
+                      - generic [ref=e225]:
+                        - img [ref=e226]
+                        - link "scripts, (Directory)" [ref=e231] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/tree/main/scripts
+                          - text: scripts
+                    - cell [ref=e232]
+                    - cell [ref=e234]
+                  - row "src/skill_mcp, (Directory)" [ref=e237]:
+                    - cell "src/skill_mcp, (Directory)" [ref=e238]:
+                      - generic [ref=e239]:
+                        - img [ref=e240]
+                        - link "src/skill_mcp, (Directory)" [ref=e245] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/tree/main/src/skill_mcp
+                          - text: src/skill_mcp
+                    - cell [ref=e246]
+                    - cell [ref=e248]
+                  - row "tests, (Directory)" [ref=e251]:
+                    - cell "tests, (Directory)" [ref=e252]:
+                      - generic [ref=e253]:
+                        - img [ref=e254]
+                        - link "tests, (Directory)" [ref=e259] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/tree/main/tests
+                          - text: tests
+                    - cell [ref=e260]
+                    - cell [ref=e262]
+                  - row ".gitignore, (File)" [ref=e265]:
+                    - cell ".gitignore, (File)" [ref=e266]:
+                      - generic [ref=e267]:
+                        - img [ref=e268]
+                        - link ".gitignore, (File)" [ref=e273] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/blob/main/.gitignore
+                          - text: .gitignore
+                    - cell [ref=e274]
+                    - cell [ref=e276]
+                  - row "README.md, (File)" [ref=e279]:
+                    - cell "README.md, (File)" [ref=e280]:
+                      - generic [ref=e281]:
+                        - img [ref=e282]
+                        - link "README.md, (File)" [ref=e287] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/blob/main/README.md
+                          - text: README.md
+                    - cell [ref=e288]
+                    - cell [ref=e290]
+                  - row "ROADMAP.md, (File)" [ref=e293]:
+                    - cell "ROADMAP.md, (File)" [ref=e294]:
+                      - generic [ref=e295]:
+                        - img [ref=e296]
+                        - link "ROADMAP.md, (File)" [ref=e301] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/blob/main/ROADMAP.md
+                          - text: ROADMAP.md
+                    - cell [ref=e302]
+                    - cell [ref=e304]
+                  - row "dev.md, (File)" [ref=e307]:
+                    - cell "dev.md, (File)" [ref=e308]:
+                      - generic [ref=e309]:
+                        - img [ref=e310]
+                        - link "dev.md, (File)" [ref=e315] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/blob/main/dev.md
+                          - text: dev.md
+                    - cell [ref=e316]
+                    - cell [ref=e318]
+                  - row "pyproject.toml, (File)" [ref=e321]:
+                    - cell "pyproject.toml, (File)" [ref=e322]:
+                      - generic [ref=e323]:
+                        - img [ref=e324]
+                        - link "pyproject.toml, (File)" [ref=e329] [cursor=pointer]:
+                          - /url: /JayCheng113/skill-retrieval-mcp/blob/main/pyproject.toml
+                          - text: pyproject.toml
+                    - cell [ref=e330]
+                    - cell [ref=e332]
+            - generic [ref=e336]:
+              - generic [ref=e337]:
+                - heading "Repository files navigation" [level=2] [ref=e338]
+                - navigation "Repository files" [ref=e339]:
+                  - list [ref=e340]:
+                    - listitem [ref=e341]:
+                      - link "README" [ref=e342] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e344]
+                        - generic [ref=e346]: README
+                - button "Outline" [ref=e347] [cursor=pointer]:
+                  - img [ref=e348]
+              - article [ref=e351]:
+                - generic [ref=e352]:
+                  - heading "skill-retrieval-mcp" [level=1] [ref=e353]
+                  - 'link "Permalink: skill-retrieval-mcp" [ref=e354] [cursor=pointer]':
+                    - /url: "#skill-retrieval-mcp"
+                    - img [ref=e355]
+                - blockquote [ref=e357]:
+                  - paragraph [ref=e358]: Your agent doesn't need you to find the right skills. It needs to search 89K of them on its own.
+                - paragraph [ref=e359]:
+                  - text: An MCP server that gives AI agents on-demand access to
+                  - strong [ref=e360]: 89K+ skills
+                  - text: covering virtually every technical domain. The agent searches as it works — the same way you look up docs mid-task.
+                - paragraph [ref=e361]:
+                  - text: Works with
+                  - strong [ref=e362]: Claude Code
+                  - text: ","
+                  - strong [ref=e363]: Codex CLI
+                  - text: ","
+                  - strong [ref=e364]: Gemini CLI
+                  - text: ","
+                  - strong [ref=e365]: Cursor
+                  - text: ", and any MCP-compatible agent."
+                - generic [ref=e366]:
+                  - heading "The Problem" [level=2] [ref=e367]
+                  - 'link "Permalink: The Problem" [ref=e368] [cursor=pointer]':
+                    - /url: "#the-problem"
+                    - img [ref=e369]
+                - paragraph [ref=e371]: "You give your agent a skill — \"always use TDD,\" \"follow this API style\" — and it works. But manually installing skills doesn't scale:"
+                - list [ref=e372]:
+                  - listitem [ref=e373]:
+                    - strong [ref=e374]: You don't know what exists.
+                    - text: There are thousands of skills out there. You install the 10 you happen to find — everything else, the agent guesses.
+                  - listitem [ref=e375]:
+                    - strong [ref=e376]: You can't install what you can't name.
+                    - text: Mid-task, the agent needs a skill for "OIDC-based PyPI publishing" — but you'd never think to install that in advance.
+                  - listitem [ref=e377]:
+                    - strong [ref=e378]:
+                      - text: 89K skills can't live in
+                      - code [ref=e379]: ~/.claude/skills/
+                      - text: .
+                    - text: Even with lazy loading, thousands of skill descriptions bloat the system prompt.
+                - generic [ref=e380]:
+                  - heading "The Fix" [level=2] [ref=e381]
+                  - 'link "Permalink: The Fix" [ref=e382] [cursor=pointer]':
+                    - /url: "#the-fix"
+                    - img [ref=e383]
+                - paragraph [ref=e385]:
+                  - text: Don't install skills upfront.
+                  - strong [ref=e386]: Search them at runtime.
+                - generic [ref=e387]:
+                  - code [ref=e389]: "You: \"Help me set up CI/CD for this Python project\" ─── Step 1: Agent searches ─────────────────────────────────────────── Agent: search_skills(\"github actions python CI pipeline\") ← 3ms → 5 results (summaries only, no full instructions): 1. \"github-actions-python\" (0.91) - CI/CD pipelines for Python with pytest and linting 2. \"github-actions-docker\" (0.72) - Docker build and push in GitHub Actions 3. \"gitlab-ci-python\" (0.68) - GitLab CI/CD for Python projects 4. \"circleci-python\" (0.61) - CircleCI configuration for Python 5. \"jenkins-pipeline\" (0.45) - Jenkins declarative pipelines ─── Step 2: Agent reads descriptions, picks #1 ────────────────────── Agent: get_skill(\"github-actions-python\") → gets full guide: step-by-step setup, matrix testing, caching, best practices → writes .github/workflows/ci.yml ─── Step 3: New need emerges mid-task ──────────────────────────────── Agent: # workflow needs PyPI publishing — search again with different query search_skills(\"pypi publish trusted publisher\") ← 2ms → \"pypi-trusted-publishing\" (0.87) - OIDC-based PyPI publishing without API keys → reads guide, adds publish step"
+                  - button "Copy" [ref=e391] [cursor=pointer]:
+                    - img [ref=e392]
+                - paragraph [ref=e395]: "Key behaviors:"
+                - list [ref=e396]:
+                  - listitem [ref=e397]:
+                    - strong [ref=e398]: Search returns summaries, not full instructions
+                    - text: — the agent reads descriptions and scores to decide which skills are worth fetching. 5 results searched, 1 skill read → 80% token savings.
+                  - listitem [ref=e399]:
+                    - strong [ref=e400]: The agent searches multiple times
+                    - text: as the task evolves. Different phase → different query → different skill.
+                  - listitem [ref=e401]:
+                    - strong [ref=e402]: Queries are shaped by context.
+                    - text: The second search includes "trusted publisher" — a term the agent picked up while working, not something the user said.
+                - paragraph [ref=e403]: 89K skills. < 5ms search. Zero LLM calls. Runs locally.
+                - table [ref=e405]:
+                  - rowgroup [ref=e406]:
+                    - row "Installing skills manually skill-retrieval-mcp" [ref=e407]:
+                      - columnheader [ref=e408]
+                      - columnheader "Installing skills manually" [ref=e409]
+                      - columnheader "skill-retrieval-mcp" [ref=e410]
+                  - rowgroup [ref=e411]:
+                    - row "Scale Dozens, if you're diligent 89K+" [ref=e412]:
+                      - cell "Scale" [ref=e413]:
+                        - strong [ref=e414]: Scale
+                      - cell "Dozens, if you're diligent" [ref=e415]
+                      - cell "89K+" [ref=e416]
+                    - row "Discovery You find and install each one Agent searches by need" [ref=e417]:
+                      - cell "Discovery" [ref=e418]:
+                        - strong [ref=e419]: Discovery
+                      - cell "You find and install each one" [ref=e420]
+                      - cell "Agent searches by need" [ref=e421]
+                    - row "Selection You pick upfront Agent picks per-task" [ref=e422]:
+                      - cell "Selection" [ref=e423]:
+                        - strong [ref=e424]: Selection
+                      - cell "You pick upfront" [ref=e425]
+                      - cell "Agent picks per-task" [ref=e426]
+                    - row "Search Name matching on descriptions Semantic, < 5ms, local FAISS" [ref=e427]:
+                      - cell "Search" [ref=e428]:
+                        - strong [ref=e429]: Search
+                      - cell "Name matching on descriptions" [ref=e430]
+                      - cell "Semantic, < 5ms, local FAISS" [ref=e431]
+                - generic [ref=e432]:
+                  - heading "Quick Start" [level=2] [ref=e433]
+                  - 'link "Permalink: Quick Start" [ref=e434] [cursor=pointer]':
+                    - /url: "#quick-start"
+                    - img [ref=e435]
+                - paragraph [ref=e437]: Three commands. Takes about 2 minutes (mostly download time).
+                - generic [ref=e438]:
+                  - generic [ref=e439]:
+                    - generic [ref=e440]: "# 1. Install"
+                    - text: pip install
+                    - generic [ref=e441]: "\"skill-retrieval-mcp[local,hf]\""
+                    - generic [ref=e442]: "# 2. Download 89K skills + pre-built vector index"
+                    - text: skill-mcp pull --include-index
+                    - generic [ref=e443]: "# 3. Register with your agent (auto-detects Claude Code, Cursor, etc.)"
+                    - text: skill-mcp init
+                  - button "Copy" [ref=e445] [cursor=pointer]:
+                    - img [ref=e446]
+                - paragraph [ref=e449]: Done. Your agent now searches 89K skills on demand.
+                - group [ref=e450]:
+                  - generic "Manual registration (if init doesn't detect your agent)" [ref=e451] [cursor=pointer]:
+                    - text: Manual registration (if
+                    - code [ref=e452]: init
+                    - text: doesn't detect your agent)
+                - generic [ref=e453]:
+                  - heading "What's In the Knowledge Base" [level=2] [ref=e454]
+                  - 'link "Permalink: What''s In the Knowledge Base" [ref=e455] [cursor=pointer]':
+                    - /url: "#whats-in-the-knowledge-base"
+                    - img [ref=e456]
+                - paragraph [ref=e458]:
+                  - text: 89,267 skills across every major technical domain, sourced from
+                  - link "LangSkills" [ref=e459] [cursor=pointer]:
+                    - /url: https://github.com/langskills
+                  - text: ","
+                  - link "SkillNet" [ref=e460] [cursor=pointer]:
+                    - /url: https://github.com/SkillNet
+                  - text: ", Anthropic official, and community contributions."
+                - paragraph [ref=e461]: Each skill is a structured best-practice guide — not a one-liner, but a step-by-step how-to with code examples, common pitfalls, and recommendations.
+                - paragraph [ref=e462]:
+                  - text: Run
+                  - code [ref=e463]: skill-mcp status
+                  - text: to see what you have locally, or use
+                  - code [ref=e464]: list_categories
+                  - text: to browse domains.
+                - generic [ref=e465]:
+                  - heading "Tools" [level=2] [ref=e466]
+                  - 'link "Permalink: Tools" [ref=e467] [cursor=pointer]':
+                    - /url: "#tools"
+                    - img [ref=e468]
+                - table [ref=e471]:
+                  - rowgroup [ref=e472]:
+                    - row "Tool What it does" [ref=e473]:
+                      - columnheader "Tool" [ref=e474]
+                      - columnheader "What it does" [ref=e475]
+                  - rowgroup [ref=e476]:
+                    - row "search_skills Semantic search — describe what you need in natural language" [ref=e477]:
+                      - cell "search_skills" [ref=e478]:
+                        - code [ref=e479]: search_skills
+                      - cell "Semantic search — describe what you need in natural language" [ref=e480]
+                    - row "keyword_search Exact match — tool names, error messages, CLI commands" [ref=e481]:
+                      - cell "keyword_search" [ref=e482]:
+                        - code [ref=e483]: keyword_search
+                      - cell "Exact match — tool names, error messages, CLI commands" [ref=e484]
+                    - row "get_skill Fetch full instructions (call after search)" [ref=e485]:
+                      - cell "get_skill" [ref=e486]:
+                        - code [ref=e487]: get_skill
+                      - cell "Fetch full instructions (call after search)" [ref=e488]
+                    - row "list_categories Browse available domains and counts" [ref=e489]:
+                      - cell "list_categories" [ref=e490]:
+                        - code [ref=e491]: list_categories
+                      - cell "Browse available domains and counts" [ref=e492]
+                - paragraph [ref=e493]:
+                  - text: Search returns summaries only (saves tokens). The agent calls
+                  - code [ref=e494]: get_skill
+                  - text: for the ones it actually needs.
+                - generic [ref=e495]:
+                  - heading "Add Your Own Skills" [level=2] [ref=e496]
+                  - 'link "Permalink: Add Your Own Skills" [ref=e497] [cursor=pointer]':
+                    - /url: "#add-your-own-skills"
+                    - img [ref=e498]
+                - generic [ref=e500]:
+                  - generic [ref=e501]:
+                    - generic [ref=e502]: <!-- ~/my-skills/deploy-checklist/SKILL.md -->
+                    - text: "--- name: \"deploy-checklist\" description: \"Pre-deployment verification checklist for production releases\" tags: [\"deployment\", \"production\", \"checklist\"] ---"
+                    - generic [ref=e503]: "## Steps"
+                    - text: 1. Run full test suite... 2. Check database migrations...
+                  - button "Copy" [ref=e505] [cursor=pointer]:
+                    - img [ref=e506]
+                - generic [ref=e509]:
+                  - generic [ref=e510]:
+                    - text: skill-mcp import --source directory --path ~/my-skills/
+                    - generic [ref=e511]: "# index is updated automatically — new skills are searchable immediately"
+                  - button "Copy" [ref=e513] [cursor=pointer]:
+                    - img [ref=e514]
+                - paragraph [ref=e517]:
+                  - text: No manual
+                  - code [ref=e518]: build-index
+                  - text: needed. The import detects your existing index and incrementally adds only the new skills. Use
+                  - code [ref=e519]: "--no-index"
+                  - text: to skip this (e.g. when batch-importing from multiple sources).
+                - paragraph [ref=e520]: Custom skills merge with the pre-built ones. Deduplication is automatic.
+                - generic [ref=e521]:
+                  - heading "Embedding Backends" [level=2] [ref=e522]
+                  - 'link "Permalink: Embedding Backends" [ref=e523] [cursor=pointer]':
+                    - /url: "#embedding-backends"
+                    - img [ref=e524]
+                - paragraph [ref=e526]:
+                  - text: "Default:"
+                  - code [ref=e527]: sentence-transformers/all-MiniLM-L6-v2
+                  - text: — local, free, no API key. Pre-built index included.
+                - table [ref=e529]:
+                  - rowgroup [ref=e530]:
+                    - row "Backend Pre-built index Requires" [ref=e531]:
+                      - columnheader "Backend" [ref=e532]
+                      - columnheader "Pre-built index" [ref=e533]
+                      - columnheader "Requires" [ref=e534]
+                  - rowgroup [ref=e535]:
+                    - row "sentence-transformers (default) 137MB Nothing" [ref=e536]:
+                      - cell "sentence-transformers (default)" [ref=e537]:
+                        - code [ref=e538]: sentence-transformers
+                        - text: (default)
+                      - cell "137MB" [ref=e539]
+                      - cell "Nothing" [ref=e540]
+                    - row "openai 1.1GB OPENAI_API_KEY" [ref=e541]:
+                      - cell "openai" [ref=e542]:
+                        - code [ref=e543]: openai
+                      - cell "1.1GB" [ref=e544]
+                      - cell "OPENAI_API_KEY" [ref=e545]:
+                        - code [ref=e546]: OPENAI_API_KEY
+                    - row "ollama build locally Ollama running" [ref=e547]:
+                      - cell "ollama" [ref=e548]:
+                        - code [ref=e549]: ollama
+                      - cell "build locally" [ref=e550]
+                      - cell "Ollama running" [ref=e551]
+                - generic [ref=e552]:
+                  - generic [ref=e553]:
+                    - generic [ref=e554]: "# Switch to OpenAI embeddings:"
+                    - generic [ref=e555]: "# 1. Edit ~/.skill-mcp/config.yaml (set backend: openai, model: text-embedding-3-large)"
+                    - generic [ref=e556]: "# 2. Download matching index:"
+                    - text: skill-mcp pull --include-index
+                  - button "Copy" [ref=e558] [cursor=pointer]:
+                    - img [ref=e559]
+                - generic [ref=e562]:
+                  - heading "CLI Reference" [level=2] [ref=e563]
+                  - 'link "Permalink: CLI Reference" [ref=e564] [cursor=pointer]':
+                    - /url: "#cli-reference"
+                    - img [ref=e565]
+                - generic [ref=e567]:
+                  - code [ref=e569]: skill-mcp init [--no-register] Setup + register with agents skill-mcp pull [--replace] [--include-index] Download skills from HuggingFace skill-mcp import --source SOURCE --path PATH Import custom skills skill-mcp build-index [--backend B] [--force] Build/update vector index skill-mcp serve [--transport stdio|sse] Start MCP server skill-mcp search QUERY [--k N] Test search from terminal skill-mcp status Show what's loaded skill-mcp dedup Remove duplicates
+                  - button "Copy" [ref=e571] [cursor=pointer]:
+                    - img [ref=e572]
+                - paragraph [ref=e575]:
+                  - text: All commands support
+                  - code [ref=e576]: "--data-dir DIR"
+                  - text: or env
+                  - code [ref=e577]: SKILL_MCP_DATA_DIR
+                  - text: .
+                - generic [ref=e578]:
+                  - heading "Development" [level=2] [ref=e579]
+                  - 'link "Permalink: Development" [ref=e580] [cursor=pointer]':
+                    - /url: "#development"
+                    - img [ref=e581]
+                - generic [ref=e583]:
+                  - generic [ref=e584]:
+                    - text: git clone https://github.com/JayCheng113/skill-retrieval-mcp cd skill-retrieval-mcp pip install -e
+                    - generic [ref=e585]: "\".[all,dev]\""
+                    - text: pytest tests/ -v
+                    - generic [ref=e586]: "# 139 tests, ~0.7s"
+                  - button "Copy" [ref=e588] [cursor=pointer]:
+                    - img [ref=e589]
+                - paragraph [ref=e592]:
+                  - text: "Architecture and design decisions:"
+                  - link "dev.md" [ref=e593] [cursor=pointer]:
+                    - /url: /JayCheng113/skill-retrieval-mcp/blob/main/dev.md
+                    - code [ref=e594]: dev.md
+                - generic [ref=e595]:
+                  - heading "License" [level=2] [ref=e596]
+                  - 'link "Permalink: License" [ref=e597] [cursor=pointer]':
+                    - /url: "#license"
+                    - img [ref=e598]
+                - paragraph [ref=e600]: MIT
+        - generic [ref=e604]:
+          - generic [ref=e607]:
+            - heading "About" [level=2] [ref=e608]
+            - generic [ref=e609]: No description, website, or topics provided.
+            - heading "Resources" [level=3] [ref=e610]
+            - link "Readme" [ref=e612] [cursor=pointer]:
+              - /url: "#readme-ov-file"
+              - img [ref=e613]
+              - text: Readme
+            - link "Activity" [ref=e616] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/activity
+              - img [ref=e617]
+              - text: Activity
+            - heading "Stars" [level=3] [ref=e619]
+            - link "0 stars" [ref=e621] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/stargazers
+              - img [ref=e622]
+              - strong [ref=e624]: "0"
+              - text: stars
+            - heading "Watchers" [level=3] [ref=e625]
+            - link "0 watching" [ref=e627] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/watchers
+              - img [ref=e628]
+              - strong [ref=e630]: "0"
+              - text: watching
+            - heading "Forks" [level=3] [ref=e631]
+            - link "0 forks" [ref=e633] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/forks
+              - img [ref=e634]
+              - strong [ref=e636]: "0"
+              - text: forks
+            - link "Report repository" [ref=e638] [cursor=pointer]:
+              - /url: /contact/report-content?content_url=https%3A%2F%2Fgithub.com%2FJayCheng113%2Fskill-retrieval-mcp&report=JayCheng113+%28user%29
+          - generic [ref=e640]:
+            - heading "Releases 2" [level=2] [ref=e641]:
+              - link "Releases 2" [ref=e642] [cursor=pointer]:
+                - /url: /JayCheng113/skill-retrieval-mcp/releases
+                - text: Releases
+                - generic "2" [ref=e643]
+            - link "v0.2.0 Latest Mar 14, 20262 weeks ago" [ref=e644] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/releases/tag/v0.2.0
+              - img [ref=e645]
+              - generic [ref=e647]:
+                - generic [ref=e648]:
+                  - generic [ref=e649]: v0.2.0
+                  - 'generic "Label: Latest" [ref=e650]': Latest
+                - generic [ref=e651]: Mar 14, 20262 weeks ago
+            - link "+ 1 release" [ref=e653] [cursor=pointer]:
+              - /url: /JayCheng113/skill-retrieval-mcp/releases
+          - generic "Loading latest packages" [ref=e656]:
+            - heading "Packages" [level=2] [ref=e657]:
+              - link "Packages" [ref=e658] [cursor=pointer]:
+                - /url: /users/JayCheng113/packages?repo_name=skill-retrieval-mcp
+          - generic "Loading contributors" [ref=e670]:
+            - generic:
+              - heading "Contributors" [level=2] [ref=e671]:
+                - link "Contributors" [ref=e672] [cursor=pointer]:
+                  - /url: /JayCheng113/skill-retrieval-mcp/graphs/contributors
+              - list [ref=e673]:
+                - listitem [ref=e674]
+                - listitem [ref=e676]
+                - listitem [ref=e678]
+          - generic [ref=e681]:
+            - heading "Languages" [level=2] [ref=e682]
+            - list [ref=e686]:
+              - listitem [ref=e687]:
+                - link "Python 100.0%" [ref=e688] [cursor=pointer]:
+                  - /url: /JayCheng113/skill-retrieval-mcp/search?l=python
+                  - img [ref=e689]
+                  - generic [ref=e691]: Python
+                  - generic [ref=e692]: 100.0%
+  - contentinfo [ref=e694]:
+    - heading "Footer" [level=2] [ref=e695]
+    - generic [ref=e696]:
+      - generic [ref=e697]:
+        - link "GitHub Homepage" [ref=e698] [cursor=pointer]:
+          - /url: https://github.com
+          - img [ref=e699]
+        - generic [ref=e701]: © 2026 GitHub, Inc.
+      - navigation "Footer" [ref=e702]:
+        - heading "Footer navigation" [level=3] [ref=e703]
+        - list "Footer navigation" [ref=e704]:
+          - listitem [ref=e705]:
+            - link "Terms" [ref=e706] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+          - listitem [ref=e707]:
+            - link "Privacy" [ref=e708] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+          - listitem [ref=e709]:
+            - link "Security" [ref=e710] [cursor=pointer]:
+              - /url: https://github.com/security
+          - listitem [ref=e711]:
+            - link "Status" [ref=e712] [cursor=pointer]:
+              - /url: https://www.githubstatus.com/
+          - listitem [ref=e713]:
+            - link "Community" [ref=e714] [cursor=pointer]:
+              - /url: https://github.community/
+          - listitem [ref=e715]:
+            - link "Docs" [ref=e716] [cursor=pointer]:
+              - /url: https://docs.github.com/
+          - listitem [ref=e717]:
+            - link "Contact" [ref=e718] [cursor=pointer]:
+              - /url: https://support.github.com?tags=dotcom-footer
+          - listitem [ref=e719]:
+            - button "Manage cookies" [ref=e721] [cursor=pointer]
+          - listitem [ref=e722]:
+            - button "Do not share my personal information" [ref=e724] [cursor=pointer]

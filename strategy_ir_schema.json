@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-market.local/strategy-ir-schema.json",
+  "title": "StrategySpec",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "name",
+    "timeframe",
+    "alpha",
+    "regime",
+    "exit",
+    "execution",
+    "risk"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeframe": {
+      "type": "string",
+      "pattern": "^[0-9]+[mhdw]$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "alpha": {
+      "type": "object",
+      "required": [
+        "indicators",
+        "entry_conditions",
+        "exit_conditions"
+      ],
+      "properties": {
+        "indicators": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "entry_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exit_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "regime": {
+      "type": "object",
+      "required": [
+        "filters"
+      ],
+      "properties": {
+        "filters": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "required": [
+        "minimal_roi",
+        "stoploss"
+      ],
+      "properties": {
+        "minimal_roi": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "stoploss": {
+          "type": "number",
+          "exclusiveMaximum": 0
+        },
+        "trailing_stop": {
+          "type": "boolean"
+        },
+        "trailing_stop_positive": {
+          "type": "number"
+        },
+        "trailing_stop_positive_offset": {
+          "type": "number"
+        },
+        "trailing_only_offset_is_reached": {
+          "type": "boolean"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "signal",
+            "dca",
+            "grid"
+          ]
+        },
+        "max_dca_orders": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dca_scale_factor": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": [
+        "max_open_trades",
+        "stake_currency",
+        "stake_amount",
+        "max_drawdown_pct"
+      ],
+      "properties": {
+        "max_open_trades": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stake_currency": {
+          "type": "string"
+        },
+        "stake_amount": {
+          "type": "string"
+        },
+        "max_drawdown_pct": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "search_space": {
+      "type": "object"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "family": {
+      "type": "string"
+    }
+  }
+}

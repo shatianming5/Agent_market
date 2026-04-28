@@ -359,6 +359,7 @@ class {class_name}(IStrategy):
 {leverage_method}{dca_method}
     _summary_path = Path(r"{summary_path}")
     _model = None
+    _model_name: Optional[str] = None
     _model_features: Optional[List[str]] = None
     _feature_cfg: Optional[Dict[str, Any]] = None
     _expression_specs = None
@@ -394,7 +395,8 @@ class {class_name}(IStrategy):
         if not model_path.exists():
             raise FileNotFoundError(f"Model file not found: {{model_path}}")
 
-        model_name = summary.get("model", "lightgbm")
+        model_name = str(summary.get("model", "lightgbm") or "lightgbm").strip().lower()
+        self._model_name = model_name
         if model_name == "lightgbm":
             import lightgbm as lgb
             self._model = lgb.Booster(model_file=str(model_path))
@@ -424,6 +426,10 @@ class {class_name}(IStrategy):
         self._loaded = True
 
     def _predict(self, matrix: np.ndarray) -> np.ndarray:
+        matrix = np.asarray(matrix, dtype=np.float32)
+        if (self._model_name or "") in ("xgboost", "xgb"):
+            import xgboost as xgb
+            return self._model.predict(xgb.DMatrix(matrix))
         if hasattr(self._model, "predict"):
             return self._model.predict(matrix)
         if hasattr(self._model, "forward"):

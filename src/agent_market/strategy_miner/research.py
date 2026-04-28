@@ -15,6 +15,9 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import os
+from pathlib import Path
+import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,19 +29,93 @@ _OPENCLI = "opencli"
 _TIMEOUT = 10  # per-call timeout (reduced for parallelism)
 _OVERALL_BUDGET = 25  # total seconds for all research calls
 _OPENCLI_AVAILABLE: Optional[bool] = None  # cached after first check
+_OPENCLI_COMMAND: Optional[List[str]] = None
+_OPENCLI_PATH_PREFIX: Optional[str] = None
+
+
+def _prepend_path(env: Dict[str, str], prefix: Optional[str]) -> Dict[str, str]:
+    if not prefix:
+        return env
+    path_value = env.get("PATH", "")
+    if not path_value:
+        env["PATH"] = prefix
+        return env
+    parts = [part for part in path_value.split(os.pathsep) if part]
+    if prefix in parts:
+        return env
+    env["PATH"] = os.pathsep.join([prefix, *parts])
+    return env
+
+
+def _iter_opencli_candidates() -> List[Path]:
+    env = os.environ
+    candidates: List[Path] = []
+    seen: set[str] = set()
+
+    def _add(path_value: Optional[str]) -> None:
+        if not path_value:
+            return
+        path = Path(path_value).expanduser()
+        key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(path)
+
+    _add(env.get("AGENT_MARKET_OPENCLI_BIN"))
+    which_path = shutil.which(_OPENCLI, path=env.get("PATH"))
+    _add(which_path)
+
+    home = Path.home()
+    for path in (
+        home / ".local" / "bin" / _OPENCLI,
+        home / "bin" / _OPENCLI,
+        Path("/usr/local/bin") / _OPENCLI,
+        Path("/opt/homebrew/bin") / _OPENCLI,
+    ):
+        _add(str(path))
+    return candidates
+
+
+def _resolve_opencli_command() -> Optional[List[str]]:
+    global _OPENCLI_COMMAND, _OPENCLI_PATH_PREFIX
+    if _OPENCLI_COMMAND is not None:
+        return _OPENCLI_COMMAND
+
+    base_env = _scrubbed_env()
+    for candidate in _iter_opencli_candidates():
+        if not candidate.is_file() or not os.access(candidate, os.X_OK):
+            continue
+        env = _prepend_path(dict(base_env), str(candidate.parent))
+        try:
+            result = subprocess.run(
+                [str(candidate), "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=env,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError, OSError):
+            continue
+        if result.returncode == 0:
+            _OPENCLI_COMMAND = [str(candidate)]
+            _OPENCLI_PATH_PREFIX = str(candidate.parent)
+            return _OPENCLI_COMMAND
+    return None
 
 
 def _opencli_available() -> bool:
-    """Check if opencli is on PATH (cached after first call)."""
+    """Check if opencli is available (cached after first call)."""
     global _OPENCLI_AVAILABLE
     if _OPENCLI_AVAILABLE is not None:
         return _OPENCLI_AVAILABLE
     try:
-        subprocess.run([_OPENCLI, "--version"], capture_output=True, timeout=5)
-        _OPENCLI_AVAILABLE = True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        _OPENCLI_AVAILABLE = _resolve_opencli_command() is not None
+    except Exception:
         _OPENCLI_AVAILABLE = False
-        logger.warning("opencli not found on PATH — web research disabled")
+    if not _OPENCLI_AVAILABLE:
+        _OPENCLI_AVAILABLE = False
+        logger.warning("opencli not found in PATH or common install paths — web research disabled")
     return _OPENCLI_AVAILABLE
 
 
@@ -59,13 +136,37 @@ def _sanitize_external_text(text: str) -> str:
     return s[:500]
 
 
+def _scrubbed_env() -> Dict[str, str]:
+    """Return a copy of os.environ with secrets removed."""
+    import os
+    _SECRET_KEYS = {
+        "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN",
+        "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID",
+        "AZURE_OPENAI_KEY", "HF_TOKEN", "HUGGINGFACE_TOKEN",
+        "LLM_API_KEY", "OPENCODE_API_KEY", "CLAUDE_API_KEY",
+        "GOOGLE_API_KEY", "COHERE_API_KEY", "MISTRAL_API_KEY",
+    }
+    return {k: v for k, v in os.environ.items() if k not in _SECRET_KEYS}
+
+
+def _opencli_env() -> Dict[str, str]:
+    env = _scrubbed_env()
+    return _prepend_path(env, _OPENCLI_PATH_PREFIX)
+
+
 def _run_opencli(args: List[str], timeout: int = _TIMEOUT) -> str:
-    """Run an opencli command with --format json and return stdout."""
+    """Run an opencli command with --format json and return stdout.
+
+    Runs with scrubbed environment to prevent secret leakage (D11).
+    """
     if not _opencli_available():
         return ""
-    cmd = [_OPENCLI] + args + ["--format", "json"]
+    cmd = (_OPENCLI_COMMAND or [_OPENCLI]) + args + ["--format", "json"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+            env=_opencli_env(),
+        )
         if result.returncode == 0:
             return result.stdout.strip()
         logger.debug("opencli %s rc=%d: %s", " ".join(args[:3]), result.returncode, result.stderr[:200])

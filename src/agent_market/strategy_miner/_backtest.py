@@ -5,6 +5,7 @@ import ast
 import hashlib
 import json
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +33,7 @@ from .sandbox import (
 from ._helpers import (
     _truncate_text,
     _freqtrade_config_defaults,
+    _freqtrade_trading_mode,
     _prompt_objective_profile,
     _normalize_candidate_type,
     _candidate_requires_training,
@@ -44,6 +46,8 @@ from ._helpers import (
     _coerce_float,
     _coerce_int,
     _normalize_roi_map,
+    safe_transition,
+    update_candidate_stage,
 )
 from ._rendering import (
     _render_ml_strategy_code,
@@ -57,6 +61,57 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Repair helper
 # ---------------------------------------------------------------------------
+
+
+def _update_repair_ledger_result(candidate: StrategyCandidate, result: str) -> None:
+    """Update the most recent repair ledger entry's verification_result.
+
+    Called after re-backtest to record whether the repair actually fixed the issue.
+    result: 'pass', 'fail', or 'error'
+    """
+    ledger = getattr(candidate, "repair_ledger", None)
+    if ledger and isinstance(ledger, list) and ledger:
+        ledger[-1]["verification_result"] = result
+
+
+def _repair_agent_explicitly_configured(config: MinerConfig) -> bool:
+    """Return True when repair is explicitly enabled by caller/config.
+
+    Bare `MinerConfig()` should stay fail-closed during static validation tests
+    instead of opportunistically reaching for ambient LLM credentials.
+    """
+    model = str(getattr(config, "model", "") or "").strip()
+    base_url = str(getattr(config, "base_url", "") or "").strip()
+    provider = str(getattr(config, "provider", "auto") or "auto").strip().lower()
+    return bool(model or base_url or provider not in {"", "auto"})
+
+
+def _resolve_quick_gate_thresholds(config: MinerConfig) -> dict[str, float]:
+    """Resolve quick-funnel thresholds.
+
+    Discovery overrides are intended for early futures exploration only. The
+    final evaluation gate remains unchanged in `_evaluation.py`.
+    """
+    thresholds = {
+        "min_trades": float(int(getattr(config, "quick_min_trades", 3) or 3)),
+        "min_profit_factor": float(getattr(config, "quick_min_profit_factor", 0.5) or 0.5),
+        "min_profit_pct": float(getattr(config, "quick_min_profit_pct", -5.0) or -5.0),
+        "max_drawdown_pct": float(getattr(config, "quick_max_drawdown_pct", 100.0) or 100.0),
+    }
+    if _freqtrade_trading_mode(config.freqtrade_config) != "futures":
+        return thresholds
+
+    overrides = {
+        "min_trades": getattr(config, "discovery_quick_min_trades", 0),
+        "min_profit_factor": getattr(config, "discovery_quick_min_profit_factor", 0.0),
+        "min_profit_pct": getattr(config, "discovery_quick_min_profit_pct", 0.0),
+        "max_drawdown_pct": getattr(config, "discovery_quick_max_drawdown_pct", 0.0),
+    }
+    for key, raw in overrides.items():
+        if raw in (None, "", 0, 0.0):
+            continue
+        thresholds[key] = float(raw)
+    return thresholds
 
 
 def _repair_candidate(
@@ -193,25 +248,49 @@ def _repair_candidate(
             compliance_fixes = []
 
         candidate.name = infer_strategy_class_name(candidate.code) or repaired_path.stem
+        # D6: Capture failure info BEFORE clearing for repair ledger
+        _repair_failure_type = str(candidate.failure_category or "unknown")
+        _repair_diagnosis = str(candidate.diagnosis or "")
         candidate.backtest_summary = None
         candidate.reward = None
         candidate.failure_category = ""
         candidate.diagnosis = ""
+
+        # D6: Append structured repair ledger entry
+        import time as _rl_time
+        _ledger_entry = {
+            "attempt": int(attempt),
+            "max_attempts": int(max_attempts),
+            "failure_type": _repair_failure_type,
+            "root_cause": _repair_diagnosis[:500] if _repair_diagnosis else "",
+            "patch_scope": "full_strategy",
+            "code_hash_before": before_hash,
+            "code_hash_after": after_hash,
+            "verification_result": "pending",  # updated after next backtest
+            "provider": repair_provider,
+            "model": repair_model,
+            "auto_fixes": list(auto_fixes or []),
+            "compliance_fixes": list(compliance_fixes or []),
+            "timestamp": _rl_time.time(),
+        }
+        if not hasattr(candidate, "repair_ledger") or candidate.repair_ledger is None:
+            candidate.repair_ledger = []
+        candidate.repair_ledger.append(_ledger_entry)
 
         # Record repair trace (best-effort).
         try:
             from .artifacts import write_agent_trace
 
             slot = int(getattr(candidate, "candidate_slot", 0) or 0)
-            failure_cat = str(getattr(candidate, "failure_category", "") or "unknown")
-            role = f"repair_{int(attempt):02d}.{failure_cat}"
+            role = f"repair_{int(attempt):02d}.{_repair_failure_type}"
             p = write_agent_trace(
                 run_dir,
                 iteration=int(candidate.iteration),
                 candidate_idx=slot,
                 role=role,
                 payload={
-                    "failure_category": failure_cat,
+                    "failure_category": _repair_failure_type,
+                    "root_cause": _repair_diagnosis[:500] if _repair_diagnosis else "",
                     "failure": failure,
                     "attempt": int(attempt),
                     "max_attempts": int(max_attempts),
@@ -224,6 +303,7 @@ def _repair_candidate(
                     "after_hash": after_hash,
                     "auto_fixes": list(auto_fixes or []),
                     "compliance_fixes": list(compliance_fixes or []),
+                    "repair_ledger_entry": _ledger_entry,
                 },
             )
             candidate.agent_traces = dict(getattr(candidate, "agent_traces", None) or {})
@@ -252,6 +332,12 @@ def _repair_candidate(
 def _classify_backtest_failure(stderr: str, stdout: str, *, rc: int | None = None) -> tuple[str, str]:
     blob = (stderr or "") + "\n" + (stdout or "")
     blob_l = blob.lower()
+
+    if "no module named 'filelock'" in blob_l or ("module not found" in blob_l and "filelock" in blob_l):
+        return (
+            "backtest.dependency_missing.filelock",
+            "Backtest/Hyperopt failed: dependency_missing(filelock). Install with: pip install filelock or pip install -r requirements-full.txt",
+        )
 
     if "no module named 'freqtrade'" in blob_l or ("module not found" in blob_l and "freqtrade" in blob_l):
         return (
@@ -299,6 +385,12 @@ def _classify_backtest_failure(stderr: str, stdout: str, *, rc: int | None = Non
             "Backtest failed: parameter_error. Check freqtrade args/config/timerange.",
         )
 
+    if "cannot allocate memory for thread-local data" in blob_l:
+        return (
+            "backtest.runtime_thread_allocation",
+            "Backtest failed: runtime_thread_allocation. Shared-server thread allocation failed; lower BLAS/OpenMP thread caps (for example AGENT_MARKET_SANDBOX_THREADS=1) and retry.",
+        )
+
     if "strategy" in blob_l and ("not found" in blob_l or "could not" in blob_l) and "strategy" in blob_l:
         return (
             "backtest.strategy_load_error",
@@ -319,7 +411,7 @@ def _classify_backtest_failure(stderr: str, stdout: str, *, rc: int | None = Non
 def _classify_train_failure(exc: Exception, candidate_type: str) -> tuple[str, str]:
     msg = str(exc or "").strip()
     blob = msg.lower()
-    if "stable-baselines3" in blob:
+    if "stable-baselines3" in blob or "stable_baselines3" in blob:
         return "train_model.dependency_missing.stable_baselines3", msg
     if "gymnasium" in blob:
         return "train_model.dependency_missing.gymnasium", msg
@@ -327,9 +419,135 @@ def _classify_train_failure(exc: Exception, candidate_type: str) -> tuple[str, s
         return "train_model.dependency_missing.lightgbm", msg
     if "xgboost" in blob:
         return "train_model.dependency_missing.xgboost", msg
+    if "filelock" in blob:
+        return "train_model.dependency_missing.filelock", msg
+    if candidate_type == "dl" and "model adapter" in blob and "not registered" in blob:
+        return "train_model.dependency_missing.torch", msg
     if "torch" in blob:
         return "train_model.dependency_missing.torch", msg
     return f"train_model.{candidate_type}.failed", msg or f"{candidate_type} training failed"
+
+
+def _candidate_runtime_mem_mb(candidate: StrategyCandidate, *, default_mb: int = 4096) -> int:
+    """Return a sandbox memory budget tuned to the candidate runtime profile."""
+    candidate_type = _normalize_candidate_type(getattr(candidate, "candidate_type", "rule"))
+    if candidate_type == "dl":
+        return max(default_mb, 12288)
+    if candidate_type in {"ml", "rl"}:
+        return max(default_mb, 6144)
+    return default_mb
+
+
+def _rewrite_float_assignment(path: Path, key: str, value: float) -> bool:
+    """Rewrite a `key = <float>` assignment in a strategy file (best-effort)."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False
+    pat = re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)([-+0-9.eE]+)(\s*)$", flags=re.MULTILINE)
+    new_text, n = pat.subn(rf"\g<1>{value:.6g}\g<3>", text, count=1)
+    if not n or new_text == text:
+        return False
+    try:
+        path.write_text(new_text, encoding="utf-8")
+    except Exception:
+        return False
+    return True
+
+
+def _apply_trade_calibration(
+    *,
+    candidate: StrategyCandidate,
+    config: MinerConfig,
+    trades: int,
+) -> bool:
+    """Adjust model wrapper thresholds to increase trade count (best-effort).
+
+    This is a deterministic self-heal for model candidates when the backtest
+    succeeds but violates `min_trades`, avoiding a hard fail due to overly
+    conservative signal thresholds.
+    """
+    min_trades = int(getattr(config, "min_trades", 0) or 0)
+    if min_trades <= 0 or int(trades) >= min_trades:
+        return False
+
+    cand_type = _normalize_candidate_type(getattr(candidate, "candidate_type", "rule"))
+    if cand_type == "rule":
+        return False
+
+    payload = dict(getattr(candidate, "candidate_payload", None) or {})
+    signal = dict(payload.get("signal") or {})
+
+    # ML/DL wrappers share the same `ml_*` threshold attributes.
+    if cand_type in {"ml", "dl"}:
+        enter = _coerce_float(signal.get("enter_threshold"), 0.0025)
+        exit_ = _coerce_float(signal.get("exit_threshold"), -0.0005)
+        scale = float(getattr(config, "trade_calibration_scale", 0.7) or 0.7)
+        scale = 0.7 if not (0.2 <= scale <= 0.95) else scale
+
+        new_enter = max(1e-4, enter * scale)
+        new_exit = min(0.0, exit_ * scale) if exit_ is not None else -0.0005
+
+        did_enter = _rewrite_float_assignment(candidate.strategy_path, "ml_enter_threshold", new_enter)
+        did_exit = _rewrite_float_assignment(candidate.strategy_path, "ml_exit_threshold", new_exit)
+        if not (did_enter or did_exit):
+            return False
+
+        signal["enter_threshold"] = float(new_enter)
+        signal["exit_threshold"] = float(new_exit)
+        payload["signal"] = signal
+        candidate.candidate_payload = payload
+        try:
+            candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+        logger.info(
+            "Trade calibration applied for %s: enter_threshold %.6g -> %.6g, exit_threshold %.6g -> %.6g (trades=%d<min_trades=%d)",
+            candidate.name,
+            float(enter),
+            float(new_enter),
+            float(exit_),
+            float(new_exit),
+            int(trades),
+            int(min_trades),
+        )
+        return True
+
+    if cand_type == "rl":
+        enter = _coerce_float(signal.get("enter_prob_threshold"), 0.55)
+        exit_ = _coerce_float(signal.get("exit_prob_threshold"), 0.35)
+        step = float(getattr(config, "trade_calibration_prob_step", 0.05) or 0.05)
+        step = 0.05 if not (0.01 <= step <= 0.2) else step
+
+        new_enter = max(0.30, min(0.95, enter - step))
+        new_exit = max(0.05, min(0.90, exit_ + step))
+
+        did_enter = _rewrite_float_assignment(candidate.strategy_path, "rl_enter_prob_threshold", new_enter)
+        did_exit = _rewrite_float_assignment(candidate.strategy_path, "rl_exit_prob_threshold", new_exit)
+        if not (did_enter or did_exit):
+            return False
+
+        signal["enter_prob_threshold"] = float(new_enter)
+        signal["exit_prob_threshold"] = float(new_exit)
+        payload["signal"] = signal
+        candidate.candidate_payload = payload
+        try:
+            candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+        logger.info(
+            "Trade calibration applied for %s: enter_prob_threshold %.4f -> %.4f, exit_prob_threshold %.4f -> %.4f (trades=%d<min_trades=%d)",
+            candidate.name,
+            float(enter),
+            float(new_enter),
+            float(exit_),
+            float(new_exit),
+            int(trades),
+            int(min_trades),
+        )
+        return True
+
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -345,12 +563,12 @@ def phase_train_model(
 ) -> None:
     candidate = _pick_active_candidate(state)
     if candidate is None:
-        state.phase = Phase.ANALYSIS
+        safe_transition(state, Phase.ANALYSIS)
         return
 
     candidate_type = _normalize_candidate_type(getattr(candidate, "candidate_type", "rule"))
     if candidate_type == "rule":
-        state.phase = Phase.BACKTEST
+        safe_transition(state, Phase.BACKTEST)
         return
     if candidate_type == "rl" and not bool(getattr(config, "enable_rl", False)):
         candidate.failure_category = "train_model.rl.disabled"
@@ -380,6 +598,8 @@ def phase_train_model(
 
     sandbox = candidate.strategy_path.parent.parent.parent
     summary_path = Path(str(((training_config.get("output") or {}).get("model_dir")) or "")) / "training_summary.json"
+    from ._helpers import _get_leverage_factor
+    _lev = _get_leverage_factor(config.freqtrade_config)
 
     training_evidence_files: list[Path] = []
     training_evidence_extra: dict[str, Any] = {}
@@ -392,8 +612,6 @@ def phase_train_model(
             summary = json.loads(summary_path.read_text(encoding="utf-8"))
             risk = dict(payload.get("risk") or {})
             signal = dict(payload.get("signal") or {})
-            from ._helpers import _get_leverage_factor
-            _lev = _get_leverage_factor(config.freqtrade_config)
             wrapper_code = _render_ml_strategy_code(
                 class_name=candidate.name,
                 timeframe=str(payload.get("timeframe") or _prompt_objective_profile(config).get("base_timeframe") or "1h"),
@@ -521,7 +739,8 @@ def phase_train_model(
     except Exception:
         logger.debug("Candidate/training evidence write failed", exc_info=True)
 
-    state.phase = Phase.BACKTEST
+    update_candidate_stage(candidate, "trained")
+    safe_transition(state, Phase.BACKTEST)
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +777,7 @@ def _run_hyperopt(
     min_trades = int(getattr(config, "hyperopt_min_trades", 10) or 10)
 
     ft_config = paths.resolve_repo_path(config.freqtrade_config)
-    timerange = str(getattr(config, "timerange", "") or "")
+    timerange = str(getattr(config, "selection_timerange", "") or getattr(config, "timerange", "") or "")
 
     wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
     if wrapper.exists():
@@ -583,9 +802,12 @@ def _run_hyperopt(
 
     try:
         from ._sandbox_exec import run_sandboxed
+        cmd_cwd = sandbox / "user_data"
+        if not cmd_cwd.exists():
+            cmd_cwd = sandbox
         proc = run_sandboxed(
             cmd,
-            cwd=paths.REPO_ROOT,
+            cwd=cmd_cwd,
             timeout=max(300, config.backtest_timeout * 3),
             cpu_seconds=max(600, config.backtest_timeout * 4),
             mem_mb=8192,
@@ -636,10 +858,13 @@ def phase_backtest(
     candidate = _pick_active_candidate(state)
     if candidate is None:
         logger.warning("No candidates to backtest")
-        state.phase = Phase.ANALYSIS
+        safe_transition(state, Phase.ANALYSIS)
         return
 
     sandbox = candidate.strategy_path.parent.parent.parent  # sandbox root
+    cmd_cwd = sandbox / "user_data"
+    if not cmd_cwd.exists():
+        cmd_cwd = sandbox
     candidate_type = _normalize_candidate_type(getattr(candidate, "candidate_type", "rule"))
 
     raw_repairs = int(getattr(config, "repair_attempts", 0) or 0)
@@ -650,8 +875,22 @@ def phase_backtest(
         max_repairs = max(1, min(8, raw_repairs))
     if candidate_type != "rule":
         max_repairs = 0
+    backtest_mem_mb = _candidate_runtime_mem_mb(candidate)
 
-    for attempt_idx in range(max_repairs + 1):
+    trade_calibration_attempts = int(getattr(config, "trade_calibration_attempts", 0) or 0)
+    trade_calibration_attempts = max(0, min(12, trade_calibration_attempts))
+    max_backtest_attempts = max_repairs + 1
+    # For model candidates, allow deterministic re-backtest attempts that only
+    # adjust wrapper thresholds (no LLM repair). This is strictly opt-in.
+    if candidate_type in {"ml", "dl", "rl"} and trade_calibration_attempts > 0:
+        max_backtest_attempts = max(1, trade_calibration_attempts + 1)
+
+    for attempt_idx in range(max_backtest_attempts):
+        # D6: If previous repair iteration failed (we're back in the loop),
+        # mark the last repair_ledger entry as 'fail'
+        if attempt_idx > 0:
+            _update_repair_ledger_result(candidate, "fail")
+
         if candidate_type != "rule":
             _restore_trained_wrapper(candidate, config, run_dir)
 
@@ -681,26 +920,24 @@ def phase_backtest(
             failure = f"[{category}] Validation failed: {msg}"
             candidate.diagnosis = failure
 
-            # Local auto-fix first for syntax/tool-tag/forbidden-import failures.
-            msg_lower = msg.lower()
-            if "syntax error" in msg_lower or "<write" in candidate.code.lower() or "forbidden import" in msg_lower:
-                did, fixes = auto_fix_strategy_file(candidate.strategy_path)
-                if did:
-                    try:
-                        candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
-                    except Exception:
-                        pass
-                    passed2, msg2 = validate_strategy_code(candidate.code)
-                    candidate.validation_passed = passed2
-                    if passed2:
-                        logger.info("Auto-fix succeeded for %s: %s", candidate.name, ",".join(fixes))
-                        candidate.diagnosis = ""
-                        candidate.failure_category = ""
-                    else:
-                        category2 = _classify_validation_failure(msg2)
-                        candidate.failure_category = category2
-                        failure = f"[{category2}] Validation failed after auto-fix({','.join(fixes)}): {msg2}"
-                        candidate.diagnosis = failure
+            # Local auto-fix first for any deterministic validator failure.
+            did, fixes = auto_fix_strategy_file(candidate.strategy_path)
+            if did:
+                try:
+                    candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+                passed2, msg2 = validate_strategy_code(candidate.code)
+                candidate.validation_passed = passed2
+                if passed2:
+                    logger.info("Auto-fix succeeded for %s: %s", candidate.name, ",".join(fixes))
+                    candidate.diagnosis = ""
+                    candidate.failure_category = ""
+                else:
+                    category2 = _classify_validation_failure(msg2)
+                    candidate.failure_category = category2
+                    failure = f"[{category2}] Validation failed after auto-fix({','.join(fixes)}): {msg2}"
+                    candidate.diagnosis = failure
 
             if candidate.validation_passed:
                 # Proceed to backtest without consuming an LLM repair attempt.
@@ -709,11 +946,17 @@ def phase_backtest(
                 if attempt_idx < max_repairs:
                     local_agent = agent
                     if local_agent is None:
-                        try:
-                            local_agent = build_strategy_agent(config, sandbox)
-                        except Exception as exc:
-                            logger.warning("Repair skipped (agent unavailable): %s", exc)
-                            local_agent = None
+                        if _repair_agent_explicitly_configured(config):
+                            try:
+                                local_agent = build_strategy_agent(config, sandbox)
+                            except Exception as exc:
+                                logger.warning("Repair skipped (agent unavailable): %s", exc)
+                                local_agent = None
+                        else:
+                            logger.info(
+                                "Repair skipped for %s: no explicit repair agent configured",
+                                candidate.name,
+                            )
 
                     try:
                         failure_for_repair = failure
@@ -788,12 +1031,25 @@ def phase_backtest(
         if attempt_idx == 0:
             try:
                 ls_cmd = [
-                    sys.executable, "-m", "freqtrade", "list-strategies",
-                    "--strategy-path", str(strategies_dir),
+                    sys.executable,
+                    "-m",
+                    "freqtrade",
+                    "list-strategies",
+                    "--strategy-path",
+                    str(strategies_dir),
                 ]
+                wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
+                if wrapper.exists():
+                    ls_cmd = [
+                        sys.executable,
+                        str(wrapper),
+                        "list-strategies",
+                        "--strategy-path",
+                        str(strategies_dir),
+                    ]
                 from ._sandbox_exec import run_sandboxed
                 ls_proc = run_sandboxed(
-                    ls_cmd, cwd=paths.REPO_ROOT, timeout=30, cpu_seconds=60, mem_mb=2048,
+                    ls_cmd, cwd=cmd_cwd, timeout=30, cpu_seconds=60, mem_mb=2048,
                 )
                 if ls_proc.returncode == 0 and (ls_proc.stdout or "").strip() and candidate.name not in ls_proc.stdout:
                     logger.warning(
@@ -853,20 +1109,48 @@ def phase_backtest(
             # Build smoke backtest command
             ft_config_path = paths.resolve_repo_path(config.freqtrade_config)
             smoke_cmd = [
-                sys.executable, "-m", "freqtrade", "backtesting",
-                "--config", str(ft_config_path),
-                "--strategy", candidate.name,
-                "--strategy-path", str(strategies_dir),
-                "--timerange", config.timerange,
-                "--userdir", str(sandbox / "user_data"),
-                "-p", *smoke_pairs,
+                sys.executable,
+                "-m",
+                "freqtrade",
+                "backtesting",
+                "--config",
+                str(ft_config_path),
+                "--strategy",
+                candidate.name,
+                "--strategy-path",
+                str(strategies_dir),
+                "--timerange",
+                str(getattr(config, "quick_backtest_timerange", "") or getattr(config, "selection_timerange", "") or config.timerange),
+                "--userdir",
+                str(sandbox / "user_data"),
+                "-p",
+                *smoke_pairs,
             ]
+            wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
+            if wrapper.exists():
+                smoke_cmd = [
+                    sys.executable,
+                    str(wrapper),
+                    "backtesting",
+                    "--config",
+                    str(ft_config_path),
+                    "--strategy",
+                    candidate.name,
+                    "--strategy-path",
+                    str(strategies_dir),
+                    "--timerange",
+                    str(getattr(config, "quick_backtest_timerange", "") or getattr(config, "selection_timerange", "") or config.timerange),
+                    "--userdir",
+                    str(sandbox / "user_data"),
+                    "-p",
+                    *smoke_pairs,
+                ]
 
             try:
                 from ._sandbox_exec import run_sandboxed
                 smoke_proc = run_sandboxed(
-                    smoke_cmd, cwd=paths.REPO_ROOT,
-                    timeout=smoke_timeout, cpu_seconds=smoke_timeout + 30, mem_mb=4096,
+                    smoke_cmd, cwd=cmd_cwd,
+                    timeout=smoke_timeout, cpu_seconds=smoke_timeout + 30, mem_mb=backtest_mem_mb,
                 )
                 if smoke_proc.returncode != 0:
                     logger.info("Smoke backtest crashed for %s, skipping hyperopt", candidate.name)
@@ -883,18 +1167,24 @@ def phase_backtest(
                             smoke_profit = float(smoke_summary.get("profit_total_pct", 0) or 0)
                             candidate.quick_backtest_summary = smoke_summary
 
-                            quick_min_trades = int(getattr(config, "quick_min_trades", 3) or 3)
-                            quick_min_pf = float(getattr(config, "quick_min_profit_factor", 0.5) or 0.5)
-                            quick_min_profit = float(getattr(config, "quick_min_profit_pct", -5.0) or -5.0)
+                            quick_gate = _resolve_quick_gate_thresholds(config)
+                            quick_min_trades = int(quick_gate["min_trades"])
+                            quick_min_pf = float(quick_gate["min_profit_factor"])
+                            quick_min_profit = float(quick_gate["min_profit_pct"])
+                            quick_max_drawdown = float(quick_gate["max_drawdown_pct"])
+                            smoke_drawdown = float(
+                                smoke_summary.get("max_drawdown_pct", smoke_summary.get("max_drawdown_account", 0)) or 0
+                            )
 
                             smoke_passed = (
                                 smoke_trades >= quick_min_trades
                                 and smoke_pf >= quick_min_pf
                                 and smoke_profit >= quick_min_profit
+                                and smoke_drawdown <= quick_max_drawdown
                             )
                             logger.info(
-                                "Smoke quality: trades=%d pf=%.2f profit=%.2f%% → %s",
-                                smoke_trades, smoke_pf, smoke_profit,
+                                "Smoke quality: trades=%d pf=%.2f profit=%.2f%% drawdown=%.2f%% → %s",
+                                smoke_trades, smoke_pf, smoke_profit, smoke_drawdown,
                                 "PASS" if smoke_passed else "FAIL",
                             )
                         except Exception:
@@ -904,12 +1194,15 @@ def phase_backtest(
 
                     if smoke_passed:
                         logger.info("Smoke passed for %s, proceeding to hyperopt", candidate.name)
-                        _run_hyperopt(
+                        update_candidate_stage(candidate, "smoke_passed")
+                        _ho_ok = _run_hyperopt(
                             candidate=candidate,
                             config=config,
                             sandbox=sandbox,
                             strategies_dir=strategies_dir,
                         )
+                        if _ho_ok:
+                            update_candidate_stage(candidate, "hyperopt_done")
                     else:
                         logger.info("Smoke quality gate failed for %s, skipping hyperopt", candidate.name)
             except Exception:
@@ -919,11 +1212,12 @@ def phase_backtest(
             "Phase BACKTEST: running freqtrade backtesting for %s (attempt %d/%d)",
             candidate.name,
             attempt_idx,
-            max_repairs,
+            max_backtest_attempts - 1,
         )
 
         # Build backtest command
         ft_config = paths.resolve_repo_path(config.freqtrade_config)
+        backtest_timerange = str(getattr(config, "selection_timerange", "") or config.timerange)
         results_dir = sandbox / "user_data" / "backtest_results"
         results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -952,7 +1246,7 @@ def phase_backtest(
             "--strategy-path",
             str(strategies_dir),
             "--timerange",
-            config.timerange,
+            backtest_timerange,
             "--userdir",
             str(sandbox / "user_data"),
         ]
@@ -971,21 +1265,43 @@ def phase_backtest(
                 "--strategy-path",
                 str(strategies_dir),
                 "--timerange",
-                config.timerange,
+                backtest_timerange,
                 "--userdir",
                 str(sandbox / "user_data"),
             ]
 
         try:
             from ._sandbox_exec import run_sandboxed
+            import time as _bt_time
+            _bt_start = _bt_time.time()
             proc = run_sandboxed(
                 cmd,
-                cwd=paths.REPO_ROOT,
+                cwd=cmd_cwd,
                 timeout=config.backtest_timeout,
                 cpu_seconds=config.backtest_timeout + 60,
-                mem_mb=4096,
+                mem_mb=backtest_mem_mb,
             )
+            _bt_elapsed = _bt_time.time() - _bt_start
+            # D4/D13: Track backtest wall time on candidate
+            if not hasattr(candidate, 'candidate_payload') or candidate.candidate_payload is None:
+                candidate.candidate_payload = {}
+            candidate.candidate_payload["backtest_seconds"] = round(_bt_elapsed, 1)
+            # D13: Aggregate into state economics immediately
+            if hasattr(state, "economics"):
+                state.economics["total_backtest_seconds"] = (
+                    state.economics.get("total_backtest_seconds", 0.0) + _bt_elapsed
+                )
         except subprocess.TimeoutExpired:
+            _bt_elapsed = _bt_time.time() - _bt_start
+            # D13: Record backtest time even on timeout
+            if not hasattr(candidate, 'candidate_payload') or candidate.candidate_payload is None:
+                candidate.candidate_payload = {}
+            candidate.candidate_payload["backtest_seconds"] = round(_bt_elapsed, 1)
+            # D13: Aggregate into state economics immediately
+            if hasattr(state, "economics"):
+                state.economics["total_backtest_seconds"] = (
+                    state.economics.get("total_backtest_seconds", 0.0) + _bt_elapsed
+                )
             candidate.failure_category = "backtest.timeout"
             candidate.diagnosis = f"[backtest.timeout] Backtest timed out after {config.backtest_timeout}s"
             logger.warning("%s", candidate.diagnosis)
@@ -1152,10 +1468,39 @@ def phase_backtest(
                 return
 
             summary = build_backtest_summary(zip_path)
+            trades = int(summary.get("trades") or 0)
+            min_trades = int(getattr(config, "min_trades", 0) or 0)
+            if (
+                candidate_type in {"ml", "dl", "rl"}
+                and trade_calibration_attempts > 0
+                and min_trades > 0
+                and trades < min_trades
+                and attempt_idx < max_backtest_attempts - 1
+            ):
+                did = _apply_trade_calibration(candidate=candidate, config=config, trades=trades)
+                if did:
+                    # Record evidence for artifacts/debugging (best-effort).
+                    payload = dict(getattr(candidate, "candidate_payload", None) or {})
+                    tc = dict(payload.get("trade_calibration") or {})
+                    tc["rounds"] = int(tc.get("rounds") or 0) + 1
+                    tc.setdefault("trades_before", []).append(int(trades))
+                    tc["min_trades"] = int(min_trades)
+                    payload["trade_calibration"] = tc
+                    candidate.candidate_payload = payload
+                    logger.info(
+                        "Re-running backtest after trade calibration for %s (%d/%d)",
+                        candidate.name,
+                        attempt_idx + 1,
+                        max_backtest_attempts - 1,
+                    )
+                    continue
             candidate.backtest_summary = summary
             candidate.failure_category = ""
             candidate.diagnosis = ""
-            state.phase = Phase.EVALUATION
+            # D6: Mark last repair as verified-pass (if any repair occurred)
+            _update_repair_ledger_result(candidate, "pass")
+            safe_transition(state, Phase.EVALUATION)
+            update_candidate_stage(candidate, "backtested")
 
             try:
                 from .artifacts import write_backtest_summary

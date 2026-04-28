@@ -110,3 +110,92 @@ def test_detect_pairs_config_handles_syntax_error():
     os.unlink(f.name)
 
     assert config is None
+
+
+def test_detect_strategy_timeframe_ast_only():
+    """_detect_strategy_timeframe extracts static class timeframe values."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+    from workspace.gate_pipeline import GatePipeline
+
+    gp = GatePipeline()
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write("class Demo:\n    timeframe = '5m'\n")
+        f.flush()
+        timeframe = gp._detect_strategy_timeframe(Path(f.name))
+    os.unlink(f.name)
+
+    assert timeframe == "5m"
+
+
+def test_run_gates_reports_failure_when_not_stopping(monkeypatch):
+    """stop_on_fail=False should still produce a rejected final report."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+    from workspace.gate_pipeline import GatePipeline, GateResult
+
+    gp = GatePipeline()
+    monkeypatch.setattr(gp, "_detect_pairs_config", lambda path: None)
+    monkeypatch.setattr(gp, "_save_report", lambda report, name: None)
+    monkeypatch.setattr(
+        gp,
+        "_gate_2_backtest",
+        lambda *args, **kwargs: GateResult("gate_2", False, {}, ["sharpe too low"]),
+    )
+    monkeypatch.setattr(
+        gp,
+        "_gate_3_robustness",
+        lambda *args, **kwargs: GateResult("gate_3", False, {}, ["insufficient windows"]),
+    )
+
+    report = gp.run_gates("workspace/strategies/strategy_template.py", stop_on_fail=False)
+
+    assert report["final_gate_passed"] == "gate_1"
+    assert report["recommendation"].startswith("REJECTED at Gate 2")
+
+
+def test_gate_2_backtest_passes_runtime_overrides(monkeypatch):
+    """Gate 2 should propagate exchange/pair/timeframe into backtest execution."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+    from workspace.gate_pipeline import GatePipeline
+
+    captured = {}
+
+    def fake_run_backtest(strategy_path, strategy_name, **kwargs):
+        captured["strategy_path"] = strategy_path
+        captured["strategy_name"] = strategy_name
+        captured.update(kwargs)
+        return {
+            "ok": True,
+            "sharpe": 1.2,
+            "max_drawdown_pct": 5.0,
+            "trades": 45,
+            "win_rate": 0.55,
+            "profit_factor": 1.4,
+            "profit_pct": 8.0,
+        }
+
+    gp = GatePipeline()
+    monkeypatch.setattr("workspace.backtest_api.run_backtest", fake_run_backtest)
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write("class Demo:\n    timeframe = '5m'\n")
+        f.flush()
+        result = gp._gate_2_backtest(
+            Path(f.name),
+            "Demo",
+            "gate",
+            "BTC/USDT",
+            "20260301-20260329",
+        )
+    os.unlink(f.name)
+
+    assert result.passed is True
+    assert captured["pairs"] == ["BTC/USDT"]
+    assert captured["exchange_name"] == "gate"
+    assert captured["timeframe"] == "5m"

@@ -62,13 +62,13 @@ def _compute_effective_score(
     trade_bonus = 0.0
     if trades > 0:
         trade_ratio = float(trades) / float(effective_target)
-        trade_bonus += 0.8 * min(1.0, trade_ratio)
+        trade_bonus += 0.45 * min(1.0, trade_ratio)
         if trade_ratio > 1.0:
-            trade_bonus += 0.2 * min(1.0, trade_ratio - 1.0)
+            trade_bonus += 0.10 * min(1.0, trade_ratio - 1.0)
 
     if effective_min > 0 and trades < effective_min:
         shortage = float(effective_min - trades) / float(effective_min)
-        trade_bonus -= 0.8 * min(1.0, shortage)
+        trade_bonus -= 0.35 * min(1.0, shortage)
 
     winrate_floor = 0.50
     min_winrate = float(getattr(config, "min_winrate", 0.0) or 0.0)
@@ -89,13 +89,13 @@ def _compute_effective_score(
 
     profit_bonus = 0.0
     if math.isfinite(profit_pct):
-        profit_bonus = 0.50 * math.tanh(profit_pct / 12.0)
+        profit_bonus = 0.80 * math.tanh(profit_pct / 8.0)
 
     drawdown_bonus = 0.0
     if math.isfinite(max_drawdown_pct) and max_drawdown_pct > 0:
-        drawdown_bonus -= 0.30 * min(1.5, max_drawdown_pct / 12.0)
+        drawdown_bonus -= 0.35 * min(1.5, max_drawdown_pct / 10.0)
         if math.isfinite(return_over_drawdown) and return_over_drawdown > 0:
-            drawdown_bonus += 0.25 * min(1.0, return_over_drawdown / 3.0)
+            drawdown_bonus += 0.45 * min(1.25, return_over_drawdown / 2.5)
 
     day_bonus = 0.0
     if math.isfinite(positive_days_ratio) and positive_days_ratio > 0.5:

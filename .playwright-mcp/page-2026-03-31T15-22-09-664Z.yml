@@ -1,0 +1,1189 @@
+- generic [ref=e2]:
+  - region
+  - generic [ref=e3]:
+    - link "Skip to content" [ref=e4] [cursor=pointer]:
+      - /url: "#start-of-content"
+    - banner [ref=e6]:
+      - heading "Navigation Menu" [level=2] [ref=e7]
+      - generic [ref=e8]:
+        - link "Homepage" [ref=e10] [cursor=pointer]:
+          - /url: /
+          - img [ref=e11]
+        - generic [ref=e13]:
+          - navigation "Global" [ref=e16]:
+            - list [ref=e17]:
+              - listitem [ref=e18]:
+                - button "Platform" [ref=e20] [cursor=pointer]:
+                  - text: Platform
+                  - img [ref=e21]
+              - listitem [ref=e23]:
+                - button "Solutions" [ref=e25] [cursor=pointer]:
+                  - text: Solutions
+                  - img [ref=e26]
+              - listitem [ref=e28]:
+                - button "Resources" [ref=e30] [cursor=pointer]:
+                  - text: Resources
+                  - img [ref=e31]
+              - listitem [ref=e33]:
+                - button "Open Source" [ref=e35] [cursor=pointer]:
+                  - text: Open Source
+                  - img [ref=e36]
+              - listitem [ref=e38]:
+                - button "Enterprise" [ref=e40] [cursor=pointer]:
+                  - text: Enterprise
+                  - img [ref=e41]
+              - listitem [ref=e43]:
+                - link "Pricing" [ref=e44] [cursor=pointer]:
+                  - /url: https://github.com/pricing
+                  - generic [ref=e45]: Pricing
+          - generic [ref=e46]:
+            - button "Search or jump to…" [ref=e49] [cursor=pointer]:
+              - img [ref=e51]
+            - link "Sign in" [ref=e54] [cursor=pointer]:
+              - /url: /login?return_to=https%3A%2F%2Fgithub.com%2FJayCheng113%2FPaperFarm
+            - link "Sign up" [ref=e55] [cursor=pointer]:
+              - /url: /signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F%3Cuser-name%3E%2F%3Crepo-name%3E&source=header-repo&source_repo=JayCheng113%2FPaperFarm
+            - button "Appearance settings" [ref=e58] [cursor=pointer]:
+              - img
+  - main [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e65]:
+          - generic [ref=e66]:
+            - img [ref=e67]
+            - link "JayCheng113" [ref=e70] [cursor=pointer]:
+              - /url: /JayCheng113
+            - generic [ref=e71]: /
+            - strong [ref=e72]:
+              - link "PaperFarm" [ref=e73] [cursor=pointer]:
+                - /url: /JayCheng113/PaperFarm
+            - generic [ref=e74]: Public
+          - generic [ref=e75]:
+            - text: forked from
+            - link "shatianming5/PaperFarm" [ref=e76] [cursor=pointer]:
+              - /url: /shatianming5/PaperFarm
+        - generic [ref=e77]:
+          - list:
+            - listitem [ref=e78]:
+              - link "You must be signed in to change notification settings" [ref=e79] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2FPaperFarm
+                - img [ref=e80]
+                - text: Notifications
+            - listitem [ref=e82]:
+              - link "Fork 0" [ref=e83] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2FPaperFarm
+                - img [ref=e84]
+                - text: Fork
+                - generic "0" [ref=e86]
+            - listitem [ref=e87]:
+              - link "You must be signed in to star a repository" [ref=e89] [cursor=pointer]:
+                - /url: /login?return_to=%2FJayCheng113%2FPaperFarm
+                - img [ref=e90]
+                - text: Star
+                - generic "0 users starred this repository" [ref=e92]: "0"
+      - navigation "Repository" [ref=e93]:
+        - list [ref=e94]:
+          - listitem [ref=e95]:
+            - link "Code" [ref=e96] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm
+              - img [ref=e97]
+              - generic [ref=e99]: Code
+          - listitem [ref=e100]:
+            - link "Pull requests" [ref=e101] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/pulls
+              - img [ref=e102]
+              - generic [ref=e104]: Pull requests
+          - listitem [ref=e105]:
+            - link "Actions" [ref=e106] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/actions
+              - img [ref=e107]
+              - generic [ref=e109]: Actions
+          - listitem [ref=e110]:
+            - link "Projects" [ref=e111] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/projects
+              - img [ref=e112]
+              - generic [ref=e114]: Projects
+          - listitem [ref=e115]:
+            - link "Security" [ref=e116] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/security
+              - img [ref=e117]
+              - generic [ref=e119]: Security
+          - listitem [ref=e120]:
+            - link "Insights" [ref=e121] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/pulse
+              - img [ref=e122]
+              - generic [ref=e124]: Insights
+    - generic [ref=e137]:
+      - heading "JayCheng113/PaperFarm" [level=1] [ref=e139]
+      - generic [ref=e140]:
+        - generic [ref=e143]:
+          - generic [ref=e144]:
+            - generic [ref=e145]:
+              - button "main branch" [ref=e147] [cursor=pointer]:
+                - generic [ref=e148]:
+                  - generic [ref=e150]:
+                    - img [ref=e152]
+                    - generic [ref=e155]: main
+                  - generic:
+                    - img
+              - generic [ref=e156]:
+                - link "2 Branches" [ref=e157] [cursor=pointer]:
+                  - /url: /JayCheng113/PaperFarm/branches
+                  - generic [ref=e158]:
+                    - generic:
+                      - img
+                    - generic [ref=e160]:
+                      - strong [ref=e161]: "2"
+                      - text: Branches
+                - link "0 Tags" [ref=e162] [cursor=pointer]:
+                  - /url: /JayCheng113/PaperFarm/tags
+                  - generic [ref=e163]:
+                    - generic:
+                      - img
+                    - generic [ref=e165]:
+                      - strong [ref=e166]: "0"
+                      - text: Tags
+            - generic [ref=e167]:
+              - generic [ref=e171]:
+                - img [ref=e173]
+                - combobox "Go to file" [ref=e175]
+              - button "Code" [ref=e176] [cursor=pointer]:
+                - generic [ref=e177]:
+                  - generic:
+                    - img
+                  - generic [ref=e178]: Code
+                  - generic:
+                    - img
+          - generic [ref=e180]:
+            - text: This branch is
+            - link "51 commits behind" [ref=e181] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/compare/main...shatianming5%3APaperFarm%3Amain
+            - generic [ref=e182]: shatianming5/PaperFarm:main
+            - text: .
+          - generic [ref=e183]:
+            - generic [ref=e184]:
+              - heading "Folders and files" [level=2] [ref=e185]
+              - table "Folders and files" [ref=e186]:
+                - rowgroup:
+                  - row "Name Last commit message Last commit date":
+                    - columnheader "Name"
+                    - columnheader "Last commit message":
+                      - generic "Last commit message"
+                    - columnheader "Last commit date":
+                      - generic "Last commit date"
+                - rowgroup [ref=e187]:
+                  - 'row "Latest commit TianMing-Sha claude commits by TianMing-Sha and commits by claude docs: add crash retry + failure_memory design and implementation plans Open commit details failure Commit 95fbcf9 · Mar 15, 20262 weeks ago History 229 Commits" [ref=e188]':
+                    - 'cell "Latest commit TianMing-Sha claude commits by TianMing-Sha and commits by claude docs: add crash retry + failure_memory design and implementation plans Open commit details failure Commit 95fbcf9 · Mar 15, 20262 weeks ago History 229 Commits" [ref=e189]':
+                      - generic [ref=e190]:
+                        - heading "Latest commit" [level=2] [ref=e191]
+                        - generic [ref=e192]:
+                          - generic [ref=e194]:
+                            - generic [ref=e196]:
+                              - img "TianMing-Sha" [ref=e197]
+                              - img "claude" [ref=e198]
+                            - link "commits by TianMing-Sha" [ref=e200] [cursor=pointer]:
+                              - /url: /JayCheng113/PaperFarm/commits?author=TianMing-Sha
+                              - text: TianMing-Sha
+                            - generic [ref=e201]: and
+                            - link "commits by claude" [ref=e203] [cursor=pointer]:
+                              - /url: /JayCheng113/PaperFarm/commits?author=claude
+                              - text: claude
+                          - generic [ref=e204]:
+                            - 'link "docs: add crash retry + failure_memory design and implementation plans" [ref=e207] [cursor=pointer]':
+                              - /url: /JayCheng113/PaperFarm/commit/95fbcf99cf60e4f2515c679caaf4720fa96938d4
+                            - button "Open commit details" [ref=e208] [cursor=pointer]:
+                              - img [ref=e209]
+                            - button "failure" [ref=e211] [cursor=pointer]:
+                              - img [ref=e212]
+                        - generic [ref=e214]:
+                          - generic [ref=e216]:
+                            - link "Commit 95fbcf9" [ref=e217] [cursor=pointer]:
+                              - /url: /JayCheng113/PaperFarm/commit/95fbcf99cf60e4f2515c679caaf4720fa96938d4
+                              - text: 95fbcf9
+                            - text: ·
+                            - generic "Mar 15, 2026, 4:07 AM GMT+8" [ref=e218]: Mar 15, 20262 weeks ago
+                          - generic [ref=e219]:
+                            - heading "History" [level=2] [ref=e220]
+                            - link "229 Commits" [ref=e221] [cursor=pointer]:
+                              - /url: /JayCheng113/PaperFarm/commits/main/
+                              - generic [ref=e222]:
+                                - generic:
+                                  - img
+                                - generic [ref=e223]: 229 Commits
+                  - 'row ".github, (Directory) ci: bump github/codeql-action from 3 to 4 (shatianming5#40) Mar 13, 20263 weeks ago" [ref=e224]':
+                    - cell ".github, (Directory)" [ref=e225]:
+                      - generic [ref=e226]:
+                        - img [ref=e227]
+                        - link ".github, (Directory)" [ref=e232] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/tree/main/.github
+                          - text: .github
+                    - 'cell "ci: bump github/codeql-action from 3 to 4 (shatianming5#40)" [ref=e233]':
+                      - generic [ref=e235]:
+                        - 'link "ci: bump github/codeql-action from 3 to 4 (" [ref=e236] [cursor=pointer]':
+                          - /url: /JayCheng113/PaperFarm/commit/5e2a2138bdbf77351ccd14205aa3610b02705440
+                        - link "shatianming5#40" [ref=e237] [cursor=pointer]:
+                          - /url: https://github.com/shatianming5/PaperFarm/pull/40
+                        - link ")" [ref=e238] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/commit/5e2a2138bdbf77351ccd14205aa3610b02705440
+                    - cell "Mar 13, 20263 weeks ago" [ref=e239]:
+                      - generic [ref=e240]: Mar 13, 20263 weeks ago
+                  - 'row "analysis/daily, (Directory) fix: harden concurrency safety, atomic IO, and error handling across … Mar 9, 20263 weeks ago" [ref=e241]':
+                    - cell "analysis/daily, (Directory)" [ref=e242]:
+                      - generic [ref=e243]:
+                        - img [ref=e244]
+                        - link "analysis/daily, (Directory)" [ref=e249] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/tree/main/analysis/daily
+                          - text: analysis/daily
+                    - 'cell "fix: harden concurrency safety, atomic IO, and error handling across …" [ref=e250]':
+                      - 'link "fix: harden concurrency safety, atomic IO, and error handling across …" [ref=e253] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/be65db2d7b55ab8798098b852434c605519ea3fa
+                    - cell "Mar 9, 20263 weeks ago" [ref=e254]:
+                      - generic [ref=e255]: Mar 9, 20263 weeks ago
+                  - 'row "docs, (Directory) docs: add crash retry + failure_memory design and implementation plans Mar 15, 20262 weeks ago" [ref=e256]':
+                    - cell "docs, (Directory)" [ref=e257]:
+                      - generic [ref=e258]:
+                        - img [ref=e259]
+                        - link "docs, (Directory)" [ref=e264] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/tree/main/docs
+                          - text: docs
+                    - 'cell "docs: add crash retry + failure_memory design and implementation plans" [ref=e265]':
+                      - 'link "docs: add crash retry + failure_memory design and implementation plans" [ref=e268] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/95fbcf99cf60e4f2515c679caaf4720fa96938d4
+                    - cell "Mar 15, 20262 weeks ago" [ref=e269]:
+                      - generic [ref=e270]: Mar 15, 20262 weeks ago
+                  - 'row "examples, (Directory) fix: restore deprecated headless CLI alias Mar 12, 20263 weeks ago" [ref=e271]':
+                    - cell "examples, (Directory)" [ref=e272]:
+                      - generic [ref=e273]:
+                        - img [ref=e274]
+                        - link "examples, (Directory)" [ref=e279] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/tree/main/examples
+                          - text: examples
+                    - 'cell "fix: restore deprecated headless CLI alias" [ref=e280]':
+                      - 'link "fix: restore deprecated headless CLI alias" [ref=e283] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/ef3669d4f821e0d2bacd2af44e75c42499c010f9
+                    - cell "Mar 12, 20263 weeks ago" [ref=e284]:
+                      - generic [ref=e285]: Mar 12, 20263 weeks ago
+                  - 'row "imgs, (Directory) docs: add README screenshots Mar 11, 20263 weeks ago" [ref=e286]':
+                    - cell "imgs, (Directory)" [ref=e287]:
+                      - generic [ref=e288]:
+                        - img [ref=e289]
+                        - link "imgs, (Directory)" [ref=e294] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/tree/main/imgs
+                          - text: imgs
+                    - 'cell "docs: add README screenshots" [ref=e295]':
+                      - 'link "docs: add README screenshots" [ref=e298] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/2f3ee14bf165e43b74ac879a75e23f44402d3d02
+                    - cell "Mar 11, 20263 weeks ago" [ref=e299]:
+                      - generic [ref=e300]: Mar 11, 20263 weeks ago
+                  - 'row "src/open_researcher, (Directory) fix(safety): broaden .research* prefix matching in workspace dirty check Mar 15, 20262 weeks ago" [ref=e301]':
+                    - cell "src/open_researcher, (Directory)" [ref=e302]:
+                      - generic [ref=e303]:
+                        - img [ref=e304]
+                        - link "src/open_researcher, (Directory)" [ref=e309] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/tree/main/src/open_researcher
+                          - text: src/open_researcher
+                    - 'cell "fix(safety): broaden .research* prefix matching in workspace dirty check" [ref=e310]':
+                      - 'link "fix(safety): broaden .research* prefix matching in workspace dirty check" [ref=e313] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/2ac7c886806146bbe017bcb5021ab010e6a0c5c9
+                    - cell "Mar 15, 20262 weeks ago" [ref=e314]:
+                      - generic [ref=e315]: Mar 15, 20262 weeks ago
+                  - 'row "tests, (Directory) fix(test): patch time.sleep in deadlock retry test to prevent timeout Mar 15, 20262 weeks ago" [ref=e316]':
+                    - cell "tests, (Directory)" [ref=e317]:
+                      - generic [ref=e318]:
+                        - img [ref=e319]
+                        - link "tests, (Directory)" [ref=e324] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/tree/main/tests
+                          - text: tests
+                    - 'cell "fix(test): patch time.sleep in deadlock retry test to prevent timeout" [ref=e325]':
+                      - 'link "fix(test): patch time.sleep in deadlock retry test to prevent timeout" [ref=e328] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/ed19a02d795bcb24cf987c53a420c8ca1fdc3087
+                    - cell "Mar 15, 20262 weeks ago" [ref=e329]:
+                      - generic [ref=e330]: Mar 15, 20262 weeks ago
+                  - 'row ".gitignore, (File) ci: strengthen quality gates and packaging checks Mar 12, 20263 weeks ago" [ref=e331]':
+                    - cell ".gitignore, (File)" [ref=e332]:
+                      - generic [ref=e333]:
+                        - img [ref=e334]
+                        - link ".gitignore, (File)" [ref=e339] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/.gitignore
+                          - text: .gitignore
+                    - 'cell "ci: strengthen quality gates and packaging checks" [ref=e340]':
+                      - 'link "ci: strengthen quality gates and packaging checks" [ref=e343] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/409ff58b8a89752e7b8b104c401e253c9d208d78
+                    - cell "Mar 12, 20263 weeks ago" [ref=e344]:
+                      - generic [ref=e345]: Mar 12, 20263 weeks ago
+                  - 'row "CHANGELOG.md, (File) feat: add demo command, agent configurability, worktree isolation, an… Mar 10, 20263 weeks ago" [ref=e346]':
+                    - cell "CHANGELOG.md, (File)" [ref=e347]:
+                      - generic [ref=e348]:
+                        - img [ref=e349]
+                        - link "CHANGELOG.md, (File)" [ref=e354] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/CHANGELOG.md
+                          - text: CHANGELOG.md
+                    - 'cell "feat: add demo command, agent configurability, worktree isolation, an…" [ref=e355]':
+                      - 'link "feat: add demo command, agent configurability, worktree isolation, an…" [ref=e358] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/ed375df35149de9a26dd3b39ff49b4591cf8b3d1
+                    - cell "Mar 10, 20263 weeks ago" [ref=e359]:
+                      - generic [ref=e360]: Mar 10, 20263 weeks ago
+                  - 'row "CODE_OF_CONDUCT.md, (File) feat: add demo command, agent configurability, worktree isolation, an… Mar 10, 20263 weeks ago" [ref=e361]':
+                    - cell "CODE_OF_CONDUCT.md, (File)" [ref=e362]:
+                      - generic [ref=e363]:
+                        - img [ref=e364]
+                        - link "CODE_OF_CONDUCT.md, (File)" [ref=e369] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/CODE_OF_CONDUCT.md
+                          - text: CODE_OF_CONDUCT.md
+                    - 'cell "feat: add demo command, agent configurability, worktree isolation, an…" [ref=e370]':
+                      - 'link "feat: add demo command, agent configurability, worktree isolation, an…" [ref=e373] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/ed375df35149de9a26dd3b39ff49b4591cf8b3d1
+                    - cell "Mar 10, 20263 weeks ago" [ref=e374]:
+                      - generic [ref=e375]: Mar 10, 20263 weeks ago
+                  - 'row "CONTRIBUTING.md, (File) ci: strengthen quality gates and packaging checks Mar 12, 20263 weeks ago" [ref=e376]':
+                    - cell "CONTRIBUTING.md, (File)" [ref=e377]:
+                      - generic [ref=e378]:
+                        - img [ref=e379]
+                        - link "CONTRIBUTING.md, (File)" [ref=e384] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/CONTRIBUTING.md
+                          - text: CONTRIBUTING.md
+                    - 'cell "ci: strengthen quality gates and packaging checks" [ref=e385]':
+                      - 'link "ci: strengthen quality gates and packaging checks" [ref=e388] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/409ff58b8a89752e7b8b104c401e253c9d208d78
+                    - cell "Mar 12, 20263 weeks ago" [ref=e389]:
+                      - generic [ref=e390]: Mar 12, 20263 weeks ago
+                  - 'row "LICENSE, (File) chore: add project infrastructure (LICENSE, .gitignore, Makefile, pyp… Mar 9, 20263 weeks ago" [ref=e391]':
+                    - cell "LICENSE, (File)" [ref=e392]:
+                      - generic [ref=e393]:
+                        - img [ref=e394]
+                        - link "LICENSE, (File)" [ref=e399] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/LICENSE
+                          - text: LICENSE
+                    - 'cell "chore: add project infrastructure (LICENSE, .gitignore, Makefile, pyp…" [ref=e400]':
+                      - 'link "chore: add project infrastructure (LICENSE, .gitignore, Makefile, pyp…" [ref=e403] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/bc30ce9714d4cc4003bbe03821453c7ae95f2d15
+                    - cell "Mar 9, 20263 weeks ago" [ref=e404]:
+                      - generic [ref=e405]: Mar 9, 20263 weeks ago
+                  - 'row "Makefile, (File) ci: strengthen quality gates and packaging checks Mar 12, 20263 weeks ago" [ref=e406]':
+                    - cell "Makefile, (File)" [ref=e407]:
+                      - generic [ref=e408]:
+                        - img [ref=e409]
+                        - link "Makefile, (File)" [ref=e414] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/Makefile
+                          - text: Makefile
+                    - 'cell "ci: strengthen quality gates and packaging checks" [ref=e415]':
+                      - 'link "ci: strengthen quality gates and packaging checks" [ref=e418] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/409ff58b8a89752e7b8b104c401e253c9d208d78
+                    - cell "Mar 12, 20263 weeks ago" [ref=e419]:
+                      - generic [ref=e420]: Mar 12, 20263 weeks ago
+                  - row "README.md, (File) Update README.md Mar 12, 20263 weeks ago" [ref=e421]:
+                    - cell "README.md, (File)" [ref=e422]:
+                      - generic [ref=e423]:
+                        - img [ref=e424]
+                        - link "README.md, (File)" [ref=e429] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/README.md
+                          - text: README.md
+                    - cell "Update README.md" [ref=e430]:
+                      - link "Update README.md" [ref=e433] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/commit/43aa3123efe24b2539cf3b2d0788f3559b1c7b51
+                    - cell "Mar 12, 20263 weeks ago" [ref=e434]:
+                      - generic [ref=e435]: Mar 12, 20263 weeks ago
+                  - 'row "demo.py, (File) fix: TUI hardening — 6 bug fixes across app/view_model/demo Mar 14, 20262 weeks ago" [ref=e436]':
+                    - cell "demo.py, (File)" [ref=e437]:
+                      - generic [ref=e438]:
+                        - img [ref=e439]
+                        - link "demo.py, (File)" [ref=e444] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/demo.py
+                          - text: demo.py
+                    - 'cell "fix: TUI hardening — 6 bug fixes across app/view_model/demo" [ref=e445]':
+                      - 'link "fix: TUI hardening — 6 bug fixes across app/view_model/demo" [ref=e448] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/1f26839feb463ad0df70365d557f88512d28c94e
+                    - cell "Mar 14, 20262 weeks ago" [ref=e449]:
+                      - generic [ref=e450]: Mar 14, 20262 weeks ago
+                  - 'row "pyproject.toml, (File) fix: add GraphPlugin/SchedulerPlugin classes and fix entry points Mar 14, 20263 weeks ago" [ref=e451]':
+                    - cell "pyproject.toml, (File)" [ref=e452]:
+                      - generic [ref=e453]:
+                        - img [ref=e454]
+                        - link "pyproject.toml, (File)" [ref=e459] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/pyproject.toml
+                          - text: pyproject.toml
+                    - 'cell "fix: add GraphPlugin/SchedulerPlugin classes and fix entry points" [ref=e460]':
+                      - 'link "fix: add GraphPlugin/SchedulerPlugin classes and fix entry points" [ref=e463] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/feec74e6c4ef79815453bfc47f86afb5f52a91ab
+                    - cell "Mar 14, 20263 weeks ago" [ref=e464]:
+                      - generic [ref=e465]: Mar 14, 20263 weeks ago
+                  - 'row "run_demo.sh, (File) fix: deep bug fixes from Codex analysis — atomic ops, subprocess clea… Mar 9, 20263 weeks ago" [ref=e466]':
+                    - cell "run_demo.sh, (File)" [ref=e467]:
+                      - generic [ref=e468]:
+                        - img [ref=e469]
+                        - link "run_demo.sh, (File)" [ref=e474] [cursor=pointer]:
+                          - /url: /JayCheng113/PaperFarm/blob/main/run_demo.sh
+                          - text: run_demo.sh
+                    - 'cell "fix: deep bug fixes from Codex analysis — atomic ops, subprocess clea…" [ref=e475]':
+                      - 'link "fix: deep bug fixes from Codex analysis — atomic ops, subprocess clea…" [ref=e478] [cursor=pointer]':
+                        - /url: /JayCheng113/PaperFarm/commit/e5d621bc374a2a11dab36144ebcaa1516a2f7956
+                    - cell "Mar 9, 20263 weeks ago" [ref=e479]:
+                      - generic [ref=e480]: Mar 9, 20263 weeks ago
+            - generic [ref=e482]:
+              - generic [ref=e483]:
+                - heading "Repository files navigation" [level=2] [ref=e484]
+                - navigation "Repository files" [ref=e485]:
+                  - list [ref=e486]:
+                    - listitem [ref=e487]:
+                      - link "README" [ref=e488] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e490]
+                        - generic [ref=e492]: README
+                    - listitem [ref=e493]:
+                      - link "Code of conduct" [ref=e494] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e496]
+                        - generic [ref=e498]: Code of conduct
+                    - listitem [ref=e499]:
+                      - link "Contributing" [ref=e500] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e502]
+                        - generic [ref=e504]: Contributing
+                    - listitem [ref=e505]:
+                      - link "License" [ref=e506] [cursor=pointer]:
+                        - /url: "#"
+                        - img [ref=e508]
+                        - generic [ref=e510]: License
+                - button "Outline" [ref=e511] [cursor=pointer]:
+                  - img [ref=e512]
+              - article [ref=e515]:
+                - generic [ref=e516]:
+                  - generic [ref=e517]:
+                    - 'heading "🧑‍🌾 PaperFarm: Planting GPUs & APIs 🌱, Harvesting Papers & SOTAs 🌾" [level=1] [ref=e518]'
+                    - 'link "Permalink: 🧑‍🌾 PaperFarm: Planting GPUs & APIs 🌱, Harvesting Papers & SOTAs 🌾" [ref=e519] [cursor=pointer]':
+                      - /url: "#‍-paperfarm-planting-gpus--apis--harvesting-papers--sotas-"
+                      - img [ref=e520]
+                  - paragraph [ref=e522]:
+                    - link "PyPI" [ref=e523] [cursor=pointer]:
+                      - /url: https://pypi.org/project/PaperFarm/
+                      - img "PyPI" [ref=e524]
+                    - link "Downloads" [ref=e525] [cursor=pointer]:
+                      - /url: https://pepy.tech/projects/PaperFarm
+                      - img "Downloads" [ref=e526]
+                    - link "Python 3.10+" [ref=e527] [cursor=pointer]:
+                      - /url: https://www.python.org/downloads/
+                      - img "Python 3.10+" [ref=e528]
+                    - 'link "License: MIT" [ref=e529] [cursor=pointer]':
+                      - /url: /JayCheng113/PaperFarm/blob/main/LICENSE
+                      - 'img "License: MIT" [ref=e530]'
+                    - link "GitHub stars" [ref=e531] [cursor=pointer]:
+                      - /url: https://github.com/shatianming5/PaperFarm
+                      - img "GitHub stars" [ref=e532]
+                  - generic [ref=e533]:
+                    - heading "🔬 Point it at any repo — sow ideas, run experiments, and harvest better code autonomously" [level=3] [ref=e534]
+                    - 'link "Permalink: 🔬 Point it at any repo — sow ideas, run experiments, and harvest better code autonomously" [ref=e535] [cursor=pointer]':
+                      - /url: "#-point-it-at-any-repo--sow-ideas-run-experiments-and-harvest-better-code-autonomously"
+                      - img [ref=e536]
+                  - paragraph [ref=e538]:
+                    - emphasis [ref=e539]: 🌱 Sow ideas. 🚜 Run experiments. 🌾 Harvest evidence. 📄
+                  - paragraph [ref=e540]:
+                    - link "Quick Start" [ref=e541] [cursor=pointer]:
+                      - /url: "#-quick-start"
+                      - strong [ref=e542]: Quick Start
+                    - text: ·
+                    - link "How It Works" [ref=e543] [cursor=pointer]:
+                      - /url: "#-how-it-works"
+                      - strong [ref=e544]: How It Works
+                    - text: ·
+                    - link "Agents" [ref=e545] [cursor=pointer]:
+                      - /url: "#-supported-agents"
+                      - strong [ref=e546]: Agents
+                    - text: ·
+                    - link "TUI Dashboard" [ref=e547] [cursor=pointer]:
+                      - /url: "#-interactive-tui-dashboard"
+                      - strong [ref=e548]: TUI Dashboard
+                    - text: ·
+                    - link "CLI Reference" [ref=e549] [cursor=pointer]:
+                      - /url: "#%EF%B8%8F-cli-reference"
+                      - strong [ref=e550]: CLI Reference
+                    - text: ·
+                    - link "Configuration" [ref=e551] [cursor=pointer]:
+                      - /url: "#%EF%B8%8F-configuration"
+                      - strong [ref=e552]: Configuration
+                    - text: ·
+                    - link "Examples" [ref=e553] [cursor=pointer]:
+                      - /url: "#-examples"
+                      - strong [ref=e554]: Examples
+                - separator [ref=e555]
+                - generic [ref=e556]:
+                  - heading "🌾 Key Features" [level=2] [ref=e557]
+                  - 'link "Permalink: 🌾 Key Features" [ref=e558] [cursor=pointer]':
+                    - /url: "#-key-features"
+                    - img [ref=e559]
+                - list [ref=e561]:
+                  - listitem [ref=e562]:
+                    - paragraph [ref=e563]:
+                      - strong [ref=e564]:
+                        - text: 🚀 One
+                        - code [ref=e565]: run
+                        - text: Command
+                      - text: ":"
+                      - code [ref=e566]: PaperFarm run
+                      - text: bootstraps a new workflow when
+                      - code [ref=e567]: .research/
+                      - text: is missing, or resumes an existing workflow when it already exists.
+                  - listitem [ref=e568]:
+                    - paragraph [ref=e569]:
+                      - strong [ref=e570]: 🤖 Multi-Agent Support
+                      - text: ": Works with Claude Code, Codex CLI, Aider, OpenCode, Kimi CLI, and Gemini CLI — auto-detects the first installed agent, or pick your own."
+                  - listitem [ref=e571]:
+                    - paragraph [ref=e572]:
+                      - strong [ref=e573]: 🔬 Scout → Prepare → Review → Experiment Flow
+                      - text: ": AI agent analyzes your codebase, resolves install/data/smoke bootstrap steps, then runs the"
+                      - code [ref=e574]: research-v1
+                      - text: loop — keeping what works, discarding what doesn't.
+                  - listitem [ref=e575]:
+                    - paragraph [ref=e576]:
+                      - strong [ref=e577]: 🖥️ Research Command Center TUI
+                      - text: ": A 4-tab"
+                      - code [ref=e578]: Command / Execution / Logs / Docs
+                      - text: dashboard with frontier focus, collapsible detail drawer, hypothesis lineage, trace-aware logs, and searchable docs navigation.
+                  - listitem [ref=e579]:
+                    - paragraph [ref=e580]:
+                      - strong [ref=e581]: 🛡️ Safety First
+                      - text: ": Every experiment is an isolated git commit. Failed experiments auto-rollback. Timeout watchdog, crash counter, and max-experiments limit keep things under control."
+                  - listitem [ref=e582]:
+                    - paragraph [ref=e583]:
+                      - strong [ref=e584]: 🧭 Research-v1 Runtime
+                      - text: ": A single"
+                      - code [ref=e585]: Scout -> Manager -> Critic -> Experiment
+                      - text: loop keeps research state explicit and reviewable.
+                  - listitem [ref=e586]:
+                    - paragraph [ref=e587]:
+                      - strong [ref=e588]: 📡 Headless Mode
+                      - text: ": Run without TUI — outputs structured JSON Lines to stdout, perfect for scripts, CI, or monitoring with external tools."
+                  - listitem [ref=e589]:
+                    - paragraph [ref=e590]:
+                      - strong [ref=e591]: ⚡ Parallel Workers
+                      - text: ": Run experiments across multiple GPUs in isolated git worktrees — workers can't interfere with each other."
+                - separator [ref=e592]
+                - generic [ref=e593]:
+                  - heading "🌱 Quick Start" [level=2] [ref=e594]
+                  - 'link "Permalink: 🌱 Quick Start" [ref=e595] [cursor=pointer]':
+                    - /url: "#-quick-start"
+                    - img [ref=e596]
+                - generic [ref=e598]:
+                  - heading "One-Command Workflow (Recommended)" [level=3] [ref=e599]
+                  - 'link "Permalink: One-Command Workflow (Recommended)" [ref=e600] [cursor=pointer]':
+                    - /url: "#one-command-workflow-recommended"
+                    - img [ref=e601]
+                - generic [ref=e603]:
+                  - generic [ref=e604]: pip install PaperFarm cd your-project PaperFarm run
+                  - button "Copy" [ref=e606] [cursor=pointer]:
+                    - img [ref=e607]
+                - paragraph [ref=e610]:
+                  - text: This launches a
+                  - strong [ref=e611]: 4-phase flow
+                  - text: ":"
+                - paragraph [ref=e612]:
+                  - text: Plant the first seed with
+                  - code [ref=e613]: PaperFarm run
+                  - text: ", then let the field work:"
+                - list [ref=e614]:
+                  - listitem [ref=e615]:
+                    - strong [ref=e616]: Scout
+                    - text: "— survey the field: analyze your codebase, search related work, and design evaluation metrics"
+                  - listitem [ref=e617]:
+                    - strong [ref=e618]: Prepare
+                    - text: "— prepare the soil: resolve a local Python env, install command, data/setup step, and a readiness smoke check"
+                  - listitem [ref=e619]:
+                    - strong [ref=e620]: Review
+                    - text: "— inspect the crop plan: review the analysis and prepare results in an interactive TUI, then confirm or edit the plan"
+                  - listitem [ref=e621]:
+                    - strong [ref=e622]: Experiment
+                    - text: "— plant, test, and harvest:"
+                    - code [ref=e623]: Manager -> Critic -> Experiment
+                    - text: runs the research loop autonomously, keeping what improves metrics
+                - paragraph [ref=e624]:
+                  - text: If you want to inspect exactly what
+                  - code [ref=e625]: run
+                  - text: "will use before it touches the repo, use:"
+                - generic [ref=e626]:
+                  - generic [ref=e627]: PaperFarm run --dry-run PaperFarm doctor
+                  - button "Copy" [ref=e629] [cursor=pointer]:
+                    - img [ref=e630]
+                - generic [ref=e633]:
+                  - heading "Headless Mode" [level=3] [ref=e634]
+                  - 'link "Permalink: Headless Mode" [ref=e635] [cursor=pointer]':
+                    - /url: "#headless-mode"
+                    - img [ref=e636]
+                - paragraph [ref=e638]: "Run without TUI — perfect for scripts, CI, or monitoring with external tools:"
+                - generic [ref=e639]:
+                  - generic [ref=e640]:
+                    - text: PaperFarm run --mode headless --goal
+                    - generic [ref=e641]: "\"reduce val_loss below 0.3\""
+                    - text: "--max-experiments 20"
+                  - button "Copy" [ref=e643] [cursor=pointer]:
+                    - img [ref=e644]
+                - paragraph [ref=e647]:
+                  - text: Outputs structured
+                  - strong [ref=e648]: JSON Lines
+                  - text: "to stdout, one event per line:"
+                - generic [ref=e649]:
+                  - generic [ref=e650]:
+                    - text: "{\"ts\":"
+                    - generic [ref=e651]: "\"2026-03-10T12:34:56Z\""
+                    - text: ", \"level\":"
+                    - generic [ref=e652]: "\"info\""
+                    - text: ", \"phase\":"
+                    - generic [ref=e653]: "\"scouting\""
+                    - text: ", \"event\":"
+                    - generic [ref=e654]: "\"scout_started\""
+                    - text: "} {\"ts\":"
+                    - generic [ref=e655]: "\"2026-03-10T12:40:00Z\""
+                    - text: ", \"level\":"
+                    - generic [ref=e656]: "\"info\""
+                    - text: ", \"phase\":"
+                    - generic [ref=e657]: "\"preparing\""
+                    - text: ", \"event\":"
+                    - generic [ref=e658]: "\"prepare_step_completed\""
+                    - text: ", \"step\":"
+                    - generic [ref=e659]: "\"smoke\""
+                    - text: ", \"status\":"
+                    - generic [ref=e660]: "\"completed\""
+                    - text: "} {\"ts\":"
+                    - generic [ref=e661]: "\"2026-03-10T12:45:00Z\""
+                    - text: ", \"level\":"
+                    - generic [ref=e662]: "\"info\""
+                    - text: ", \"phase\":"
+                    - generic [ref=e663]: "\"experimenting\""
+                    - text: ", \"event\":"
+                    - generic [ref=e664]: "\"experiment_completed\""
+                    - text: ", \"idea\":"
+                    - generic [ref=e665]: "\"idea-001\""
+                    - text: ", \"metric_value\": 0.95, \"experiment_num\": 3, \"max_experiments\": 20} {\"ts\":"
+                    - generic [ref=e666]: "\"2026-03-10T12:50:00Z\""
+                    - text: ", \"level\":"
+                    - generic [ref=e667]: "\"info\""
+                    - text: ", \"phase\":"
+                    - generic [ref=e668]: "\"done\""
+                    - text: ", \"event\":"
+                    - generic [ref=e669]: "\"limit_reached\""
+                    - text: ", \"detail\":"
+                    - generic [ref=e670]: "\"Max experiments (20) reached\""
+                    - text: "}"
+                  - button "Copy" [ref=e672] [cursor=pointer]:
+                    - img [ref=e673]
+                - paragraph [ref=e676]:
+                  - text: Also writes to
+                  - code [ref=e677]: .research/events.jsonl
+                  - text: for persistent logging. Interactive mode now writes the same canonical event stream, so TUI and headless share one runtime log.
+                - generic [ref=e678]:
+                  - heading "Manual Step-by-Step" [level=3] [ref=e679]
+                  - 'link "Permalink: Manual Step-by-Step" [ref=e680] [cursor=pointer]':
+                    - /url: "#manual-step-by-step"
+                    - img [ref=e681]
+                - generic [ref=e683]:
+                  - generic [ref=e684]:
+                    - text: pip install PaperFarm cd your-project PaperFarm init
+                    - generic [ref=e685]: "# Initialize .research/ directory"
+                    - text: PaperFarm run --agent claude-code
+                    - generic [ref=e686]: "# Launch with TUI dashboard"
+                    - generic [ref=e687]: "# Go to sleep. Check results in the morning:"
+                    - text: PaperFarm status --sparkline PaperFarm results --chart primary
+                  - button "Copy" [ref=e689] [cursor=pointer]:
+                    - img [ref=e690]
+                - blockquote [ref=e693]:
+                  - paragraph [ref=e694]: "Try the interactive demo — no agent or API key needed:"
+                  - generic [ref=e695]:
+                    - generic [ref=e696]:
+                      - text: PaperFarm demo
+                      - generic [ref=e697]: "# run in terminal"
+                      - text: PaperFarm demo --serve
+                      - generic [ref=e698]: "# open in browser at http://localhost:8000"
+                      - text: PaperFarm demo --serve --port 9000
+                    - button "Copy" [ref=e700] [cursor=pointer]:
+                      - img [ref=e701]
+                - separator [ref=e704]
+                - generic [ref=e705]:
+                  - heading "🚜 How It Works" [level=2] [ref=e706]
+                  - 'link "Permalink: 🚜 How It Works" [ref=e707] [cursor=pointer]':
+                    - /url: "#-how-it-works"
+                    - img [ref=e708]
+                - paragraph [ref=e710]:
+                  - text: Open Researcher generates a
+                  - code [ref=e711]: .research/
+                  - text: directory in your repo with everything needed for autonomous research.
+                - group [ref=e712]:
+                  - generic "📂 .research/ Directory Structure" [ref=e713] [cursor=pointer]
+                - group [ref=e714]:
+                  - generic "🔄 The Scout → Prepare → Review → Experiment Flow" [ref=e715] [cursor=pointer]
+                - group [ref=e716]:
+                  - generic "🧰 Auto-Prepare Resolution Rules" [ref=e717] [cursor=pointer]
+                - separator [ref=e718]
+                - generic [ref=e719]:
+                  - heading "🛡️ Field Safety & Runtime Controls" [level=2] [ref=e720]
+                  - 'link "Permalink: 🛡️ Field Safety & Runtime Controls" [ref=e721] [cursor=pointer]':
+                    - /url: "#️-field-safety--runtime-controls"
+                    - img [ref=e722]
+                - table [ref=e725]:
+                  - rowgroup [ref=e726]:
+                    - row "Feature Description" [ref=e727]:
+                      - columnheader "Feature" [ref=e728]
+                      - columnheader "Description" [ref=e729]
+                  - rowgroup [ref=e730]:
+                    - row "Isolated git commits Every experiment is a separate commit — nothing is lost" [ref=e731]:
+                      - cell "Isolated git commits" [ref=e732]:
+                        - strong [ref=e733]: Isolated git commits
+                      - cell "Every experiment is a separate commit — nothing is lost" [ref=e734]
+                    - row "Auto-rollback Failed experiments are automatically rolled back via git reset" [ref=e735]:
+                      - cell "Auto-rollback" [ref=e736]:
+                        - strong [ref=e737]: Auto-rollback
+                      - cell "Failed experiments are automatically rolled back via git reset" [ref=e738]:
+                        - text: Failed experiments are automatically rolled back via
+                        - code [ref=e739]: git reset
+                    - row "Timeout watchdog Kills experiments exceeding the configured time limit" [ref=e740]:
+                      - cell "Timeout watchdog" [ref=e741]:
+                        - strong [ref=e742]: Timeout watchdog
+                      - cell "Kills experiments exceeding the configured time limit" [ref=e743]
+                    - 'row "Crash counter Auto-pauses after N consecutive crashes (default: 3)" [ref=e744]':
+                      - cell "Crash counter" [ref=e745]:
+                        - strong [ref=e746]: Crash counter
+                      - 'cell "Auto-pauses after N consecutive crashes (default: 3)" [ref=e747]'
+                    - row "Max experiments Stops after N experiments (--max-experiments or config.yaml)" [ref=e748]:
+                      - cell "Max experiments" [ref=e749]:
+                        - strong [ref=e750]: Max experiments
+                      - cell "Stops after N experiments (--max-experiments or config.yaml)" [ref=e751]:
+                        - text: Stops after N experiments (
+                        - code [ref=e752]: "--max-experiments"
+                        - text: or
+                        - code [ref=e753]: config.yaml
+                        - text: )
+                    - row "Control plane Pause / resume / skip commands are event-backed in events.jsonl, with control.json kept as a compatibility snapshot" [ref=e754]:
+                      - cell "Control plane" [ref=e755]:
+                        - strong [ref=e756]: Control plane
+                      - cell "Pause / resume / skip commands are event-backed in events.jsonl, with control.json kept as a compatibility snapshot" [ref=e757]:
+                        - text: Pause / resume / skip commands are event-backed in
+                        - code [ref=e758]: events.jsonl
+                        - text: ", with"
+                        - code [ref=e759]: control.json
+                        - text: kept as a compatibility snapshot
+                    - row "Failure memory Persistent ledger of past failures, ranked by recovery success" [ref=e760]:
+                      - cell "Failure memory" [ref=e761]:
+                        - strong [ref=e762]: Failure memory
+                      - cell "Persistent ledger of past failures, ranked by recovery success" [ref=e763]
+                    - row "Phase gate In collaborative mode, pauses between phase transitions" [ref=e764]:
+                      - cell "Phase gate" [ref=e765]:
+                        - strong [ref=e766]: Phase gate
+                      - cell "In collaborative mode, pauses between phase transitions" [ref=e767]
+                    - row "Parallel workers Run experiments across multiple GPUs in isolated worktrees" [ref=e768]:
+                      - cell "Parallel workers" [ref=e769]:
+                        - strong [ref=e770]: Parallel workers
+                      - cell "Run experiments across multiple GPUs in isolated worktrees" [ref=e771]
+                - separator [ref=e772]
+                - generic [ref=e773]:
+                  - heading "🤖 Supported Agents" [level=2] [ref=e774]
+                  - 'link "Permalink: 🤖 Supported Agents" [ref=e775] [cursor=pointer]':
+                    - /url: "#-supported-agents"
+                    - img [ref=e776]
+                - table [ref=e779]:
+                  - rowgroup [ref=e780]:
+                    - row "Agent Command Status" [ref=e781]:
+                      - columnheader "Agent" [ref=e782]
+                      - columnheader "Command" [ref=e783]
+                      - columnheader "Status" [ref=e784]
+                  - rowgroup [ref=e785]:
+                    - row "Claude Code --agent claude-code Supported" [ref=e786]:
+                      - cell "Claude Code" [ref=e787]:
+                        - link "Claude Code" [ref=e788] [cursor=pointer]:
+                          - /url: https://docs.anthropic.com/en/docs/claude-code
+                      - cell "--agent claude-code" [ref=e789]:
+                        - code [ref=e790]: "--agent claude-code"
+                      - cell "Supported" [ref=e791]
+                    - row "Codex CLI --agent codex Supported" [ref=e792]:
+                      - cell "Codex CLI" [ref=e793]:
+                        - link "Codex CLI" [ref=e794] [cursor=pointer]:
+                          - /url: https://github.com/openai/codex
+                      - cell "--agent codex" [ref=e795]:
+                        - code [ref=e796]: "--agent codex"
+                      - cell "Supported" [ref=e797]
+                    - row "Aider --agent aider Supported" [ref=e798]:
+                      - cell "Aider" [ref=e799]:
+                        - link "Aider" [ref=e800] [cursor=pointer]:
+                          - /url: https://github.com/paul-gauthier/aider
+                      - cell "--agent aider" [ref=e801]:
+                        - code [ref=e802]: "--agent aider"
+                      - cell "Supported" [ref=e803]
+                    - row "OpenCode --agent opencode Supported" [ref=e804]:
+                      - cell "OpenCode" [ref=e805]:
+                        - link "OpenCode" [ref=e806] [cursor=pointer]:
+                          - /url: https://github.com/opencode-ai/opencode
+                      - cell "--agent opencode" [ref=e807]:
+                        - code [ref=e808]: "--agent opencode"
+                      - cell "Supported" [ref=e809]
+                    - row "Kimi CLI --agent kimi-cli Supported" [ref=e810]:
+                      - cell "Kimi CLI" [ref=e811]:
+                        - link "Kimi CLI" [ref=e812] [cursor=pointer]:
+                          - /url: https://moonshotai.github.io/kimi-cli/en/reference/kimi-command.html
+                      - cell "--agent kimi-cli" [ref=e813]:
+                        - code [ref=e814]: "--agent kimi-cli"
+                      - cell "Supported" [ref=e815]
+                    - row "Gemini CLI --agent gemini-cli Supported" [ref=e816]:
+                      - cell "Gemini CLI" [ref=e817]:
+                        - link "Gemini CLI" [ref=e818] [cursor=pointer]:
+                          - /url: https://github.com/google-gemini/gemini-cli
+                      - cell "--agent gemini-cli" [ref=e819]:
+                        - code [ref=e820]: "--agent gemini-cli"
+                      - cell "Supported" [ref=e821]
+                - paragraph [ref=e822]:
+                  - text: "Auto-detection: If you don't specify"
+                  - code [ref=e823]: "--agent"
+                  - text: ", Open Researcher finds the first installed one."
+                - group [ref=e824]:
+                  - generic "⚙️ Agent Configuration" [ref=e825] [cursor=pointer]
+                - separator [ref=e826]
+                - generic [ref=e827]:
+                  - heading "📊 Interactive TUI Dashboard" [level=2] [ref=e828]
+                  - 'link "Permalink: 📊 Interactive TUI Dashboard" [ref=e829] [cursor=pointer]':
+                    - /url: "#-interactive-tui-dashboard"
+                    - img [ref=e830]
+                - paragraph [ref=e832]:
+                  - text: The interactive UI is now a
+                  - strong [ref=e833]: research-v1 command center
+                  - text: ", not a generic tabbed monitor. It is built around the real runtime objects in"
+                  - code [ref=e834]: .research/
+                  - text: ": frontier rows, hypotheses, evidence, claims, control state, and the shared event stream."
+                - generic [ref=e835]:
+                  - heading "Screenshots" [level=3] [ref=e836]
+                  - 'link "Permalink: Screenshots" [ref=e837] [cursor=pointer]':
+                    - /url: "#screenshots"
+                    - img [ref=e838]
+                - paragraph [ref=e840]:
+                  - link "Open Researcher overview dashboard" [ref=e841] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm/blob/main/imgs/overview.png
+                    - img "Open Researcher overview dashboard" [ref=e842]
+                - paragraph [ref=e843]:
+                  - emphasis [ref=e844]: Field Overview
+                  - text: ": research command center with frontier focus, lineage, and live role activity."
+                - paragraph [ref=e845]:
+                  - link "Open Researcher execution dashboard" [ref=e846] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm/blob/main/imgs/execution.png
+                    - img "Open Researcher execution dashboard" [ref=e847]
+                - paragraph [ref=e848]:
+                  - emphasis [ref=e849]: Harvest In Progress
+                  - text: ": metric trend, run summary, and recent experiment results."
+                - paragraph [ref=e850]:
+                  - link "Open Researcher docs dashboard" [ref=e851] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm/blob/main/imgs/docs.png
+                    - img "Open Researcher docs dashboard" [ref=e852]
+                - paragraph [ref=e853]:
+                  - emphasis [ref=e854]: Docs
+                  - text: ": searchable research documents with grouped navigation and live preview."
+                - generic [ref=e855]:
+                  - code [ref=e857]: ┌─ OPEN RESEARCHER ─ research-v1 ────────────────────────────────────────┐ │ Research branch main frontier 3 best=0.3290 │ ├─ Command ─ Execution ─ Logs ─ Docs ────────────────────────────────────┤ │ Role Activity │ Frontier Focus │ Frontier Detail │ │ Research Manager │ frontier-001 / exec-014 │ status / priority / │ │ Research Critic │ hypothesis + spec │ claim chips │ │ Experiment Agent │ select a frontier │ collapsible hypothesis │ │ │ to inspect │ spec / evidence / claim │ │────────────────────┼─────────────────────────┼─────────────────────────│ │ Research Graph │ Lineage & Timeline │ Docs sidebar + search │ │ hypotheses/specs │ hypothesis tree │ grouped by type │ │ evidence/claims │ recent manager / critic │ recent docs + preview │ └────────────────────────────────────────────────────────────────────────┘
+                  - button "Copy" [ref=e859] [cursor=pointer]:
+                    - img [ref=e860]
+                - group [ref=e863]:
+                  - generic "📑 4 Tabs & Keyboard Shortcuts" [ref=e864] [cursor=pointer]
+                - group [ref=e865]:
+                  - generic "🔎 Command Page Highlights" [ref=e866] [cursor=pointer]
+                - group [ref=e867]:
+                  - generic "📚 Docs Workbench Highlights" [ref=e868] [cursor=pointer]
+                - separator [ref=e869]
+                - generic [ref=e870]:
+                  - heading "🚜 Installation" [level=2] [ref=e871]
+                  - 'link "Permalink: 🚜 Installation" [ref=e872] [cursor=pointer]':
+                    - /url: "#-installation"
+                    - img [ref=e873]
+                - paragraph [ref=e875]:
+                  - text: Open Researcher supports
+                  - strong [ref=e876]: Linux
+                  - text: ","
+                  - strong [ref=e877]: macOS
+                  - text: ", and"
+                  - strong [ref=e878]: Windows
+                  - text: . Python 3.10+ required.
+                - generic [ref=e879]:
+                  - 'heading "Option A: pip install (recommended)" [level=3] [ref=e880]'
+                  - 'link "Permalink: Option A: pip install (recommended)" [ref=e881] [cursor=pointer]':
+                    - /url: "#option-a-pip-install-recommended"
+                    - img [ref=e882]
+                - generic [ref=e884]:
+                  - generic [ref=e885]:
+                    - text: pip install PaperFarm
+                    - generic [ref=e886]: "# Try the demo first (no agent or API key needed)"
+                    - text: PaperFarm demo
+                    - generic [ref=e887]: "# run in terminal"
+                    - text: PaperFarm demo --serve
+                    - generic [ref=e888]: "# open in browser at http://localhost:8000"
+                    - generic [ref=e889]: "# Install browser support (optional)"
+                    - text: pip install
+                    - generic [ref=e890]: "\"PaperFarm[serve]\""
+                    - generic [ref=e891]: "# Then use it for real"
+                    - text: cd your-project PaperFarm run
+                  - button "Copy" [ref=e893] [cursor=pointer]:
+                    - img [ref=e894]
+                - generic [ref=e897]:
+                  - 'heading "Option B: From source (for development)" [level=3] [ref=e898]'
+                  - 'link "Permalink: Option B: From source (for development)" [ref=e899] [cursor=pointer]':
+                    - /url: "#option-b-from-source-for-development"
+                    - img [ref=e900]
+                - group [ref=e902]:
+                  - generic "🐧 Linux / 🍎 macOS / 💻 Windows" [ref=e903] [cursor=pointer]
+                - separator [ref=e904]
+                - generic [ref=e905]:
+                  - heading "🖥️ CLI Reference" [level=2] [ref=e906]
+                  - 'link "Permalink: 🖥️ CLI Reference" [ref=e907] [cursor=pointer]':
+                    - /url: "#️-cli-reference"
+                    - img [ref=e908]
+                - blockquote [ref=e910]:
+                  - paragraph [ref=e911]:
+                    - text: "All commands:"
+                    - code [ref=e912]: PaperFarm <command>
+                - group [ref=e913]:
+                  - generic "⚡ Core Commands" [ref=e914] [cursor=pointer]
+                - group [ref=e915]:
+                  - generic "📈 Monitoring & Results" [ref=e916] [cursor=pointer]
+                - group [ref=e917]:
+                  - generic "💡 Idea Management" [ref=e918] [cursor=pointer]
+                - group [ref=e919]:
+                  - generic "🔧 Utilities & Diagnostics" [ref=e920] [cursor=pointer]
+                - separator [ref=e921]
+                - generic [ref=e922]:
+                  - heading "⚙️ Configuration" [level=2] [ref=e923]
+                  - 'link "Permalink: ⚙️ Configuration" [ref=e924] [cursor=pointer]':
+                    - /url: "#️-configuration"
+                    - img [ref=e925]
+                - paragraph [ref=e927]:
+                  - text: Edit
+                  - code [ref=e928]: .research/config.yaml
+                  - text: ":"
+                - group [ref=e929]:
+                  - generic "🎛️ Full Configuration Reference" [ref=e930] [cursor=pointer]
+                - separator [ref=e931]
+                - generic [ref=e932]:
+                  - heading "🏡 Project Structure" [level=2] [ref=e933]
+                  - 'link "Permalink: 🏡 Project Structure" [ref=e934] [cursor=pointer]':
+                    - /url: "#-project-structure"
+                    - img [ref=e935]
+                - group [ref=e937]:
+                  - generic "🎯 Core System" [ref=e938] [cursor=pointer]
+                - group [ref=e939]:
+                  - generic "🤖 Agent Adapters (agents/)" [ref=e940] [cursor=pointer]:
+                    - text: 🤖
+                    - generic [ref=e941]:
+                      - text: Agent Adapters (
+                      - code [ref=e942]: agents/
+                      - text: )
+                - group [ref=e943]:
+                  - generic "📊 TUI Components (tui/)" [ref=e944] [cursor=pointer]:
+                    - text: 📊
+                    - generic [ref=e945]:
+                      - text: TUI Components (
+                      - code [ref=e946]: tui/
+                      - text: )
+                - group [ref=e947]:
+                  - generic "⚙️ Runtime Engine" [ref=e948] [cursor=pointer]
+                - separator [ref=e949]
+                - generic [ref=e950]:
+                  - heading "🌽 Examples" [level=2] [ref=e951]
+                  - 'link "Permalink: 🌽 Examples" [ref=e952] [cursor=pointer]':
+                    - /url: "#-examples"
+                    - img [ref=e953]
+                - paragraph [ref=e955]:
+                  - text: See
+                  - link "examples/" [ref=e956] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm/blob/main/examples
+                    - code [ref=e957]: examples/
+                  - text: "for complete setups:"
+                - list [ref=e958]:
+                  - listitem [ref=e959]:
+                    - strong [ref=e960]:
+                      - link "nanoGPT" [ref=e961] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/nanogpt
+                    - text: — Reduce validation loss in character-level language model training
+                  - listitem [ref=e962]:
+                    - strong [ref=e963]:
+                      - link "Liger-Kernel" [ref=e964] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/liger-kernel
+                    - text: — Optimize Triton GPU kernels
+                  - listitem [ref=e965]:
+                    - strong [ref=e966]:
+                      - link "HF GLUE" [ref=e967] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/hf-glue
+                    - text: — Improve HuggingFace Transformers fine-tuning
+                  - listitem [ref=e968]:
+                    - strong [ref=e969]:
+                      - link "CIFAR-10 Speedrun" [ref=e970] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/cifar10-speedrun
+                    - text: — Maximize CIFAR-10 image classification accuracy
+                  - listitem [ref=e971]:
+                    - strong [ref=e972]:
+                      - link "YOLO Tiny" [ref=e973] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/yolo-tiny
+                    - text: — Optimize YOLOv8 object detection on COCO8
+                  - listitem [ref=e974]:
+                    - strong [ref=e975]:
+                      - link "Whisper Fine-tune" [ref=e976] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/whisper-finetune
+                    - text: — Reduce Whisper speech recognition word error rate
+                  - listitem [ref=e977]:
+                    - strong [ref=e978]:
+                      - link "CartPole RL" [ref=e979] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/cartpole
+                    - text: — Maximize CartPole-v1 reinforcement learning reward
+                  - listitem [ref=e980]:
+                    - strong [ref=e981]:
+                      - link "Code Perf" [ref=e982] [cursor=pointer]:
+                        - /url: /JayCheng113/PaperFarm/blob/main/examples/code-perf
+                    - text: — Optimize Python JSON parser throughput (non-ML)
+                - separator [ref=e983]
+                - generic [ref=e984]:
+                  - heading "🧑‍🌾 Contributing" [level=2] [ref=e985]
+                  - 'link "Permalink: 🧑‍🌾 Contributing" [ref=e986] [cursor=pointer]':
+                    - /url: "#‍-contributing"
+                    - img [ref=e987]
+                - paragraph [ref=e989]: "Contributions are welcome! Please follow these steps:"
+                - list [ref=e990]:
+                  - listitem [ref=e991]:
+                    - text: Open an
+                    - link "issue" [ref=e992] [cursor=pointer]:
+                      - /url: https://github.com/shatianming5/PaperFarm/issues
+                    - text: to discuss the proposed change
+                  - listitem [ref=e993]: Fork the repository and create your feature branch
+                  - listitem [ref=e994]: Submit a pull request with a clear description
+                - paragraph [ref=e995]:
+                  - text: See
+                  - link "CONTRIBUTING.md" [ref=e996] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm/blob/main/CONTRIBUTING.md
+                  - text: for guidelines and
+                  - link "CHANGELOG.md" [ref=e997] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm/blob/main/CHANGELOG.md
+                  - text: for version history.
+                - generic [ref=e998]:
+                  - heading "📄 License" [level=2] [ref=e999]
+                  - 'link "Permalink: 📄 License" [ref=e1000] [cursor=pointer]':
+                    - /url: "#-license"
+                    - img [ref=e1001]
+                - paragraph [ref=e1003]:
+                  - text: This project is licensed under the
+                  - link "MIT License" [ref=e1004] [cursor=pointer]:
+                    - /url: /JayCheng113/PaperFarm/blob/main/LICENSE
+                  - text: .
+                - separator [ref=e1005]
+                - generic [ref=e1006]:
+                  - heading "Star History" [level=2] [ref=e1007]
+                  - 'link "Permalink: Star History" [ref=e1008] [cursor=pointer]':
+                    - /url: "#star-history"
+                    - img [ref=e1009]
+                - paragraph [ref=e1011]:
+                  - link "Star History Chart" [ref=e1012] [cursor=pointer]:
+                    - /url: https://www.star-history.com/?repos=shatianming5%2FPaperFarm&type=date&legend=top-left
+                    - img "Star History Chart" [ref=e1013]
+        - generic [ref=e1017]:
+          - generic [ref=e1020]:
+            - heading "About" [level=2] [ref=e1021]
+            - paragraph [ref=e1022]: Let AI agents run experiments in any repo while you sleep.
+            - heading "Resources" [level=3] [ref=e1023]
+            - link "Readme" [ref=e1025] [cursor=pointer]:
+              - /url: "#readme-ov-file"
+              - img [ref=e1026]
+              - text: Readme
+            - heading "License" [level=3] [ref=e1028]
+            - link "MIT license" [ref=e1030] [cursor=pointer]:
+              - /url: "#MIT-1-ov-file"
+              - img [ref=e1031]
+              - text: MIT license
+            - heading "Code of conduct" [level=3] [ref=e1033]
+            - link "Code of conduct" [ref=e1035] [cursor=pointer]:
+              - /url: "#coc-ov-file"
+              - img [ref=e1036]
+              - text: Code of conduct
+            - heading "Contributing" [level=3] [ref=e1038]
+            - link "Contributing" [ref=e1040] [cursor=pointer]:
+              - /url: "#contributing-ov-file"
+              - img [ref=e1041]
+              - text: Contributing
+            - link "Activity" [ref=e1044] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/activity
+              - img [ref=e1045]
+              - text: Activity
+            - heading "Stars" [level=3] [ref=e1047]
+            - link "0 stars" [ref=e1049] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/stargazers
+              - img [ref=e1050]
+              - strong [ref=e1052]: "0"
+              - text: stars
+            - heading "Watchers" [level=3] [ref=e1053]
+            - link "0 watching" [ref=e1055] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/watchers
+              - img [ref=e1056]
+              - strong [ref=e1058]: "0"
+              - text: watching
+            - heading "Forks" [level=3] [ref=e1059]
+            - link "0 forks" [ref=e1061] [cursor=pointer]:
+              - /url: /JayCheng113/PaperFarm/forks
+              - img [ref=e1062]
+              - strong [ref=e1064]: "0"
+              - text: forks
+            - link "Report repository" [ref=e1066] [cursor=pointer]:
+              - /url: /contact/report-content?content_url=https%3A%2F%2Fgithub.com%2FJayCheng113%2FPaperFarm&report=JayCheng113+%28user%29
+          - generic [ref=e1068]:
+            - heading "Releases" [level=2] [ref=e1069]:
+              - link "Releases" [ref=e1070] [cursor=pointer]:
+                - /url: /JayCheng113/PaperFarm/releases
+            - generic [ref=e1071]: No releases published
+          - generic [ref=e1073]:
+            - heading "Packages" [level=2] [ref=e1074]:
+              - link "Packages" [ref=e1075] [cursor=pointer]:
+                - /url: /users/JayCheng113/packages?repo_name=PaperFarm
+            - generic [ref=e1076]: No packages published
+          - generic [ref=e1078]:
+            - heading "Contributors" [level=2] [ref=e1079]:
+              - link "Contributors" [ref=e1080] [cursor=pointer]:
+                - /url: /JayCheng113/PaperFarm/graphs/contributors
+            - generic [ref=e1081]: No contributors
+          - generic [ref=e1083]:
+            - heading "Languages" [level=2] [ref=e1084]
+            - list [ref=e1090]:
+              - listitem [ref=e1091]:
+                - generic [ref=e1092]:
+                  - img [ref=e1093]
+                  - generic [ref=e1095]: Python
+                  - generic [ref=e1096]: 96.2%
+              - listitem [ref=e1097]:
+                - generic [ref=e1098]:
+                  - img [ref=e1099]
+                  - generic [ref=e1101]: Jinja
+                  - generic [ref=e1102]: 2.8%
+              - listitem [ref=e1103]:
+                - generic [ref=e1104]:
+                  - img [ref=e1105]
+                  - generic [ref=e1107]: Other
+                  - generic [ref=e1108]: 1.0%
+  - contentinfo [ref=e1110]:
+    - heading "Footer" [level=2] [ref=e1111]
+    - generic [ref=e1112]:
+      - generic [ref=e1113]:
+        - link "GitHub Homepage" [ref=e1114] [cursor=pointer]:
+          - /url: https://github.com
+          - img [ref=e1115]
+        - generic [ref=e1117]: © 2026 GitHub, Inc.
+      - navigation "Footer" [ref=e1118]:
+        - heading "Footer navigation" [level=3] [ref=e1119]
+        - list "Footer navigation" [ref=e1120]:
+          - listitem [ref=e1121]:
+            - link "Terms" [ref=e1122] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/github-terms/github-terms-of-service
+          - listitem [ref=e1123]:
+            - link "Privacy" [ref=e1124] [cursor=pointer]:
+              - /url: https://docs.github.com/site-policy/privacy-policies/github-privacy-statement
+          - listitem [ref=e1125]:
+            - link "Security" [ref=e1126] [cursor=pointer]:
+              - /url: https://github.com/security
+          - listitem [ref=e1127]:
+            - link "Status" [ref=e1128] [cursor=pointer]:
+              - /url: https://www.githubstatus.com/
+          - listitem [ref=e1129]:
+            - link "Community" [ref=e1130] [cursor=pointer]:
+              - /url: https://github.community/
+          - listitem [ref=e1131]:
+            - link "Docs" [ref=e1132] [cursor=pointer]:
+              - /url: https://docs.github.com/
+          - listitem [ref=e1133]:
+            - link "Contact" [ref=e1134] [cursor=pointer]:
+              - /url: https://support.github.com?tags=dotcom-footer
+          - listitem [ref=e1135]:
+            - button "Manage cookies" [ref=e1137] [cursor=pointer]
+          - listitem [ref=e1138]:
+            - button "Do not share my personal information" [ref=e1140] [cursor=pointer]

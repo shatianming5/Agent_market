@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from agent_market.freqai.model.base import BaseModelAdapter, ModelRegistry, TrainResult
 from agent_market.freqai.model.metrics import rmse
+from agent_market.freqai.runtime_threads import resolve_num_threads
 
 
 class FeedForwardNet(nn.Module):
@@ -35,7 +36,8 @@ class PyTorchMLPAdapter(BaseModelAdapter):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.model: Optional[nn.Module] = None
-        self.device = torch.device('cuda' if torch.cuda.is_available() and config.get('use_cuda', False) else 'cpu')
+        use_cuda = bool(config.get('use_cuda', False))
+        self.device = torch.device('cuda' if use_cuda and torch.cuda.is_available() else 'cpu')
 
     def fit(
         self,
@@ -44,6 +46,13 @@ class PyTorchMLPAdapter(BaseModelAdapter):
         X_valid: Optional[np.ndarray] = None,
         y_valid: Optional[np.ndarray] = None,
     ) -> TrainResult:
+        num_threads = resolve_num_threads(self.config, explicit_keys=('num_threads',))
+        if num_threads > 0:
+            torch.set_num_threads(num_threads)
+            try:
+                torch.set_num_interop_threads(num_threads)
+            except RuntimeError:
+                pass
         torch.manual_seed(int(self.config.get('seed', 42)))
         input_dim = X_train.shape[1]
         hidden_dims = self.config.get('hidden_dims', [64, 32])

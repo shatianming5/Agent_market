@@ -10,9 +10,16 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [ -f "$REPO_ROOT/.opencode.json" ] && [ -z "${OPENCODE_CONFIG:-}" ]; then
+    export OPENCODE_CONFIG="$REPO_ROOT/.opencode.json"
+fi
+
 MAX_ITERATIONS=${1:-5}
 ITERATION=0
 MODEL="${OPENCODE_MODEL:-custom/gpt-5.2}"
+export OPENCODE_MODEL="$MODEL"
 
 echo "======================================"
 echo "OpenCode Agent Continuous Loop"
@@ -49,8 +56,13 @@ Your tasks for this iteration:
 2. Check if any strategies need parameter recalibration (adaptive_params.AdaptiveEngine)
 3. If fewer than 3 strategies in paper/active, discover new ones
 4. Run gate_pipeline on any new strategies
-5. Generate daily report (report_generator.generate_daily_report)
+5. Confirm the cycle generated workspace/reports/daily_YYYYMMDD.json and inspect any report errors in the cycle summary
 6. Save cycle summary to results/last_cycle.json
+
+Constraints:
+- Do not edit tracked repository files during this loop.
+- Only execute existing Python entrypoints and write runtime artifacts/logs under results/, workspace/results/, workspace/reports/, or workspace/paper.
+- If you detect a code issue, log it and continue with the remaining safe runtime steps instead of patching files.
 
 Execute Python code for each step. Be thorough but efficient." 2>&1 | tee -a results/agent_loop.log
 

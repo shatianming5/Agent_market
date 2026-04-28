@@ -16,13 +16,14 @@ from agent_market.flow_ext import steps as flow_steps
 from agent_market.flow_ext.step_dispatch import STEP_HANDLERS, StepContext
 from agent_market.run_artifacts import RunArtifacts
 from agent_market import paths
+from agent_market.runtime_preflight import run_agent_flow_preflight
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = paths.REPO_ROOT
 
 
 def _relpath(path: Path) -> str:
-    return paths.relpath_under_repo(path if path.is_absolute() else (REPO_ROOT / path))
+    return paths.relpath_for_meta(path if path.is_absolute() else (REPO_ROOT / path))
 
 
 def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
@@ -69,6 +70,7 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
             "tca": cfg.tca,
             "report": cfg.report,
             "strategy_miner": cfg.strategy_miner,
+            "experiment": cfg.experiment,
         }
         payload = json.dumps(
             snapshot,
@@ -97,6 +99,7 @@ class AgentFlowConfig:
     tca: Optional[Dict[str, Any]] = None
     report: Optional[Dict[str, Any]] = None
     strategy_miner: Optional[Dict[str, Any]] = None
+    experiment: Optional[Dict[str, Any]] = None
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentFlowConfig":
@@ -115,6 +118,7 @@ class AgentFlowConfig:
             "tca",
             "report",
             "strategy_miner",
+            "experiment",
         }
         extra = set(data.keys()) - known_keys
         if extra:
@@ -136,6 +140,7 @@ class AgentFlowConfig:
             tca=data.get("tca"),
             report=data.get("report"),
             strategy_miner=data.get("strategy_miner"),
+            experiment=data.get("experiment"),
         )
 
 
@@ -163,8 +168,8 @@ class AgentFlow:
         "rl",
         "backtest",
         "tca",
-        "report",
         "strategy_miner",
+        "report",
     ]
 
     def __init__(
@@ -178,8 +183,9 @@ class AgentFlow:
         self.feedback_path = paths.resolve_repo_path(
             feedback_path if feedback_path is not None else paths.default_feedback_path()
         )
+        self._last_preflight_report: Optional[Dict[str, Any]] = None
 
-    def run(self, steps: Optional[List[str]] = None) -> None:
+    def run(self, steps: Optional[List[str]] = None) -> str:
         run_id = uuid.uuid4().hex[:12]
         started_at = datetime.now(timezone.utc).isoformat()
         meta_latest_path = paths.run_meta_latest_path()
@@ -207,8 +213,8 @@ class AgentFlow:
             ("rl", self.config.rl_training),
             ("backtest", self.config.backtest),
             ("tca", self.config.tca),
-            ("report", self.config.report),
             ("strategy_miner", self.config.strategy_miner),
+            ("report", self.config.report),
         ]
 
         logger.info("[FLOW] RUN_ID %s", run_id)
@@ -218,6 +224,12 @@ class AgentFlow:
             run_id=run_id, run_dir=run_dir,
             feedback_path=self.feedback_path, full_config=self.config,
             config_path=self.config_path,
+        )
+        self._last_preflight_report = run_agent_flow_preflight(
+            self.config,
+            run_dir=run_dir,
+            requested_steps=requested,
+            feedback_path=self.feedback_path,
         )
         status = "success"
         error_info: Optional[dict[str, Any]] = None
@@ -229,7 +241,7 @@ class AgentFlow:
             for name, cfg in sequence:
                 if requested and name not in requested:
                     continue
-                if not cfg:
+                if cfg is None:
                     if requested:
                         logger.warning("Step '%s' requested but no configuration provided", name)
                     continue
@@ -281,6 +293,27 @@ class AgentFlow:
             raise
         finally:
             try:
+                try:
+                    from agent_market.strategy_factory import finalize_strategy_factory_artifacts  # noqa: WPS433
+
+                    extra_artifacts = finalize_strategy_factory_artifacts(
+                        run_id=run_id,
+                        run_dir=run_dir,
+                        experiment_cfg=dict(self.config.experiment or {}),
+                        status=status,
+                        started_at=started_at,
+                        steps_meta=steps_meta,
+                        error_info=error_info,
+                        arts=arts,
+                    )
+                    arts.experiment_registry = extra_artifacts.get("experiment_registry")
+                    arts.budget_plan_json = extra_artifacts.get("budget_plan_json")
+                    arts.replay_manifest_json = extra_artifacts.get("replay_manifest_json")
+                    arts.lineage_graph_json = extra_artifacts.get("lineage_graph_json")
+                    arts.promotion_chain_json = extra_artifacts.get("promotion_chain_json")
+                    arts.resource_dashboard_json = extra_artifacts.get("resource_dashboard_json")
+                except Exception as exc:
+                    logger.error("[FLOW] STRATEGY_FACTORY_FINALIZE_FAIL %s: %s", run_id, exc)
                 meta = self._build_run_meta(
                     run_id, started_at, status, requested, steps_meta,
                     error_info, arts, meta_latest_path, meta_run_path,
@@ -296,6 +329,7 @@ class AgentFlow:
                 raise RuntimeError(
                     f"Failed to write run metadata: {meta_write_error}"
                 ) from meta_write_error
+        return run_id
 
     # ------------------------------------------------------------------
     # Metadata assembly (extracted from run())
@@ -314,18 +348,15 @@ class AgentFlow:
     ) -> Dict[str, Any]:
         cfg_info = _config_snapshot_info(self.config, self.config_path)
 
-        feature_out = None
-        if self.config.feature:
+        # Preserve any paths captured by step handlers (they may point to run-local copies).
+        if self.config.feature and not arts.feature_output:
             feature_out = _extract_flag_value(self.config.feature.get("args"), "--output")
             if feature_out:
-                feature_out = _relpath(paths.resolve_repo_path(feature_out))
-        expr_out = None
-        if self.config.expression:
+                arts.feature_output = _relpath(paths.resolve_repo_path(feature_out))
+        if self.config.expression and not arts.expression_output:
             expr_out = _extract_flag_value(self.config.expression.get("args"), "--output")
             if expr_out:
-                expr_out = _relpath(paths.resolve_repo_path(expr_out))
-        arts.feature_output = feature_out
-        arts.expression_output = expr_out
+                arts.expression_output = _relpath(paths.resolve_repo_path(expr_out))
 
         model_dirs: list[str] = []
         if self.config.ml_training:
@@ -346,11 +377,11 @@ class AgentFlow:
                 self.config.backtest.get("results_dir")
                 or str(paths.user_data_root() / "backtest_results")
             )
-
-        models_root = paths.models_root()
-        training_summaries = sorted(models_root.rglob("training_summary.json")) if models_root.exists() else []
-        bt_dir = paths.resolve_repo_path(results_dir or str(paths.user_data_root() / "backtest_results"))
-        bt_zips = sorted(bt_dir.glob("backtest-result-*.zip")) if bt_dir.exists() else []
+        # Avoid scanning global artifacts: record only the artifacts produced by this run.
+        training_summaries: list[str] = [arts.training_summary_json] if arts.training_summary_json else []
+        bt_zip = arts.backtest_zip_run or arts.backtest_zip
+        bt_zips: list[str] = [bt_zip] if bt_zip else []
+        feedback_summary = arts.feedback_summary_json or _relpath(self.feedback_path)
 
         return {
             "run_id": run_id,
@@ -365,12 +396,19 @@ class AgentFlow:
                 "platform": platform.platform(),
             },
             "freqtrade": flow_steps.get_freqtrade_version(),
+            "preflight": {
+                "ok": bool((self._last_preflight_report or {}).get("ok")),
+                "warnings": int((self._last_preflight_report or {}).get("warnings") or 0),
+                "errors": int((self._last_preflight_report or {}).get("errors") or 0),
+                "applied_env": dict((self._last_preflight_report or {}).get("applied_env") or {}),
+                "report": _relpath((meta_run_path.parent / "preflight.json").resolve()),
+            },
             "artifacts": arts.to_dict(
-                feedback_summary=_relpath(self.feedback_path),
+                feedback_summary=feedback_summary,
                 model_dirs=model_dirs,
-                training_summaries=[_relpath(p) for p in training_summaries],
+                training_summaries=training_summaries,
                 backtest_results_dir=results_dir,
-                backtest_zips=[_relpath(p) for p in bt_zips],
+                backtest_zips=bt_zips,
             ),
             "steps": steps_meta,
             "error": error_info,

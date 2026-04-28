@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import json
-import sys
 import math
+import logging
+import sys
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
+from agent_market import paths  # type: ignore
+
 from ..errors import error
 from ...runtime import ROOT, SRC
 
 router = APIRouter()
-from agent_market import paths  # type: ignore  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_src_on_path() -> None:
@@ -155,7 +159,7 @@ def results_gallery(results_dir: str = "user_data/backtest_results", limit: int 
             summary["mtime"] = zp.stat().st_mtime
             items.append(summary)
         except Exception as _exc:
-            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
+            logger.debug("Skipped: %s", _exc)
             continue
     return {"dir": str(rd), "items": items}
 
@@ -183,17 +187,21 @@ def results_bundles_list(limit: int = 20):
             continue
         try:
             stat = bundle.stat()
-            items.append(
-                {
-                    "run_id": run_id,
-                    "path": str(bundle.relative_to(ROOT.resolve())),
-                    "mtime": stat.st_mtime,
-                    "size": stat.st_size,
-                }
-            )
         except Exception as _exc:
-            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
+            logger.debug("Skipped: %s", _exc)
             continue
+        try:
+            path_str = str(bundle.relative_to(ROOT.resolve()))
+        except Exception:
+            path_str = str(bundle)
+        items.append(
+            {
+                "run_id": run_id,
+                "path": path_str,
+                "mtime": stat.st_mtime,
+                "size": stat.st_size,
+            }
+        )
     items.sort(key=lambda x: x.get("mtime") or 0, reverse=True)
     return {"items": items[:lim], "count": len(items), "limit": lim}
 
@@ -232,7 +240,7 @@ def results_aggregate(names: str, results_dir: str = "user_data/backtest_results
                 }
             )
         except Exception as _exc:
-            import logging; logging.getLogger(__name__).debug("Skipped: %s", _exc)
+            logger.debug("Skipped: %s", _exc)
             continue
     if not metrics:
         return error("NO_VALID_INPUTS", "no valid inputs")

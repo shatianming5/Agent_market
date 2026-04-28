@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "loop_name": "architecture",
+  "status": "active",
+  "iteration": 1,
+  "repo_root": "/Users/shatianming/Downloads/Agent_market",
+  "loop_dir": "/Users/shatianming/Downloads/Agent_market/.codex/ralph/architecture",
+  "created_at": "2026-04-06T17:41:10+00:00",
+  "updated_at": "2026-04-07T00:00:00+08:00",
+  "current_focus": "Architecture doc and runtime/control-plane boundary",
+  "last_result": "Architecture doc, direct OpenCode factor/runtime entrypoints, and repo-local Ralph loop scaffolding landed and verified.",
+  "next_action": "Implement factor-card memory persistence as the next bounded Ralph iteration."
+}

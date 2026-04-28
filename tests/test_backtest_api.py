@@ -27,6 +27,29 @@ def test_run_backtest_missing_file():
     assert "not found" in result["error"]
 
 
+def test_build_effective_config_applies_runtime_overrides():
+    from workspace.backtest_api import _build_effective_config
+
+    config_path = ROOT / "workspace" / "configs" / "backtest_default.json"
+    effective_path, is_temporary = _build_effective_config(
+        config_path,
+        pairs=["BTC/USDT"],
+        exchange_name="gate",
+        timeframe="5m",
+    )
+
+    try:
+        payload = json.loads(effective_path.read_text(encoding="utf-8"))
+        assert is_temporary is True
+        assert payload["exchange"]["name"] == "gate"
+        assert payload["exchange"]["pair_whitelist"] == ["BTC/USDT"]
+        assert payload["timeframe"] == "5m"
+        assert payload["freqai"]["feature_parameters"]["include_timeframes"] == ["5m"]
+        assert "ccxt_config" not in payload["exchange"]
+    finally:
+        effective_path.unlink(missing_ok=True)
+
+
 def test_run_backtest_with_template():
     """Run a real backtest with the strategy template — integration test."""
     from workspace.backtest_api import run_backtest

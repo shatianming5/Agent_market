@@ -1,0 +1,172 @@
+{
+  "best": {
+    "sharpe": 7.242751758602424,
+    "pair": "ETH/USDT/LINK/USDT",
+    "profit": 0.9389767544495942,
+    "lb": 80,
+    "ez": 3.5
+  },
+  "total": 356,
+  "top": [
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "ETH/USDT/LINK/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.699366489974272,
+      "sharpe": 1.7976778921887482,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "LINK/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 2.0,
+      "profit": 5.223879575525141,
+      "sharpe": 0.5700020001222175,
+      "pw": 3
+    },
+    {
+      "pair": "DOGE/USDT/SOL/USDT",
+      "lb": 80,
+      "ez": 3.0,
+      "profit": 5.204190381877943,
+      "sharpe": 1.2123704934867037,
+      "pw": 3
+    }
+  ]
+}

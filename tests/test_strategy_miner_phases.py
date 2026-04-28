@@ -1,12 +1,14 @@
 """Integration tests for strategy_miner phases."""
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agent_market.factor_memory import build_factor_memory_artifacts
 from agent_market.strategy_miner.dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
 
 
@@ -84,6 +86,126 @@ def test_phase_strategy_gen_writes_file():
         assert state.candidates[0].name == "TestStrategy"
 
 
+def test_phase_strategy_gen_injects_factor_memory_and_tracks_references():
+    from agent_market.strategy_miner.phases import phase_strategy_gen
+    from agent_market.strategy_miner.knowledge_base import KnowledgeBase
+    from agent_market.strategy_miner.sandbox import prepare_sandbox
+
+    with tempfile.TemporaryDirectory() as td:
+        run_dir = Path(td)
+        spec_path = run_dir / "factor_spec.json"
+        spec_path.write_text(
+            json.dumps(
+                {
+                    "name": "breakout_factor",
+                    "hypothesis": "Use breakout confirmation",
+                    "meta": {"timeframe": "5m", "universe": ["BTC/USDT"], "data_sources": ["ohlcv"]},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        eval_meta_path = run_dir / "factor_eval_meta.json"
+        eval_meta_path.write_text(
+            json.dumps({"expression": "ts_max(close, 20) - close"}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        scores_path = run_dir / "factor_scores.json"
+        scores_path.write_text(
+            json.dumps(
+                {
+                    "generated_at": "2026-04-07T00:00:00Z",
+                    "target_col": "future_return",
+                    "items": [
+                        {
+                            "name": "breakout_card",
+                            "weighted_score": 0.9,
+                            "gate_pass": True,
+                            "pareto": True,
+                            "turnover": 0.1,
+                            "nan_ratio": 0.0,
+                            "corr_to_library_max": 0.2,
+                            "gates": {"max_nan_ratio": 0.5, "max_turnover": 1.0, "max_corr_to_library": 0.9},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        mem = build_factor_memory_artifacts(
+            run_id="flowrun123456",
+            memory_dir=run_dir / "factor_memory",
+            factor_spec_path=spec_path,
+            factor_eval_meta_path=eval_meta_path,
+            factor_scores_path=scores_path,
+        )
+
+        config = MinerConfig(
+            multiagent_enabled=False,
+            factor_memory_path=mem.factor_memory_json,
+            max_strategy_timeframe="15m",
+        )
+        global_kb = KnowledgeBase(run_dir / "global_strategy_kb.json")
+        global_kb.add_strategy_card(
+            name="PriorBreakoutWinner",
+            code=_VALID_STRATEGY,
+            iteration=2,
+            candidate_type="rule",
+            candidate_family="rule/breakout",
+            metrics={"sharpe": 1.2, "profit_pct": 4.5, "trades": 88},
+            run_id="olderrun123456",
+            timeframe="5m",
+            universe=["BTC/USDT"],
+        )
+        global_kb.add_failure_card(
+            name="PriorBreakoutFailure",
+            iteration=1,
+            phase="evaluation",
+            category="constraint_violation",
+            detail="Too few trades for breakout family",
+            run_id="olderrun654321",
+            candidate_family="rule/breakout",
+            candidate_type="rule",
+            timeframe="5m",
+            universe=["BTC/USDT"],
+        )
+        state = MinerState()
+        state.phase = Phase.STRATEGY_GEN
+
+        sandbox = prepare_sandbox(config, run_dir, 0, variant=None)
+        strat_dir = sandbox / "user_data" / "strategies"
+        strat_dir.mkdir(parents=True, exist_ok=True)
+        strat_file = strat_dir / "TestStrategy.py"
+        strat_file.write_text(_VALID_STRATEGY, encoding="utf-8")
+
+        captured_prompt: dict[str, str] = {}
+
+        def _fake_generate_strategy(prompt: str, filename_hint: str | None = None, on_result=None):
+            captured_prompt["text"] = prompt
+            return None
+
+        mock_agent = MagicMock()
+        mock_agent.generate_strategy.side_effect = _fake_generate_strategy
+
+        phase_strategy_gen(state, config, run_dir, mock_agent, global_kb=global_kb)
+
+        assert "Factor Memory Retrieval" in captured_prompt["text"]
+        assert "Strategy Memory Retrieval" in captured_prompt["text"]
+        assert "PriorBreakoutWinner" in captured_prompt["text"]
+        assert len(state.candidates) == 1
+        retrieval = state.candidates[0].candidate_payload.get("factor_retrieval") or {}
+        strategy_retrieval = state.candidates[0].candidate_payload.get("strategy_retrieval") or {}
+        assert retrieval.get("factor_cards")
+        assert strategy_retrieval.get("strategy_cards")
+        refreshed_memory = json.loads(Path(mem.factor_memory_json).read_text(encoding="utf-8"))
+        assert refreshed_memory["factor_cards"][0]["reuse_count"] >= 1
+        refreshed_global_kb = KnowledgeBase(run_dir / "global_strategy_kb.json")
+        assert refreshed_global_kb.strategy_cards[0]["reuse_count"] >= 1
+
+
 # ---------------------------------------------------------------------------
 # phase_backtest
 # ---------------------------------------------------------------------------
@@ -135,6 +257,91 @@ def test_phase_backtest_no_candidates():
         state.phase = Phase.BACKTEST
         phase_backtest(state, MinerConfig(), Path(td))
         assert state.phase == Phase.ANALYSIS
+
+
+def test_phase_backtest_trade_calibration_reruns_until_min_trades(monkeypatch):
+    """Model candidates should re-backtest with calibrated thresholds until min_trades is met."""
+    from types import SimpleNamespace
+
+    from agent_market.strategy_miner.phases import phase_backtest
+
+    with tempfile.TemporaryDirectory() as td:
+        run_dir = Path(td)
+        state = MinerState()
+        state.phase = Phase.BACKTEST
+        config = MinerConfig(
+            min_trades=150,
+            trade_calibration_attempts=5,
+            enable_quick_funnel=False,
+        )
+
+        sandbox = run_dir / "iter_0" / "sandbox"
+        strat_dir = sandbox / "user_data" / "strategies"
+        strat_dir.mkdir(parents=True, exist_ok=True)
+        strat_path = strat_dir / "Calib.py"
+        code = """
+from freqtrade.strategy import IStrategy
+
+class Calib(IStrategy):
+    timeframe = "5m"
+    ml_enter_threshold = 0.0025
+    ml_exit_threshold = -0.0005
+
+    def populate_indicators(self, dataframe, metadata):
+        return dataframe
+
+    def populate_entry_trend(self, dataframe, metadata):
+        return dataframe
+
+    def populate_exit_trend(self, dataframe, metadata):
+        return dataframe
+"""
+        strat_path.write_text(code, encoding="utf-8")
+
+        candidate = StrategyCandidate(
+            name="Calib",
+            code=code,
+            strategy_path=strat_path,
+            candidate_type="ml",
+            candidate_family="ml/lightgbm",
+        )
+        state.candidates.append(candidate)
+
+        trades_seq = [0, 20, 80, 160]
+
+        def _fake_subprocess_run(cmd, *args, **kwargs):  # noqa: ANN001
+            # The sandbox runner calls subprocess.run for both list-strategies and backtesting.
+            cmd_s = " ".join(str(x) for x in (cmd or []))
+            if "list-strategies" in cmd_s:
+                return SimpleNamespace(returncode=0, stdout="Calib\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+        monkeypatch.setattr("agent_market.strategy_miner._backtest.subprocess.run", _fake_subprocess_run)
+        monkeypatch.setattr(
+            "agent_market.strategy_miner._backtest.find_latest_backtest_zip",
+            lambda *_a, **_kw: Path(td) / "bt.zip",
+        )
+
+        def _fake_build_backtest_summary(_zip):  # noqa: ANN001
+            return {
+                "profit_total_pct": 1.0,
+                "trades": trades_seq.pop(0),
+                "winrate": 0.6,
+                "max_drawdown_abs": -1.0,
+            }
+
+        monkeypatch.setattr(
+            "agent_market.strategy_miner._backtest.build_backtest_summary",
+            _fake_build_backtest_summary,
+        )
+
+        phase_backtest(state, config, run_dir)
+
+        assert state.phase == Phase.EVALUATION
+        assert candidate.backtest_summary is not None
+        assert int(candidate.backtest_summary.get("trades") or 0) >= 150
+        tc = (candidate.candidate_payload or {}).get("trade_calibration") or {}
+        assert int(tc.get("rounds") or 0) >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -571,3 +778,90 @@ def test_phase_analysis_no_increment_on_infra_failure():
         # Should retry without incrementing
         assert state.phase == Phase.STRATEGY_GEN
         assert state.iteration == 2  # not incremented
+
+
+def test_phase_train_model_rl_uses_leverage_without_unbound_local(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from agent_market.strategy_miner._backtest import phase_train_model
+
+    with tempfile.TemporaryDirectory() as td:
+        run_dir = Path(td)
+        sandbox = run_dir / "iter_0" / "cand_00" / "model" / "sandbox"
+        spec_dir = sandbox / "user_data" / "model_specs"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        spec_path = spec_dir / "rl_spec.json"
+        spec_path.write_text("{}", encoding="utf-8")
+
+        model_dir = run_dir / "models" / "rl"
+        feature_file = run_dir / "features.json"
+        feature_file.write_text(json.dumps({"features": []}), encoding="utf-8")
+
+        candidate = StrategyCandidate(
+            name="RLSignalCandidate",
+            code="{}",
+            strategy_path=spec_path,
+            iteration=0,
+        )
+        candidate.candidate_type = "rl"
+        candidate.training_config = {
+            "data": {"feature_file": str(feature_file)},
+            "output": {"model_dir": str(model_dir)},
+            "training": {"total_timesteps": 32},
+        }
+        candidate.candidate_payload = {
+            "timeframe": "5m",
+            "exchange": "gate",
+            "feature_file": str(feature_file),
+            "risk": {"minimal_roi": {"0": 0.01}, "stoploss": -0.02},
+            "signal": {"enter_prob_threshold": 0.55, "exit_prob_threshold": 0.35},
+        }
+
+        state = MinerState()
+        state.phase = Phase.TRAIN_MODEL
+        state.candidates.append(candidate)
+        state.pending_candidate_idxs = [0]
+        state.active_candidate_idx = 0
+
+        config = MinerConfig(
+            freqtrade_config="user_data/config_freqai_gate_5m_expanded.json",
+            enable_rl=True,
+        )
+
+        class _FakeTrainer:
+            def __init__(self, cfg):
+                self.cfg = cfg
+
+            def train(self):
+                out_dir = Path(self.cfg["output"]["model_dir"])
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "ppo_trading_env.zip").write_text("stub", encoding="utf-8")
+                summary = {
+                    "model": "ppo",
+                    "model_path": str(out_dir / "ppo_trading_env.zip"),
+                    "feature_file": str(feature_file),
+                    "features": ["close"],
+                }
+                (out_dir / "training_summary.json").write_text(json.dumps(summary), encoding="utf-8")
+
+        monkeypatch.setitem(sys.modules, "agent_market.freqai.rl.trainer", SimpleNamespace(RLTrainer=_FakeTrainer))
+        monkeypatch.setattr(
+            "agent_market.strategy_miner._backtest._freqtrade_config_defaults",
+            lambda _: ("5m", False),
+        )
+        monkeypatch.setattr(
+            "agent_market.strategy_miner._backtest.ensure_freqtrade_strategy_compliance_file",
+            lambda *args, **kwargs: None,
+        )
+        monkeypatch.setattr(
+            "agent_market.strategy_miner._backtest.subprocess.run",
+            lambda *args, **kwargs: MagicMock(returncode=0, stdout="", stderr=""),
+        )
+
+        phase_train_model(state, config, run_dir)
+
+        assert state.phase == Phase.BACKTEST
+        assert candidate.failure_category == ""
+        assert candidate.training_summary is not None
+        assert candidate.strategy_path.name == "RLSignalCandidate.py"

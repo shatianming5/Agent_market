@@ -1,9 +1,14 @@
 numpy>=2.4
 pandas>=2.3
 requests>=2.32
+filelock>=3.19
 pydantic>=2.12
 fastapi>=0.133
 uvicorn>=0.41
 ccxt>=4.5
 lightgbm>=4.6
 xgboost>=3.2
+torch>=2.8
+stable-baselines3>=2.7
+gymnasium>=1.2
+PyPortfolioOpt>=1.5

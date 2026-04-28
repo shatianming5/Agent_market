@@ -71,6 +71,155 @@ class TestStrategyLifecycle:
         assert not lm.transition("test", StrategyState.ACTIVE)
         Path(db).unlink()
 
+    def test_legacy_loop_count_paper_history_resets(self):
+        from workspace.strategy_lifecycle import LifecycleManager
+
+        payload = {
+            "s1": {
+                "name": "s1",
+                "state": "paper",
+                "type": "pairs",
+                "config": {},
+                "source": "manual",
+                "created_at": "2026-04-07T00:00:00+00:00",
+                "updated_at": "2026-04-08T00:00:00+00:00",
+                "history": [
+                    {"state": "discovered", "at": "2026-04-07T00:00:00+00:00", "reason": "registered"},
+                    {"state": "validated", "at": "2026-04-07T00:01:00+00:00", "reason": "ok"},
+                    {"state": "paper", "at": "2026-04-08T00:00:00+00:00", "reason": "paper"},
+                ],
+                "paper_days": 223,
+                "paper_pnl": [0.0] * 223,
+                "active_days": 0,
+                "rolling_sharpe": [],
+            }
+        }
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            f.write(json.dumps(payload).encode("utf-8"))
+            db = f.name
+        lm = LifecycleManager(db_path=db)
+        entry = lm.get("s1")
+        assert entry["paper_days"] == 0
+        assert entry["paper_pnl"] == []
+        assert entry["paper_dates"] == []
+        assert entry["paper_daily_equity"] == {}
+        assert entry["legacy_paper_tracking_reset_reason"] == "legacy_loop_count_without_dates"
+        Path(db).unlink()
+
+    def test_sync_paper_tracking_uses_unique_days(self):
+        from workspace.strategy_lifecycle import LifecycleManager
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            f.write(b"{}")
+            db = f.name
+        lm = LifecycleManager(db_path=db)
+        lm.register("paper", strategy_type="pairs")
+        lm.promote("paper")
+        lm.promote("paper")
+        lm.sync_paper_tracking(
+            "paper",
+            daily_equity={
+                "2026-04-08": 1010.0,
+                "2026-04-09": 1020.0,
+            },
+            last_processed_at="2026-04-09T23:00:00+00:00",
+            current_equity=1020.0,
+        )
+        entry = lm.get("paper")
+        assert entry["paper_days"] == 2
+        assert entry["paper_dates"] == ["2026-04-08", "2026-04-09"]
+        assert entry["paper_pnl"][0] == pytest.approx(1.0)
+        assert entry["paper_pnl"][1] == pytest.approx(0.99009901)
+        Path(db).unlink()
+
+    def test_summary_includes_paper_return_metrics(self):
+        from workspace.strategy_lifecycle import LifecycleManager
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            f.write(b"{}")
+            db = f.name
+        lm = LifecycleManager(db_path=db)
+        lm.register("paper", strategy_type="pairs")
+        lm.promote("paper")
+        lm.promote("paper")
+        lm.sync_paper_tracking(
+            "paper",
+            daily_equity={"2026-04-08": 1010.0, "2026-04-09": 1020.0},
+            last_processed_at="2026-04-09T23:00:00+00:00",
+            current_equity=1020.0,
+            state_path="/tmp/paper.json",
+        )
+        summary = lm.summary()
+        entry = next(item for item in summary["strategies"] if item["name"] == "paper")
+
+        assert entry["paper_daily_equity"] == {"2026-04-08": 1010.0, "2026-04-09": 1020.0}
+        assert entry["paper_last_equity"] == pytest.approx(1020.0)
+        assert entry["paper_last_processed_at"] == "2026-04-09T23:00:00+00:00"
+        assert entry["paper_state_path"] == "/tmp/paper.json"
+        assert entry["cumulative_return_pct"] == pytest.approx(2.0)
+        assert entry["latest_day_return_pct"] == pytest.approx(0.99009901)
+        Path(db).unlink()
+
+    def test_auto_review_retires_health_and_guardrail_failures(self):
+        from workspace.strategy_lifecycle import LifecycleManager
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            f.write(b"{}")
+            db = f.name
+        lm = LifecycleManager(db_path=db)
+        lm.register("bad_health", strategy_type="pairs", config={})
+        lm.promote("bad_health")
+        lm.promote("bad_health")
+        lm.register("bad_guardrail", strategy_type="pairs", config={
+            "params_validation": {"sharpe": 0.0, "trades": 0},
+            "params_overfit_ratio": 100.0,
+        })
+        lm.promote("bad_guardrail")
+        lm.promote("bad_guardrail")
+
+        actions = lm.auto_review(health_issues=[{
+            "strategy": "bad_health",
+            "type": "pair_health",
+            "details": ["cointegration lost"],
+        }])
+        states = {a["name"]: a["reason"] for a in actions if a["action"] == "retire"}
+        assert "bad_health" in states
+        assert "bad_guardrail" in states
+        assert lm.get("bad_health")["state"] == "retired"
+        assert lm.get("bad_guardrail")["state"] == "retired"
+        Path(db).unlink()
+
+    def test_reset_to_discovered_clears_runtime_tracking(self):
+        from workspace.strategy_lifecycle import LifecycleManager
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            f.write(b"{}")
+            db = f.name
+        lm = LifecycleManager(db_path=db)
+        lm.register("paper", strategy_type="pairs")
+        lm.promote("paper")
+        lm.promote("paper")
+        lm.sync_paper_tracking(
+            "paper",
+            daily_equity={"2026-04-08": 1010.0, "2026-04-09": 1020.0},
+            last_processed_at="2026-04-09T23:00:00+00:00",
+            current_equity=1020.0,
+            state_path="/tmp/paper.json",
+        )
+        lm.retire("paper", "manual stop")
+
+        assert lm.reset_to_discovered("paper", "rediscovered for retry")
+        entry = lm.get("paper")
+        assert entry["state"] == "discovered"
+        assert entry["paper_days"] == 0
+        assert entry["paper_pnl"] == []
+        assert entry["paper_dates"] == []
+        assert entry["paper_daily_equity"] == {}
+        assert entry["rolling_sharpe"] == []
+        assert entry.get("paper_last_processed_at") is None
+        assert entry["history"][-1]["reason"] == "rediscovered for retry"
+        Path(db).unlink()
+
 
 class TestVersionManager:
     def test_dedup_same_params(self):

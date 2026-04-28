@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from _lib import resolve_path  # noqa: E402
+from agent_market.runtime_preflight import run_lob_rebuild_preflight  # noqa: E402
 
 
 def _ensure_imports() -> None:
@@ -29,16 +30,26 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--depth", type=int, default=20)
     parser.add_argument("--out-dir", required=True, help="Output directory for lob_state.parquet and report")
     args = parser.parse_args(argv)
+    capture_dir = resolve_path(args.capture_dir)
+    snapshot_path = resolve_path(args.snapshot)
+    out_dir = resolve_path(args.out_dir)
+
+    run_lob_rebuild_preflight(
+        capture_dir=capture_dir,
+        snapshot=snapshot_path,
+        symbol=str(args.symbol),
+        out_dir=out_dir,
+    )
 
     _ensure_imports()
     from agent_market.microstructure.lob.rebuild import rebuild_kucoin_lob  # noqa: WPS433
 
     out = rebuild_kucoin_lob(
-        capture_dir=resolve_path(args.capture_dir),
-        snapshot_path=resolve_path(args.snapshot),
+        capture_dir=capture_dir,
+        snapshot_path=snapshot_path,
         symbol=str(args.symbol),
         depth=int(args.depth),
-        out_dir=resolve_path(args.out_dir),
+        out_dir=out_dir,
     )
     print(f"[lob_rebuild] wrote: {out['lob_state']}")
     print(f"[lob_rebuild] report: {out['report']}")

@@ -81,6 +81,7 @@ async def _capture_live(
     symbols: Sequence[str],
     channels: Sequence[str],
     duration_sec: float,
+    max_reconnects: int = 3,
 ) -> Dict[str, Any]:
     writer = CaptureWriter(out_dir, channels=list(channels))
     try:
@@ -91,6 +92,7 @@ async def _capture_live(
             channels=list(channels),
             duration_sec=float(duration_sec),
             writer=writer,
+            max_reconnects=int(max_reconnects),
         )
         counts = {k: v.count for k, v in writer.files.items()}
         return {"mode": "live", "exchange": exchange, "counts": counts, **meta}
@@ -105,6 +107,7 @@ def capture_ws(
     channels: Sequence[str] = ("match", "level2"),
     symbols: Sequence[str] = ("BTC-USDT",),
     duration_sec: float = 60.0,
+    max_reconnects: int = 3,
     fixture: Optional[Path] = None,
 ) -> CaptureSession:
     """
@@ -131,6 +134,7 @@ def capture_ws(
                 symbols=syms,
                 channels=ch,
                 duration_sec=float(duration_sec),
+                max_reconnects=int(max_reconnects),
             )
         )
         mode = "live"
@@ -139,4 +143,3 @@ def capture_ws(
 
 
 __all__ = ["CaptureSession", "capture_ws"]
-

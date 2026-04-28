@@ -81,6 +81,10 @@ class AutoImprover:
                     capture_output=True,
                     text=True,
                     timeout=self.timeout,
+                    env={
+                        **os.environ,
+                        "OPENCODE_CONFIG": os.environ.get("OPENCODE_CONFIG") or str(ROOT / ".opencode.json"),
+                    },
                 )
                 if proc.returncode == 0:
                     # Parse JSON event stream — extract assistant text

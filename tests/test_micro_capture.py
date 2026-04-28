@@ -29,7 +29,9 @@ def test_micro_capture_fixture_mode_writes_files(tmp_path: Path):
     assert (out_dir / "match.ndjson.gz").exists()
     assert (out_dir / "level2.ndjson.gz").exists()
     manifest = out_dir / "manifest.json"
+    preflight = out_dir / "preflight.json"
     assert manifest.exists()
+    assert preflight.exists()
 
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     assert payload["exchange"] == "kucoin"
@@ -37,3 +39,6 @@ def test_micro_capture_fixture_mode_writes_files(tmp_path: Path):
     assert files["match"]["count"] > 0
     assert files["level2"]["count"] > 0
 
+    preflight_payload = json.loads(preflight.read_text(encoding="utf-8"))
+    assert preflight_payload["kind"] == "capture"
+    assert preflight_payload["ok"] is True

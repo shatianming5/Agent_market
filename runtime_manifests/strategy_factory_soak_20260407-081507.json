@@ -1,0 +1,272 @@
+{
+  "schema_version": "1.0",
+  "mode": "soak",
+  "generated_at": "2026-04-07T08:21:56+00:00",
+  "base_config": "/Users/shatianming/Downloads/Agent_market/configs/agent_flow_strategy_factory_acceptance_ml.json",
+  "pythonpath": "src:.",
+  "runs_requested": 5,
+  "results": [
+    {
+      "run_id": "1c180ec39ac2",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/1c180ec39ac2",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-081507/agent_flow_20260407-161507.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "LgbmIntraBreakoutReg5mV0Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 13.5,
+        "trades": 442,
+        "realistic_sharpe": 0.749097,
+        "profit_factor": 9.83314348627203,
+        "winrate": 0.8936651583710408,
+        "max_drawdown_pct": 0.167236
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 86.450903,
+        "total_seconds": 86.477793,
+        "by_step_seconds": {
+          "micro_feature": 0.787247,
+          "factor_compile": 0.175663,
+          "factor_eval": 0.647123,
+          "strategy_miner": 84.608675,
+          "report": 0.258555
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 6,
+        "output_tail": "VERIFY FAIL\n- static validation failed for LgbmIntraBreakoutReg5mV0Cand0: Forbidden import: pathlib"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/1c180ec39ac2/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/1c180ec39ac2/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-081507-00",
+      "returncode": 0,
+      "wall_seconds": 89.44218802452087
+    },
+    {
+      "run_id": "31b7947f1da0",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/31b7947f1da0",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-081507/agent_flow_20260407-161637.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "FiveMinIntradayLGBMRegCand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 5.08,
+        "trades": 344,
+        "realistic_sharpe": 0.577301,
+        "profit_factor": 4.136233983049555,
+        "winrate": 0.9011627906976745,
+        "max_drawdown_pct": 0.21069
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 65.836606,
+        "total_seconds": 66.596674,
+        "by_step_seconds": {
+          "micro_feature": 0.4567,
+          "factor_compile": 0.121669,
+          "factor_eval": 0.504086,
+          "strategy_miner": 65.25407,
+          "report": 0.259818
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 6,
+        "output_tail": "VERIFY FAIL\n- static validation failed for FiveMinIntradayLGBMRegCand0: Forbidden import: pathlib"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/31b7947f1da0/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/31b7947f1da0/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-081507-01",
+      "returncode": 0,
+      "wall_seconds": 69.37400817871094
+    },
+    {
+      "run_id": "0c581245e5eb",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/0c581245e5eb",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-081507/agent_flow_20260407-161746.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "FiveMinLGBMIntradayRegCand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 4.26,
+        "trades": 159,
+        "realistic_sharpe": 0.568776,
+        "profit_factor": 5.34535274577831,
+        "winrate": 0.8742138364779874,
+        "max_drawdown_pct": 0.185414
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 81.275475,
+        "total_seconds": 81.355803,
+        "by_step_seconds": {
+          "micro_feature": 0.403824,
+          "factor_compile": 0.117716,
+          "factor_eval": 0.531168,
+          "strategy_miner": 79.976506,
+          "report": 0.326201
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 6,
+        "output_tail": "VERIFY FAIL\n- static validation failed for FiveMinLGBMIntradayRegCand0: Forbidden import: pathlib"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/0c581245e5eb/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/0c581245e5eb/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-081507-02",
+      "returncode": 0,
+      "wall_seconds": 85.23512506484985
+    },
+    {
+      "run_id": "e4d56aa2ad3e",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/e4d56aa2ad3e",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-081507/agent_flow_20260407-161912.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "IntradayBreakoutVolLGBM5mCand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 9.04,
+        "trades": 625,
+        "realistic_sharpe": 0.781841,
+        "profit_factor": 4.805246873453776,
+        "winrate": 0.88,
+        "max_drawdown_pct": 0.243522
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 81.826154,
+        "total_seconds": 81.920329,
+        "by_step_seconds": {
+          "micro_feature": 0.540885,
+          "factor_compile": 0.182814,
+          "factor_eval": 0.668785,
+          "strategy_miner": 80.257158,
+          "report": 0.270306
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 6,
+        "output_tail": "VERIFY FAIL\n- static validation failed for IntradayBreakoutVolLGBM5mCand0: Forbidden import: pathlib"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/e4d56aa2ad3e/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/e4d56aa2ad3e/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-081507-03",
+      "returncode": 0,
+      "wall_seconds": 85.19529175758362
+    },
+    {
+      "run_id": "a2b01ff06450",
+      "run_dir": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/a2b01ff06450",
+      "flow_log_file": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-081507/agent_flow_20260407-162037.log",
+      "freqtrade_ok": true,
+      "freqtrade_stderr_head": "",
+      "best_candidate": {
+        "name": "LightGBMIntradayBreakoutRegV0Cand0",
+        "candidate_type": "ml",
+        "candidate_family": "ml/lightgbm",
+        "profit_total_pct": 4.96,
+        "trades": 186,
+        "realistic_sharpe": 0.537638,
+        "profit_factor": 4.492184473198034,
+        "winrate": 0.8655913978494624,
+        "max_drawdown_pct": 0.325173
+      },
+      "timings": {
+        "ok": true,
+        "full_run_seconds": 75.425159,
+        "total_seconds": 75.538229,
+        "by_step_seconds": {
+          "micro_feature": 0.4603,
+          "factor_compile": 0.159501,
+          "factor_eval": 0.582041,
+          "strategy_miner": 74.062286,
+          "report": 0.273564
+        }
+      },
+      "provider_flakes": {
+        "http_503": 0,
+        "service_unavailable": 0
+      },
+      "verify": {
+        "ok": false,
+        "returncode": 6,
+        "output_tail": "VERIFY FAIL\n- static validation failed for LightGBMIntradayBreakoutRegV0Cand0: Forbidden import: pathlib"
+      },
+      "artifacts": {
+        "strategy_miner_summary": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/a2b01ff06450/strategy_miner/strategy_miner_summary.json",
+        "run_meta": "/Users/shatianming/Downloads/Agent_market/artifacts/runs/a2b01ff06450/run_meta.json"
+      },
+      "experiment_id": "strategy-factory-acceptance-ml-soak-20260407-081507-04",
+      "returncode": 0,
+      "wall_seconds": 78.84203910827637
+    }
+  ],
+  "summary": {
+    "runs_total": 5,
+    "runs_success": 5,
+    "freqtrade_ok": 5,
+    "verify_ok": 0,
+    "provider_503_total": 0,
+    "wall_seconds": {
+      "min": 69.37400817871094,
+      "p50": 85.19529175758362,
+      "p90": 89.44218802452087,
+      "max": 89.44218802452087,
+      "mean": 81.61773042678833
+    },
+    "full_run_seconds": {
+      "min": 65.836606,
+      "p50": 81.275475,
+      "p90": 86.450903,
+      "max": 86.450903,
+      "mean": 78.1628594
+    },
+    "failures": [
+      "strategy-factory-acceptance-ml-soak-20260407-081507-00: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-081507-01: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-081507-02: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-081507-03: verify_failed",
+      "strategy-factory-acceptance-ml-soak-20260407-081507-04: verify_failed"
+    ]
+  },
+  "paths": {
+    "config_dir": "/Users/shatianming/Downloads/Agent_market/runtime_configs/strategy_factory_soak_20260407-081507",
+    "log_dir": "/Users/shatianming/Downloads/Agent_market/runtime_logs/strategy_factory_soak_20260407-081507"
+  }
+}

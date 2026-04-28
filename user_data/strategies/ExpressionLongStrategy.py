@@ -29,13 +29,18 @@ def _inject_project_paths() -> Path:
 PROJECT_ROOT = _inject_project_paths()
 
 
+def _paths():
+    from agent_market import paths as _am_paths
+
+    return _am_paths
+
+
 def _read_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def _resolve_under_root(path: str) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else (PROJECT_ROOT / p).resolve()
+    return _paths().resolve_repo_path(path)
 
 
 class ExpressionLongStrategy(IStrategy):
@@ -66,26 +71,41 @@ class ExpressionLongStrategy(IStrategy):
     _expressions_file: Optional[Path] = None
     _expression_specs: Optional[List[Any]] = None
 
+    @staticmethod
+    def _is_lightgbm_summary(summary_path: Path) -> bool:
+        try:
+            payload = _read_json(summary_path)
+        except Exception:
+            return False
+        model_name = str(payload.get("model") or "").strip().lower()
+        model_path = str(payload.get("model_path") or "").strip().lower()
+        if model_name and model_name != "lightgbm":
+            return False
+        return model_path.endswith(".txt") or "lightgbm" in model_path
+
     def _resolve_model_dir(self) -> Path:
-        """Resolve model directory: env MODEL_DIR > latest modified > lightgbm_real."""
+        """Resolve model directory: env MODEL_DIR > latest LightGBM summary > lightgbm_real."""
         import os
         env_dir = os.environ.get("AGENT_MODEL_DIR")
         if env_dir:
             p = _resolve_under_root(env_dir)
-            if (p / "training_summary.json").exists():
+            summary_path = p / "training_summary.json"
+            if summary_path.exists() and self._is_lightgbm_summary(summary_path):
                 return p
 
-        # Pick the most recently modified model dir under artifacts/models/
-        models_root = PROJECT_ROOT / "artifacts" / "models"
+        # Pick the most recently modified LightGBM model dir under the active models root.
+        models_root = _paths().models_root()
         if models_root.exists():
             candidates = [
                 d for d in models_root.iterdir()
-                if d.is_dir() and (d / "training_summary.json").exists()
+                if d.is_dir()
+                and (d / "training_summary.json").exists()
+                and self._is_lightgbm_summary(d / "training_summary.json")
             ]
             if candidates:
                 return max(candidates, key=lambda d: (d / "training_summary.json").stat().st_mtime)
 
-        return PROJECT_ROOT / "artifacts" / "models" / "lightgbm_real"
+        return _paths().models_root() / "lightgbm_real"
 
     def _load_training_summary(self) -> Optional[Dict[str, Any]]:
         if self._training_summary is not None:
@@ -111,11 +131,11 @@ class ExpressionLongStrategy(IStrategy):
             if candidate.exists():
                 path = candidate
             else:
-                path = PROJECT_ROOT / "user_data" / "freqai_features_real.json"
+                path = _paths().user_data_root() / "freqai_features_real.json"
         else:
-            path = PROJECT_ROOT / "user_data" / "freqai_features_real.json"
+            path = _paths().user_data_root() / "freqai_features_real.json"
         if not path.exists():
-            path = PROJECT_ROOT / "user_data" / "freqai_features.json"
+            path = _paths().user_data_root() / "freqai_features.json"
         self._feature_cfg = _read_json(path)
         return self._feature_cfg
 
@@ -189,8 +209,7 @@ class ExpressionLongStrategy(IStrategy):
                 if sig is None:
                     sanitized = str(pair).replace("/", "_")
                     sig_path = (
-                        PROJECT_ROOT
-                        / "artifacts"
+                        _paths().artifacts_root()
                         / "signals"
                         / "rl_real"
                         / exchange
