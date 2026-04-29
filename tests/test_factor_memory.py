@@ -7,7 +7,13 @@ from agent_market.factor_memory import (
     FactorMemoryStore,
     audit_factor_memory_path,
     build_factor_memory_artifacts,
+    build_factor_memory_artifacts_from_expression_output,
     merge_factor_memory_artifacts,
+)
+from agent_market.factor_multiagent import (
+    critic_audit_expression,
+    run_factor_multiagent_review,
+    write_factor_multiagent_artifacts,
 )
 
 
@@ -89,6 +95,139 @@ def test_build_factor_memory_artifacts_writes_cards_failures_and_edges(tmp_path:
     assert memory["factor_cards"][0]["source_run_id"] == "deadbeef1234"
     assert memory["factor_cards"][0]["target"] == "y"
     assert "memory_status" in memory["factor_cards"][0]
+
+
+def test_factor_multiagent_review_tags_memory_without_promotion(tmp_path: Path) -> None:
+    expressions = [
+        {
+            "name": "valid_breakout",
+            "expression": "ts_z(close, 4)",
+            "category": "trend",
+            "score": 0.12,
+            "metric_abs_ic": 0.14,
+            "complexity": 3,
+        },
+        {
+            "name": "dup_breakout",
+            "expression": "ts_z(close, 4)",
+            "category": "trend",
+            "score": 0.11,
+        },
+        {
+            "name": "bad_factor",
+            "expression": "__import__('os').system('x')",
+            "category": "other",
+        },
+    ]
+    curated, traces, transfer, summary = run_factor_multiagent_review(
+        expressions=expressions,
+        feature_cols=["close"],
+        enabled=True,
+        roles=["discoverer", "critic", "transfer_auditor", "curator"],
+        parallelism=4,
+    )
+
+    assert len(curated) == 1
+    assert curated[0]["promotion_eligible"] is False
+    assert curated[0]["memory_scope"] == "pending_review"
+    assert transfer["summary"]["rejected_count"] == 2
+    assert summary["counts"]["duplicates_removed"] == 1
+    assert traces["failure_taxonomy"]["duplicate_expression"] == 1
+
+    expressions_path = tmp_path / "expressions.json"
+    expressions_path.write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-07T00:00:00Z",
+                "exchange": "kucoin",
+                "pairs": ["BTC/USDT"],
+                "timeframe": "1h",
+                "label_period": 12,
+                "feature_file": "user_data/freqai_features_real.json",
+                "multiagent": {"enabled": True, "promotion_eligible": False},
+                "multiagent_failures": summary["failures"],
+                "expressions": curated,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    out = build_factor_memory_artifacts_from_expression_output(
+        run_id="magent123456",
+        memory_dir=tmp_path / "memory",
+        expressions_path=expressions_path,
+    )
+    memory = json.loads(Path(out.factor_memory_json).read_text(encoding="utf-8"))
+    card = memory["factor_cards"][0]
+    assert card["agent_tags"]
+    assert card["memory_scope"] == "pending_review"
+    assert card["promotion_eligible"] is False
+    assert card["metrics"]["rank_portfolio_transfer_score"] is not None
+    assert any(item["category"] == "multiagent_review" for item in memory["failure_cards"])
+
+
+def test_factor_multiagent_critic_uses_engine_functions_and_semantics() -> None:
+    for expr in (
+        "rolling_std(close, 3) + impact_proxy(3) + queue_pos_proxy()",
+        "zscore_xs(close)",
+        "neutralize(close, volume)",
+        "fill_prob(0.01, 5)",
+    ):
+        audit = critic_audit_expression(expr, ["feat_momentum_24"])
+        assert audit["ok"], audit
+
+    leak = critic_audit_expression("shift(close, -1)", ["close"])
+    assert leak["ok"] is False
+    assert any("shift second argument must be >= 0" in reason for reason in leak["reasons"])
+
+
+def test_factor_multiagent_roles_control_transfer_and_curator() -> None:
+    expressions = [
+        {"name": "a", "expression": "ts_z(close, 4)", "category": "trend", "score": 0.1},
+        {"name": "b", "expression": "ts_z(close, 4)", "category": "trend", "score": 0.09},
+    ]
+
+    curated, _traces, transfer, summary = run_factor_multiagent_review(
+        expressions=expressions,
+        feature_cols=["close"],
+        enabled=True,
+        roles=["discoverer", "critic"],
+        parallelism=2,
+    )
+
+    assert len(curated) == 2
+    assert "transfer_audit" not in curated[0]
+    assert "agent_tags" not in curated[0]
+    assert transfer["items"][0]["transfer_audit"]["status"] == "not_run"
+    assert summary["role_execution"]["transfer_auditor"] is False
+    assert summary["role_execution"]["curator"] is False
+    assert summary["counts"]["duplicates_removed"] == 0
+
+
+def test_factor_multiagent_artifacts_are_stem_scoped(tmp_path: Path) -> None:
+    payload = {"enabled": True, "promotion_eligible": False}
+    first = write_factor_multiagent_artifacts(
+        output_dir=tmp_path,
+        output_stem="expr_a",
+        traces=payload,
+        transfer_audit={"items": []},
+        summary=payload,
+    )
+    second = write_factor_multiagent_artifacts(
+        output_dir=tmp_path,
+        output_stem="expr_b",
+        traces=payload,
+        transfer_audit={"items": []},
+        summary=payload,
+    )
+
+    assert Path(first["manifest"]).name == "expr_a_manifest.json"
+    assert Path(second["manifest"]).name == "expr_b_manifest.json"
+    assert Path(first["manifest"]).exists()
+    assert Path(second["manifest"]).exists()
+    assert not (tmp_path / "manifest.json").exists()
 
 
 def test_factor_memory_query_and_strategy_reference_roundtrip(tmp_path: Path) -> None:

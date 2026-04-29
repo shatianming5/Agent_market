@@ -14,6 +14,7 @@ from pandas import DataFrame
 __all__ = [
     "ExpressionSpec",
     "load_expression_file",
+    "allowed_expression_functions",
     "safe_eval",
     "safe_eval_expression",
     "apply_expressions",
@@ -460,6 +461,22 @@ def safe_eval_expression(expr: str, df: DataFrame) -> pd.Series:
         series = pd.Series(value, index=df.index)
     series = series.astype(float)
     return series.replace([np.inf, -np.inf], np.nan)
+
+
+def allowed_expression_functions() -> set[str]:
+    """Return the function names accepted by the expression DSL validator."""
+    probe = pd.DataFrame(
+        {
+            "open": [1.0, 2.0, 3.0, 4.0],
+            "high": [2.0, 3.0, 4.0, 5.0],
+            "low": [0.5, 1.5, 2.5, 3.5],
+            "close": [1.5, 2.5, 3.5, 4.5],
+            "volume": [10.0, 11.0, 12.0, 13.0],
+            "date": [0, 0, 1, 1],
+        }
+    )
+    env = _build_eval_env(probe)
+    return {name for name, value in env.items() if callable(value)}
 
 
 def load_expression_file(path: Path) -> List[ExpressionSpec]:

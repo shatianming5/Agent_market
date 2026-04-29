@@ -103,7 +103,8 @@ class CandidateStage(Enum):
 # D2: Valid candidate stage transitions (fail-closed)
 # Any stage can transition to FAILED (terminal).
 # Normal flow: GENERATED → TRAINED → SMOKE_PASSED → HYPEROPT_DONE → BACKTESTED
-#              → EVALUATED → HOLDOUT_TESTED → PROMOTED
+#              → EVALUATED → HOLDOUT_TESTED. Final promotion is owned by
+#              factor_lab.strategy-loop, not Strategy Miner.
 # Shortcuts allowed: skipping intermediate stages (e.g., rule-based
 #   candidates skip TRAINED; quick funnel may skip SMOKE/HYPEROPT)
 VALID_CANDIDATE_TRANSITIONS: Dict[str, List[str]] = {
@@ -113,7 +114,7 @@ VALID_CANDIDATE_TRANSITIONS: Dict[str, List[str]] = {
     "hyperopt_done": ["backtested", "evaluated", "failed"],
     "backtested": ["evaluated", "failed"],
     "evaluated": ["holdout_tested", "failed"],  # Must go through holdout gate
-    "holdout_tested": ["promoted", "failed"],
+    "holdout_tested": ["failed"],
     "promoted": [],  # terminal
     "failed": [],    # terminal
 }

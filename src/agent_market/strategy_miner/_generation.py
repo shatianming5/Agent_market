@@ -687,6 +687,14 @@ def phase_strategy_gen(
 
         if not payload_raw:
             logger.warning("Candidate %d returned invalid model spec JSON", candidate_idx)
+            _write_trace(
+                "failure",
+                {
+                    "failure_category": "invalid_json",
+                    "reason": "model_candidate_missing_json_payload",
+                    "candidate_idx": candidate_idx,
+                },
+            )
             return None
 
         payload = _normalize_model_candidate_payload(
@@ -1120,6 +1128,14 @@ def phase_strategy_gen(
                 out_path = max(candidates, key=lambda p: p.stat().st_mtime)
             else:
                 logger.warning("Candidate %d produced no strategy file", candidate_idx)
+                _write_trace(
+                    "failure",
+                    {
+                        "failure_category": "illegal_code",
+                        "reason": "no_strategy_file_produced",
+                        "candidate_idx": candidate_idx,
+                    },
+                )
                 return None
 
         name, norm_path, code, fixes = _normalize_candidate_artifact(

@@ -209,6 +209,19 @@ def _step_expression(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) 
     copied_output = _copy_into_run_dir(output_path, run_expr_dir)
     arts.expression_output = _relpath(copied_output or output_path)
 
+    for attr, filename in (
+        ("factor_agent_traces_json", "factor_agent_traces.json"),
+        ("factor_transfer_audit_json", "factor_transfer_audit.json"),
+        ("multiagent_summary_json", "multiagent_summary.json"),
+        ("factor_manifest_json", "manifest.json"),
+    ):
+        sidecar = output_path.with_name(output_path.stem + "_" + filename)
+        if not sidecar.exists():
+            sidecar = output_path.with_name(filename)
+        if sidecar.exists():
+            copied_sidecar = _copy_into_run_dir(sidecar, run_expr_dir)
+            setattr(arts, attr, _relpath(copied_sidecar or sidecar))
+
     scored_path = output_path.with_name(output_path.stem + "_scored_all.json")
     if scored_path.exists():
         copied_scored = _copy_into_run_dir(scored_path, run_expr_dir)
@@ -409,6 +422,10 @@ def _step_report(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> N
         "feature_output": arts.feature_output,
         "expression_output": arts.expression_output,
         "expression_scored_output": arts.expression_scored_output,
+        "factor_agent_traces_json": arts.factor_agent_traces_json,
+        "factor_transfer_audit_json": arts.factor_transfer_audit_json,
+        "factor_manifest_json": arts.factor_manifest_json,
+        "multiagent_summary_json": arts.multiagent_summary_json,
         "capture_manifest": arts.capture_manifest,
         "capture_match_path": arts.capture_match_path,
         "capture_level2_path": arts.capture_level2_path,
@@ -433,6 +450,7 @@ def _step_report(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) -> N
         "tca_html": arts.tca_html,
         "strategy_miner_summary": arts.strategy_miner_summary,
         "strategy_miner_dir": arts.strategy_miner_dir,
+        "strategy_multiagent_summary_json": arts.strategy_multiagent_summary_json,
         "global_strategy_knowledge_base_json": arts.global_strategy_knowledge_base_json,
         "training_summary_json": arts.training_summary_json,
         "backtest_zip": arts.backtest_zip_run or arts.backtest_zip,
@@ -469,6 +487,9 @@ def _step_strategy_miner(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepConte
         arts.strategy_miner_summary = _relpath(Path(out["strategy_miner_summary"]))
     if out.get("strategy_miner_dir"):
         arts.strategy_miner_dir = _relpath(Path(out["strategy_miner_dir"]))
+        multiagent_summary = Path(out["strategy_miner_dir"]) / "multiagent_summary.json"
+        if multiagent_summary.exists():
+            arts.strategy_multiagent_summary_json = _relpath(multiagent_summary)
 
 
 # ---------------------------------------------------------------------------

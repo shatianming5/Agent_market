@@ -60,6 +60,10 @@ def failure_pareto_path(miner_dir: Path) -> Path:
     return miner_dir / "failure_pareto.json"
 
 
+def multiagent_summary_path(miner_dir: Path) -> Path:
+    return miner_dir / "multiagent_summary.json"
+
+
 def candidates_dir(miner_dir: Path) -> Path:
     return miner_dir / "candidates"
 
@@ -103,8 +107,6 @@ def candidate_verification_status(candidate: StrategyCandidate) -> str:
     holdout = funnel.get("holdout") if isinstance(funnel.get("holdout"), dict) else {}
     benchmark = funnel.get("benchmark") if isinstance(funnel.get("benchmark"), dict) else {}
 
-    if stage == "promoted":
-        return "passed"
     if holdout:
         if bool(holdout.get("overfitting_flag")):
             return "failed"
@@ -121,11 +123,27 @@ def candidate_verification_status(candidate: StrategyCandidate) -> str:
 
 
 def candidate_promotion_eligible(candidate: StrategyCandidate) -> bool:
-    return (
-        candidate_verification_status(candidate) == "passed"
-        and str(getattr(candidate, "stage", "") or "").strip().lower() == "promoted"
-        and bool(getattr(candidate, "constraints_ok", True))
-    )
+    """Strategy Miner never controls final promotion eligibility.
+
+    A miner candidate may pass its own holdout/benchmark gates, but the shared
+    promotion flag is reserved for factor_lab.strategy-loop after blind
+    verification. Keeping this function fail-closed prevents leaderboard and
+    manifest artifacts from advertising pre-blind candidates as promotable.
+    """
+    return False
+
+
+def _load_trace_payload(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _trace_body(payload: dict[str, Any]) -> dict[str, Any]:
+    body = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+    return body if isinstance(body, dict) else {}
 
 
 def classify_candidate_failure(candidate: StrategyCandidate) -> str:
@@ -186,9 +204,79 @@ def classify_candidate_failure(candidate: StrategyCandidate) -> str:
     return "other_failure"
 
 
-def build_failure_pareto(state: MinerState) -> dict[str, Any]:
+def _norm_trace_path(raw: Any) -> str:
+    try:
+        return str(Path(str(raw)).resolve())
+    except Exception:
+        return str(raw)
+
+
+def _candidate_trace_paths(state: MinerState) -> set[str]:
+    out: set[str] = set()
+    for candidate in state.candidates:
+        for raw in dict(getattr(candidate, "agent_traces", {}) or {}).values():
+            if raw:
+                out.add(_norm_trace_path(raw))
+    return out
+
+
+def _iter_trace_files(miner_dir: Path | None) -> list[Path]:
+    if miner_dir is None:
+        return []
+    base = traces_dir(Path(miner_dir))
+    if not base.exists():
+        return []
+    try:
+        return sorted(path for path in base.glob("iter_*/cand_*/*.json") if path.is_file())
+    except Exception:
+        return []
+
+
+def _trace_role(path: Path, payload: dict[str, Any]) -> str:
+    role = payload.get("role")
+    return str(role or path.stem or "unknown")
+
+
+def _trace_index(path: Path) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    try:
+        if path.parent.name.startswith("cand_"):
+            out["candidate_idx"] = int(path.parent.name.split("_", 1)[1])
+    except Exception:
+        pass
+    try:
+        iter_part = path.parent.parent.name
+        if iter_part.startswith("iter_"):
+            out["iteration"] = int(iter_part.split("_", 1)[1])
+    except Exception:
+        pass
+    return out
+
+
+def _trace_failure_item(path: Path, failure_category: str) -> dict[str, Any]:
+    payload = _load_trace_payload(path)
+    body = _trace_body(payload)
+    item: dict[str, Any] = {
+        "name": f"trace:{path.parent.parent.name}/{path.parent.name}/{path.stem}",
+        "stage": "generation_trace",
+        "verification_status": "failed",
+        "promotion_eligible": False,
+        "failure_category": failure_category,
+        "diagnosis": str(body.get("reason") or body.get("error") or "")[:500],
+        "trace_path": str(path.resolve()),
+        "trace_role": _trace_role(path, payload),
+        "metrics": {},
+        "quick_metrics": {},
+    }
+    item.update(_trace_index(path))
+    return item
+
+
+def build_failure_pareto(state: MinerState, *, miner_dir: Path | None = None) -> dict[str, Any]:
     buckets: dict[str, list[dict[str, Any]]] = {}
     promoted: list[dict[str, Any]] = []
+    search_passed: list[dict[str, Any]] = []
+    seen_trace_paths = _candidate_trace_paths(state)
     for candidate in state.candidates:
         verification_status = candidate_verification_status(candidate)
         promotion_eligible = candidate_promotion_eligible(candidate)
@@ -228,8 +316,21 @@ def build_failure_pareto(state: MinerState) -> dict[str, Any]:
         if promotion_eligible:
             promoted.append(item)
             continue
+        if verification_status == "passed" and bool(getattr(candidate, "constraints_ok", True)):
+            search_passed.append(item)
+            continue
         bucket = classify_candidate_failure(candidate)
         buckets.setdefault(bucket, []).append(item)
+
+    orphan_trace_failures = 0
+    for trace_path in _iter_trace_files(miner_dir):
+        if _norm_trace_path(trace_path) in seen_trace_paths:
+            continue
+        failure_category = _load_trace_failure_category(trace_path)
+        if not failure_category:
+            continue
+        orphan_trace_failures += 1
+        buckets.setdefault(failure_category, []).append(_trace_failure_item(trace_path, failure_category))
 
     categories = []
     for name, items in buckets.items():
@@ -246,15 +347,18 @@ def build_failure_pareto(state: MinerState) -> dict[str, Any]:
         "run_id": state.run_id,
         "candidate_count": len(state.candidates),
         "promoted_count": len(promoted),
+        "search_passed_pending_blind_count": len(search_passed),
         "failure_count": sum(len(items) for items in buckets.values()),
+        "orphan_trace_failure_count": orphan_trace_failures,
         "categories": categories,
         "promoted": promoted[:10],
+        "search_passed_pending_blind": search_passed[:10],
     }
 
 
 def write_failure_pareto(miner_dir: Path, state: MinerState) -> Path:
     out = failure_pareto_path(miner_dir)
-    _atomic_write_json(out, build_failure_pareto(state))
+    _atomic_write_json(out, build_failure_pareto(state, miner_dir=miner_dir))
     return out
 
 
@@ -272,6 +376,7 @@ def build_run_manifest(
         "checkpoint.json",
         "leaderboard.json",
         "failure_pareto.json",
+        "multiagent_summary.json",
         "holdout_gate.json",
         "benchmark_verdict.json",
         "portfolio_plan.json",
@@ -288,6 +393,18 @@ def build_run_manifest(
                 files[key] = _file_evidence(Path(raw))
             except Exception:
                 files[key] = {"path": str(raw), "exists": False}
+    trace_files: list[dict[str, Any]] = []
+    for trace_path in _iter_trace_files(miner_dir):
+        evidence = _file_evidence(trace_path)
+        payload = _load_trace_payload(trace_path)
+        evidence.update(
+            {
+                "role": _trace_role(trace_path, payload),
+                "failure_category": _load_trace_failure_category(trace_path),
+                **_trace_index(trace_path),
+            }
+        )
+        trace_files.append(evidence)
 
     return {
         "version": "strategy-miner-run-manifest-v1",
@@ -299,13 +416,32 @@ def build_run_manifest(
         "counts": {
             "candidates": len(state.candidates),
             "history": len(state.history),
+            "agent_traces": len(trace_files),
+            "agent_trace_failures": sum(1 for item in trace_files if item.get("failure_category")),
         },
+        "candidates": [
+            {
+                "name": candidate.name,
+                "iteration": int(candidate.iteration),
+                "candidate_slot": int(getattr(candidate, "candidate_slot", 0) or 0),
+                "candidate_type": getattr(candidate, "candidate_type", "rule"),
+                "candidate_family": getattr(candidate, "candidate_family", ""),
+                "stage": getattr(candidate, "stage", ""),
+                "strategy_path": str(getattr(candidate, "strategy_path", "")),
+                "agent_traces": dict(getattr(candidate, "agent_traces", {}) or {}),
+                "verification_status": candidate_verification_status(candidate),
+                "promotion_eligible": candidate_promotion_eligible(candidate),
+                "failure_category": getattr(candidate, "failure_category", ""),
+            }
+            for candidate in state.candidates
+        ],
         "best": {
             "name": state.best_candidate.name if state.best_candidate else None,
             "score": state.best_score,
             "verification_status": candidate_verification_status(state.best_candidate) if state.best_candidate else None,
             "promotion_eligible": candidate_promotion_eligible(state.best_candidate) if state.best_candidate else False,
         },
+        "agent_traces": trace_files[:500],
         "files": files,
     }
 
@@ -319,6 +455,101 @@ def write_run_manifest(
 ) -> Path:
     out = run_manifest_path(miner_dir)
     _atomic_write_json(out, build_run_manifest(miner_dir, state, config=config, extra_artifacts=extra_artifacts))
+    return out
+
+
+def _load_trace_failure_category(path: str | Path) -> str:
+    payload = _load_trace_payload(Path(path))
+    body = _trace_body(payload)
+    return str(body.get("failure_category") or "").strip()
+
+
+def build_multiagent_summary(
+    state: MinerState,
+    *,
+    config: MinerConfig,
+    miner_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Summarize strategy-side agent roles, traces, and search-only promotion scope."""
+    role_counts: dict[str, int] = {}
+    failure_taxonomy: dict[str, int] = {}
+    candidates: list[dict[str, Any]] = []
+    seen_trace_paths = _candidate_trace_paths(state)
+    for candidate in state.candidates:
+        traces = dict(getattr(candidate, "agent_traces", {}) or {})
+        for role, path in traces.items():
+            role_counts[str(role)] = role_counts.get(str(role), 0) + 1
+            failure_category = _load_trace_failure_category(str(path))
+            if failure_category:
+                failure_taxonomy[failure_category] = failure_taxonomy.get(failure_category, 0) + 1
+        if getattr(candidate, "failure_category", ""):
+            category = str(candidate.failure_category)
+            failure_taxonomy[category] = failure_taxonomy.get(category, 0) + 1
+        candidates.append(
+            {
+                "name": candidate.name,
+                "iteration": int(candidate.iteration),
+                "candidate_slot": int(getattr(candidate, "candidate_slot", 0) or 0),
+                "candidate_type": getattr(candidate, "candidate_type", "rule"),
+                "candidate_family": getattr(candidate, "candidate_family", ""),
+                "stage": getattr(candidate, "stage", ""),
+                "trace_roles": sorted(traces.keys()),
+                "verification_status": candidate_verification_status(candidate),
+                "promotion_eligible": candidate_promotion_eligible(candidate),
+                "failure_category": getattr(candidate, "failure_category", ""),
+            }
+        )
+
+    orphan_traces: list[dict[str, Any]] = []
+    for trace_path in _iter_trace_files(miner_dir):
+        if _norm_trace_path(trace_path) in seen_trace_paths:
+            continue
+        payload = _load_trace_payload(trace_path)
+        role = _trace_role(trace_path, payload)
+        role_counts[role] = role_counts.get(role, 0) + 1
+        failure_category = _load_trace_failure_category(trace_path)
+        if failure_category:
+            failure_taxonomy[failure_category] = failure_taxonomy.get(failure_category, 0) + 1
+        item = {
+            "path": str(trace_path.resolve()),
+            "role": role,
+            "failure_category": failure_category,
+        }
+        item.update(_trace_index(trace_path))
+        orphan_traces.append(item)
+
+    return {
+        "version": "strategy-miner-multiagent-summary-v1",
+        "saved_at": _iso_now(),
+        "run_id": state.run_id,
+        "enabled": bool(getattr(config, "multiagent_enabled", False)),
+        "roles": ["planner", "coder", "reviewer", "backtester"],
+        "promotion_controller": "agent_market.factor_lab.strategy-loop",
+        "promotion_policy": "strategy_miner_outputs_are_candidates_until_blind_verification",
+        "config": {
+            "candidates_per_iteration": int(getattr(config, "candidates_per_iteration", 1) or 1),
+            "max_parallel_candidates": int(getattr(config, "max_parallel_candidates", 0) or 0),
+            "max_parallel_roles": int(getattr(config, "max_parallel_roles", 1) or 1),
+            "repair_attempts": int(getattr(config, "repair_attempts", 0) or 0),
+            "max_iterations": int(getattr(config, "max_iterations", 0) or 0),
+        },
+        "counts": {
+            "candidates": len(state.candidates),
+            "traced_roles": sum(role_counts.values()),
+            "orphan_traces": len(orphan_traces),
+            "orphan_failure_traces": sum(1 for item in orphan_traces if item.get("failure_category")),
+            "promoted_by_strategy_miner": sum(1 for c in state.candidates if candidate_promotion_eligible(c)),
+        },
+        "role_counts": role_counts,
+        "failure_taxonomy": failure_taxonomy,
+        "orphan_traces": orphan_traces[:200],
+        "candidates": candidates,
+    }
+
+
+def write_multiagent_summary(miner_dir: Path, state: MinerState, *, config: MinerConfig) -> Path:
+    out = multiagent_summary_path(miner_dir)
+    _atomic_write_json(out, build_multiagent_summary(state, config=config, miner_dir=miner_dir))
     return out
 
 

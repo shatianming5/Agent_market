@@ -893,13 +893,12 @@ def run_strategy_miner(
                                 logger.warning("Frozen benchmark suite failed: %s", exc)
                         if _promotion_ok:
                             if benchmark_ok:
-                                update_candidate_stage(state.best_candidate, "promoted")
                                 logger.info(
-                                    "Holdout PASSED + promoted: %s (delta=%.2f%%)",
+                                    "Holdout PASSED; candidate remains pending strategy-loop blind promotion: %s (delta=%.2f%%)",
                                     state.best_candidate.name,
                                     float(holdout_result.get("delta_pct") or 0),
                                 )
-                                final_status["promotion_status"] = "promoted"
+                                final_status["promotion_status"] = "strategy_loop_required"
                             else:
                                 logger.warning(
                                     "Holdout PASSED but frozen benchmark FAILED: %s",
@@ -922,7 +921,10 @@ def run_strategy_miner(
                                 "holdout_delta_pct": holdout_result.get("delta_pct"),
                                 "benchmark_passed": benchmark_result.get("passed") if isinstance(benchmark_result, dict) else None,
                                 "benchmark_failed_ids": benchmark_result.get("failed_ids", []) if isinstance(benchmark_result, dict) else [],
-                                "promotion_ok": _promotion_ok and benchmark_ok,
+                                "candidate_gate_passed": _promotion_ok and benchmark_ok,
+                                "promotion_ok": False,
+                                "promotion_controller": "agent_market.factor_lab.strategy-loop",
+                                "promotion_status": final_status.get("promotion_status"),
                                 "factor_references": [item.get("card_id") for item in _factor_retrieval.get("factor_cards", []) if item.get("card_id")],
                                 "factor_query": _factor_retrieval.get("query"),
                             })
@@ -1046,6 +1048,7 @@ def run_strategy_miner(
                 write_economics,
                 write_failure_pareto,
                 write_leaderboard,
+                write_multiagent_summary,
                 write_run_manifest,
             )
 
@@ -1055,9 +1058,12 @@ def run_strategy_miner(
             except Exception:
                 logger.debug("Final leaderboard write failed", exc_info=True)
 
-            failure_pareto_payload = build_failure_pareto(state)
+            failure_pareto_payload = build_failure_pareto(state, miner_dir=miner_dir)
             write_failure_pareto(miner_dir, state)
             final_artifacts["failure_pareto"] = str((miner_dir / "failure_pareto.json").resolve())
+
+            multiagent_summary_path = write_multiagent_summary(miner_dir, state, config=config)
+            final_artifacts["multiagent_summary"] = str(multiagent_summary_path.resolve())
 
             summary_path = miner_dir / "strategy_miner_summary.json"
             summary_payload = state.to_dict()

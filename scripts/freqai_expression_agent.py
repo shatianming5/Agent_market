@@ -67,6 +67,13 @@ FEATURE_FILE = paths.resolve_repo_path("user_data/freqai_features.json")
 
 from agent_market.freqai import llm as llm_utils  # noqa: E402
 from agent_market.freqai.expression_engine import safe_eval_expression  # noqa: E402
+from agent_market.factor_multiagent import (  # noqa: E402
+    empty_factor_agent_traces,
+    parse_multiagent_roles,
+    record_factor_agent_event,
+    run_factor_multiagent_review,
+    write_factor_multiagent_artifacts,
+)
 
 
 def _safe_eval_expression(expr: str, df):  # noqa: ANN001
@@ -1011,6 +1018,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--llm-timeout", type=float, default=45)
     parser.add_argument("--llm-max-turns", type=int, default=12)
     parser.add_argument("--llm-stale-timeout", type=float, default=180.0)
+    parser.add_argument(
+        "--multiagent-enabled",
+        action="store_true",
+        help="Enable deterministic factor multi-role review sidecars.",
+    )
+    parser.add_argument(
+        "--multiagent-roles",
+        default="discoverer,critic,transfer_auditor,curator",
+        help="Comma-separated factor roles to run when --multiagent-enabled is set.",
+    )
+    parser.add_argument(
+        "--multiagent-parallelism",
+        type=int,
+        default=4,
+        help="Declared role parallelism for factor multi-agent diagnostics.",
+    )
 
     parser.add_argument("--feedback", default=None, help="Optional feedback file to guide the next batch.")
     parser.add_argument("--feedback-top", type=int, default=10, help="Reserved for orchestrator; kept for compatibility.")
@@ -1063,6 +1086,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    multiagent_roles = parse_multiagent_roles(args.multiagent_roles)
+    multiagent_traces: Dict[str, Any] = empty_factor_agent_traces(
+        enabled=bool(args.multiagent_enabled),
+        roles=multiagent_roles,
+        parallelism=max(1, int(args.multiagent_parallelism or 1)),
+    )
 
     config_path = resolve_path(args.config)
     cfg = read_json(config_path)
@@ -1299,6 +1328,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                     content, usage = llm_utils.request_completion(prompt, llm_cfg)
                 except Exception as exc:
                     print(f"[llm] API failed loop {loop+1} (skipping): {exc}", file=sys.stderr)
+                    record_factor_agent_event(
+                        multiagent_traces,
+                        role="discoverer",
+                        event="llm_request_failed",
+                        status="failed",
+                        detail={"loop": loop + 1, "error": str(exc)[:500]},
+                        failure_category="agent_call_failure",
+                    )
                     continue
 
                 # ── Layer 2: JSON parse — malformed response skips this loop ──
@@ -1307,6 +1344,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                     batch = llm_utils.extract_candidates(content)
                 except Exception as exc:
                     print(f"[llm] parse failed loop {loop+1} (skipping): {exc}", file=sys.stderr)
+                    record_factor_agent_event(
+                        multiagent_traces,
+                        role="discoverer",
+                        event="invalid_json_response",
+                        status="failed",
+                        detail={
+                            "loop": loop + 1,
+                            "error": str(exc)[:500],
+                            "raw_excerpt": str(content or "")[:1000],
+                        },
+                        failure_category="invalid_json",
+                    )
                     if usage:
                         _accumulate_llm_usage(usage)
                     continue
@@ -1697,6 +1746,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"[llm] loop {loop+1}: total={len(expressions)}")
             except Exception as exc:
                 print(f"[llm] failed: {exc}", file=sys.stderr)
+                record_factor_agent_event(
+                    multiagent_traces,
+                    role="discoverer",
+                    event="llm_generation_failed",
+                    status="failed",
+                    detail={"error": str(exc)[:500]},
+                    failure_category="agent_call_or_parse_failure",
+                )
                 if not args.llm_fallback:
                     raise
                 want_llm = False
@@ -1704,6 +1761,32 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not args.mine and not want_llm:
         expressions = _classic_candidates(feature_cols, request_count)
+
+    multiagent_artifacts: Dict[str, str] = {}
+    factor_transfer_audit: Dict[str, Any] = {}
+    multiagent_summary: Dict[str, Any] = {}
+    if bool(args.multiagent_enabled):
+        expressions, multiagent_traces, factor_transfer_audit, multiagent_summary = run_factor_multiagent_review(
+            expressions=expressions,
+            feature_cols=feature_cols,
+            enabled=True,
+            roles=multiagent_roles,
+            parallelism=max(1, int(args.multiagent_parallelism or 1)),
+            traces=multiagent_traces,
+        )
+        multiagent_artifacts = write_factor_multiagent_artifacts(
+            output_dir=output_path.parent,
+            output_stem=output_path.stem,
+            traces=multiagent_traces,
+            transfer_audit=factor_transfer_audit,
+            summary=multiagent_summary,
+            manifest_extra={
+                "expression_output": str(output_path.resolve()),
+                "scored_candidates_json": str(output_path.with_name(output_path.stem + "_scored_all.json").resolve()),
+                "candidate_count": len(expressions),
+                "roles": multiagent_roles,
+            },
+        )
 
     payload = {
         "version": 1,
@@ -1721,6 +1804,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         "mine_enabled": bool(args.mine),
         "score_method": str(args.score_method) if args.mine else None,
         "top_n": int(args.top_n) if args.mine else None,
+        "multiagent": {
+            "enabled": bool(args.multiagent_enabled),
+            "roles": multiagent_roles,
+            "parallelism": max(1, int(args.multiagent_parallelism or 1)),
+            "artifact_refs": multiagent_artifacts,
+            "promotion_controller": "agent_market.factor_lab.strategy-loop",
+            "promotion_policy": "search_and_review_only",
+            "promotion_eligible": False,
+        },
+        "multiagent_failures": list((multiagent_summary or {}).get("failures") or []),
         "expressions": expressions,
     }
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1740,6 +1833,22 @@ def main(argv: Optional[List[str]] = None) -> int:
             scored_candidates_path=scored_path.resolve() if scored_path.exists() else None,
         )
         print(f"[memory] saved local factor memory: {mem.factor_memory_json}")
+        if multiagent_artifacts.get("manifest"):
+            try:
+                manifest_path = Path(multiagent_artifacts["manifest"])
+                manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest_payload["memory_refs"] = {
+                    "factor_memory_json": mem.factor_memory_json,
+                    "factor_cards_json": mem.factor_cards_json,
+                    "factor_failure_cards_json": mem.factor_failure_cards_json,
+                    "factor_lineage_json": mem.factor_lineage_json,
+                }
+                manifest_path.write_text(
+                    json.dumps(manifest_payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
 
         # Merge into global factor memory
         try:
@@ -1750,6 +1859,22 @@ def main(argv: Optional[List[str]] = None) -> int:
             gstore = FactorMemoryStore(Path(global_mem.factor_memory_json))
             print(f"[memory] merged into global: {len(gstore.factor_cards)} factor cards, "
                   f"{len(gstore.failure_cards)} failure cards")
+            if multiagent_artifacts.get("manifest"):
+                try:
+                    manifest_path = Path(multiagent_artifacts["manifest"])
+                    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    manifest_payload["global_memory_refs"] = {
+                        "factor_memory_json": global_mem.factor_memory_json,
+                        "factor_cards_json": global_mem.factor_cards_json,
+                        "factor_failure_cards_json": global_mem.factor_failure_cards_json,
+                        "factor_lineage_json": global_mem.factor_lineage_json,
+                    }
+                    manifest_path.write_text(
+                        json.dumps(manifest_payload, ensure_ascii=False, indent=2),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass
         except Exception as exc:
             print(f"[memory] global merge failed (non-fatal): {exc}", file=sys.stderr)
 

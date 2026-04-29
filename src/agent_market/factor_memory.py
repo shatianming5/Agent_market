@@ -1141,6 +1141,15 @@ def build_factor_memory_artifacts_from_expression_output(
         per_pair = item.get("per_pair")
         if per_pair is None:
             per_pair = score_item.get("per_pair") or {}
+        transfer_audit = item.get("transfer_audit")
+        if not isinstance(transfer_audit, dict):
+            transfer_audit = score_item.get("transfer_audit") if isinstance(score_item.get("transfer_audit"), dict) else {}
+        agent_tags = [
+            str(tag)
+            for tag in list(item.get("agent_tags") or score_item.get("agent_tags") or [])
+            if str(tag).strip()
+        ]
+        memory_scope = str(item.get("memory_scope") or ("pending_review" if agent_tags else "legacy_expression_mining"))
 
         target_col = f"future_return_{label_period}" if label_period is not None else ""
         signature = _factor_signature(
@@ -1169,11 +1178,19 @@ def build_factor_memory_artifacts_from_expression_output(
                 "category_tags": list(dict.fromkeys([str(item.get("category") or "").strip()] + category_tags)),
                 "regime_tags": regime_tags,
                 "regime_coverage": None,
-                "capacity_proxy": None,
-                "capacity_slippage_proxy": None,
+                "capacity_proxy": _first_present(
+                    transfer_audit.get("capacity_proxy"),
+                    transfer_audit.get("capacity_slippage_proxy"),
+                ),
+                "capacity_slippage_proxy": transfer_audit.get("capacity_slippage_proxy"),
                 "snoop_level": str(item.get("snoop_level") or score_item.get("snoop_level") or expressions_payload.get("snoop_level") or "legacy"),
                 "reuse_count": 0,
                 "downstream_strategy_references": [],
+                "memory_scope": memory_scope,
+                "agent_tags": agent_tags,
+                "critic_review": item.get("critic_review") or score_item.get("critic_review") or {},
+                "transfer_audit": transfer_audit,
+                "promotion_eligible": False,
                 "metrics": {
                     "weighted_score": weighted_score,
                     "gate_pass": True,
@@ -1182,24 +1199,37 @@ def build_factor_memory_artifacts_from_expression_output(
                     "train_ic": score_item.get("train_ic"),
                     "validation_ic": score_item.get("validation_ic"),
                     "blind_ic": score_item.get("blind_ic"),
-                    "rank_ic": None,
+                    "rank_ic": transfer_audit.get("rank_ic_proxy"),
                     "sharpe_net": None,
                     "sortino_net": None,
                     "mdd": None,
-                    "turnover": None,
+                    "turnover": _first_present(
+                        item.get("turnover"),
+                        score_item.get("turnover"),
+                        transfer_audit.get("turnover_proxy"),
+                    ),
                     "nan_ratio": None,
                     "corr_to_library_max": None,
-                    "capacity_proxy": None,
+                    "capacity_proxy": _first_present(
+                        transfer_audit.get("capacity_proxy"),
+                        transfer_audit.get("capacity_slippage_proxy"),
+                    ),
                     "regime_consistency": None,
                     "train_test_gap": None,
-                    "slippage_reduction_bps": None,
+                    "slippage_reduction_bps": transfer_audit.get("slippage_reduction_bps"),
                     "fill_rate": None,
                     "adverse_selection_proxy": None,
                     "per_pair": per_pair,
                     "complexity": item.get("complexity", score_item.get("complexity")),
                     "metric_abs_ic": metric_abs_ic,
-                    "rank_portfolio_transfer_score": score_item.get("rank_portfolio_transfer_score"),
-                    "strategy_transfer_score": score_item.get("strategy_transfer_score"),
+                    "rank_portfolio_transfer_score": _first_present(
+                        transfer_audit.get("rank_portfolio_transfer_score"),
+                        score_item.get("rank_portfolio_transfer_score"),
+                    ),
+                    "strategy_transfer_score": _first_present(
+                        transfer_audit.get("strategy_transfer_score"),
+                        score_item.get("strategy_transfer_score"),
+                    ),
                 },
                 "generated_at": generated_at,
                 "source_artifacts": source_artifacts,
@@ -1269,6 +1299,47 @@ def build_factor_memory_artifacts_from_expression_output(
                     "exclusion_constraints": [
                         "prefer_higher_expression_score"
                     ],
+                },
+                "source_artifacts": source_artifacts,
+                "generated_at": generated_at,
+            }
+        )
+
+    for idx, failure in enumerate(list(expressions_payload.get("multiagent_failures") or []), start=1):
+        if not isinstance(failure, dict):
+            continue
+        expr = str(failure.get("expression") or "").strip()
+        subcategory = str(failure.get("subcategory") or failure.get("category") or "multiagent_failure")
+        name = str(failure.get("name") or f"multiagent_rejected_{idx:03d}")
+        category_tags, regime_tags = _infer_tags(name=name, hypothesis=subcategory, expression=expr)
+        failure_cards.append(
+            {
+                "failure_id": f"{run_id}:legacy_expression:{name}:{subcategory}",
+                "run_id": run_id,
+                "source_run_id": run_id,
+                "name": name,
+                "spec_name": "legacy_expression_mining",
+                "signature": _factor_signature(
+                    expression=expr,
+                    timeframe=timeframe,
+                    universe=universe,
+                    target_col=f"future_return_{label_period}" if label_period is not None else "",
+                ),
+                "category": "multiagent_review",
+                "subcategory": subcategory,
+                "timeframe": timeframe,
+                "universe": universe,
+                "category_tags": category_tags,
+                "regime_tags": regime_tags,
+                "detail": {
+                    "expression": expr,
+                    "role": failure.get("role"),
+                    "promotion_eligible": False,
+                },
+                "repair_recipe": {
+                    "avoid_rules": ["Do not reuse rejected multi-agent factor output unchanged."],
+                    "mutation_hints": ["Fix the critic rejection reason before rescoring this factor."],
+                    "exclusion_constraints": ["multiagent_rejected_factor"],
                 },
                 "source_artifacts": source_artifacts,
                 "generated_at": generated_at,
