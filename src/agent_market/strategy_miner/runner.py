@@ -1041,7 +1041,42 @@ def run_strategy_miner(
             pass
         # D13: Persist economics rollup
         try:
-            from .artifacts import write_economics
+            from .artifacts import (
+                build_failure_pareto,
+                write_economics,
+                write_failure_pareto,
+                write_leaderboard,
+                write_run_manifest,
+            )
+
+            try:
+                write_leaderboard(miner_dir, state, config=config)
+                final_artifacts["leaderboard"] = str((miner_dir / "leaderboard.json").resolve())
+            except Exception:
+                logger.debug("Final leaderboard write failed", exc_info=True)
+
+            failure_pareto_payload = build_failure_pareto(state)
+            write_failure_pareto(miner_dir, state)
+            final_artifacts["failure_pareto"] = str((miner_dir / "failure_pareto.json").resolve())
+
+            summary_path = miner_dir / "strategy_miner_summary.json"
+            summary_payload = state.to_dict()
+            summary_payload["failure_pareto"] = failure_pareto_payload
+            summary_payload["promotion_controller"] = "agent_market.factor_lab.strategy-loop"
+            summary_path.write_text(
+                json.dumps(summary_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            final_artifacts["strategy_miner_summary"] = str(summary_path.resolve())
+
+            manifest_path = write_run_manifest(
+                miner_dir,
+                state,
+                config=config,
+                extra_artifacts=final_artifacts,
+            )
+            final_artifacts["manifest"] = str(manifest_path.resolve())
+
             write_economics(miner_dir, state.economics)
         except Exception:
             pass

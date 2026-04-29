@@ -10,6 +10,7 @@ from agent_market import paths as repo_paths
 from agent_market.factor_lab.strategy_loop import (
     PHASE_BACKTEST,
     PHASE_COMPLETE,
+    LOOP_COMPLETED,
     VERIFICATION_FAILED,
     VERIFICATION_INCONCLUSIVE,
     VERIFICATION_PASSED,
@@ -18,6 +19,7 @@ from agent_market.factor_lab.strategy_loop import (
     StrategyLoopState,
     build_iteration_manifest,
     build_pareto_pool,
+    doctor_strategy_loop_run,
     _hermes_cli_env,
     _hermes_model,
     _opencode_cli_env,
@@ -36,7 +38,10 @@ from agent_market.factor_lab.strategy_loop import (
     score_strategy_loop_backtest,
     score_triple_holdout_backtest,
     scaled_gate_values,
+    strategy_loop_registry_path,
+    strategy_loop_retention_tier,
     validate_candidate,
+    write_strategy_loop_registry_entry,
 )
 
 
@@ -191,6 +196,97 @@ def test_config_accepts_hermes_reasoning_effort() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit", agent="hermes", hermes_reasoning_effort="xhigh")
 
     assert cfg.hermes_reasoning_effort == "xhigh"
+
+
+def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_ok"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+    )
+    _write_json(
+        root / "checkpoint.json",
+        {
+            "config": cfg.__dict__,
+            "state": {"run_id": run_id, "iteration": 1},
+        },
+    )
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    deep_root = repo_paths.artifacts_root() / "strategy_deepresearch" / run_id
+    _write_json(deep_root / "context.json", {"run_id": run_id})
+    _write_json(deep_root / "sources.json", {"sources": []})
+    selected = {
+        "blind_final": True,
+        "promotion_eligible": True,
+        "verification_status": VERIFICATION_PASSED,
+    }
+    _write_json(
+        root / "final_blind_status.json",
+        {
+            "selected": selected,
+            "promotion": {"promoted": False},
+            "deepresearch": {
+                "artifacts": {
+                    "context": f"artifacts/strategy_deepresearch/{run_id}/context.json",
+                    "sources": f"artifacts/strategy_deepresearch/{run_id}/sources.json",
+                }
+            },
+        },
+    )
+    blind_dir = root / "blind_1"
+    _write_json(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    _write_json(
+        blind_dir / "manifest.json",
+        {"artifact_refs": {"verification.json": {"path": "x", "sha256": "abc", "bytes": 1}}},
+    )
+
+    result = doctor_strategy_loop_run(run_id)
+
+    assert result["ok"] is True
+    assert result["summary"]["verification_counts"][VERIFICATION_PASSED] == 1
+    assert result["findings"] == []
+
+
+def test_strategy_loop_registry_records_retention_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "registry_unit"
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+    )
+    state = StrategyLoopState(run_id=run_id, status=LOOP_COMPLETED)
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    _write_json(root / "manifest.json", {"run_id": run_id})
+    _write_json(root / "checkpoint.json", {"run_id": run_id})
+    _write_json(
+        root / "final_blind_status.json",
+        {"selected": {"promotion_eligible": True, "verification_status": VERIFICATION_PASSED}},
+    )
+
+    path = write_strategy_loop_registry_entry(
+        cfg,
+        state,
+        final_promotion={"promoted": False, "reason": "unit"},
+    )
+
+    assert path == strategy_loop_registry_path()
+    assert strategy_loop_retention_tier(run_id) == "keep_blind_passed_not_promoted"
+    row = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+    assert row["run_id"] == run_id
+    assert row["retention_tier"] == "keep_blind_passed_not_promoted"
 
 
 def test_candidate_schema_accepts_baseline_rank_profile_controls(tmp_path: Path) -> None:

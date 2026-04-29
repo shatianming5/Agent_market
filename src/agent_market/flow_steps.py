@@ -663,8 +663,16 @@ def run_strategy_miner_step(cfg: Dict[str, Any], *, run_id: str, out_dir: Path) 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     summary_path = out_dir / "strategy_miner_summary.json"
+    summary_payload = state.to_dict()
+    try:
+        from agent_market.strategy_miner.artifacts import build_failure_pareto  # noqa: WPS433
+
+        summary_payload["failure_pareto"] = build_failure_pareto(state)
+        summary_payload["promotion_controller"] = "agent_market.factor_lab.strategy-loop"
+    except Exception:
+        pass
     summary_path.write_text(
-        json.dumps(state.to_dict(), ensure_ascii=False, indent=2),
+        json.dumps(summary_payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 

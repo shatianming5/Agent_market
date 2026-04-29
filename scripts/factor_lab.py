@@ -63,8 +63,10 @@ if env_file.exists():
         k, v = line.split("=", 1)
         os.environ.setdefault(k.strip(), v.strip())
 
+from agent_market import paths as repo_paths
 from agent_market.factor_lab import data, features, mining, validation, backtest, deploy, combo_ga, rl, reporting, rank_portfolio, strategy_loop
 from agent_market.factor_lab.cache import DEFAULT_CACHE_DIR, cache_inventory, clear_cache
+from agent_market.factor_memory import audit_factor_memory_path
 
 
 # ============================================================
@@ -267,6 +269,12 @@ def cmd_cache(args):
         print(json.dumps(cache_inventory(args.cache_dir), indent=2))
     elif args.action == "clear":
         print(json.dumps(clear_cache(args.cache_dir), indent=2))
+
+
+def cmd_memory_audit(args):
+    path = repo_paths.resolve_repo_path(args.path) if args.path else repo_paths.global_factor_memory_path()
+    result = audit_factor_memory_path(path, write_tags=bool(args.write_tags))
+    print(json.dumps(result, indent=2, default=str))
 
 
 def cmd_backtest(args):
@@ -555,6 +563,14 @@ def cmd_strategy_loop_replay(args):
         risk_profile=args.risk_profile,
         timerange=args.timerange,
         include_freqtrade=not args.skip_freqtrade,
+    )
+    print(json.dumps(result, indent=2, default=str))
+
+
+def cmd_strategy_loop_doctor(args):
+    result = strategy_loop.doctor_strategy_loop_run(
+        args.run_id,
+        strict_formal=not args.no_strict_formal,
     )
     print(json.dumps(result, indent=2, default=str))
 
@@ -921,6 +937,13 @@ def build_parser():
     cch.add_argument("--cache-dir", default=str(DEFAULT_CACHE_DIR))
     cch.set_defaults(func=cmd_cache)
 
+    ma = sub.add_parser("memory-audit", help="audit factor memory coverage, snoop labels, duplicates, and tradeability")
+    ma.add_argument("--path", default=None,
+                    help="factor_memory.json path (default: global factor memory)")
+    ma.add_argument("--write-tags", action="store_true",
+                    help="write memory_status/audit_missing_fields/quality_gate labels back to the memory store")
+    ma.set_defaults(func=cmd_memory_audit)
+
     # validate
     v = sub.add_parser("validate", help="validate a factor library")
     v.add_argument("factors", help="path to freqai_expressions_*.json")
@@ -1188,6 +1211,12 @@ def build_parser():
     slr.add_argument("--skip-freqtrade", action="store_true",
                      help="only replay the research rank_backtest stage")
     slr.set_defaults(func=cmd_strategy_loop_replay)
+
+    sld = sub.add_parser("strategy-loop-doctor", help="audit a strategy-loop run for formal promotion readiness")
+    sld.add_argument("--run-id", required=True, help="factor_strategy_loop run id")
+    sld.add_argument("--no-strict-formal", action="store_true",
+                     help="do not require triple_holdout + verify_policy=pareto + promote_policy=final")
+    sld.set_defaults(func=cmd_strategy_loop_doctor)
 
     rs = sub.add_parser("rank-sweep", help="sweep rank-portfolio top-k and gross-cap settings")
     rs.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")

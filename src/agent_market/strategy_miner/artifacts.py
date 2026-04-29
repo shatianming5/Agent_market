@@ -52,6 +52,14 @@ def leaderboard_path(miner_dir: Path) -> Path:
     return miner_dir / "leaderboard.json"
 
 
+def run_manifest_path(miner_dir: Path) -> Path:
+    return miner_dir / "manifest.json"
+
+
+def failure_pareto_path(miner_dir: Path) -> Path:
+    return miner_dir / "failure_pareto.json"
+
+
 def candidates_dir(miner_dir: Path) -> Path:
     return miner_dir / "candidates"
 
@@ -86,6 +94,232 @@ def _file_evidence(path: Path) -> dict[str, Any]:
         }
     )
     return item
+
+
+def candidate_verification_status(candidate: StrategyCandidate) -> str:
+    """Map Strategy Miner's sealed validation evidence to the shared status vocabulary."""
+    stage = str(getattr(candidate, "stage", "") or "").strip().lower()
+    funnel = getattr(candidate, "funnel_state", None) or {}
+    holdout = funnel.get("holdout") if isinstance(funnel.get("holdout"), dict) else {}
+    benchmark = funnel.get("benchmark") if isinstance(funnel.get("benchmark"), dict) else {}
+
+    if stage == "promoted":
+        return "passed"
+    if holdout:
+        if bool(holdout.get("overfitting_flag")):
+            return "failed"
+        if benchmark and benchmark.get("passed") is False:
+            return "failed"
+        return "passed" if bool(getattr(candidate, "constraints_ok", True)) else "failed"
+    if getattr(candidate, "diagnosis", "") or getattr(candidate, "failure_category", ""):
+        return "failed"
+    if getattr(candidate, "constraints_ok", True) is False:
+        return "failed"
+    if getattr(candidate, "backtest_summary", None) is not None:
+        return "pending"
+    return "pending"
+
+
+def candidate_promotion_eligible(candidate: StrategyCandidate) -> bool:
+    return (
+        candidate_verification_status(candidate) == "passed"
+        and str(getattr(candidate, "stage", "") or "").strip().lower() == "promoted"
+        and bool(getattr(candidate, "constraints_ok", True))
+    )
+
+
+def classify_candidate_failure(candidate: StrategyCandidate) -> str:
+    """Coarse failure taxonomy for run-level Pareto summaries."""
+    failure_category = str(getattr(candidate, "failure_category", "") or "").strip().lower()
+    diagnosis = str(getattr(candidate, "diagnosis", "") or "").strip().lower()
+    violations = [str(v).lower() for v in list(getattr(candidate, "constraint_violations", []) or [])]
+    summary = getattr(candidate, "backtest_summary", None) or {}
+    quick = getattr(candidate, "quick_backtest_summary", None) or {}
+    funnel = getattr(candidate, "funnel_state", None) or {}
+    holdout = funnel.get("holdout") if isinstance(funnel.get("holdout"), dict) else {}
+
+    if failure_category.startswith("validation.syntax") or "syntax error" in diagnosis:
+        return "syntax_failure"
+    if failure_category in {"validation.inheritance", "validation.missing_methods"} or "istrategy" in diagnosis:
+        return "syntax_failure"
+    if failure_category.startswith("validation."):
+        return "validation_failure"
+    if failure_category.startswith("train_model."):
+        return "model_training_failure"
+    if failure_category.startswith("backtest."):
+        return "backtest_failure"
+    if bool(holdout.get("overfitting_flag")) or any("holdout_overfitting" in v for v in violations):
+        return "overfit_failure"
+    if any("min_trades" in v or "sample" in v for v in violations):
+        return "insufficient_sample"
+
+    fee_drag = summary.get("fee_drag_pct")
+    try:
+        fee_drag_f = float(fee_drag) if fee_drag is not None else 0.0
+    except Exception:
+        fee_drag_f = 0.0
+    profit = summary.get("profit_total_pct")
+    if profit is None:
+        profit = quick.get("profit_total_pct") if isinstance(quick, dict) else None
+    profit_factor = summary.get("profit_factor")
+    if profit_factor is None:
+        profit_factor = quick.get("profit_factor") if isinstance(quick, dict) else None
+    try:
+        profit_f = float(profit) if profit is not None else None
+    except Exception:
+        profit_f = None
+    try:
+        pf_f = float(profit_factor) if profit_factor is not None else None
+    except Exception:
+        pf_f = None
+
+    if fee_drag_f > 0 and profit_f is not None and abs(fee_drag_f) >= max(abs(profit_f), 1.0):
+        return "fee_drag_failure"
+    if profit_f is not None and profit_f < 0:
+        return "unprofitable_failure"
+    if pf_f is not None and pf_f < 1.0 and profit_f is not None and profit_f <= 0:
+        return "unprofitable_failure"
+    if getattr(candidate, "constraints_ok", True) is False:
+        return "constraint_failure"
+    if getattr(candidate, "reward", None) is None:
+        return "unevaluated_failure"
+    return "other_failure"
+
+
+def build_failure_pareto(state: MinerState) -> dict[str, Any]:
+    buckets: dict[str, list[dict[str, Any]]] = {}
+    promoted: list[dict[str, Any]] = []
+    for candidate in state.candidates:
+        verification_status = candidate_verification_status(candidate)
+        promotion_eligible = candidate_promotion_eligible(candidate)
+        summary = getattr(candidate, "backtest_summary", None) or {}
+        item = {
+            "name": candidate.name,
+            "iteration": int(getattr(candidate, "iteration", 0) or 0),
+            "candidate_type": getattr(candidate, "candidate_type", "rule"),
+            "candidate_family": getattr(candidate, "candidate_family", ""),
+            "model_family": getattr(candidate, "model_family", ""),
+            "stage": getattr(candidate, "stage", ""),
+            "verification_status": verification_status,
+            "promotion_eligible": promotion_eligible,
+            "failure_category": getattr(candidate, "failure_category", ""),
+            "diagnosis": str(getattr(candidate, "diagnosis", "") or "")[:500],
+            "constraint_violations": list(getattr(candidate, "constraint_violations", []) or []),
+            "metrics": {
+                "reward": getattr(candidate, "reward", None),
+                "profit_total_pct": summary.get("profit_total_pct"),
+                "profit_factor": summary.get("profit_factor"),
+                "trades": summary.get("trades"),
+                "fee_drag_pct": summary.get("fee_drag_pct"),
+                "max_drawdown_pct": summary.get("max_drawdown_pct", summary.get("max_drawdown_account")),
+            },
+            "quick_metrics": {
+                "profit_total_pct": (getattr(candidate, "quick_backtest_summary", None) or {}).get("profit_total_pct")
+                if isinstance(getattr(candidate, "quick_backtest_summary", None), dict)
+                else None,
+                "profit_factor": (getattr(candidate, "quick_backtest_summary", None) or {}).get("profit_factor")
+                if isinstance(getattr(candidate, "quick_backtest_summary", None), dict)
+                else None,
+                "trades": (getattr(candidate, "quick_backtest_summary", None) or {}).get("trades")
+                if isinstance(getattr(candidate, "quick_backtest_summary", None), dict)
+                else None,
+            },
+        }
+        if promotion_eligible:
+            promoted.append(item)
+            continue
+        bucket = classify_candidate_failure(candidate)
+        buckets.setdefault(bucket, []).append(item)
+
+    categories = []
+    for name, items in buckets.items():
+        categories.append(
+            {
+                "category": name,
+                "count": len(items),
+                "examples": items[:5],
+            }
+        )
+    categories.sort(key=lambda item: int(item["count"]), reverse=True)
+    return {
+        "version": "strategy-miner-failure-pareto-v1",
+        "run_id": state.run_id,
+        "candidate_count": len(state.candidates),
+        "promoted_count": len(promoted),
+        "failure_count": sum(len(items) for items in buckets.values()),
+        "categories": categories,
+        "promoted": promoted[:10],
+    }
+
+
+def write_failure_pareto(miner_dir: Path, state: MinerState) -> Path:
+    out = failure_pareto_path(miner_dir)
+    _atomic_write_json(out, build_failure_pareto(state))
+    return out
+
+
+def build_run_manifest(
+    miner_dir: Path,
+    state: MinerState,
+    *,
+    config: MinerConfig,
+    extra_artifacts: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
+    artifact_names = [
+        "proposal.json",
+        "goal_contract.json",
+        "run_meta.json",
+        "checkpoint.json",
+        "leaderboard.json",
+        "failure_pareto.json",
+        "holdout_gate.json",
+        "benchmark_verdict.json",
+        "portfolio_plan.json",
+        "economics.json",
+    ]
+    files = {
+        name: _file_evidence(miner_dir / name)
+        for name in artifact_names
+        if (miner_dir / name).exists()
+    }
+    if extra_artifacts:
+        for key, raw in extra_artifacts.items():
+            try:
+                files[key] = _file_evidence(Path(raw))
+            except Exception:
+                files[key] = {"path": str(raw), "exists": False}
+
+    return {
+        "version": "strategy-miner-run-manifest-v1",
+        "saved_at": _iso_now(),
+        "run_id": state.run_id,
+        "promotion_controller": "agent_market.factor_lab.strategy-loop",
+        "strategy_miner_role": "candidate_generation_and_sidecar_validation",
+        "config": config_to_dict(config),
+        "counts": {
+            "candidates": len(state.candidates),
+            "history": len(state.history),
+        },
+        "best": {
+            "name": state.best_candidate.name if state.best_candidate else None,
+            "score": state.best_score,
+            "verification_status": candidate_verification_status(state.best_candidate) if state.best_candidate else None,
+            "promotion_eligible": candidate_promotion_eligible(state.best_candidate) if state.best_candidate else False,
+        },
+        "files": files,
+    }
+
+
+def write_run_manifest(
+    miner_dir: Path,
+    state: MinerState,
+    *,
+    config: MinerConfig,
+    extra_artifacts: Optional[dict[str, str]] = None,
+) -> Path:
+    out = run_manifest_path(miner_dir)
+    _atomic_write_json(out, build_run_manifest(miner_dir, state, config=config, extra_artifacts=extra_artifacts))
+    return out
 
 
 def write_agent_trace(
@@ -269,6 +503,8 @@ def write_leaderboard(
         if src_provider == 'template' or c.name == 'TemplateRsiStrategy' or 'TemplateRsiStrategy' in (c.code or ''):
             continue
         summary = c.backtest_summary or {}
+        verification_status = candidate_verification_status(c)
+        promotion_eligible = candidate_promotion_eligible(c)
         all_items.append(
             {
                 "name": c.name,
@@ -281,6 +517,12 @@ def write_leaderboard(
                 "validation_passed": c.validation_passed,
                 "constraints_ok": bool(getattr(c, "constraints_ok", True)),
                 "constraint_violations": list(getattr(c, "constraint_violations", []) or []),
+                "verification_status": verification_status,
+                "promotion_eligible": promotion_eligible,
+                "promotion_controller": "agent_market.factor_lab.strategy-loop",
+                "strategy_miner_role": "candidate_generation_and_sidecar_validation",
+                "stage": getattr(c, "stage", ""),
+                "failure_category": getattr(c, "failure_category", ""),
                 "trades": summary.get("trades"),
                 "winrate": summary.get("winrate"),
                 "profit_total_pct": summary.get("profit_total_pct"),
