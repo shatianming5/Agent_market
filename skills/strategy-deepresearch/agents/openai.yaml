@@ -1,0 +1,6 @@
+interface:
+  display_name: "Strategy Deep Research"
+  short_description: "Audit strategy loops for validation risk"
+  default_prompt: "Use $strategy-deepresearch to audit the active Agent_market strategy loop and write the validation docs."
+policy:
+  allow_implicit_invocation: true

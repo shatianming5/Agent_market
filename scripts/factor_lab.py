@@ -501,6 +501,22 @@ def cmd_strategy_loop(args):
         promote=not args.no_promote,
         candidate_type=args.candidate_type,
         opencode_mode=args.opencode_mode,
+        hermes_provider=args.hermes_provider,
+        hermes_toolsets=args.hermes_toolsets,
+        hermes_reasoning_effort=args.hermes_reasoning_effort,
+        hermes_yolo=args.hermes_yolo,
+        candidate_state=args.candidate_state,
+        recompute_corr=False if args.no_corr_recompute else None,
+        baseline_profile=args.baseline_profile,
+        eval_mode=args.eval_mode,
+        score_mode=args.score_mode,
+        promote_policy=args.promote_policy,
+        validation_protocol=args.validation_protocol,
+        search_timerange=args.search_timerange,
+        validation_timerange=args.validation_timerange,
+        blind_timerange=args.blind_timerange,
+        verify_policy=args.verify_policy,
+        pareto_size_per_axis=args.pareto_size_per_axis,
     )
     print(json.dumps(result, indent=2, default=str))
 
@@ -515,6 +531,30 @@ def cmd_strategy_loop_eval(args):
         n=args.n,
         run_id=args.run_id,
         promote=args.promote,
+        candidate_state=args.candidate_state,
+        recompute_corr=False if args.no_corr_recompute else None,
+        baseline_profile=args.baseline_profile,
+        eval_mode=args.eval_mode,
+        score_mode=args.score_mode,
+        promote_policy=args.promote_policy,
+        validation_protocol=args.validation_protocol,
+        search_timerange=args.search_timerange,
+        validation_timerange=args.validation_timerange,
+        blind_timerange=args.blind_timerange,
+        verify_policy=args.verify_policy,
+        pareto_size_per_axis=args.pareto_size_per_axis,
+    )
+    print(json.dumps(result, indent=2, default=str))
+
+
+def cmd_strategy_loop_replay(args):
+    result = strategy_loop.replay_optimized_profile(
+        tag=args.tag,
+        baseline_profile=args.baseline_profile,
+        venue=args.venue,
+        risk_profile=args.risk_profile,
+        timerange=args.timerange,
+        include_freqtrade=not args.skip_freqtrade,
     )
     print(json.dumps(result, indent=2, default=str))
 
@@ -1054,8 +1094,9 @@ def build_parser():
     sl = sub.add_parser("strategy-loop", help="agentic rank/factor strategy loop with checkpoint/resume")
     sl.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
     sl.add_argument("--venue", default="okx", choices=["okx"])
-    sl.add_argument("--agent", default="opencode", choices=["opencode"])
-    sl.add_argument("--model", default=os.environ.get("OPENCODE_MODEL", ""))
+    sl.add_argument("--agent", default="hermes", choices=["hermes", "opencode"],
+                    help="candidate-generation agent; Hermes is the default, OpenCode is legacy")
+    sl.add_argument("--model", default=(os.environ.get("HERMES_MODEL") or os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or os.environ.get("OPENCODE_MODEL") or ""))
     sl.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
     sl.add_argument("--max-iterations", type=int, default=30)
     sl.add_argument("--timerange", default="20251201-20260412",
@@ -1066,11 +1107,44 @@ def build_parser():
     sl.add_argument("--max-turns", type=int, default=30)
     sl.add_argument("--stale-timeout", type=float, default=180.0)
     sl.add_argument("--max-retries", type=int, default=2)
-    sl.add_argument("--candidate-type", default="auto",
+    sl.add_argument("--candidate-type", default="rank_profile",
                     choices=["auto", "rank_profile", "freqtrade_strategy"],
                     help="force the agent to generate rank params or a Freqtrade strategy")
-    sl.add_argument("--opencode-mode", default="server", choices=["server", "cli", "auto"],
-                    help="server uses runner_fsm OpenCode server; cli uses direct `opencode run`; auto falls back to cli")
+    sl.add_argument("--opencode-mode", default="cli", choices=["server", "cli", "auto"],
+                    help="legacy OpenCode only: server uses runner_fsm OpenCode server; cli uses direct `opencode run`; auto falls back to cli")
+    sl.add_argument("--hermes-provider", default=os.environ.get("HERMES_PROVIDER", ""),
+                    help="Hermes provider override, e.g. openai-codex/openrouter/nous; default lets Hermes auto-select")
+    sl.add_argument("--hermes-toolsets", default=os.environ.get("HERMES_TOOLSETS", "terminal,file"),
+                    help="comma-separated Hermes toolsets for candidate generation")
+    sl.add_argument("--hermes-reasoning-effort", default=os.environ.get("HERMES_REASONING_EFFORT", ""),
+                    choices=["", "none", "minimal", "low", "medium", "high", "xhigh"],
+                    help="Hermes agent.reasoning_effort override for compatible models")
+    sl.add_argument("--hermes-yolo", action="store_true",
+                    help="pass --yolo to Hermes for fully non-interactive tool execution")
+    sl.add_argument("--candidate-state", default=None,
+                    help="freeze factor candidates to a specific mining state JSON instead of latest checkpoint")
+    sl.add_argument("--no-corr-recompute", action="store_true",
+                    help="skip rank-series recomputation; default inherits optimized_profile.json when available")
+    sl.add_argument("--baseline-profile", default=None,
+                    help="optimized_profile.json to use as the baseline/default rank profile")
+    sl.add_argument("--eval-mode", default="two_stage", choices=["research", "two_stage", "freqtrade"],
+                    help="research only, two-stage research->fixed Freqtrade validation, or force Freqtrade stage")
+    sl.add_argument("--score-mode", default="composite", choices=["research", "freqtrade", "composite"],
+                    help="promotion/leaderboard score source; composite uses research gates and Freqtrade ranking")
+    sl.add_argument("--promote-policy", default="immediate", choices=["immediate", "final", "none"],
+                    help="immediate writes global winners as they appear; final writes only the run-local best at completion")
+    sl.add_argument("--validation-protocol", default="single", choices=["single", "triple_holdout", "walkforward"],
+                    help="single preserves legacy behavior; triple_holdout separates search/validation/blind windows")
+    sl.add_argument("--search-timerange", default="20251201-20260228",
+                    help="triple_holdout search window as YYYYMMDD-YYYYMMDD")
+    sl.add_argument("--validation-timerange", default="20260301-20260331",
+                    help="triple_holdout validation leaderboard window as YYYYMMDD-YYYYMMDD")
+    sl.add_argument("--blind-timerange", default="20260401-20260412",
+                    help="triple_holdout final blind window as YYYYMMDD-YYYYMMDD")
+    sl.add_argument("--verify-policy", default="none", choices=["pareto", "best", "all", "none"],
+                    help="which candidates get lookahead/recursive verification; triple_holdout promotion requires passed gates")
+    sl.add_argument("--pareto-size-per-axis", type=int, default=3,
+                    help="number of deduped candidates retained per Pareto axis")
     sl.add_argument("--no-promote", action="store_true",
                     help="score candidates but do not write optimized_profile.json or strategy files")
     sl.set_defaults(func=cmd_strategy_loop)
@@ -1084,9 +1158,36 @@ def build_parser():
                      help="holdout window as YYYYMMDD-YYYYMMDD")
     sle.add_argument("--n", type=int, default=50, help="factor count for rank-profile candidates")
     sle.add_argument("--run-id", default=None)
+    sle.add_argument("--candidate-state", default=None,
+                     help="freeze factor candidates to a specific mining state JSON instead of latest checkpoint")
+    sle.add_argument("--no-corr-recompute", action="store_true",
+                     help="skip rank-series recomputation; default inherits optimized_profile.json when available")
+    sle.add_argument("--baseline-profile", default=None,
+                     help="optimized_profile.json to use as the baseline/default rank profile")
+    sle.add_argument("--eval-mode", default="research", choices=["research", "two_stage", "freqtrade"])
+    sle.add_argument("--score-mode", default="research", choices=["research", "freqtrade", "composite"])
+    sle.add_argument("--promote-policy", default="immediate", choices=["immediate", "final", "none"])
+    sle.add_argument("--validation-protocol", default="single", choices=["single", "triple_holdout", "walkforward"])
+    sle.add_argument("--search-timerange", default="20251201-20260228")
+    sle.add_argument("--validation-timerange", default="20260301-20260331")
+    sle.add_argument("--blind-timerange", default="20260401-20260412")
+    sle.add_argument("--verify-policy", default="none", choices=["pareto", "best", "all", "none"])
+    sle.add_argument("--pareto-size-per-axis", type=int, default=3)
     sle.add_argument("--promote", action="store_true",
                      help="allow formal promotion if the candidate passes full holdout gates")
     sle.set_defaults(func=cmd_strategy_loop_eval)
+
+    slr = sub.add_parser("strategy-loop-replay", help="replay optimized_profile.json research and fixed Freqtrade baselines")
+    slr.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
+    slr.add_argument("--venue", default="okx", choices=["okx"])
+    slr.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
+    slr.add_argument("--timerange", default="20251201-20260412",
+                     help="holdout window as YYYYMMDD-YYYYMMDD")
+    slr.add_argument("--baseline-profile", default=None,
+                     help="optimized_profile.json to replay; defaults to artifacts/rank_portfolio/<tag>/optimized_profile.json")
+    slr.add_argument("--skip-freqtrade", action="store_true",
+                     help="only replay the research rank_backtest stage")
+    slr.set_defaults(func=cmd_strategy_loop_replay)
 
     rs = sub.add_parser("rank-sweep", help="sweep rank-portfolio top-k and gross-cap settings")
     rs.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")

@@ -81,12 +81,23 @@ def _patch_offline_markets() -> None:
                         if not isinstance(pair, str) or "/" not in pair:
                             continue
                         base, quote = pair.split("/", 1)
+                        is_swap = ":" in quote
+                        settle = None
+                        if is_swap:
+                            quote, settle = quote.split(":", 1)
                         synthesized[pair] = {
                             "symbol": pair,
                             "base": base,
                             "quote": quote,
-                            "spot": True,
+                            "settle": settle,
+                            "spot": not is_swap,
                             "margin": False,
+                            "swap": is_swap,
+                            "future": False,
+                            "type": "swap" if is_swap else "spot",
+                            "linear": is_swap,
+                            "inverse": False,
+                            "contract": is_swap,
                             "active": True,
                             "limits": {
                                 "amount": {"min": None, "max": None},
