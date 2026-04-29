@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agent_market.factor_memory import (
     FactorMemoryStore,
+    audit_factor_memory_path,
     build_factor_memory_artifacts,
     merge_factor_memory_artifacts,
 )
@@ -85,6 +86,9 @@ def test_build_factor_memory_artifacts_writes_cards_failures_and_edges(tmp_path:
     assert failures["items"][0]["subcategory"] == "nan_ratio,turnover,corr_to_library"
     assert failures["items"][0]["repair_recipe"]["mutation_hints"]
     assert lineage["edges"][0]["parent"] == "demo_factor"
+    assert memory["factor_cards"][0]["source_run_id"] == "deadbeef1234"
+    assert memory["factor_cards"][0]["target"] == "y"
+    assert "memory_status" in memory["factor_cards"][0]
 
 
 def test_factor_memory_query_and_strategy_reference_roundtrip(tmp_path: Path) -> None:
@@ -292,3 +296,53 @@ def test_merge_factor_memory_artifacts_accumulates_across_runs(tmp_path: Path) -
 
     assert len(global_memory["factor_cards"]) == 2
     assert {item["name"] for item in global_cards["items"]} == {"factor_one", "factor_two"}
+
+
+def test_factor_memory_audit_reports_coverage_duplicates_and_write_tags(tmp_path: Path) -> None:
+    memory_path = tmp_path / "factor_memory.json"
+    payload = {
+        "schema_version": "1.0",
+        "factor_cards": [
+            {
+                "card_id": "c1",
+                "signature": "same",
+                "source_run_id": "r1",
+                "timeframe": "1h",
+                "universe": ["BTC/USDT"],
+                "target": "future_return",
+                "gate_pass": True,
+                "regime_tags": ["trend"],
+                "snoop_level": "clean",
+                "capacity_slippage_proxy": 0.4,
+                "metrics": {
+                    "train_ic": 0.03,
+                    "validation_ic": 0.025,
+                    "blind_ic": 0.02,
+                    "turnover": 0.8,
+                    "rank_ic": 0.02,
+                    "corr_to_library_max": 0.2,
+                    "strategy_transfer_score": 0.1,
+                },
+            },
+            {
+                "card_id": "c2",
+                "signature": "same",
+                "run_id": "legacy",
+                "gate_pass": True,
+                "metrics": {"ic": 0.1},
+            },
+        ],
+        "failure_cards": [],
+        "edges": [],
+    }
+    memory_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    audit = audit_factor_memory_path(memory_path, write_tags=True)
+
+    assert audit["status_counts"]["tradeable_candidate"] == 1
+    assert audit["status_counts"]["legacy"] == 1
+    assert audit["duplicate_cluster_count"] == 1
+    assert audit["coverage"]["source_run_id"]["missing"] == 1
+    reloaded = json.loads(memory_path.read_text(encoding="utf-8"))
+    assert reloaded["factor_cards"][0]["memory_status"] == "tradeable_candidate"
+    assert "audit_missing_fields" in reloaded["factor_cards"][1]

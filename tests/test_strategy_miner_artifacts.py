@@ -6,12 +6,18 @@ import tempfile
 from pathlib import Path
 
 from agent_market.strategy_miner.artifacts import (
+    build_failure_pareto,
+    candidate_promotion_eligible,
+    candidate_verification_status,
     leaderboard_path,
     proposal_path,
+    run_manifest_path,
     write_backtest_summary,
     write_candidate_snapshot,
+    write_failure_pareto,
     write_leaderboard,
     write_proposal,
+    write_run_manifest,
 )
 from agent_market.strategy_miner.dtypes import MinerConfig, MinerState, StrategyCandidate
 
@@ -107,3 +113,72 @@ def test_write_leaderboard_filters_rejected_by_constraints():
         data = json.loads(out.read_text(encoding="utf-8"))
         assert [i["name"] for i in data["items"]] == ["Good"]
         assert [i["name"] for i in data["rejected"]] == ["Bad"]
+
+
+def test_leaderboard_adds_shared_promotion_fields():
+    cfg = MinerConfig(min_trades=0, max_abs_drawdown=999, min_winrate=0.0)
+    with tempfile.TemporaryDirectory() as td:
+        miner_dir = Path(td)
+        state = MinerState(run_id="r3")
+        c = StrategyCandidate("Winner", "code", Path(td) / "winner.py", iteration=2, stage="promoted")
+        c.reward = 1.1
+        c.constraints_ok = True
+        c.funnel_state = {"holdout": {"overfitting_flag": False}}
+        state.candidates = [c]
+        state.best_candidate = c
+        state.best_score = 1.1
+
+        out = write_leaderboard(miner_dir, state, config=cfg)
+        data = json.loads(out.read_text(encoding="utf-8"))
+
+        assert candidate_verification_status(c) == "passed"
+        assert candidate_promotion_eligible(c) is True
+        assert data["items"][0]["verification_status"] == "passed"
+        assert data["items"][0]["promotion_eligible"] is True
+        assert data["items"][0]["promotion_controller"] == "agent_market.factor_lab.strategy-loop"
+
+
+def test_failure_pareto_classifies_common_failures():
+    state = MinerState(run_id="failrun")
+    syntax = StrategyCandidate("SyntaxBad", "bad", Path("/tmp/syntax.py"))
+    syntax.failure_category = "validation.syntax"
+    syntax.diagnosis = "Syntax error"
+
+    sample = StrategyCandidate("TooFewTrades", "code", Path("/tmp/sample.py"))
+    sample.reward = 0.1
+    sample.constraints_ok = False
+    sample.constraint_violations = ["min_trades:2<10"]
+    sample.backtest_summary = {"profit_total_pct": 1.0, "trades": 2}
+
+    loss = StrategyCandidate("Loser", "code", Path("/tmp/loss.py"))
+    loss.reward = -0.5
+    loss.backtest_summary = {"profit_total_pct": -3.0, "profit_factor": 0.5, "trades": 20}
+
+    state.candidates = [syntax, sample, loss]
+    pareto = build_failure_pareto(state)
+
+    categories = {item["category"]: item["count"] for item in pareto["categories"]}
+    assert categories["syntax_failure"] == 1
+    assert categories["insufficient_sample"] == 1
+    assert categories["unprofitable_failure"] == 1
+
+
+def test_write_run_manifest_and_failure_pareto():
+    cfg = MinerConfig(max_iterations=1)
+    with tempfile.TemporaryDirectory() as td:
+        miner_dir = Path(td)
+        state = MinerState(run_id="manifest1")
+        c = StrategyCandidate("Candidate", "code", Path(td) / "c.py", iteration=0)
+        c.reward = 0.1
+        c.backtest_summary = {"profit_total_pct": -1.0}
+        state.candidates = [c]
+        state.best_candidate = c
+        state.best_score = 0.1
+        (miner_dir / "checkpoint.json").write_text("{}", encoding="utf-8")
+        write_failure_pareto(miner_dir, state)
+        out = write_run_manifest(miner_dir, state, config=cfg)
+
+        assert out == run_manifest_path(miner_dir)
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert data["promotion_controller"] == "agent_market.factor_lab.strategy-loop"
+        assert data["files"]["failure_pareto.json"]["exists"] is True

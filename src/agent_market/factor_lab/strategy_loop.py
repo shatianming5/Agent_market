@@ -595,6 +595,10 @@ def leaderboard_path(run_id: str) -> Path:
     return loop_root(run_id) / "leaderboard.json"
 
 
+def strategy_loop_registry_path() -> Path:
+    return repo_paths.artifacts_root() / "factor_strategy_loop" / "run_registry.jsonl"
+
+
 def iteration_dir(run_id: str, iteration: int) -> Path:
     return loop_root(run_id) / f"iter_{int(iteration):02d}"
 
@@ -2314,6 +2318,250 @@ def build_iteration_manifest(
     }
 
 
+def strategy_loop_retention_tier(run_id: str, *, final_promotion: Optional[Mapping[str, Any]] = None) -> str:
+    root = loop_root(str(run_id))
+    promotion = final_promotion or load_json(root / "final_promotion.json", {})
+    if isinstance(promotion, Mapping) and bool(promotion.get("promoted")):
+        return "keep_promoted"
+    if not (root / "manifest.json").exists() or not (root / "checkpoint.json").exists():
+        return "review_incomplete_manifest"
+    final_status = load_json(root / "final_blind_status.json", {})
+    if isinstance(final_status, Mapping) and final_status:
+        selected = final_status.get("selected") if isinstance(final_status.get("selected"), Mapping) else {}
+        if selected and selected.get("promotion_eligible"):
+            return "keep_blind_passed_not_promoted"
+        return "keep_audit"
+    leaderboard = load_json(leaderboard_path(str(run_id)), {})
+    rows = list(leaderboard.get("rows") or []) if isinstance(leaderboard, Mapping) else []
+    if rows:
+        return "review_unpromoted"
+    return "delete_candidate"
+
+
+def write_strategy_loop_registry_entry(
+    config: StrategyLoopConfig,
+    state: StrategyLoopState,
+    *,
+    final_promotion: Optional[Mapping[str, Any]] = None,
+) -> Path:
+    path = strategy_loop_registry_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    root = loop_root(config.run_id)
+    final_status_path = root / "final_blind_status.json"
+    doctor_path = root / "doctor_latest.json"
+    promotion = dict(final_promotion or state.final_promotion or {})
+    entry = {
+        "version": "factor-strategy-loop-run-registry-v1",
+        "ts": time.time(),
+        "run_id": config.run_id,
+        "tag": config.tag,
+        "protocol": config.validation_protocol,
+        "status": state.status,
+        "best_score": state.best_score,
+        "best_iteration": (state.best_candidate or {}).get("iteration") if isinstance(state.best_candidate, Mapping) else None,
+        "promoted": bool(promotion.get("promoted")),
+        "promotion": promotion,
+        "verification_summary": {
+            "verify_policy": config.verify_policy,
+            "promote_policy": config.promote_policy,
+            "score_mode": config.score_mode,
+            "eval_mode": config.eval_mode,
+        },
+        "artifacts": {
+            "run_dir": _as_repo_meta(root),
+            "manifest": _as_repo_meta(root / "manifest.json"),
+            "checkpoint": _as_repo_meta(checkpoint_path(config.run_id)),
+            "leaderboard": _as_repo_meta(leaderboard_path(config.run_id)),
+            "pareto_pool": _as_repo_meta(root / "pareto_pool.json"),
+            "final_blind_status": _as_repo_meta(final_status_path) if final_status_path.exists() else "",
+            "doctor_latest": _as_repo_meta(doctor_path) if doctor_path.exists() else "",
+        },
+        "retention_tier": strategy_loop_retention_tier(config.run_id, final_promotion=promotion),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, sort_keys=True, default=str) + "\n")
+    return path
+
+
+def _doctor_finding(severity: str, message: str, *, path: str = "", detail: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+    item: dict[str, Any] = {"severity": severity, "message": message}
+    if path:
+        item["path"] = path
+    if detail:
+        item["detail"] = dict(detail)
+    return item
+
+
+def _doctor_config_from_payloads(root: Path) -> dict[str, Any]:
+    checkpoint = load_json(root / "checkpoint.json", {})
+    if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("config"), Mapping):
+        return dict(checkpoint["config"])
+    manifest = load_json(root / "manifest.json", {})
+    if isinstance(manifest, Mapping) and isinstance(manifest.get("cli_args"), Mapping):
+        return dict(manifest["cli_args"])
+    return {}
+
+
+def _doctor_window_order(config_payload: Mapping[str, Any]) -> tuple[bool, dict[str, Any]]:
+    detail: dict[str, Any] = {}
+    try:
+        search_start, search_end = parse_timerange(str(config_payload.get("search_timerange") or DEFAULT_SEARCH_TIMERANGE))
+        validation_start, validation_end = parse_timerange(str(config_payload.get("validation_timerange") or DEFAULT_VALIDATION_TIMERANGE))
+        blind_start, blind_end = parse_timerange(str(config_payload.get("blind_timerange") or DEFAULT_BLIND_TIMERANGE))
+        detail = {
+            "search": {"start": search_start, "end": search_end},
+            "validation": {"start": validation_start, "end": validation_end},
+            "blind": {"start": blind_start, "end": blind_end},
+        }
+        ok = search_start < search_end <= validation_start < validation_end <= blind_start < blind_end
+        return ok, detail
+    except Exception as exc:
+        return False, {"error": str(exc)}
+
+
+def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
+    refs = manifest.get("artifact_refs") if isinstance(manifest.get("artifact_refs"), Mapping) else {}
+    files = 0
+    hashed = 0
+    missing_hash = 0
+    for ref in refs.values():
+        if not isinstance(ref, Mapping):
+            continue
+        if ref.get("kind") == "directory":
+            continue
+        if ref.get("missing"):
+            continue
+        files += 1
+        if ref.get("sha256"):
+            hashed += 1
+        else:
+            missing_hash += 1
+    return {"files": files, "hashed": hashed, "missing_hash": missing_hash}
+
+
+def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict[str, Any]:
+    """Read-only audit for a factor strategy-loop run."""
+    root = loop_root(str(run_id))
+    findings: list[dict[str, Any]] = []
+    if not root.exists():
+        return {
+            "version": "factor-strategy-loop-doctor-v1",
+            "run_id": str(run_id),
+            "run_dir": str(root),
+            "ok": False,
+            "findings": [_doctor_finding("BLOCKER", "run directory does not exist", path=_as_repo_meta(root))],
+            "summary": {},
+        }
+
+    config_payload = _doctor_config_from_payloads(root)
+    protocol = str(config_payload.get("validation_protocol") or "").strip().lower()
+    verify_policy = str(config_payload.get("verify_policy") or "").strip().lower()
+    promote_policy = str(config_payload.get("promote_policy") or "").strip().lower()
+    if strict_formal:
+        if protocol != VALIDATION_TRIPLE_HOLDOUT:
+            findings.append(_doctor_finding("BLOCKER", "formal run must use validation_protocol=triple_holdout"))
+        if verify_policy != VERIFY_PARETO:
+            findings.append(_doctor_finding("BLOCKER", "formal run must use verify_policy=pareto"))
+        if promote_policy != PROMOTE_FINAL:
+            findings.append(_doctor_finding("BLOCKER", "formal run must use promote_policy=final"))
+
+    windows_ok, windows_detail = _doctor_window_order(config_payload)
+    if protocol in {VALIDATION_TRIPLE_HOLDOUT, VALIDATION_WALKFORWARD} and not windows_ok:
+        findings.append(_doctor_finding("BLOCKER", "search/validation/blind windows are missing, invalid, or overlapping", detail=windows_detail))
+
+    required_root_files = ("manifest.json", "checkpoint.json", "leaderboard.json")
+    if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        required_root_files = (*required_root_files, "pareto_pool.json", "final_blind_status.json", "final_promotion.json")
+    root_artifacts = {}
+    for name in required_root_files:
+        path = root / name
+        root_artifacts[name] = _as_repo_meta(path)
+        if not path.exists():
+            findings.append(_doctor_finding("BLOCKER", f"missing root artifact: {name}", path=_as_repo_meta(path)))
+
+    iteration_manifests = sorted(root.glob("iter_*/manifest.json"))
+    blind_manifests = sorted(root.glob("blind_*/manifest.json"))
+    manifest_hashes = [_doctor_manifest_hash_status(load_json(path, {})) for path in [*iteration_manifests, *blind_manifests]]
+    missing_hash_total = sum(item.get("missing_hash", 0) for item in manifest_hashes)
+    hashed_total = sum(item.get("hashed", 0) for item in manifest_hashes)
+    if iteration_manifests and missing_hash_total:
+        findings.append(_doctor_finding("MEDIUM", "some manifest artifact refs are missing sha256 hashes", detail={"missing_hash": missing_hash_total}))
+
+    leaderboard = load_json(root / "leaderboard.json", {})
+    rows = list(leaderboard.get("rows") or []) if isinstance(leaderboard, Mapping) else []
+    non_blind_eligible = [
+        row for row in rows
+        if isinstance(row, Mapping) and row.get("promotion_eligible") is True and not bool(row.get("blind_final"))
+    ]
+    if protocol == VALIDATION_TRIPLE_HOLDOUT and non_blind_eligible:
+        findings.append(_doctor_finding("BLOCKER", "leaderboard has promotion_eligible=true before blind finalization", detail={"count": len(non_blind_eligible)}))
+
+    final_status = load_json(root / "final_blind_status.json", {})
+    selected = final_status.get("selected") if isinstance(final_status, Mapping) and isinstance(final_status.get("selected"), Mapping) else {}
+    promotion = final_status.get("promotion") if isinstance(final_status, Mapping) and isinstance(final_status.get("promotion"), Mapping) else {}
+    if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        if not final_status:
+            findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
+        elif not selected:
+            findings.append(_doctor_finding("HIGH", "no selected blind finalist"))
+        else:
+            if not bool(selected.get("blind_final")):
+                findings.append(_doctor_finding("BLOCKER", "selected candidate is not marked blind_final"))
+            if selected.get("promotion_eligible") and str(selected.get("verification_status") or "").lower() != VERIFICATION_PASSED:
+                findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass verification"))
+        if promotion.get("promoted") and not selected.get("promotion_eligible"):
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted but selected candidate is not promotion_eligible"))
+
+    verification_files = sorted([*root.glob("iter_*/verification.json"), *root.glob("blind_*/verification.json")])
+    verification_counts: dict[str, int] = {}
+    for path in verification_files:
+        payload = load_json(path, {})
+        status = str(payload.get("status") or VERIFICATION_PENDING).lower() if isinstance(payload, Mapping) else VERIFICATION_INCONCLUSIVE
+        verification_counts[status] = verification_counts.get(status, 0) + 1
+    if verify_policy != VERIFY_NONE and not verification_files and (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal):
+        findings.append(_doctor_finding("BLOCKER", "verify_policy requires lookahead/recursive artifacts but no verification.json files were found"))
+
+    deepresearch = final_status.get("deepresearch") if isinstance(final_status, Mapping) and isinstance(final_status.get("deepresearch"), Mapping) else {}
+    deep_artifacts = deepresearch.get("artifacts") if isinstance(deepresearch.get("artifacts"), Mapping) else {}
+    if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        for key in ("context", "sources"):
+            raw = str(deep_artifacts.get(key) or "").strip()
+            if not raw:
+                findings.append(_doctor_finding("HIGH", f"deepresearch artifact missing: {key}"))
+                continue
+            path = repo_paths.resolve_repo_path(raw)
+            if not path.exists():
+                findings.append(_doctor_finding("HIGH", f"deepresearch artifact path does not exist: {key}", path=raw))
+
+    severity_rank = {"BLOCKER": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+    worst = max((severity_rank.get(str(item.get("severity")), 0) for item in findings), default=0)
+    return {
+        "version": "factor-strategy-loop-doctor-v1",
+        "run_id": str(run_id),
+        "run_dir": _as_repo_meta(root),
+        "ok": worst < severity_rank["HIGH"],
+        "strict_formal": bool(strict_formal),
+        "policy": {
+            "validation_protocol": protocol,
+            "verify_policy": verify_policy,
+            "promote_policy": promote_policy,
+        },
+        "windows": windows_detail,
+        "artifacts": root_artifacts,
+        "summary": {
+            "leaderboard_rows": len(rows),
+            "iteration_manifests": len(iteration_manifests),
+            "blind_manifests": len(blind_manifests),
+            "artifact_refs_hashed": hashed_total,
+            "artifact_refs_missing_hash": missing_hash_total,
+            "verification_files": len(verification_files),
+            "verification_counts": verification_counts,
+            "final_promoted": bool(promotion.get("promoted")) if promotion else False,
+        },
+        "findings": findings,
+    }
+
+
 def promote_candidate(
     candidate: Mapping[str, Any],
     evaluation: Mapping[str, Any],
@@ -2585,6 +2833,17 @@ class StrategyLoopRunner:
         if self.state.status == LOOP_RUNNING:
             self.state.status = LOOP_COMPLETED
         self.state.final_promotion = self._finalize_promotion()
+        registry_path = ""
+        try:
+            registry_path = _as_repo_meta(
+                write_strategy_loop_registry_entry(
+                    self.config,
+                    self.state,
+                    final_promotion=self.state.final_promotion,
+                )
+            )
+        except Exception:
+            registry_path = ""
         save_checkpoint(self.config, self.state)
         return {
             "run_id": self.config.run_id,
@@ -2597,6 +2856,7 @@ class StrategyLoopRunner:
             "validation_protocol": validation_protocol_summary(self.config),
             "pareto_pool": _as_repo_meta(loop_root(self.config.run_id) / "pareto_pool.json"),
             "final_promotion": self.state.final_promotion,
+            "run_registry": registry_path,
         }
 
     def _run_iteration(self) -> None:
