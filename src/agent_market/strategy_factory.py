@@ -81,6 +81,10 @@ def _artifact_map(arts: RunArtifacts) -> dict[str, Any]:
     return {
         "expression_output": arts.expression_output,
         "expression_scored_output": arts.expression_scored_output,
+        "factor_agent_traces_json": arts.factor_agent_traces_json,
+        "factor_transfer_audit_json": arts.factor_transfer_audit_json,
+        "factor_manifest_json": arts.factor_manifest_json,
+        "multiagent_summary_json": arts.multiagent_summary_json,
         "factor_spec_json": arts.factor_spec_json,
         "factor_eval_meta": arts.factor_eval_meta,
         "factor_scores_json": arts.factor_scores_json,
@@ -98,6 +102,7 @@ def _artifact_map(arts: RunArtifacts) -> dict[str, Any]:
         "bundle_manifest": arts.bundle_manifest,
         "strategy_miner_summary": arts.strategy_miner_summary,
         "strategy_miner_dir": arts.strategy_miner_dir,
+        "strategy_multiagent_summary_json": arts.strategy_multiagent_summary_json,
         "global_strategy_knowledge_base_json": arts.global_strategy_knowledge_base_json,
     }
 
@@ -113,6 +118,10 @@ def _step_artifacts(step_name: str, arts: RunArtifacts) -> dict[str, Any]:
         "expression": {
             "expression_output": arts.expression_output,
             "expression_scored_output": arts.expression_scored_output,
+            "factor_agent_traces_json": arts.factor_agent_traces_json,
+            "factor_transfer_audit_json": arts.factor_transfer_audit_json,
+            "factor_manifest_json": arts.factor_manifest_json,
+            "multiagent_summary_json": arts.multiagent_summary_json,
             "factor_eval_meta": arts.factor_eval_meta,
             "factor_scores_json": arts.factor_scores_json,
             "factor_memory_json": arts.factor_memory_json,
@@ -140,6 +149,7 @@ def _step_artifacts(step_name: str, arts: RunArtifacts) -> dict[str, Any]:
         "strategy_miner": {
             "strategy_miner_summary": arts.strategy_miner_summary,
             "strategy_miner_dir": arts.strategy_miner_dir,
+            "strategy_multiagent_summary_json": arts.strategy_multiagent_summary_json,
             "global_strategy_knowledge_base_json": arts.global_strategy_knowledge_base_json,
         },
         "report": {
@@ -435,6 +445,10 @@ def write_replay_manifest(
         "factor_inputs": {
             "expression_output": arts.expression_output,
             "expression_scored_output": arts.expression_scored_output,
+            "factor_agent_traces_json": arts.factor_agent_traces_json,
+            "factor_transfer_audit_json": arts.factor_transfer_audit_json,
+            "factor_manifest_json": arts.factor_manifest_json,
+            "multiagent_summary_json": arts.multiagent_summary_json,
             "factor_spec_json": arts.factor_spec_json,
             "factor_eval_meta": arts.factor_eval_meta,
             "factor_scores_json": arts.factor_scores_json,
@@ -452,6 +466,7 @@ def write_replay_manifest(
         "strategy_inputs": {
             "strategy_miner_summary": arts.strategy_miner_summary,
             "strategy_miner_dir": arts.strategy_miner_dir,
+            "strategy_multiagent_summary_json": arts.strategy_multiagent_summary_json,
             "global_strategy_knowledge_base_json": arts.global_strategy_knowledge_base_json,
             "proposal_json": _rel(miner_dir / "proposal.json" if miner_dir and (miner_dir / "proposal.json").exists() else None),
             "leaderboard_json": _rel(miner_dir / "leaderboard.json" if miner_dir and (miner_dir / "leaderboard.json").exists() else None),

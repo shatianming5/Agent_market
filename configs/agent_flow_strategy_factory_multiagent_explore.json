@@ -1,0 +1,102 @@
+{
+  "experiment": {
+    "experiment_id": "strategy-factory-multiagent-explore",
+    "owner": "research",
+    "hypothesis": "Use multi-role factor discovery and strategy mining to expand the candidate pool without bypassing blind verification.",
+    "budget": {
+      "factor": {
+        "llm_budget_usd": 15,
+        "cpu_minutes": 30
+      },
+      "strategy_miner": {
+        "llm_budget_usd": 50,
+        "backtest_cpu_minutes": 120
+      },
+      "report": {
+        "cpu_minutes": 5
+      }
+    }
+  },
+  "expression": {
+    "script": "scripts/freqai_expression_agent.py",
+    "args": [
+      "--config",
+      "user_data/config_freqai_kucoin.json",
+      "--feature-file",
+      "user_data/freqai_features_real.json",
+      "--output",
+      "user_data/freqai_expressions_selected.json",
+      "--timeframe",
+      "1h",
+      "--mine",
+      "--top-n",
+      "30",
+      "--llm-enabled",
+      "--llm-fallback",
+      "--llm-provider",
+      "opencode",
+      "--llm-count",
+      "24",
+      "--llm-loops",
+      "4",
+      "--evolve",
+      "--evolve-population",
+      "80",
+      "--evolve-generations",
+      "10",
+      "--multiagent-enabled",
+      "--multiagent-roles",
+      "discoverer,critic,transfer_auditor,curator",
+      "--multiagent-parallelism",
+      "4"
+    ],
+    "feedback_top": 12
+  },
+  "strategy_miner": {
+    "provider": "opencode",
+    "model": "gpt-5.2",
+    "freqtrade_config": "user_data/config_freqai_gate_spot_core_alpha.json",
+    "timerange": "20260312-20260323",
+    "selection_timerange": "20260312-20260323",
+    "holdout_timerange": "20260324-20260329",
+    "benchmark_suite": "benchmark_pack/default",
+    "candidate_types": [
+      "rule",
+      "ml"
+    ],
+    "search_families": [
+      "rule/breakout",
+      "rule/trend-following",
+      "rule/trend-pullback",
+      "rule/mean-reversion",
+      "ml/lightgbm",
+      "ml/xgboost"
+    ],
+    "budget": {
+      "multiagent_enabled": true,
+      "candidates_per_iteration": 6,
+      "max_parallel_candidates": 3,
+      "max_parallel_roles": 2,
+      "repair_attempts": 5,
+      "max_iterations": 8,
+      "max_turns": 30,
+      "stale_timeout": 240
+    },
+    "evaluation": {
+      "min_trades": 10,
+      "min_profit_factor": 1.0,
+      "max_drawdown_pct": 35.0,
+      "quick_min_trades": 8,
+      "quick_min_profit_factor": 0.9,
+      "walkforward_enabled": true,
+      "walkforward_folds": 3
+    },
+    "portfolio": {
+      "portfolio_enabled": true,
+      "portfolio_top_k": 3
+    }
+  },
+  "report": {
+    "enabled": true
+  }
+}

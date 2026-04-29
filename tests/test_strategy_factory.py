@@ -378,6 +378,23 @@ def test_step_expression_builds_factor_memory_artifacts() -> None:
                 ),
                 encoding="utf-8",
             )
+            prefix = expr_out.stem + "_"
+            (expr_out.parent / f"{prefix}factor_agent_traces.json").write_text(
+                json.dumps({"enabled": True, "events": []}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            (expr_out.parent / f"{prefix}factor_transfer_audit.json").write_text(
+                json.dumps({"items": []}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            (expr_out.parent / f"{prefix}multiagent_summary.json").write_text(
+                json.dumps({"enabled": True, "promotion_eligible": False}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            (expr_out.parent / f"{prefix}manifest.json").write_text(
+                json.dumps({"promotion_eligible": False}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
         arts = RunArtifacts()
         ctx = StepContext(run_id="deadbeef1234", run_dir=run_dir, feedback_path=run_dir / "feedback.json", full_config=None)
@@ -393,6 +410,10 @@ def test_step_expression_builds_factor_memory_artifacts() -> None:
         assert arts.expression_scored_output == str(expected_scored)
         assert expected_expr.exists()
         assert expected_scored.exists()
+        assert arts.factor_agent_traces_json
+        assert arts.factor_transfer_audit_json
+        assert arts.multiagent_summary_json
+        assert arts.factor_manifest_json
         assert arts.factor_memory_json
         memory = json.loads(Path(arts.factor_memory_json).read_text(encoding="utf-8"))
         assert memory["factor_cards"][0]["name"] == "f001"

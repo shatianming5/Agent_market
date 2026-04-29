@@ -421,12 +421,13 @@ def test_runner_resume_finalizes_holdout_benchmark_and_portfolio() -> None:
                 final_state = run_strategy_miner(cfg, resume=miner_dir / "checkpoint.json")
 
             assert final_state.best_candidate is not None
-            assert final_state.best_candidate.stage == "promoted"
+            assert final_state.best_candidate.stage == "holdout_tested"
             assert (miner_dir / "holdout_gate.json").exists()
             assert (miner_dir / "benchmark_verdict.json").exists()
             assert (miner_dir / "portfolio_plan.json").exists()
             run_meta = json.loads((miner_dir / "run_meta.json").read_text(encoding="utf-8"))
             assert run_meta["benchmark_passed"] is True
+            assert run_meta["promotion_status"] == "strategy_loop_required"
             assert run_meta["portfolio_method"] == "hrp"
             promotion_rows = [
                 json.loads(line)
@@ -434,3 +435,5 @@ def test_runner_resume_finalizes_holdout_benchmark_and_portfolio() -> None:
                 if line.strip()
             ]
             assert promotion_rows[-1]["factor_references"] == ["flowrun:spec:breakout_card"]
+            assert promotion_rows[-1]["candidate_gate_passed"] is True
+            assert promotion_rows[-1]["promotion_ok"] is False

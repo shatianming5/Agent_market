@@ -13,6 +13,10 @@ class RunArtifacts:
     feature_output: Optional[str] = None
     expression_output: Optional[str] = None
     expression_scored_output: Optional[str] = None
+    factor_agent_traces_json: Optional[str] = None
+    factor_transfer_audit_json: Optional[str] = None
+    factor_manifest_json: Optional[str] = None
+    multiagent_summary_json: Optional[str] = None
     portfolio_weights: Optional[str] = None
     portfolio_report: Optional[str] = None
     portfolio_returns: Optional[str] = None
@@ -44,6 +48,7 @@ class RunArtifacts:
     bundle_manifest: Optional[str] = None
     strategy_miner_summary: Optional[str] = None
     strategy_miner_dir: Optional[str] = None
+    strategy_multiagent_summary_json: Optional[str] = None
     global_strategy_knowledge_base_json: Optional[str] = None
     training_summary_json: Optional[str] = None
     feedback_summary_json: Optional[str] = None
@@ -80,6 +85,10 @@ class RunArtifacts:
             "portfolio_returns": self.portfolio_returns,
             "expression_output": self.expression_output,
             "expression_scored_output": self.expression_scored_output,
+            "factor_agent_traces_json": self.factor_agent_traces_json,
+            "factor_transfer_audit_json": self.factor_transfer_audit_json,
+            "factor_manifest_json": self.factor_manifest_json,
+            "multiagent_summary_json": self.multiagent_summary_json,
             "factor_spec_json": self.factor_spec_json,
             "factor_ast_json": self.factor_ast_json,
             "factor_expression_txt": self.factor_expression_txt,
@@ -106,6 +115,7 @@ class RunArtifacts:
             "bundle_manifest": self.bundle_manifest,
             "strategy_miner_summary": self.strategy_miner_summary,
             "strategy_miner_dir": self.strategy_miner_dir,
+            "strategy_multiagent_summary_json": self.strategy_multiagent_summary_json,
             "global_strategy_knowledge_base_json": self.global_strategy_knowledge_base_json,
             "training_summary_json": self.training_summary_json,
             "feedback_summary_json": self.feedback_summary_json,

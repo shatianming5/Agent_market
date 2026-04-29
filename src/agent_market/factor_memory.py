@@ -13,6 +13,235 @@ from filelock import FileLock, Timeout as FileLockTimeout
 
 logger = logging.getLogger(__name__)
 
+
+FACTOR_MEMORY_REQUIRED_FIELDS: tuple[str, ...] = (
+    "source_run_id",
+    "timeframe",
+    "universe",
+    "target",
+    "metrics.train_ic",
+    "metrics.validation_ic",
+    "metrics.blind_ic",
+    "metrics.turnover",
+    "capacity_slippage_proxy",
+    "regime_tags",
+    "snoop_level",
+)
+
+FACTOR_MEMORY_STATUS_CLEAN = "clean"
+FACTOR_MEMORY_STATUS_LEGACY = "legacy"
+FACTOR_MEMORY_STATUS_OOS_SNOOPED = "oos_snooped"
+FACTOR_MEMORY_STATUS_TRADEABLE = "tradeable_candidate"
+
+
+def _nested_get(payload: dict[str, Any], path: str) -> Any:
+    value: Any = payload
+    for part in str(path).split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
+def _is_missing(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _first_present(*values: Any) -> Any:
+    for value in values:
+        if not _is_missing(value):
+            return value
+    return None
+
+
+def _as_float_or_none(value: Any) -> Optional[float]:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if out == out else None
+
+
+def _factor_memory_missing_fields(card: dict[str, Any]) -> list[str]:
+    return [field for field in FACTOR_MEMORY_REQUIRED_FIELDS if _is_missing(_nested_get(card, field))]
+
+
+def _factor_tradeability_gate(card: dict[str, Any]) -> dict[str, Any]:
+    """Lightweight non-destructive gate for factor-to-strategy readiness."""
+    metrics = card.get("metrics") if isinstance(card.get("metrics"), dict) else {}
+    reasons: list[str] = []
+    if not bool(card.get("gate_pass")):
+        reasons.append("factor_gate_not_passed")
+
+    snoop_level = str(card.get("snoop_level") or "").strip().lower()
+    if snoop_level and snoop_level not in {"clean", "unknown"}:
+        reasons.append(f"snoop_level={snoop_level}")
+
+    validation_ic = _as_float_or_none(
+        _first_present(metrics.get("validation_ic"), metrics.get("oos_ic"), metrics.get("ic"))
+    )
+    blind_ic = _as_float_or_none(metrics.get("blind_ic"))
+    rank_ic = _as_float_or_none(_first_present(metrics.get("rank_ic"), metrics.get("ic")))
+    if validation_ic is None and rank_ic is None:
+        reasons.append("missing_validation_or_rank_ic")
+    elif validation_ic is not None and abs(validation_ic) < 0.01 and (rank_ic is None or abs(rank_ic) < 0.01):
+        reasons.append("weak_validation_or_rank_ic")
+
+    turnover = _as_float_or_none(metrics.get("turnover"))
+    if turnover is None:
+        reasons.append("missing_turnover")
+    elif turnover > 5.0:
+        reasons.append("turnover_too_high")
+
+    corr = _as_float_or_none(metrics.get("corr_to_library_max"))
+    if corr is not None and abs(corr) >= 0.95:
+        reasons.append("duplicate_or_highly_correlated")
+
+    transfer_score = _as_float_or_none(
+        _first_present(metrics.get("strategy_transfer_score"), metrics.get("rank_portfolio_transfer_score"))
+    )
+    if transfer_score is not None and transfer_score <= 0:
+        reasons.append("negative_strategy_transfer")
+
+    return {
+        "passed": not reasons,
+        "reasons": reasons,
+        "checks": {
+            "validation_ic": validation_ic,
+            "blind_ic": blind_ic,
+            "rank_ic": rank_ic,
+            "turnover": turnover,
+            "corr_to_library_max": corr,
+            "strategy_transfer_score": transfer_score,
+        },
+    }
+
+
+def classify_factor_memory_card(card: dict[str, Any]) -> str:
+    """Classify a factor card for memory hygiene and downstream strategy use."""
+    snoop_level = str(card.get("snoop_level") or "").strip().lower()
+    if snoop_level in {"oos_snooped", "snooped", "test_snooped", "leaky"}:
+        return FACTOR_MEMORY_STATUS_OOS_SNOOPED
+
+    missing = _factor_memory_missing_fields(card)
+    critical_missing = {field for field in missing if field in {"source_run_id", "timeframe", "universe", "target", "snoop_level"}}
+    if critical_missing or snoop_level in {"legacy", "unknown", ""}:
+        return FACTOR_MEMORY_STATUS_LEGACY
+
+    if _factor_tradeability_gate(card).get("passed"):
+        return FACTOR_MEMORY_STATUS_TRADEABLE
+    return FACTOR_MEMORY_STATUS_CLEAN
+
+
+def _annotate_factor_memory_card(card: dict[str, Any]) -> dict[str, Any]:
+    out = dict(card)
+    missing = _factor_memory_missing_fields(out)
+    out["memory_status"] = classify_factor_memory_card(out)
+    out["audit_missing_fields"] = missing
+    out["quality_gate"] = _factor_tradeability_gate(out)
+    return out
+
+
+def audit_factor_memory_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    cards = [dict(card) for card in list(payload.get("factor_cards") or []) if isinstance(card, dict)]
+    failures = [dict(card) for card in list(payload.get("failure_cards") or []) if isinstance(card, dict)]
+    annotated = [_annotate_factor_memory_card(card) for card in cards]
+
+    coverage: dict[str, dict[str, Any]] = {}
+    for field in FACTOR_MEMORY_REQUIRED_FIELDS:
+        present = sum(0 if _is_missing(_nested_get(card, field)) else 1 for card in cards)
+        total = len(cards)
+        coverage[field] = {
+            "present": present,
+            "missing": total - present,
+            "coverage_pct": round((present / total * 100.0) if total else 100.0, 2),
+        }
+
+    status_counts: dict[str, int] = {}
+    snoop_counts: dict[str, int] = {}
+    for card in annotated:
+        status = str(card.get("memory_status") or FACTOR_MEMORY_STATUS_LEGACY)
+        status_counts[status] = status_counts.get(status, 0) + 1
+        snoop = str(card.get("snoop_level") or "missing").strip().lower() or "missing"
+        snoop_counts[snoop] = snoop_counts.get(snoop, 0) + 1
+
+    sig_clusters: dict[str, list[dict[str, Any]]] = {}
+    for card in cards:
+        signature = str(card.get("signature") or "").strip()
+        if not signature:
+            continue
+        sig_clusters.setdefault(signature, []).append(card)
+    duplicate_clusters = [
+        {
+            "signature": signature,
+            "count": len(cluster),
+            "card_ids": [str(item.get("card_id") or "") for item in cluster[:20]],
+            "names": [str(item.get("name") or "") for item in cluster[:20]],
+        }
+        for signature, cluster in sig_clusters.items()
+        if len(cluster) > 1
+    ]
+    duplicate_clusters.sort(key=lambda item: int(item["count"]), reverse=True)
+
+    missing_by_card = [
+        {
+            "card_id": card.get("card_id"),
+            "name": card.get("name"),
+            "memory_status": card.get("memory_status"),
+            "missing_fields": card.get("audit_missing_fields") or [],
+        }
+        for card in annotated
+        if card.get("audit_missing_fields")
+    ]
+    missing_by_card.sort(key=lambda item: len(item.get("missing_fields") or []), reverse=True)
+
+    total = len(cards)
+    legacy_or_snooped = status_counts.get(FACTOR_MEMORY_STATUS_LEGACY, 0) + status_counts.get(FACTOR_MEMORY_STATUS_OOS_SNOOPED, 0)
+    return {
+        "version": "factor-memory-audit-v1",
+        "total_factor_cards": total,
+        "total_failure_cards": len(failures),
+        "status_counts": status_counts,
+        "snoop_level_counts": snoop_counts,
+        "legacy_or_oos_snooped_ratio": round((legacy_or_snooped / total) if total else 0.0, 6),
+        "coverage": coverage,
+        "missing_required_count": len(missing_by_card),
+        "missing_by_card": missing_by_card[:100],
+        "duplicate_cluster_count": len(duplicate_clusters),
+        "duplicate_factor_count": sum(int(item["count"]) - 1 for item in duplicate_clusters),
+        "duplicate_clusters": duplicate_clusters[:50],
+        "tradeable_candidates": [
+            {
+                "card_id": card.get("card_id"),
+                "name": card.get("name"),
+                "metrics": card.get("metrics") or {},
+                "quality_gate": card.get("quality_gate") or {},
+            }
+            for card in annotated
+            if card.get("memory_status") == FACTOR_MEMORY_STATUS_TRADEABLE
+        ][:100],
+        "required_fields": list(FACTOR_MEMORY_REQUIRED_FIELDS),
+    }
+
+
+def audit_factor_memory_path(path: Path, *, write_tags: bool = False) -> dict[str, Any]:
+    store = FactorMemoryStore(Path(path))
+    payload = {
+        "factor_cards": store.factor_cards,
+        "failure_cards": store.failure_cards,
+        "edges": store.edges,
+    }
+    audit = audit_factor_memory_payload(payload)
+    audit["path"] = str(Path(path).resolve())
+    if write_tags:
+        store._payload["factor_cards"] = [_annotate_factor_memory_card(card) for card in store.factor_cards]
+        store.save()
+        store._sync_sidecar_exports_if_present()
+        audit["write_tags"] = True
+    else:
+        audit["write_tags"] = False
+    return audit
+
 def _read_json(path: Optional[Path]) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
@@ -319,6 +548,7 @@ class FactorMemoryStore:
         }
 
         for card in list(payload.get("factor_cards") or []):
+            card = _annotate_factor_memory_card(dict(card))
             merge_key = _factor_key(card)
             if not merge_key:
                 continue
@@ -360,9 +590,9 @@ class FactorMemoryStore:
                 except Exception:
                     pass
 
-                self._payload["factor_cards"][factor_index[merge_key]] = merged
+                self._payload["factor_cards"][factor_index[merge_key]] = _annotate_factor_memory_card(merged)
             else:
-                self._payload["factor_cards"].append(dict(card))
+                self._payload["factor_cards"].append(card)
                 factor_index[merge_key] = len(self._payload["factor_cards"]) - 1
 
         for card in list(payload.get("failure_cards") or []):
@@ -697,11 +927,13 @@ class FactorMemoryStore:
                 "card_id": card_id,
                 "signature": signature,
                 "run_id": run_id,
+                "source_run_id": run_id,
                 "name": name,
                 "spec_name": spec_name,
                 "hypothesis": hypothesis,
                 "expression": expression,
                 "target_col": target_col,
+                "target": target_col,
                 "timeframe": timeframe,
                 "universe": universe,
                 "data_sources": data_sources,
@@ -711,6 +943,12 @@ class FactorMemoryStore:
                 "regime_tags": regime_tags,
                 "regime_coverage": item.get("regime_consistency"),
                 "capacity_proxy": item.get("capacity_proxy"),
+                "capacity_slippage_proxy": _first_present(
+                    item.get("capacity_slippage_proxy"),
+                    item.get("capacity_proxy"),
+                    item.get("slippage_reduction_bps"),
+                ),
+                "snoop_level": str(_first_present(item.get("snoop_level"), score_payload.get("snoop_level"), spec_meta.get("snoop_level"), "unknown")),
                 "reuse_count": int((self._payload.get("factor_cards") or [{}])[card_index.get(card_id, 0)].get("reuse_count", 0) or 0) if card_id in card_index else 0,
                 "downstream_strategy_references": list((self._payload.get("factor_cards") or [{}])[card_index.get(card_id, 0)].get("downstream_strategy_references", []) or []) if card_id in card_index else [],
                 "metrics": {
@@ -718,6 +956,9 @@ class FactorMemoryStore:
                     "gate_pass": item.get("gate_pass"),
                     "pareto": item.get("pareto"),
                     "ic": item.get("ic"),
+                    "train_ic": _first_present(item.get("train_ic"), item.get("in_sample_ic")),
+                    "validation_ic": _first_present(item.get("validation_ic"), item.get("oos_ic")),
+                    "blind_ic": item.get("blind_ic"),
                     "rank_ic": item.get("rank_ic"),
                     "sharpe_net": item.get("sharpe_net"),
                     "sortino_net": item.get("sortino_net"),
@@ -731,12 +972,18 @@ class FactorMemoryStore:
                     "slippage_reduction_bps": item.get("slippage_reduction_bps"),
                     "fill_rate": item.get("fill_rate"),
                     "adverse_selection_proxy": item.get("adverse_selection_proxy"),
+                    "rank_portfolio_transfer_score": _first_present(
+                        item.get("rank_portfolio_transfer_score"),
+                        item.get("rank_portfolio_transfer"),
+                    ),
+                    "strategy_transfer_score": item.get("strategy_transfer_score"),
                 },
                 "generated_at": generated_at,
                 "source_artifacts": source_artifacts,
                 "seen_count": int((self._payload.get("factor_cards") or [{}])[card_index.get(card_id, 0)].get("seen_count", 1) or 1) if card_id in card_index else 1,
                 "last_seen_run_id": run_id,
             }
+            card = _annotate_factor_memory_card(card)
             if card_id in card_index:
                 self._payload["factor_cards"][card_index[card_id]] = card
             else:
@@ -757,6 +1004,7 @@ class FactorMemoryStore:
             failure_card = {
                 "failure_id": failure_id,
                 "run_id": run_id,
+                "source_run_id": run_id,
                 "name": name,
                 "spec_name": spec_name,
                 "signature": signature,
@@ -893,6 +1141,15 @@ def build_factor_memory_artifacts_from_expression_output(
         per_pair = item.get("per_pair")
         if per_pair is None:
             per_pair = score_item.get("per_pair") or {}
+        transfer_audit = item.get("transfer_audit")
+        if not isinstance(transfer_audit, dict):
+            transfer_audit = score_item.get("transfer_audit") if isinstance(score_item.get("transfer_audit"), dict) else {}
+        agent_tags = [
+            str(tag)
+            for tag in list(item.get("agent_tags") or score_item.get("agent_tags") or [])
+            if str(tag).strip()
+        ]
+        memory_scope = str(item.get("memory_scope") or ("pending_review" if agent_tags else "legacy_expression_mining"))
 
         target_col = f"future_return_{label_period}" if label_period is not None else ""
         signature = _factor_signature(
@@ -902,16 +1159,17 @@ def build_factor_memory_artifacts_from_expression_output(
             target_col=target_col,
         )
         card_id = f"{run_id}:expression:{name}"
-        factor_cards.append(
-            {
+        legacy_card = {
                 "card_id": card_id,
                 "signature": signature,
                 "run_id": run_id,
+                "source_run_id": run_id,
                 "name": name,
                 "spec_name": "legacy_expression_mining",
                 "hypothesis": hypothesis,
                 "expression": expr,
                 "target_col": target_col,
+                "target": target_col,
                 "timeframe": timeframe,
                 "universe": universe,
                 "data_sources": [item for item in ["freqai_expression_mining", feature_file] if item],
@@ -920,30 +1178,58 @@ def build_factor_memory_artifacts_from_expression_output(
                 "category_tags": list(dict.fromkeys([str(item.get("category") or "").strip()] + category_tags)),
                 "regime_tags": regime_tags,
                 "regime_coverage": None,
-                "capacity_proxy": None,
+                "capacity_proxy": _first_present(
+                    transfer_audit.get("capacity_proxy"),
+                    transfer_audit.get("capacity_slippage_proxy"),
+                ),
+                "capacity_slippage_proxy": transfer_audit.get("capacity_slippage_proxy"),
+                "snoop_level": str(item.get("snoop_level") or score_item.get("snoop_level") or expressions_payload.get("snoop_level") or "legacy"),
                 "reuse_count": 0,
                 "downstream_strategy_references": [],
+                "memory_scope": memory_scope,
+                "agent_tags": agent_tags,
+                "critic_review": item.get("critic_review") or score_item.get("critic_review") or {},
+                "transfer_audit": transfer_audit,
+                "promotion_eligible": False,
                 "metrics": {
                     "weighted_score": weighted_score,
                     "gate_pass": True,
                     "pareto": True,
                     "ic": metric_abs_ic,
-                    "rank_ic": None,
+                    "train_ic": score_item.get("train_ic"),
+                    "validation_ic": score_item.get("validation_ic"),
+                    "blind_ic": score_item.get("blind_ic"),
+                    "rank_ic": transfer_audit.get("rank_ic_proxy"),
                     "sharpe_net": None,
                     "sortino_net": None,
                     "mdd": None,
-                    "turnover": None,
+                    "turnover": _first_present(
+                        item.get("turnover"),
+                        score_item.get("turnover"),
+                        transfer_audit.get("turnover_proxy"),
+                    ),
                     "nan_ratio": None,
                     "corr_to_library_max": None,
-                    "capacity_proxy": None,
+                    "capacity_proxy": _first_present(
+                        transfer_audit.get("capacity_proxy"),
+                        transfer_audit.get("capacity_slippage_proxy"),
+                    ),
                     "regime_consistency": None,
                     "train_test_gap": None,
-                    "slippage_reduction_bps": None,
+                    "slippage_reduction_bps": transfer_audit.get("slippage_reduction_bps"),
                     "fill_rate": None,
                     "adverse_selection_proxy": None,
                     "per_pair": per_pair,
                     "complexity": item.get("complexity", score_item.get("complexity")),
                     "metric_abs_ic": metric_abs_ic,
+                    "rank_portfolio_transfer_score": _first_present(
+                        transfer_audit.get("rank_portfolio_transfer_score"),
+                        score_item.get("rank_portfolio_transfer_score"),
+                    ),
+                    "strategy_transfer_score": _first_present(
+                        transfer_audit.get("strategy_transfer_score"),
+                        score_item.get("strategy_transfer_score"),
+                    ),
                 },
                 "generated_at": generated_at,
                 "source_artifacts": source_artifacts,
@@ -952,7 +1238,7 @@ def build_factor_memory_artifacts_from_expression_output(
                 "seen_count": 1,
                 "last_seen_run_id": run_id,
             }
-        )
+        factor_cards.append(_annotate_factor_memory_card(legacy_card))
         edges.append(
             {
                 "parent": "legacy_expression_mining",
@@ -981,6 +1267,7 @@ def build_factor_memory_artifacts_from_expression_output(
             {
                 "failure_id": f"{run_id}:legacy_expression:{name}:low_score",
                 "run_id": run_id,
+                "source_run_id": run_id,
                 "name": name,
                 "spec_name": "legacy_expression_mining",
                 "signature": _factor_signature(
@@ -1012,6 +1299,47 @@ def build_factor_memory_artifacts_from_expression_output(
                     "exclusion_constraints": [
                         "prefer_higher_expression_score"
                     ],
+                },
+                "source_artifacts": source_artifacts,
+                "generated_at": generated_at,
+            }
+        )
+
+    for idx, failure in enumerate(list(expressions_payload.get("multiagent_failures") or []), start=1):
+        if not isinstance(failure, dict):
+            continue
+        expr = str(failure.get("expression") or "").strip()
+        subcategory = str(failure.get("subcategory") or failure.get("category") or "multiagent_failure")
+        name = str(failure.get("name") or f"multiagent_rejected_{idx:03d}")
+        category_tags, regime_tags = _infer_tags(name=name, hypothesis=subcategory, expression=expr)
+        failure_cards.append(
+            {
+                "failure_id": f"{run_id}:legacy_expression:{name}:{subcategory}",
+                "run_id": run_id,
+                "source_run_id": run_id,
+                "name": name,
+                "spec_name": "legacy_expression_mining",
+                "signature": _factor_signature(
+                    expression=expr,
+                    timeframe=timeframe,
+                    universe=universe,
+                    target_col=f"future_return_{label_period}" if label_period is not None else "",
+                ),
+                "category": "multiagent_review",
+                "subcategory": subcategory,
+                "timeframe": timeframe,
+                "universe": universe,
+                "category_tags": category_tags,
+                "regime_tags": regime_tags,
+                "detail": {
+                    "expression": expr,
+                    "role": failure.get("role"),
+                    "promotion_eligible": False,
+                },
+                "repair_recipe": {
+                    "avoid_rules": ["Do not reuse rejected multi-agent factor output unchanged."],
+                    "mutation_hints": ["Fix the critic rejection reason before rescoring this factor."],
+                    "exclusion_constraints": ["multiagent_rejected_factor"],
                 },
                 "source_artifacts": source_artifacts,
                 "generated_at": generated_at,
