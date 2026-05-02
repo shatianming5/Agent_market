@@ -345,7 +345,31 @@ def test_factor_and_exposure_reports_write_machine_readable_outputs(tmp_path, mo
 
     monkeypatch.setattr(reporting, "LAB_STATE", tmp_path / "factor_lab")
     monkeypatch.setattr(mining, "load_state", lambda _tag: (0, survivors, set()))
-    monkeypatch.setattr(mining, "build_big", lambda **_kwargs: (panel.copy(), ["factor", "pair_beta_72_btc"]))
+    state_dir = tmp_path / "factor_lab" / "mining" / "unit"
+    state_dir.mkdir(parents=True)
+    (state_dir / "latest.json").write_text(
+        json.dumps(
+            {
+                "config": {
+                    "timeframe": "4h",
+                    "label_period": 3,
+                    "label_horizons": [3],
+                    "label_mode": "pair_beta_resid_btc",
+                    "pair_reference": "ETH/USDT",
+                    "data_venue": "binance",
+                    "pairs": "default",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    build_calls = []
+
+    def fake_build_big(**kwargs):
+        build_calls.append(dict(kwargs))
+        return panel.copy(), ["factor", "pair_beta_72_btc"]
+
+    monkeypatch.setattr(mining, "build_big", fake_build_big)
 
     cache_dir = tmp_path / "cache"
     factor_paths = reporting.factor_report(
@@ -379,6 +403,20 @@ def test_factor_and_exposure_reports_write_machine_readable_outputs(tmp_path, mo
     assert factor_paths["n_reported"] == 1
     assert exposure_paths["n_reported"] == 1
     assert exact_paths["n_reported"] == 1
+    assert build_calls[0]["timeframe"] == "4h"
+    assert build_calls[0]["label_bars"] == 3
+    assert build_calls[0]["label_mode"] == "pair_beta_resid_btc"
+    assert build_calls[0]["pair_reference"] == "ETH/USDT"
+    assert build_calls[0]["data_venue"] == "binance"
+    assert build_calls[0]["pairs"] == "default"
+    assert factor_json["timeframe"] == "4h"
+    assert factor_json["label_bars"] == 3
+    assert factor_json["data_venue"] == "binance"
+    assert factor_json["pairs"] == "default"
+    assert exposure_json["timeframe"] == "4h"
+    assert exposure_json["label_bars"] == 3
+    assert exposure_json["data_venue"] == "binance"
+    assert exposure_json["pairs"] == "default"
     assert fast_json["attribution_mode"] == "fast"
     assert fast_json["rows"][0]["attribution_mode"] == "fast"
     assert "mean_contrib_pair" in fast_json["rows"][0]

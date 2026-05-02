@@ -32,6 +32,12 @@ ALLOWED_FACTOR_ROLES: set[str] = set(DEFAULT_FACTOR_MULTIAGENT_ROLES)
 
 ALLOWED_EXPR_FUNCS: set[str] = allowed_expression_functions()
 IMPLICIT_EXPR_FIELDS: set[str] = {"open", "high", "low", "close", "volume", "date", "ts"}
+TIME_KEY_FIELDS: set[str] = {"date", "ts"}
+XS_GROUP_ARG_INDEXES: dict[str, set[int]] = {
+    "rank_xs": {1},
+    "zscore_xs": {1},
+    "corr_xs": {2},
+}
 
 _ILLEGAL_AST_NODES: tuple[type[ast.AST], ...] = (
     ast.Attribute,
@@ -166,6 +172,20 @@ def _engine_validation_reasons(expr: str, feature_cols: Iterable[str]) -> list[s
     return []
 
 
+def _allowed_time_key_node_ids(tree: ast.AST) -> set[int]:
+    allowed: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        for idx in XS_GROUP_ARG_INDEXES.get(node.func.id, set()):
+            if idx >= len(node.args):
+                continue
+            arg = node.args[idx]
+            if isinstance(arg, ast.Name) and arg.id in TIME_KEY_FIELDS:
+                allowed.add(id(arg))
+    return allowed
+
+
 def critic_audit_expression(expr: str, feature_cols: Iterable[str]) -> dict[str, Any]:
     """Static critic for DSL safety, leakage-prone constructs, and fields."""
     text = str(expr or "").strip()
@@ -196,6 +216,11 @@ def critic_audit_expression(expr: str, feature_cols: Iterable[str]) -> dict[str,
                 reasons.append("illegal_call_target")
             elif node.func.id not in ALLOWED_EXPR_FUNCS:
                 reasons.append(f"unknown_function:{node.func.id}")
+
+    allowed_time_key_ids = _allowed_time_key_node_ids(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in TIME_KEY_FIELDS and id(node) not in allowed_time_key_ids:
+            reasons.append(f"time_key_not_factor:{node.id}")
 
     fields = sorted(_names_used(text))
     for name in fields:

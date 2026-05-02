@@ -931,17 +931,18 @@ def run_strategy_miner(
                         except Exception:
                             pass
                     else:
-                        _failed_name = state.best_candidate.name
+                        _failed_candidate = state.best_candidate
+                        _failed_name = _failed_candidate.name
                         logger.warning(
                             "Holdout FAILED (overfitting): %s demoted (delta=%.2f%%)",
-                            state.best_candidate.name,
+                            _failed_candidate.name,
                             float(holdout_result.get("delta_pct") or 0),
                         )
                         # Demote: mark and clear best_candidate so downstream
                         # consumers know no strategy passed the full pipeline.
-                        state.best_candidate.constraints_ok = False
-                        state.best_candidate.constraint_violations = list(
-                            state.best_candidate.constraint_violations or []
+                        _failed_candidate.constraints_ok = False
+                        _failed_candidate.constraint_violations = list(
+                            _failed_candidate.constraint_violations or []
                         ) + ["holdout_overfitting"]
                         # Nullify best so API/export never sees a failed champion
                         state.best_candidate = None
@@ -950,12 +951,14 @@ def run_strategy_miner(
                         try:
                             from .artifacts import append_promotion_log
 
-                            _factor_retrieval = ((state.best_candidate.candidate_payload or {}).get("factor_retrieval") or {})
+                            _factor_retrieval = ((_failed_candidate.candidate_payload or {}).get("factor_retrieval") or {})
                             append_promotion_log(miner_dir, {
                                 "candidate": _failed_name,
                                 "holdout_passed": False,
                                 "holdout_delta_pct": holdout_result.get("delta_pct"),
                                 "promotion_ok": False,
+                                "promotion_controller": "agent_market.factor_lab.strategy-loop",
+                                "promotion_status": final_status.get("promotion_status"),
                                 "factor_references": [item.get("card_id") for item in _factor_retrieval.get("factor_cards", []) if item.get("card_id")],
                                 "factor_query": _factor_retrieval.get("query"),
                             })

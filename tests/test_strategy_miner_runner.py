@@ -437,3 +437,55 @@ def test_runner_resume_finalizes_holdout_benchmark_and_portfolio() -> None:
             assert promotion_rows[-1]["factor_references"] == ["flowrun:spec:breakout_card"]
             assert promotion_rows[-1]["candidate_gate_passed"] is True
             assert promotion_rows[-1]["promotion_ok"] is False
+
+
+def test_holdout_failure_writes_demoted_promotion_log() -> None:
+    from agent_market.strategy_miner.runner import run_strategy_miner
+
+    with tempfile.TemporaryDirectory() as td:
+        with patch.dict(os.environ, {"AGENT_MARKET_RUNS_ROOT": td}, clear=False):
+            run_id = "runnerholdoutfail"
+            miner_dir = paths.run_dir(run_id) / "strategy_miner"
+            miner_dir.mkdir(parents=True, exist_ok=True)
+            best = StrategyCandidate(
+                name="Best",
+                code="class X: pass\n",
+                strategy_path=miner_dir / "sandbox" / "user_data" / "strategies" / "Best.py",
+                iteration=1,
+                stage="evaluated",
+            )
+            best.reward = 1.0
+            best.constraints_ok = True
+            best.candidate_payload = {
+                "factor_retrieval": {
+                    "factor_cards": [{"card_id": "flowrun:spec:breakout_card"}],
+                    "query": {"family": "rule/breakout"},
+                }
+            }
+            best.backtest_summary = {"profit_total_pct": 10.0, "daily_profit": [["2026-03-12", 10.0]]}
+
+            state = MinerState(run_id=run_id, phase=Phase.COMPLETE, iteration=1)
+            state.best_score = 1.0
+            state.best_candidate = best
+            state.candidates = [best]
+            (miner_dir / "checkpoint.json").write_text(
+                json.dumps(state.to_dict(), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "agent_market.strategy_miner._holdout.run_sealed_holdout",
+                return_value={"delta_pct": -50.0, "overfitting_flag": True, "holdout_timerange": "20260324-20260329"},
+            ):
+                final_state = run_strategy_miner(MinerConfig(), resume=miner_dir / "checkpoint.json")
+
+            promotion_rows = [
+                json.loads(line)
+                for line in (miner_dir / "promotion_log.jsonl").read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            assert final_state.best_candidate is None
+            assert promotion_rows[-1]["candidate"] == "Best"
+            assert promotion_rows[-1]["promotion_ok"] is False
+            assert promotion_rows[-1]["promotion_status"] == "holdout_failed"
+            assert promotion_rows[-1]["factor_references"] == ["flowrun:spec:breakout_card"]

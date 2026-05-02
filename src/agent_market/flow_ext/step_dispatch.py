@@ -219,7 +219,7 @@ def _step_expression(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepContext) 
         if not sidecar.exists():
             sidecar = output_path.with_name(filename)
         if sidecar.exists():
-            copied_sidecar = _copy_into_run_dir(sidecar, run_expr_dir)
+            copied_sidecar = _copy_into_run_dir(sidecar, run_expr_dir, rename=filename)
             setattr(arts, attr, _relpath(copied_sidecar or sidecar))
 
     scored_path = output_path.with_name(output_path.stem + "_scored_all.json")

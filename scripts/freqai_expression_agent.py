@@ -23,6 +23,13 @@ sys.path.insert(0, str(ROOT))
 
 from _lib import read_json, resolve_label_period, resolve_path, resolve_timeframe  # noqa: E402
 from agent_market import paths  # noqa: E402
+from agent_market.factor_lab.timeframes import (  # noqa: E402
+    bps_to_rate,
+    lane_manifest,
+    normalize_lane,
+    parse_label_horizons,
+    primary_label_horizon,
+)
 
 
 def _infer_feature_file(config_path: Path) -> Path:
@@ -213,6 +220,157 @@ class _PairData:
     pair: str
     df: DataFrame
     label: pd.Series
+
+
+def _pair_data_path(settings: Any, pair: str, *, timeframe: str, data_venue: str) -> Path:
+    sanitized = pair.replace("/", "_").replace(":", "_")
+    venue = str(data_venue or "auto").strip().lower()
+    if venue in {"auto", ""}:
+        spot = settings.data_dir / f"{sanitized}-{timeframe}.feather"
+        futures = settings.data_dir / "futures" / f"{sanitized}-{timeframe}-futures.feather"
+        return spot if spot.exists() else futures
+    if venue == "okx":
+        if settings.data_dir.name == "futures":
+            return settings.data_dir / f"{sanitized}-{timeframe}-futures.feather"
+        return settings.data_dir / "futures" / f"{sanitized}-{timeframe}-futures.feather"
+    return settings.data_dir / f"{sanitized}-{timeframe}.feather"
+
+
+def _run_lengths(signs: np.ndarray) -> List[int]:
+    clean = [int(s) for s in signs if int(s) != 0]
+    if not clean:
+        return []
+    out: List[int] = []
+    cur = clean[0]
+    n = 1
+    for s in clean[1:]:
+        if s == cur:
+            n += 1
+        else:
+            out.append(n)
+            cur = s
+            n = 1
+    out.append(n)
+    return out
+
+
+def _intraday_expression_diagnostics(
+    expr: str,
+    pairs: Sequence[_PairData],
+    *,
+    label_horizons: Sequence[int],
+    method: str,
+    min_samples: int,
+    oos_fraction: float,
+    embargo_bars: int,
+    fee_bps: float,
+    slippage_bps: float,
+) -> Dict[str, Any]:
+    horizons = [max(1, int(h)) for h in label_horizons] or [1]
+    round_trip_cost = (float(fee_bps) + float(slippage_bps)) * 2.0 / 10_000.0
+    decay: list[dict[str, Any]] = []
+    turnover_vals: list[float] = []
+    net_vals: list[float] = []
+    holding_vals: list[float] = []
+    capacity_vals: list[float] = []
+    bucket_rows: list[dict[str, Any]] = []
+
+    for horizon in horizons:
+        signed_ics: list[float] = []
+        abs_ics: list[float] = []
+        for pd_item in pairs:
+            series = _safe_eval_expression(expr, pd_item.df)
+            label = (pd_item.df["close"].shift(-horizon) / pd_item.df["close"]) - 1
+            aligned = (
+                DataFrame({
+                    "x": series,
+                    "y": label,
+                    "close": pd_item.df.get("close"),
+                    "volume": pd_item.df.get("volume"),
+                })
+                .replace([np.inf, -np.inf], np.nan)
+                .dropna()
+            )
+            if len(aligned) < min_samples:
+                continue
+            if oos_fraction > 0:
+                split = int(len(aligned) * (1 - oos_fraction))
+                aligned = aligned.iloc[split:]
+                if embargo_bars > 0:
+                    aligned = aligned.iloc[int(embargo_bars):]
+                if len(aligned) < max(30, min_samples // 4):
+                    continue
+            if horizon > 1:
+                aligned = aligned.iloc[::horizon]
+                if len(aligned) < 20:
+                    continue
+            metric = (
+                float(aligned["x"].corr(aligned["y"], method="spearman"))
+                if method == "spearman"
+                else float(aligned["x"].corr(aligned["y"]))
+            )
+            if not np.isfinite(metric):
+                continue
+            signed_ics.append(metric)
+            abs_ics.append(abs(metric))
+
+            if horizon == horizons[0]:
+                signs = np.sign(aligned["x"].to_numpy(dtype=np.float64))
+                net_series: Optional[np.ndarray] = None
+                if len(signs) > 1:
+                    flips = (signs[1:] * signs[:-1]) < 0
+                    turnover = float(np.sum(flips)) / float(len(signs) - 1)
+                    turnover_vals.append(turnover)
+                    direction = float(np.sign(metric) or 1.0)
+                    gross = direction * signs * aligned["y"].to_numpy(dtype=np.float64)
+                    cost = np.zeros_like(gross)
+                    cost[0] = round_trip_cost / 2.0 if signs[0] != 0 else 0.0
+                    cost[1:] = np.abs(signs[1:] - signs[:-1]) / 2.0 * round_trip_cost
+                    net_series = gross - cost
+                    net_vals.append(float(np.nanmean(net_series)))
+                    runs = _run_lengths(signs)
+                    if runs:
+                        holding_vals.append(float(np.mean(runs)))
+                if {"close", "volume"}.issubset(aligned.columns):
+                    dollar_volume = (aligned["close"].astype(float) * aligned["volume"].astype(float)).replace([np.inf, -np.inf], np.nan).dropna()
+                    if len(dollar_volume):
+                        capacity_vals.append(float(dollar_volume.median()))
+                vol = aligned["y"].abs()
+                liq = (aligned["close"].astype(float) * aligned["volume"].astype(float)).replace([np.inf, -np.inf], np.nan)
+                if len(aligned) >= 60 and liq.notna().any() and net_series is not None:
+                    bucket_rows.append({
+                        "pair": pd_item.pair,
+                        "high_vol_net_expectancy": float(np.nanmean(net_series[vol.to_numpy() >= float(vol.median())])),
+                        "low_liquidity_rows": int((liq <= float(liq.median())).sum()),
+                    })
+        decay.append({
+            "horizon_bars": int(horizon),
+            "mean_ic": float(np.mean(signed_ics)) if signed_ics else 0.0,
+            "mean_abs_ic": float(np.mean(abs_ics)) if abs_ics else 0.0,
+            "pairs": len(signed_ics),
+        })
+
+    primary = decay[0] if decay else {"mean_abs_ic": 0.0, "mean_ic": 0.0, "pairs": 0}
+    return {
+        "metric_abs_ic": float(primary.get("mean_abs_ic") or 0.0),
+        "metric_ic": float(primary.get("mean_ic") or 0.0),
+        "turnover": float(np.mean(turnover_vals)) if turnover_vals else 0.5,
+        "net_expectancy_after_costs": float(np.mean(net_vals)) if net_vals else 0.0,
+        "capacity_proxy": {
+            "median_dollar_volume": float(np.median(capacity_vals)) if capacity_vals else 0.0,
+            "unit": "quote_currency_per_bar",
+        },
+        "holding_time_distribution": {
+            "mean_bars": float(np.mean(holding_vals)) if holding_vals else 0.0,
+        },
+        "signal_decay_curve": decay,
+        "bucket_metrics": bucket_rows[:20],
+        "cost_model": {
+            "fee_bps": float(fee_bps),
+            "slippage_bps": float(slippage_bps),
+            "round_trip_cost": round_trip_cost,
+        },
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,6 +628,7 @@ def _score_expression_across_pairs(
     min_samples: int = 200,
     oos_fraction: float = 0.0,
     label_period: int = 1,
+    embargo_bars: int = 0,
 ) -> Tuple[float, Dict[str, float], float]:
     """Score an expression across pairs.
 
@@ -502,6 +661,8 @@ def _score_expression_across_pairs(
             if oos_fraction > 0:
                 split = int(len(aligned) * (1 - oos_fraction))
                 aligned = aligned.iloc[split:]
+                if embargo_bars > 0:
+                    aligned = aligned.iloc[int(embargo_bars):]
                 if len(aligned) < max(30, min_samples // 4):
                     continue
 
@@ -553,6 +714,7 @@ def _evolve_candidates(  # noqa: PLR0913
     seed: Optional[int],
     oos_fraction: float = 0.0,
     label_period: int = 1,
+    embargo_bars: int = 0,
     turnover_penalty: float = 0.0,
     llm_seeds: Optional[List[str]] = None,
     tournament_size: int = 4,
@@ -571,7 +733,7 @@ def _evolve_candidates(  # noqa: PLR0913
         try:
             abs_ic, per_pair, turnover = _score_expression_across_pairs(
                 expr_str, pairs, method=method, min_samples=min_samples,
-                oos_fraction=oos_fraction, label_period=label_period,
+                oos_fraction=oos_fraction, label_period=label_period, embargo_bars=embargo_bars,
             )
         except Exception:
             abs_ic, per_pair, turnover = 0.0, {}, 0.5
@@ -986,6 +1148,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="Output expressions JSON path.",
     )
     parser.add_argument("--timeframe", default=None, help="Timeframe used in prompt/metadata (e.g. 1h).")
+    parser.add_argument("--lane", default="auto", choices=["auto", "1h", "15m_intraday", "5m_micro", "1m_micro"],
+                        help="evaluation lane; auto follows timeframe")
+    parser.add_argument("--data-venue", default="auto", choices=["auto", "kucoin", "okx"],
+                        help="data file convention; okx reads futures feathers")
+    parser.add_argument("--label-horizons", default=None,
+                        help="comma-separated forward horizons in bars; defaults from lane")
+    parser.add_argument("--fee-bps", type=float, default=8.0,
+                        help="taker fee in bps for intraday/micro scoring")
+    parser.add_argument("--slippage-bps", type=float, default=3.0,
+                        help="slippage in bps for intraday/micro scoring")
+    parser.add_argument("--embargo-bars", type=int, default=0,
+                        help="purged split embargo bars recorded in output; 0 uses lane default")
+    parser.add_argument("--micro-data-quality", default="unknown",
+                        choices=["unknown", "ohlcv_only", "spread_orderflow"],
+                        help="data quality marker for micro lanes")
     parser.add_argument("--pairs", nargs="*", default=None, help="Optional override pairs (e.g. BTC/USDT ETH/USDT).")
 
     parser.add_argument("--llm-enabled", action="store_true", help="Enable LLM-based expression generation.")
@@ -1096,10 +1273,33 @@ def main(argv: Optional[List[str]] = None) -> int:
     config_path = resolve_path(args.config)
     cfg = read_json(config_path)
     timeframe = resolve_timeframe(cfg, args.timeframe)
+    if str(args.lane or "auto").strip().lower() not in {"", "auto", "1h"} and args.timeframe is None:
+        lane = normalize_lane(args.lane)
+    else:
+        lane = normalize_lane(args.lane, timeframe=timeframe)
+    timeframe = lane.timeframe
+    label_horizons = parse_label_horizons(args.label_horizons, default=lane.label_horizons)
+    embargo_bars = int(args.embargo_bars or lane.embargo_bars)
 
     feature_path = resolve_path(args.feature_file) if args.feature_file else _infer_feature_file(config_path)
     feature_cfg = read_json(feature_path)
-    label_period = resolve_label_period(cfg, feature_cfg.get("label_period"))
+    label_period = primary_label_horizon(label_horizons, default=lane.label_horizons)
+    if args.label_horizons in (None, "") and lane.lane == "1h":
+        label_period = resolve_label_period(cfg, feature_cfg.get("label_period"))
+        label_horizons = (int(label_period),)
+    micro_quality = str(args.micro_data_quality or "unknown")
+    if lane.lane in {"1m_micro", "5m_micro"} and micro_quality == "unknown":
+        micro_quality = "ohlcv_only"
+    lane_meta = lane_manifest(
+        lane=lane.lane,
+        timeframe=timeframe,
+        data_venue=args.data_venue,
+        label_horizons=label_horizons,
+        fee_bps=float(args.fee_bps),
+        slippage_bps=float(args.slippage_bps),
+        embargo_bars=embargo_bars,
+        micro_data_quality=micro_quality,
+    )
 
     features = feature_cfg.get("features") or []
     combos = feature_cfg.get("feature_combos") or []
@@ -1221,13 +1421,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.pairs:
             settings = FreqAISettings.from_file(config_path, timeframe_override=timeframe, label_override=None)
             settings.pairs = [str(p) for p in args.pairs if str(p).strip()]
-        settings.validate_dataset(settings.timeframe)
+        if str(args.data_venue).lower() == "okx":
+            missing = [
+                _pair_data_path(settings, pair, timeframe=settings.timeframe, data_venue="okx")
+                for pair in settings.pairs
+                if not _pair_data_path(settings, pair, timeframe=settings.timeframe, data_venue="okx").exists()
+            ]
+            if missing:
+                raise FileNotFoundError("missing OKX futures data:\n" + "\n".join(str(p) for p in missing[:20]))
+        else:
+            settings.validate_dataset(settings.timeframe)
 
         pairs_data: List[_PairData] = []
         discovered_cols: set[str] = set()
         for pair in settings.pairs:
-            sanitized = pair.replace("/", "_")
-            data_path = settings.data_dir / f"{sanitized}-{settings.timeframe}.feather"
+            data_path = _pair_data_path(settings, pair, timeframe=settings.timeframe, data_venue=args.data_venue)
             df = pd.read_feather(data_path)
             df["date"] = pd.to_datetime(df["date"], utc=True)
             df = df.sort_values("date").reset_index(drop=True)
@@ -1380,6 +1588,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                                 expr_str, pairs_data,
                                 method=str(args.score_method),
                                 min_samples=max(50, int(args.min_samples) // 2),
+                                embargo_bars=embargo_bars,
                             )
                             _score_cache[expr_str] = (ic, pp, to)
                         scored_so_far.append({
@@ -1445,6 +1654,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                                             new_expr, pairs_data,
                                             method=str(args.score_method),
                                             min_samples=max(50, int(args.min_samples) // 2),
+                                            embargo_bars=embargo_bars,
                                         )
                                         _score_cache[new_expr] = (ric, rpp, rto)
                                         scored_so_far.append({
@@ -1478,6 +1688,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     seed=int(args.evolve_seed) if args.evolve_seed is not None else None,
                     oos_fraction=float(getattr(args, "oos_fraction", 0.0)),
                     label_period=int(label_period),
+                    embargo_bars=embargo_bars,
                     turnover_penalty=float(getattr(args, "turnover_penalty", 0.0)),
                     llm_seeds=[str(e.get("expression", "")) for e in expressions if e.get("origin") == "llm"],
                 )
@@ -1496,8 +1707,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         scored: List[Dict[str, Any]] = []
         oos_frac = float(getattr(args, "oos_fraction", 0.0))
         to_penalty = float(getattr(args, "turnover_penalty", 0.0))
+        cost_penalty = (float(args.fee_bps) + float(args.slippage_bps)) * 2.0 / 10_000.0
         # Final scoring cache (shared with evolve's cache via expr string)
         _final_score_cache: Dict[str, Tuple[float, Dict[str, float], float]] = {}
+        _diag_cache: Dict[str, Dict[str, Any]] = {}
         total_to_score = len(dedup)
         scored_count = 0
         for expr_str, item in dedup.items():
@@ -1515,14 +1728,35 @@ def main(argv: Optional[List[str]] = None) -> int:
                         min_samples=int(args.min_samples),
                         oos_fraction=oos_frac,
                         label_period=int(label_period),
+                        embargo_bars=embargo_bars,
                     )
                     _final_score_cache[expr_str] = (abs_ic, per_pair, turnover)
+                if lane.lane != "1h":
+                    diagnostics = _diag_cache.get(expr_str)
+                    if diagnostics is None:
+                        diagnostics = _intraday_expression_diagnostics(
+                            expr_str,
+                            pairs_data,
+                            label_horizons=label_horizons,
+                            method=str(args.score_method),
+                            min_samples=int(args.min_samples),
+                            oos_fraction=oos_frac,
+                            embargo_bars=embargo_bars,
+                            fee_bps=float(args.fee_bps),
+                            slippage_bps=float(args.slippage_bps),
+                        )
+                        _diag_cache[expr_str] = diagnostics
+                    abs_ic = float(diagnostics.get("metric_abs_ic") or abs_ic)
+                    turnover = float(diagnostics.get("turnover") or turnover)
+                else:
+                    diagnostics = {}
             except Exception:
                 continue
             complexity = int(item.get("complexity") or max(1, len(expr_str) // 10))
             score = (float(abs_ic)
                      - float(args.complexity_penalty) * float(complexity)
-                     - to_penalty * float(turnover))
+                     - to_penalty * float(turnover)
+                     - cost_penalty * float(turnover))
             scored.append(
                 {
                     "origin": item.get("origin", "classic"),
@@ -1531,6 +1765,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     "per_pair": per_pair,
                     "complexity": int(complexity),
                     "turnover": float(turnover),
+                    "net_expectancy_after_costs": diagnostics.get("net_expectancy_after_costs") if diagnostics else None,
+                    "capacity_proxy": diagnostics.get("capacity_proxy") if diagnostics else None,
+                    "holding_time_distribution": diagnostics.get("holding_time_distribution") if diagnostics else None,
+                    "signal_decay_curve": diagnostics.get("signal_decay_curve") if diagnostics else None,
+                    "bucket_metrics": diagnostics.get("bucket_metrics") if diagnostics else None,
                     "score": float(score),
                     "description": item.get("description"),
                     "category": item.get("category"),
@@ -1546,6 +1785,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     "exchange": feature_cfg.get("exchange") or (cfg.get("exchange") or {}).get("name"),
                     "pairs": settings.pairs,
                     "timeframe": settings.timeframe,
+                    **lane_meta,
+                    "intraday": lane_meta,
                     "label_period": int(label_period),
                     "score_method": str(args.score_method),
                     "min_samples": int(args.min_samples),
@@ -1584,6 +1825,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "autocorr_1": item.get("autocorr_1"),
                 "complexity": item.get("complexity"),
                 "per_pair": item.get("per_pair"),
+                "turnover": item.get("turnover"),
+                "net_expectancy_after_costs": item.get("net_expectancy_after_costs"),
+                "capacity_proxy": item.get("capacity_proxy"),
+                "holding_time_distribution": item.get("holding_time_distribution"),
+                "signal_decay_curve": item.get("signal_decay_curve"),
+                "bucket_metrics": item.get("bucket_metrics"),
             }
             for idx, item in enumerate(selected, start=1)
         ]
@@ -1610,6 +1857,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                             expr_str, pairs_data,
                             method=str(args.score_method),
                             min_samples=max(50, int(args.min_samples) // 2),
+                            embargo_bars=embargo_bars,
                         )
                     except Exception:
                         turnover = 0.5
@@ -1656,14 +1904,32 @@ def main(argv: Optional[List[str]] = None) -> int:
                             min_samples=int(args.min_samples),
                             oos_fraction=oos_frac,
                             label_period=int(label_period),
+                            embargo_bars=embargo_bars,
                         )
+                        diagnostics = {}
+                        if lane.lane != "1h":
+                            diagnostics = _intraday_expression_diagnostics(
+                                expr_str,
+                                pairs_data,
+                                label_horizons=label_horizons,
+                                method=str(args.score_method),
+                                min_samples=int(args.min_samples),
+                                oos_fraction=oos_frac,
+                                embargo_bars=embargo_bars,
+                                fee_bps=float(args.fee_bps),
+                                slippage_bps=float(args.slippage_bps),
+                            )
+                            abs_ic = float(diagnostics.get("metric_abs_ic") or abs_ic)
+                            turnover = float(diagnostics.get("turnover") or turnover)
                     except Exception:
                         continue
                     complexity = max(1, len(expr_str) // 10)
                     to_penalty = float(getattr(args, "turnover_penalty", 0.0))
+                    cost_penalty = (float(args.fee_bps) + float(args.slippage_bps)) * 2.0 / 10_000.0
                     score = (float(abs_ic)
                              - float(args.complexity_penalty) * float(complexity)
-                             - to_penalty * float(turnover))
+                             - to_penalty * float(turnover)
+                             - cost_penalty * float(turnover))
                     refined_scored.append({
                         "origin": "refine",
                         "expression": expr_str,
@@ -1671,6 +1937,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                         "per_pair": per_pair,
                         "complexity": complexity,
                         "turnover": float(turnover),
+                        "net_expectancy_after_costs": diagnostics.get("net_expectancy_after_costs") if diagnostics else None,
+                        "capacity_proxy": diagnostics.get("capacity_proxy") if diagnostics else None,
+                        "holding_time_distribution": diagnostics.get("holding_time_distribution") if diagnostics else None,
+                        "signal_decay_curve": diagnostics.get("signal_decay_curve") if diagnostics else None,
+                        "bucket_metrics": diagnostics.get("bucket_metrics") if diagnostics else None,
                         "score": float(score),
                         "description": item.get("description"),
                         "category": item.get("category"),
@@ -1705,6 +1976,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                         "autocorr_1": item.get("autocorr_1"),
                         "complexity": item.get("complexity"),
                         "per_pair": item.get("per_pair"),
+                        "turnover": item.get("turnover"),
+                        "net_expectancy_after_costs": item.get("net_expectancy_after_costs"),
+                        "capacity_proxy": item.get("capacity_proxy"),
+                        "holding_time_distribution": item.get("holding_time_distribution"),
+                        "signal_decay_curve": item.get("signal_decay_curve"),
+                        "bucket_metrics": item.get("bucket_metrics"),
                         "refined_from": item.get("refined_from"),
                     }
                     for idx, item in enumerate(selected, start=1)
@@ -1794,6 +2071,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "exchange": feature_cfg.get("exchange") or (cfg.get("exchange") or {}).get("name"),
         "pairs": feature_cfg.get("pairs") or (cfg.get("exchange") or {}).get("pair_whitelist") or [],
         "timeframe": timeframe,
+        **lane_meta,
+        "intraday": lane_meta,
         "label_period": label_period,
         "feature_file": str(feature_path),
         "llm_used": bool(args.llm_enabled) and not bool(args.no_llm) and bool(args.llm_api_key or args.llm_model),

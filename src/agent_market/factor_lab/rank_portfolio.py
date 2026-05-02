@@ -8,7 +8,7 @@ import time
 from dataclasses import asdict, dataclass, field, fields
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -20,11 +20,13 @@ from agent_market.freqai.features import apply_configured_features
 from . import mining
 from .cache import DEFAULT_CACHE_DIR
 from .paths import DEFAULT_PAIRS, FEATURE_FILE, KUCOIN_DIR, OKX_FUTURES_DIR, USER_DATA, feather_for_pair
+from .timeframes import bars_for_hours, bars_for_minutes, manifest_matches_profile, normalize_timeframe
 
 
 DEFAULT_TAG = "gpt54_purealpha_v2_full1000_fix1"
 RISK_PROFILE_AGGRESSIVE = "aggressive"
 ALLOWED_LEVERAGES = (10, 8, 5, 3, 2, 1)
+FUTURES_VENUES = {"okx", "bybit", "binance"}
 
 
 @dataclass
@@ -52,6 +54,8 @@ class RiskConfig:
     side_mode: str = "both"
     min_abs_score_z: float = 0.0
     rebalance_hours: int = 1
+    timeframe: str = "1h"
+    rebalance_minutes: int = 60
     leverage_cap: float = 10.0
     edge_mode: str = "off"
     edge_lookback_hours: int = 336
@@ -94,6 +98,8 @@ class RiskConfig:
         side_mode: Optional[str] = None,
         min_abs_score_z: Optional[float] = None,
         rebalance_hours: Optional[int] = None,
+        rebalance_minutes: Optional[int] = None,
+        timeframe: str = "1h",
         risk_per_trade: Optional[float] = None,
         leverage_cap: Optional[float] = None,
         edge_mode: Optional[str] = None,
@@ -127,6 +133,7 @@ class RiskConfig:
     ) -> "RiskConfig":
         profile_name = str(profile or RISK_PROFILE_AGGRESSIVE).lower()
         cfg = cls(profile=profile_name)
+        cfg.timeframe = normalize_timeframe(timeframe)
         if profile_name == RISK_PROFILE_AGGRESSIVE:
             # Evidence-backed default after OKX holdout diagnostics: keep the
             # high-conviction short rank sleeve, rebalance daily, and avoid the
@@ -212,8 +219,15 @@ class RiskConfig:
             cfg.side_mode = str(side_mode).strip().lower()
         if min_abs_score_z is not None:
             cfg.min_abs_score_z = float(min_abs_score_z)
-        if rebalance_hours is not None:
-            cfg.rebalance_hours = int(rebalance_hours)
+        if rebalance_minutes is not None:
+            cfg.rebalance_minutes = int(rebalance_minutes)
+            cfg.rebalance_hours = bars_for_minutes(int(rebalance_minutes), cfg.timeframe)
+        elif rebalance_hours is not None:
+            cfg.rebalance_minutes = int(rebalance_hours) * 60
+            cfg.rebalance_hours = bars_for_hours(int(rebalance_hours), cfg.timeframe)
+        else:
+            cfg.rebalance_minutes = int(cfg.rebalance_hours) * 60
+            cfg.rebalance_hours = bars_for_hours(int(cfg.rebalance_hours), cfg.timeframe)
         if risk_per_trade is not None:
             cfg.risk_per_trade = float(risk_per_trade)
         if leverage_cap is not None:
@@ -630,11 +644,97 @@ def _mining_config_from_tag(tag: str) -> mining.MiningConfig:
     return cfg
 
 
+def _mining_config_from_candidate_state(candidate_state: Optional[str | Path], *, tag: str) -> mining.MiningConfig:
+    if not candidate_state:
+        return _mining_config_from_tag(tag)
+    path = repo_paths.resolve_repo_path(candidate_state)
+    if not path.exists():
+        return _mining_config_from_tag(tag)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return _mining_config_from_tag(tag)
+    run_cfg = payload.get("config") if isinstance(payload, Mapping) else {}
+    cfg_kwargs = {f.name: run_cfg[f.name] for f in fields(mining.MiningConfig) if isinstance(run_cfg, Mapping) and f.name in run_cfg}
+    cfg = mining.MiningConfig(**cfg_kwargs) if cfg_kwargs else _mining_config_from_tag(tag)
+    if not getattr(cfg, "cache_dir", None):
+        cfg.cache_dir = str(DEFAULT_CACHE_DIR)
+    return cfg
+
+
+def _candidate_state_manifest(candidate_state: Optional[str | Path]) -> dict[str, Any]:
+    if not candidate_state:
+        return {}
+    path = repo_paths.resolve_repo_path(candidate_state)
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return {}
+    if not isinstance(payload, Mapping):
+        return {}
+    manifest = {
+        "timeframe": payload.get("timeframe"),
+        "evaluation_lane": payload.get("evaluation_lane") or payload.get("lane"),
+        "data_venue": payload.get("data_venue"),
+        "label_horizons": payload.get("label_horizons"),
+        "pairs": payload.get("pairs"),
+    }
+    if isinstance(payload.get("intraday"), Mapping):
+        intraday = payload["intraday"]
+        for key in ("timeframe", "evaluation_lane", "data_venue", "label_horizons", "pairs"):
+            manifest[key] = manifest.get(key) or intraday.get(key)
+    if isinstance(payload.get("config"), Mapping):
+        cfg = payload["config"]
+        for key in ("timeframe", "evaluation_lane", "data_venue", "label_horizons", "pairs"):
+            manifest[key] = manifest.get(key) or cfg.get(key)
+    return {k: v for k, v in manifest.items() if v not in (None, "", [])}
+
+
+def _resolve_rank_pair_universe(
+    *,
+    tag: str,
+    candidate_state: Optional[str | Path],
+    timeframe: str,
+    feature_venue: str,
+    pairs: Optional[Sequence[str] | str] = None,
+) -> tuple[list[str], dict[str, Any]]:
+    mine_cfg = _mining_config_from_candidate_state(candidate_state, tag=tag)
+    requested: Optional[Sequence[str] | str] = pairs
+    source = "argument"
+    if requested in (None, ""):
+        requested = getattr(mine_cfg, "pairs", None) or "default"
+        source = "mining_config"
+    if isinstance(requested, str) and requested.strip().lower() == "all":
+        requested = "auto"
+    cfg_venue = str(getattr(mine_cfg, "data_venue", "") or "").strip().lower()
+    data_dir = getattr(mine_cfg, "data_dir", None) if cfg_venue == str(feature_venue).strip().lower() else None
+    data_root, pair_list, _ = mining._resolve_mining_data(  # noqa: SLF001
+        data_venue=feature_venue,
+        data_dir=data_dir,
+        timeframe=timeframe,
+        pairs=requested,
+    )
+    if not pair_list:
+        pair_list = list(DEFAULT_PAIRS)
+    return pair_list, {
+        "source": source,
+        "requested": requested,
+        "count": len(pair_list),
+        "pairs": pair_list,
+        "timeframe": timeframe,
+        "data_venue": feature_venue,
+        "data_root": str(data_root),
+    }
+
+
 def build_rank_cache_for_selection(
     tag: str,
     candidates: Sequence[mining.CandidateRecord],
     *,
     config: Optional[SelectionConfig] = None,
+    candidate_state: Optional[str | Path] = None,
 ) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
     """Recompute OOS rank series for correlation-gated factor selection."""
     cfg = config or SelectionConfig()
@@ -647,15 +747,17 @@ def build_rank_cache_for_selection(
             sign_agree=cfg.min_sign_agree,
         )
     ]
-    mine_cfg = _mining_config_from_tag(tag)
+    mine_cfg = _mining_config_from_candidate_state(candidate_state, tag=tag)
     rank_cache: Dict[str, np.ndarray] = {}
     errors: List[Dict[str, str]] = []
     try:
         big, _ = mining.build_big(
             timeframe=mine_cfg.timeframe,
+            label_bars=int(getattr(mine_cfg, "label_period", mining.DEFAULT_LABEL_PERIOD) or mining.DEFAULT_LABEL_PERIOD),
             label_mode=mine_cfg.label_mode,
             pair_reference=mine_cfg.pair_reference,
             data_dir=mine_cfg.data_dir,
+            data_venue=getattr(mine_cfg, "data_venue", "kucoin"),
             pairs=mine_cfg.pairs,
             cache_dir=mine_cfg.cache_dir,
             no_cache=mine_cfg.no_cache,
@@ -710,21 +812,46 @@ def _pair_file_token(pair: str) -> str:
     return base
 
 
+def _market_data_root(*, data_venue: str = "kucoin", data_dir: Optional[str | Path] = None) -> Path:
+    if data_dir is not None:
+        return Path(data_dir)
+    venue = str(data_venue or "kucoin").strip().lower()
+    if venue in FUTURES_VENUES:
+        root = repo_paths.user_data_root() / "data" / venue / "futures"
+        if venue == "okx" and not root.exists():
+            return OKX_FUTURES_DIR
+        return root
+    return KUCOIN_DIR
+
+
+def _market_data_path(pair: str, *, timeframe: str, data_venue: str = "kucoin", data_dir: Optional[str | Path] = None) -> Path:
+    tf = normalize_timeframe(timeframe)
+    venue = str(data_venue or "kucoin").strip().lower()
+    root = _market_data_root(data_venue=venue, data_dir=data_dir)
+    if venue in FUTURES_VENUES:
+        return root / f"{_pair_file_token(pair)}-{tf}-futures.feather"
+    return feather_for_pair(pair, timeframe=tf, data_dir=root)
+
+
 def load_feature_panel(
     *,
     pairs: Optional[Sequence[str]] = None,
     timeframe: str = "1h",
+    data_venue: str = "kucoin",
     data_dir: Optional[str | Path] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> pd.DataFrame:
     pair_list = list(pairs or DEFAULT_PAIRS)
-    root = Path(data_dir) if data_dir is not None else KUCOIN_DIR
+    tf = normalize_timeframe(timeframe)
+    root = _market_data_root(data_venue=data_venue, data_dir=data_dir)
     feat_cfg = json.loads(FEATURE_FILE.read_text(encoding="utf-8-sig")) if FEATURE_FILE.exists() else {"features": []}
     frames: List[pd.DataFrame] = []
+    missing: List[str] = []
     for pair in pair_list:
-        path = feather_for_pair(pair, timeframe=timeframe, data_dir=root)
+        path = _market_data_path(pair, timeframe=tf, data_venue=data_venue, data_dir=root)
         if not path.exists():
+            missing.append(str(path))
             continue
         df = pd.read_feather(path)
         df["date"] = pd.to_datetime(df["date"], utc=True)
@@ -732,7 +859,7 @@ def load_feature_panel(
         df["__pair__"] = _normalize_pair(pair)
         frames.append(df)
     if not frames:
-        raise FileNotFoundError(f"no feature feathers found under {root}")
+        raise FileNotFoundError(f"no {data_venue} {tf} feature feathers found under {root}; missing={missing[:10]}")
     panel = pd.concat(frames, ignore_index=True).sort_values(["__pair__", "date"]).reset_index(drop=True)
     if start:
         panel = panel.loc[panel["date"] >= pd.Timestamp(start, tz="UTC")]
@@ -744,28 +871,33 @@ def load_feature_panel(
 def load_venue_ohlcv(
     *,
     venue: str = "okx",
+    timeframe: str = "1h",
     pairs: Optional[Sequence[str]] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> pd.DataFrame:
-    if str(venue).lower() != "okx":
-        raise ValueError("rank portfolio currently supports venue='okx'")
+    venue_s = str(venue or "okx").lower()
+    if venue_s not in FUTURES_VENUES:
+        raise ValueError(f"rank portfolio futures venue must be one of {sorted(FUTURES_VENUES)}, got {venue!r}")
+    tf = normalize_timeframe(timeframe)
     pair_list = list(pairs or DEFAULT_PAIRS)
-    root = repo_paths.user_data_root() / "data" / "okx" / "futures"
-    if not root.exists():
+    root = repo_paths.user_data_root() / "data" / venue_s / "futures"
+    if venue_s == "okx" and not root.exists():
         root = OKX_FUTURES_DIR
     frames: List[pd.DataFrame] = []
+    missing: List[str] = []
     for pair in pair_list:
         token = _pair_file_token(pair)
-        path = root / f"{token}-1h-futures.feather"
+        path = root / f"{token}-{tf}-futures.feather"
         if not path.exists():
+            missing.append(str(path))
             continue
         df = pd.read_feather(path)
         df["date"] = pd.to_datetime(df["date"], utc=True)
         df["__pair__"] = _normalize_pair(pair)
         frames.append(df)
     if not frames:
-        raise FileNotFoundError(f"no OKX futures feathers found under {root}")
+        raise FileNotFoundError(f"no {venue_s} {tf} futures feathers found under {root}; missing={missing[:10]}")
     out = pd.concat(frames, ignore_index=True).sort_values(["__pair__", "date"]).reset_index(drop=True)
     if start:
         out = out.loc[out["date"] >= pd.Timestamp(start, tz="UTC")]
@@ -822,10 +954,16 @@ def compute_ensemble_scores(
     return out, {"factor_count": len(factors), "used_factor_count": used, "errors": errors[:100]}
 
 
-def add_risk_columns(venue_panel: pd.DataFrame) -> pd.DataFrame:
+def add_risk_columns(venue_panel: pd.DataFrame, *, timeframe: str = "1h") -> pd.DataFrame:
+    tf = normalize_timeframe(timeframe)
     df = venue_panel.copy()
     df["date"] = pd.to_datetime(df["date"], utc=True)
     pieces: List[pd.DataFrame] = []
+    bars_24h = bars_for_hours(24, tf)
+    bars_72h = bars_for_hours(72, tf)
+    bars_96h = bars_for_hours(96, tf)
+    bars_30d = bars_for_hours(24 * 30, tf)
+    min_vol_periods = min(bars_30d, bars_for_hours(24, tf))
     for _, sub in df.sort_values(["__pair__", "date"]).groupby("__pair__", sort=False):
         sub = sub.copy()
         close = sub["close"].astype("float64")
@@ -835,11 +973,11 @@ def add_risk_columns(venue_panel: pd.DataFrame) -> pd.DataFrame:
         tr = np.maximum(high - low, np.maximum((high - prev).abs(), (low - prev).abs()))
         atr = pd.Series(tr, index=sub.index).ewm(span=14, adjust=False).mean()
         sub["rp_atr_pct"] = (atr / (close.abs() + 1e-12)).replace([np.inf, -np.inf], np.nan)
-        sub["rp_mom_24h"] = (close / close.shift(24) - 1.0).replace([np.inf, -np.inf], np.nan)
-        sub["rp_mom_72h"] = (close / close.shift(72) - 1.0).replace([np.inf, -np.inf], np.nan)
-        ema = close.ewm(span=96, adjust=False).mean()
+        sub["rp_mom_24h"] = (close / close.shift(bars_24h) - 1.0).replace([np.inf, -np.inf], np.nan)
+        sub["rp_mom_72h"] = (close / close.shift(bars_72h) - 1.0).replace([np.inf, -np.inf], np.nan)
+        ema = close.ewm(span=bars_96h, adjust=False).mean()
         sub["rp_ma_gap_96h"] = (close / (ema + 1e-12) - 1.0).replace([np.inf, -np.inf], np.nan)
-        med = sub["volume"].astype("float64").rolling(24 * 30, min_periods=24).median()
+        med = sub["volume"].astype("float64").rolling(bars_30d, min_periods=min_vol_periods).median()
         sub["rp_volume_ratio"] = (sub["volume"].astype("float64") / (med + 1e-12)).replace([np.inf, -np.inf], np.nan)
         pieces.append(sub)
     out = pd.concat(pieces, ignore_index=True).sort_values(["date", "__pair__"]).reset_index(drop=True)
@@ -1015,8 +1153,10 @@ def add_causal_edge_columns(merged: pd.DataFrame, cfg: RiskConfig) -> pd.DataFra
     )
     by_pair = out.sort_values(["__pair__", "date"]).groupby("__pair__", sort=False)
     ic_by_date = out.groupby("date", sort=True)[["rp_score", "rp_fwd_ret"]].apply(_cross_sectional_rank_ic)
-    lookback = max(1, int(getattr(cfg, "edge_lookback_hours", 336) or 336))
-    min_periods = max(1, min(lookback, int(getattr(cfg, "edge_min_periods", lookback) or lookback)))
+    tf = normalize_timeframe(getattr(cfg, "timeframe", "1h"))
+    lookback = max(1, bars_for_hours(float(getattr(cfg, "edge_lookback_hours", 336) or 336), tf))
+    min_period_hours = float(getattr(cfg, "edge_min_periods", getattr(cfg, "edge_lookback_hours", 336)) or getattr(cfg, "edge_lookback_hours", 336))
+    min_periods = max(1, min(lookback, bars_for_hours(min_period_hours, tf)))
     edge = ic_by_date.rolling(lookback, min_periods=min_periods).mean().shift(1)
     deadband = abs(float(getattr(cfg, "edge_deadband", 0.0) or 0.0))
     signs = pd.Series(0.0, index=edge.index, dtype="float64")
@@ -1186,7 +1326,7 @@ def _passes_score_threshold(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
 
 
 def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg: RiskConfig) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    venue = add_risk_columns(venue_panel)
+    venue = add_risk_columns(venue_panel, timeframe=getattr(cfg, "timeframe", "1h"))
     scores = score_frame.copy()
     scores["date"] = pd.to_datetime(scores["date"], utc=True)
     merged = venue.merge(scores, on=["date", "__pair__"], how="left")
@@ -1210,7 +1350,7 @@ def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg
     regime_blocks = 0
     held: Dict[str, Dict[str, float]] = {}
     side_mode = _side_mode(cfg)
-    rebalance_hours = max(1, int(getattr(cfg, "rebalance_hours", 1) or 1))
+    rebalance_bars = max(1, int(getattr(cfg, "rebalance_hours", 1) or 1))
     for date_i, (_, group) in enumerate(merged.groupby("date", sort=True)):
         g = group.copy()
         valid = (
@@ -1226,7 +1366,7 @@ def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg
             ranks = g.loc[valid, "rp_sort_score"].rank(method="first", ascending=False).astype(int)
             g.loc[valid, "rp_rank"] = ranks
         k = _effective_top_k(valid_count, cfg)
-        is_rebalance = (date_i % rebalance_hours) == 0
+        is_rebalance = (date_i % rebalance_bars) == 0
         if not is_rebalance:
             for idx in g.index:
                 pair = str(g.at[idx, "__pair__"])
@@ -1320,6 +1460,9 @@ def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg
     other = [c for c in signals.columns if c not in keep and not c.startswith("__")]
     signals = signals[keep + other]
     diagnostics = {
+        "timeframe": getattr(cfg, "timeframe", "1h"),
+        "rebalance_bars": int(rebalance_bars),
+        "rebalance_minutes": int(getattr(cfg, "rebalance_minutes", rebalance_bars * 60) or rebalance_bars * 60),
         "rows": int(len(signals)),
         "dates": int(signals["date"].nunique()),
         "pairs": int(signals["pair"].nunique()),
@@ -1369,6 +1512,9 @@ def rank_export(
     n: int = 50,
     risk_profile: str = RISK_PROFILE_AGGRESSIVE,
     venue: str = "okx",
+    timeframe: str = "1h",
+    data_venue: str = "auto",
+    pairs: Optional[Sequence[str] | str] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
     top_k: Optional[int] = None,
@@ -1378,6 +1524,7 @@ def rank_export(
     side_mode: Optional[str] = None,
     min_abs_score_z: Optional[float] = None,
     rebalance_hours: Optional[int] = None,
+    rebalance_minutes: Optional[int] = None,
     risk_per_trade: Optional[float] = None,
     leverage_cap: Optional[float] = None,
     edge_mode: Optional[str] = None,
@@ -1411,15 +1558,42 @@ def rank_export(
     candidate_state: Optional[str | Path] = None,
     recompute_corr: bool = True,
 ) -> Dict[str, Any]:
+    tf = normalize_timeframe(timeframe)
+    feature_venue = str(data_venue or "auto").strip().lower()
+    if feature_venue == "auto":
+        venue_s = str(venue or "okx").strip().lower()
+        feature_venue = "kucoin" if tf == "1h" and venue_s == "okx" else venue_s
     candidates, source = load_candidates(tag, candidate_state=candidate_state)
+    state_manifest = _candidate_state_manifest(candidate_state)
+    if str(data_venue or "auto").strip().lower() == "auto" and state_manifest.get("data_venue"):
+        feature_venue = str(state_manifest.get("data_venue") or feature_venue).strip().lower()
+    ok, reason = manifest_matches_profile(state_manifest, {"timeframe": tf})
+    if not ok:
+        raise ValueError(reason)
     selection_cfg = SelectionConfig(n=int(n))
     rank_cache: Dict[str, np.ndarray] = {}
     rank_cache_report: Dict[str, Any] = {"ranked": 0, "skipped": True}
     if recompute_corr:
-        rank_cache, rank_cache_report = build_rank_cache_for_selection(tag, candidates, config=selection_cfg)
+        rank_cache, rank_cache_report = build_rank_cache_for_selection(
+            tag,
+            candidates,
+            config=selection_cfg,
+            candidate_state=candidate_state,
+        )
     selected, selection_report = select_factor_records(candidates, config=selection_cfg, rank_cache=rank_cache)
     selection_report["candidate_source"] = source
     selection_report["rank_cache"] = rank_cache_report
+    selection_report["timeframe"] = tf
+    selection_report["data_venue"] = feature_venue
+    selection_report["candidate_state_manifest"] = state_manifest
+    pairs, pair_report = _resolve_rank_pair_universe(
+        tag=tag,
+        candidate_state=candidate_state,
+        timeframe=tf,
+        feature_venue=feature_venue,
+        pairs=pairs,
+    )
+    selection_report["pair_universe"] = pair_report
 
     risk_cfg = RiskConfig.from_profile(
         risk_profile,
@@ -1430,6 +1604,8 @@ def rank_export(
         side_mode=side_mode,
         min_abs_score_z=min_abs_score_z,
         rebalance_hours=rebalance_hours,
+        rebalance_minutes=rebalance_minutes,
+        timeframe=tf,
         risk_per_trade=risk_per_trade,
         leverage_cap=leverage_cap,
         edge_mode=edge_mode,
@@ -1461,9 +1637,8 @@ def rank_export(
         short_exit_market_ma_gap=short_exit_market_ma_gap,
         exclude_pairs=exclude_pairs,
     )
-    pairs = list(DEFAULT_PAIRS)
-    feature_panel = load_feature_panel(pairs=pairs, timeframe="1h", start=start, end=end)
-    venue_panel = load_venue_ohlcv(venue=venue, pairs=pairs, start=start, end=end)
+    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=start, end=end)
+    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=start, end=end)
     scores, score_report = compute_ensemble_scores(feature_panel, selected)
     if int(score_report.get("used_factor_count", 0) or 0) <= 0:
         raise ValueError(f"rank ensemble could not evaluate any selected factors: {score_report.get('errors', [])[:5]}")
@@ -1477,6 +1652,12 @@ def rank_export(
     summary = {
         "tag": tag,
         "risk_profile": risk_profile,
+        "venue": venue,
+        "timeframe": tf,
+        "data_venue": feature_venue,
+        "pair_count": len(pairs),
+        "pair_universe": pair_report,
+        "candidate_state_manifest": state_manifest,
         "risk_config": asdict(risk_cfg),
         "selected_factors": str(selected_path),
         "signals": signal_paths,
@@ -1610,6 +1791,9 @@ def rank_backtest(
     *,
     tag: str = DEFAULT_TAG,
     venue: str = "okx",
+    timeframe: str = "1h",
+    data_venue: str = "auto",
+    pairs: Optional[Sequence[str] | str] = None,
     top_k: int = 2,
     gross_cap: float = 2.0,
     net_cap: Optional[float] = None,
@@ -1621,6 +1805,7 @@ def rank_backtest(
     side_mode: Optional[str] = None,
     min_abs_score_z: Optional[float] = None,
     rebalance_hours: Optional[int] = None,
+    rebalance_minutes: Optional[int] = None,
     risk_per_trade: Optional[float] = None,
     leverage_cap: Optional[float] = None,
     edge_mode: Optional[str] = None,
@@ -1654,11 +1839,15 @@ def rank_backtest(
     candidate_state: Optional[str | Path] = None,
     recompute_corr: bool = True,
 ) -> Dict[str, Any]:
+    tf = normalize_timeframe(timeframe)
     export_summary = rank_export(
         tag=tag,
         n=n,
         risk_profile=risk_profile,
         venue=venue,
+        timeframe=tf,
+        data_venue=data_venue,
+        pairs=pairs,
         start=start,
         end=end,
         top_k=top_k,
@@ -1668,6 +1857,7 @@ def rank_backtest(
         side_mode=side_mode,
         min_abs_score_z=min_abs_score_z,
         rebalance_hours=rebalance_hours,
+        rebalance_minutes=rebalance_minutes,
         risk_per_trade=risk_per_trade,
         leverage_cap=leverage_cap,
         edge_mode=edge_mode,
@@ -1712,6 +1902,8 @@ def rank_backtest(
         side_mode=side_mode,
         min_abs_score_z=min_abs_score_z,
         rebalance_hours=rebalance_hours,
+        rebalance_minutes=rebalance_minutes,
+        timeframe=tf,
         risk_per_trade=risk_per_trade,
         leverage_cap=leverage_cap,
         edge_mode=edge_mode,
@@ -1747,6 +1939,10 @@ def rank_backtest(
     result.update({
         "tag": tag,
         "venue": venue,
+        "timeframe": tf,
+        "data_venue": export_summary.get("data_venue"),
+        "pair_count": export_summary.get("pair_count"),
+        "pair_universe": export_summary.get("pair_universe"),
         "top_k": int(top_k),
         "gross_cap": float(gross_cap),
         "net_cap": float(risk_cfg.net_cap),
@@ -1754,6 +1950,7 @@ def rank_backtest(
         "side_mode": risk_cfg.side_mode,
         "min_abs_score_z": float(risk_cfg.min_abs_score_z),
         "rebalance_hours": int(risk_cfg.rebalance_hours),
+        "rebalance_minutes": int(risk_cfg.rebalance_minutes),
         "risk_per_trade": float(risk_cfg.risk_per_trade),
         "leverage_cap": float(risk_cfg.leverage_cap),
         "edge_mode": risk_cfg.edge_mode,
@@ -1799,6 +1996,9 @@ def rank_sweep(
     *,
     tag: str = DEFAULT_TAG,
     venue: str = "okx",
+    timeframe: str = "1h",
+    data_venue: str = "auto",
+    pairs: Optional[Sequence[str] | str] = None,
     risk_profile: str = RISK_PROFILE_AGGRESSIVE,
     n: int = 50,
     start: str = "2025-12-01",
@@ -1808,6 +2008,7 @@ def rank_sweep(
     side_modes: Sequence[str] = ("short",),
     score_thresholds: Sequence[float] = (1.5, 2.0),
     rebalance_hours_values: Sequence[int] = (8, 12, 24),
+    rebalance_minutes_values: Optional[Sequence[int]] = None,
     risk_per_trade: Optional[float] = 0.08,
     leverage_cap: Optional[float] = None,
     single_pair_cap: Optional[float] = None,
@@ -1843,19 +2044,45 @@ def rank_sweep(
     candidate_state: Optional[str | Path] = None,
     recompute_corr: bool = True,
 ) -> Dict[str, Any]:
+    tf = normalize_timeframe(timeframe)
+    feature_venue = str(data_venue or "auto").strip().lower()
+    if feature_venue == "auto":
+        venue_s = str(venue or "okx").strip().lower()
+        feature_venue = "kucoin" if tf == "1h" and venue_s == "okx" else venue_s
     candidates, source = load_candidates(tag, candidate_state=candidate_state)
+    state_manifest = _candidate_state_manifest(candidate_state)
+    if str(data_venue or "auto").strip().lower() == "auto" and state_manifest.get("data_venue"):
+        feature_venue = str(state_manifest.get("data_venue") or feature_venue).strip().lower()
+    ok, reason = manifest_matches_profile(state_manifest, {"timeframe": tf})
+    if not ok:
+        raise ValueError(reason)
     selection_cfg = SelectionConfig(n=int(n))
     rank_cache: Dict[str, np.ndarray] = {}
     rank_cache_report: Dict[str, Any] = {"ranked": 0, "skipped": True}
     if recompute_corr:
-        rank_cache, rank_cache_report = build_rank_cache_for_selection(tag, candidates, config=selection_cfg)
+        rank_cache, rank_cache_report = build_rank_cache_for_selection(
+            tag,
+            candidates,
+            config=selection_cfg,
+            candidate_state=candidate_state,
+        )
     selected, selection_report = select_factor_records(candidates, config=selection_cfg, rank_cache=rank_cache)
     selection_report["candidate_source"] = source
     selection_report["rank_cache"] = rank_cache_report
+    selection_report["timeframe"] = tf
+    selection_report["data_venue"] = feature_venue
+    selection_report["candidate_state_manifest"] = state_manifest
+    pairs, pair_report = _resolve_rank_pair_universe(
+        tag=tag,
+        candidate_state=candidate_state,
+        timeframe=tf,
+        feature_venue=feature_venue,
+        pairs=pairs,
+    )
+    selection_report["pair_universe"] = pair_report
 
-    pairs = list(DEFAULT_PAIRS)
-    feature_panel = load_feature_panel(pairs=pairs, timeframe="1h", start=start, end=end)
-    venue_panel = load_venue_ohlcv(venue=venue, pairs=pairs, start=start, end=end)
+    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=start, end=end)
+    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=start, end=end)
     scores, score_report = compute_ensemble_scores(feature_panel, selected)
     if int(score_report.get("used_factor_count", 0) or 0) <= 0:
         raise ValueError(f"rank ensemble could not evaluate any selected factors: {score_report.get('errors', [])[:5]}")
@@ -1869,7 +2096,10 @@ def rank_sweep(
         for top_k in top_ks:
             for side_mode in side_modes:
                 for threshold in score_thresholds:
-                    for rebalance_hours in rebalance_hours_values:
+                    minutes_iter = list(rebalance_minutes_values or [])
+                    if not minutes_iter:
+                        minutes_iter = [int(v) * 60 for v in rebalance_hours_values]
+                    for rebalance_minutes in minutes_iter:
                         risk_cfg = RiskConfig.from_profile(
                             risk_profile,
                             gross_cap=float(gross_cap),
@@ -1878,7 +2108,8 @@ def rank_sweep(
                             single_pair_cap=single_pair_cap,
                             side_mode=side_mode,
                             min_abs_score_z=float(threshold),
-                            rebalance_hours=int(rebalance_hours),
+                            rebalance_minutes=int(rebalance_minutes),
+                            timeframe=tf,
                             risk_per_trade=risk_per_trade,
                             leverage_cap=leverage_cap,
                             edge_mode=edge_mode,
@@ -1915,6 +2146,8 @@ def rank_sweep(
                         result.update({
                             "tag": tag,
                             "venue": venue,
+                            "timeframe": tf,
+                            "data_venue": feature_venue,
                             "top_k": int(top_k),
                             "gross_cap": float(gross_cap),
                             "net_cap": float(risk_cfg.net_cap),
@@ -1922,6 +2155,7 @@ def rank_sweep(
                             "side_mode": risk_cfg.side_mode,
                             "min_abs_score_z": float(risk_cfg.min_abs_score_z),
                             "rebalance_hours": int(risk_cfg.rebalance_hours),
+                            "rebalance_minutes": int(risk_cfg.rebalance_minutes),
                             "risk_per_trade": float(risk_cfg.risk_per_trade),
                             "leverage_cap": float(risk_cfg.leverage_cap),
                             "edge_mode": risk_cfg.edge_mode,
@@ -1962,6 +2196,11 @@ def rank_sweep(
     summary = {
         "tag": tag,
         "venue": venue,
+        "timeframe": tf,
+        "data_venue": feature_venue,
+        "pair_count": len(pairs),
+        "pair_universe": pair_report,
+        "candidate_state_manifest": state_manifest,
         "start": start,
         "end": end,
         "selected_factors": str(selected_path),

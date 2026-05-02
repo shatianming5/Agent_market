@@ -71,6 +71,11 @@ def _load_jsonl(path_like: str | Path | None) -> list[dict[str, Any]]:
     return rows
 
 
+def _strategy_miner_final_promoted_count(_promotion_rows: list[dict[str, Any]]) -> int:
+    """Strategy Miner logs candidate gates; final promotion belongs to strategy-loop."""
+    return 0
+
+
 def _rel(path: Path | None) -> str | None:
     if path is None:
         return None
@@ -269,7 +274,7 @@ def write_budget_plan(
 
     factor_pass = sum(1 for item in factor_cards if bool(item.get("gate_pass")))
     surviving_strategies = len(leaderboard.get("items") or [])
-    promoted = sum(1 for row in promotion_rows if bool(row.get("promotion_ok")))
+    promoted = _strategy_miner_final_promoted_count(promotion_rows)
 
     allocations = {"factor": 0.30, "strategy": 0.50, "benchmark": 0.10, "portfolio": 0.10}
     rationale: list[str] = []
@@ -501,7 +506,7 @@ def write_resource_dashboard(
     expression_payload = _load_json(arts.expression_output)
 
     surviving = len(leaderboard.get("items") or [])
-    promoted = sum(1 for row in promotion_rows if bool(row.get("promotion_ok")))
+    promoted = _strategy_miner_final_promoted_count(promotion_rows)
     total_cost = float(economics.get("total_cost_usd") or 0.0)
     total_tokens = int(economics.get("total_tokens") or 0)
     if total_tokens == 0:

@@ -140,7 +140,7 @@ def test_finalize_strategy_factory_artifacts_writes_registry_replay_and_lineage(
             promotion = json.loads((run_dir / "promotion_chain.json").read_text(encoding="utf-8"))
             assert promotion["factor_references"] == ["flowrun:spec:breakout_card"]
             dashboard = json.loads((run_dir / "resource_dashboard.json").read_text(encoding="utf-8"))
-            assert dashboard["totals"]["promoted_strategies"] == 1
+            assert dashboard["totals"]["promoted_strategies"] == 0
             assert outputs["replay_manifest_json"].endswith("replay_manifest.json")
 
 
@@ -414,11 +414,16 @@ def test_step_expression_builds_factor_memory_artifacts() -> None:
         assert arts.factor_transfer_audit_json
         assert arts.multiagent_summary_json
         assert arts.factor_manifest_json
+        assert Path(arts.factor_agent_traces_json).name == "factor_agent_traces.json"
+        assert Path(arts.factor_transfer_audit_json).name == "factor_transfer_audit.json"
+        assert Path(arts.multiagent_summary_json).name == "multiagent_summary.json"
+        assert Path(arts.factor_manifest_json).name == "manifest.json"
+        assert (run_dir / "expression" / "multiagent_summary.json").exists()
         assert arts.factor_memory_json
         memory = json.loads(Path(arts.factor_memory_json).read_text(encoding="utf-8"))
         assert memory["factor_cards"][0]["name"] == "f001"
         assert arts.global_factor_memory_json
-        global_memory = json.loads(Path(arts.global_factor_memory_json).read_text(encoding="utf-8"))
+        global_memory = json.loads(paths.resolve_repo_path(arts.global_factor_memory_json).read_text(encoding="utf-8"))
         assert global_memory["factor_cards"][0]["name"] == "f001"
         assert arts.factor_eval_meta
         assert arts.factor_scores_json

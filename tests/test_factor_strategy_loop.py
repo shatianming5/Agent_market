@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_market import paths as repo_paths
+from agent_market.factor_lab import strategy_loop as strategy_loop_mod
 from agent_market.factor_lab.strategy_loop import (
     PHASE_BACKTEST,
     PHASE_COMPLETE,
@@ -19,6 +20,7 @@ from agent_market.factor_lab.strategy_loop import (
     StrategyLoopState,
     build_iteration_manifest,
     build_pareto_pool,
+    build_rank_profile_repair_queue,
     doctor_strategy_loop_run,
     _hermes_cli_env,
     _hermes_model,
@@ -48,6 +50,65 @@ from agent_market.factor_lab.strategy_loop import (
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _install_fake_lean_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    comparison_status: str = "ok",
+    lean_overrides: dict | None = None,
+) -> None:
+    def fake_export_project(*, rank_artifact, output, timeframe=None, data_root=None):
+        project = Path(output)
+        (project / "data").mkdir(parents=True, exist_ok=True)
+        (project / "data" / "signals.csv").write_text(
+            "time,pair,symbol,lean_target_weight\n"
+            "2026-04-12 00:00:00,BTC/USDT,BTCUSDT,0\n",
+            encoding="utf-8",
+        )
+        _write_json(project / "manifest.json", {"local_only": True, "timeframe": timeframe, "rank_artifact": str(rank_artifact)})
+        (project / "main.py").write_text("# unit\n", encoding="utf-8")
+        return {"local_only": True, "timeframe": timeframe, "rank_artifact": str(rank_artifact), "data_root": data_root}
+
+    def fake_run_lean_backtest(*, lean_project, lean_bin="lean", timeout=None):
+        result = Path(lean_project) / "results.json"
+        _write_json(result, {"statistics": {"unit": True}})
+        _write_json(Path(lean_project) / "lean_backtest_run.json", {"command": [lean_bin, "backtest", str(lean_project)], "timeout": timeout})
+        return {"command": [lean_bin, "backtest", str(lean_project)], "returncode": 0, "result_path": str(result)}
+
+    def fake_compare_results(*, rank_artifact, lean_result, output=None, timeframe=None):
+        lean = {
+            "final_equity": 1.12,
+            "max_drawdown": 0.08,
+            "trades": 120.0,
+            "orders": 12.0,
+            "turnover": 1.0,
+            "max_gross": 1.0,
+            "fee_cost": 0.001,
+            "ending_open_positions": 0.0,
+        }
+        if lean_overrides:
+            lean.update(lean_overrides)
+        metrics = {
+            field: {"status": "ok", "research": lean.get(field), "lean": lean.get(field), "threshold": 0.05}
+            for field in ("final_equity", "max_drawdown", "trades", "orders", "turnover")
+        }
+        report = {
+            "status": comparison_status,
+            "metrics": metrics,
+            "lean": lean,
+            "research": dict(lean),
+            "rank_artifact": str(rank_artifact),
+            "lean_result": str(lean_result),
+            "output": str(output) if output else "",
+        }
+        if output:
+            _write_json(Path(output), report)
+        return report
+
+    monkeypatch.setattr(strategy_loop_mod.lean_bridge, "export_project", fake_export_project)
+    monkeypatch.setattr(strategy_loop_mod.lean_bridge, "run_lean_backtest", fake_run_lean_backtest)
+    monkeypatch.setattr(strategy_loop_mod.lean_bridge, "compare_results", fake_compare_results)
 
 
 def test_strategy_loop_checkpoint_roundtrip() -> None:
@@ -142,7 +203,7 @@ def test_candidate_schema_rejects_hardcoded_strategy_paths(tmp_path: Path) -> No
                 "",
                 "class BadPathStrategy(IStrategy):",
                 "    def _signals(self):",
-                "        df = pd.read_feather('/Users/shatianming/Downloads/Agent_market/artifacts/x.feather')",
+                f"        df = pd.read_feather('{repo_paths.REPO_ROOT / 'artifacts' / 'x.feather'}')",
                 "        return df[['rp_target_weight', 'rp_side']]",
             ]
         )
@@ -209,6 +270,7 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         validation_protocol="triple_holdout",
         verify_policy="pareto",
         promote_policy="final",
+        lean_gate_mode="final",
     )
     _write_json(
         root / "checkpoint.json",
@@ -229,6 +291,7 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         "blind_final": True,
         "promotion_eligible": True,
         "verification_status": VERIFICATION_PASSED,
+        "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"},
     }
     _write_json(
         root / "final_blind_status.json",
@@ -245,6 +308,7 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     )
     blind_dir = root / "blind_1"
     _write_json(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok"})
     _write_json(
         blind_dir / "manifest.json",
         {"artifact_refs": {"verification.json": {"path": "x", "sha256": "abc", "bytes": 1}}},
@@ -255,6 +319,28 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert result["ok"] is True
     assert result["summary"]["verification_counts"][VERIFICATION_PASSED] == 1
     assert result["findings"] == []
+
+
+def test_triple_holdout_without_finalists_writes_final_promotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "unit_empty_finalists"
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_empty",
+        run_id=run_id,
+        promote=True,
+        promote_policy="final",
+        validation_protocol="triple_holdout",
+        max_iterations=0,
+    )
+
+    result = StrategyLoopRunner(cfg).run()
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    final_status = json.loads((root / "final_blind_status.json").read_text(encoding="utf-8"))
+    final_promotion = json.loads((root / "final_promotion.json").read_text(encoding="utf-8"))
+
+    assert final_promotion == {"promoted": False, "artifacts": {}, "reason": "no Pareto finalists available"}
+    assert final_status["promotion"] == final_promotion
+    assert result["final_promotion"] == final_promotion
 
 
 def test_strategy_loop_registry_records_retention_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -841,6 +927,115 @@ def test_promotion_requires_passing_constraints(tmp_path: Path) -> None:
     assert payload["rank_profile"]["top_k"] == 2
 
 
+def test_promotion_requires_passed_lean_gate_when_enabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_promote_lean",
+        run_id="unit_promote_lean_run",
+        promote=True,
+        lean_gate_mode="final",
+    )
+    iter_dir = tmp_path / "iter_01"
+    iter_dir.mkdir()
+    _write_json(iter_dir / "candidate.json", {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2}})
+    candidate = validate_candidate(iter_dir / "candidate.json")
+    base_eval = {"constraints_ok": True, "score": 123.0, "promotion_reason": "passes hard gates"}
+
+    missing = promote_candidate(candidate, base_eval, cfg, iter_dir=iter_dir)
+    passed = promote_candidate(
+        candidate,
+        {**base_eval, "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"}},
+        cfg,
+        iter_dir=iter_dir,
+    )
+
+    assert missing["promoted"] is False
+    assert "lean_gate_status=missing" in missing["reason"]
+    assert passed["promoted"] is True
+
+
+def test_lean_gate_drift_blocks_promotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    _install_fake_lean_gate(monkeypatch, comparison_status="drift")
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_lean_drift",
+        run_id="unit_lean_drift_run",
+        promote=True,
+        lean_gate_mode="final",
+        lean_timeout=5,
+    )
+    idir = tmp_path / "iter_01"
+    idir.mkdir()
+    _write_json(idir / "backtest.json", {"signals": "unit"})
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2}}
+    evaluation = {"constraints_ok": True, "score": 10.0, "promotion_eligible": True, "promotion_reason": "passes hard gates"}
+
+    gate = StrategyLoopRunner(cfg)._apply_lean_gate(idir, evaluation, stage="final", timerange=cfg.timerange)
+    promoted = promote_candidate(candidate, evaluation, cfg, iter_dir=idir)
+
+    assert gate["status"] == VERIFICATION_FAILED
+    assert evaluation["promotion_eligible"] is False
+    assert promoted["promoted"] is False
+    assert "lean_gate_status=failed" in promoted["reason"]
+    assert (idir / "lean_gate.json").exists()
+
+
+def test_lean_gate_ok_allows_promotion_and_records_comparison(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    _install_fake_lean_gate(monkeypatch, comparison_status="ok")
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_lean_ok",
+        run_id="unit_lean_ok_run",
+        promote=True,
+        lean_gate_mode="final",
+        lean_timeout=5,
+    )
+    idir = tmp_path / "iter_01"
+    idir.mkdir()
+    _write_json(idir / "backtest.json", {"signals": "unit"})
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2}}
+    evaluation = {"constraints_ok": True, "score": 10.0, "promotion_eligible": True, "promotion_reason": "passes hard gates"}
+
+    gate = StrategyLoopRunner(cfg)._apply_lean_gate(idir, evaluation, stage="final", timerange=cfg.timerange)
+    promoted = promote_candidate(candidate, evaluation, cfg, iter_dir=idir)
+
+    assert gate["status"] == VERIFICATION_PASSED
+    assert evaluation["lean_comparison"]["status"] == "ok"
+    assert promoted["promoted"] is True
+    assert json.loads((idir / "lean_gate.json").read_text(encoding="utf-8"))["comparison_status"] == "ok"
+
+
+def test_lean_gate_all_uses_validation_stage_artifact_for_triple_holdout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    _install_fake_lean_gate(monkeypatch, comparison_status="ok")
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_lean_all",
+        run_id="unit_lean_all_run",
+        validation_protocol="triple_holdout",
+        lean_gate_mode="all",
+    )
+    idir = tmp_path / "iter_01"
+    idir.mkdir()
+    _write_json(
+        idir / "backtest.json",
+        {
+            "stages": {
+                "search": {"signals": str(tmp_path / "search.feather"), "venue": "okx", "timeframe": "1h"},
+                "validation": {"signals": str(tmp_path / "validation.feather"), "venue": "okx", "timeframe": "1h"},
+            }
+        },
+    )
+    evaluation = {"constraints_ok": True, "score": 10.0, "promotion_eligible": False, "promotion_reason": "validation only"}
+
+    gate = StrategyLoopRunner(cfg)._apply_lean_gate(idir, evaluation, stage="iteration", timerange=cfg.validation_timerange)
+    rank_artifact_path = repo_paths.resolve_repo_path(gate["artifacts"]["rank_artifact"])
+    rank_artifact = json.loads(rank_artifact_path.read_text(encoding="utf-8"))
+
+    assert gate["status"] == VERIFICATION_PASSED
+    assert rank_artifact["signals"].endswith("validation.feather")
+    assert gate["artifacts"]["rank_artifact"].endswith("lean_gate/iteration/rank_artifact.json")
+
+
 def test_promote_policy_final_defers_global_optimized_profile(tmp_path: Path) -> None:
     tag = "unit_promote_final"
     out = repo_paths.artifacts_root() / "rank_portfolio" / tag / "optimized_profile.json"
@@ -909,6 +1104,126 @@ def test_triple_holdout_score_uses_validation_not_search() -> None:
     assert evaluation["score"] == expected_validation["score"]
     assert evaluation["window_metrics"]["search"]["metrics"]["profit_pct"] == 200.0
     assert evaluation["window_metrics"]["validation"]["metrics"]["profit_pct"] == 9.0
+
+
+def test_triple_holdout_search_window_scores_research_only_without_freqtrade_noise() -> None:
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_triple_search_research_only",
+        validation_protocol="triple_holdout",
+        eval_mode="two_stage",
+        score_mode="composite",
+    )
+    search = {
+        "timerange": cfg.search_timerange,
+        "total_return_pct": 12.0,
+        "max_drawdown_pct": 6.0,
+        "profit_over_max_drawdown": 2.0,
+        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] - 1,
+    }
+
+    evaluation = score_triple_holdout_backtest({"stages": {"search": search}}, cfg)
+    search_window = evaluation["window_metrics"]["search"]
+
+    assert evaluation["selected_window"] == "validation"
+    assert evaluation["score"] > -1_000_000.0
+    assert evaluation["constraints_ok"] is False
+    assert search_window["violations"] == [f"trades={search['trades']} < {scaled_gate_values(cfg, cfg.search_timerange)['min_trades']}"]
+    assert not any("freqtrade_backtest missing" in item for item in search_window["violations"])
+    assert search_window["freqtrade_metrics"] == {}
+
+
+def test_skipped_freqtrade_stage_reports_skip_reason_without_zero_metric_noise() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit_skipped_ft", eval_mode="two_stage", score_mode="composite")
+    result = score_strategy_loop_backtest(
+        {
+            "total_return_pct": -5.0,
+            "max_drawdown_pct": 8.0,
+            "profit_over_max_drawdown": -0.625,
+            "trades": 8,
+            "freqtrade_backtest": {
+                "ok": False,
+                "skipped": True,
+                "reason": "Validation research gates failed",
+                "stage_a_violations": ["profit_over_max_drawdown=-0.625 < 1.2"],
+            },
+        },
+        cfg,
+    )
+
+    assert "freqtrade: Validation research gates failed" in result["violations"]
+    assert not any("freqtrade_backtest missing" in item for item in result["violations"])
+    assert not any("freqtrade: trades=0" in item for item in result["violations"])
+
+
+def test_rank_profile_repair_queue_generates_untried_trade_gate_repairs(tmp_path: Path) -> None:
+    baseline = {
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 2,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.51,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.01785,
+        "leverage_cap": 5.0,
+        "short_max_mom_24h": 0.038,
+        "short_max_market_mom_24h": 0.05,
+        "short_exit_mom_24h": 0.04,
+        "short_exit_market_mom_24h": 0.04,
+        "max_entry_atr_pct": 0.05,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_repair_queue",
+        run_id="unit_repair_queue_run",
+        validation_protocol="triple_holdout",
+        score_mode="composite",
+        baseline_profile=str(tmp_path / "optimized_profile.json"),
+    )
+    _write_json(
+        tmp_path / "optimized_profile.json",
+        {
+            "candidate_state": baseline["candidate_state"],
+            "selection": {"recompute_corr": False, "n": 50},
+            "risk": baseline,
+        },
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 1,
+            "candidate": {"candidate_type": "rank_profile", "name": "baseline", "rank_profile": baseline},
+            "parameter_signature": rank_profile_signature(baseline),
+            "window_metrics": {
+                "search": {
+                    "research_metrics": {
+                        "profit_pct": 32.0,
+                        "max_drawdown_pct": 8.0,
+                        "profit_over_max_drawdown": 4.0,
+                        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] - 4,
+                    }
+                }
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue(baseline, cfg, rows=rows)
+    runner = StrategyLoopRunner(cfg)
+    runner.state.iteration = 2
+    runner.state.score_history = rows
+    idir = tmp_path / "iter_02"
+    idir.mkdir()
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_repair_queue"
+    assert queue[0]["rank_profile"]["candidate_state"] == baseline["candidate_state"]
+    assert queue[0]["rank_profile"]["recompute_corr"] is False
+    assert queue[0]["rank_profile"]["min_abs_score_z"] < baseline["min_abs_score_z"]
+    assert runner._seed_rank_profile_repair_candidate(idir, idir / "candidate.json") is True
+    candidate = validate_candidate(idir / "candidate.json")
+    assert candidate["metadata"]["source"] == "controller_rank_profile_repair_queue"
+    assert candidate["rank_profile"]["min_abs_score_z"] < baseline["min_abs_score_z"]
 
 
 def test_triple_holdout_promotion_requires_blind_and_passed_verification(tmp_path: Path) -> None:

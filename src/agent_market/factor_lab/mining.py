@@ -19,12 +19,12 @@ import sys
 import time
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
-from .paths import (KUCOIN_DIR, FEATURE_FILE, EXPRESSIONS_SCORED,
+from .paths import (BINANCE_FUTURES_DIR, BYBIT_FUTURES_DIR, KUCOIN_DIR, OKX_FUTURES_DIR, FEATURE_FILE, EXPRESSIONS_SCORED,
                     DEFAULT_TRAIN, DEFAULT_OOS,
                     DEFAULT_TRAIN3, DEFAULT_VAL3, DEFAULT_REAL_TEST3,
                     DEFAULT_VAL_WINDOWS, DEFAULT_LABEL_PERIOD,
@@ -33,6 +33,14 @@ from .paths import (KUCOIN_DIR, FEATURE_FILE, EXPRESSIONS_SCORED,
 from . import fitness as F
 from .cache import CACHE_VERSION, DEFAULT_CACHE_DIR, file_fingerprint, get_cache, panel_fingerprint, stable_hash
 from .purification import DEFAULT_EXPOSURE_GROUPS, PurifyConfig, apply_purification, parse_exposure_groups
+from .timeframes import (
+    LANE_DEFAULTS,
+    bps_to_rate,
+    lane_manifest,
+    normalize_lane,
+    parse_label_horizons,
+    primary_label_horizon,
+)
 
 # import existing engine
 _SRC = str(Path(__file__).resolve().parents[2])
@@ -158,8 +166,14 @@ class MiningConfig:
     real_test3: Tuple[str, str] = DEFAULT_REAL_TEST3
     val_windows: Tuple = DEFAULT_VAL_WINDOWS
     timeframe: str = "1h"
+    evaluation_lane: str = "auto"
+    data_venue: str = "kucoin"
+    label_horizons: Tuple[int, ...] = ()
+    embargo_bars: int = 0
+    micro_data_quality: str = "unknown"
     class_threshold: float = DEFAULT_CLASS_THRESHOLD
     use_llm: bool = False
+    llm_required: bool = False
     seed_file: Optional[str] = None   # override default load_seeds() — multi-researcher isolation
     llm_retries: int = 3
     llm_timeout: float = 120.0
@@ -196,6 +210,34 @@ class MiningConfig:
     pure_residual_max_exposure_corr_gate: float = 0.50
     cache_dir: str = str(DEFAULT_CACHE_DIR)
     no_cache: bool = False
+    # Optional post-loop LEAN gate. Disabled by default because each trigger runs
+    # a full rank portfolio backtest, LEAN export, LEAN backtest, and comparison.
+    lean_gate_every: int = 0
+    lean_gate_fail_fast: bool = False
+    lean_gate_force: bool = True
+    lean_gate_n: int = 30
+    lean_gate_venue: str = "auto"
+    lean_gate_data_venue: str = "auto"
+    lean_gate_start: str = "2025-12-01"
+    lean_gate_end: str = "2026-04-12"
+    lean_gate_bin: str = "lean"
+    lean_gate_timeout: int = 0
+    lean_gate_data_root: str = ""
+    lean_gate_required_status: str = "ok"
+    lean_gate_min_final_equity: float = 1.0
+    lean_gate_max_drawdown_pct: float = 25.0
+    lean_gate_min_trades: int = 80
+    lean_gate_rank_top_k: int = 2
+    lean_gate_gross_cap: float = 2.0
+    lean_gate_net_cap: float = 2.0
+    lean_gate_single_pair_cap: float = 2.0
+    lean_gate_side_mode: str = "short"
+    lean_gate_score_threshold: float = 1.5
+    lean_gate_rebalance_hours: int = 8
+    lean_gate_rebalance_minutes: int = 0
+    lean_gate_risk_per_trade: float = 0.08
+    lean_gate_leverage_cap: float = 5.0
+    lean_gate_recompute_corr: bool = False
 
 
 @dataclass
@@ -236,6 +278,67 @@ class CandidateRecord:
 # Data loading
 # ============================================================
 
+FUTURES_VENUE_DIRS = {
+    "okx": OKX_FUTURES_DIR,
+    "bybit": BYBIT_FUTURES_DIR,
+    "binance": BINANCE_FUTURES_DIR,
+}
+
+
+def _pair_file_token(pair: str) -> str:
+    base = str(pair).split(":", 1)[0].replace("/", "_").upper()
+    if base.endswith("_USDT"):
+        return f"{base}_USDT"
+    return base
+
+
+def _futures_feather(pair: str, *, timeframe: str, data_dir: Optional[str | Path] = None) -> Path:
+    root = Path(data_dir) if data_dir is not None else OKX_FUTURES_DIR
+    return root / f"{_pair_file_token(pair)}-{timeframe}-futures.feather"
+
+
+def _pair_from_futures_token(token: str) -> str:
+    parts = str(token).upper().split("_")
+    if len(parts) >= 3 and parts[-2:] == ["USDT", "USDT"]:
+        return f"{'_'.join(parts[:-2])}/USDT"
+    if len(parts) >= 2:
+        return f"{parts[0]}/{parts[1]}"
+    return str(token).upper()
+
+
+def _discover_futures_pairs(data_dir: Optional[str | Path], timeframe: str) -> list[str]:
+    root = Path(data_dir) if data_dir is not None else OKX_FUTURES_DIR
+    if not root.exists():
+        return []
+    suffix = f"-{timeframe}-futures.feather"
+    pairs: list[str] = []
+    for path in sorted(root.glob(f"*{suffix}")):
+        token = path.name[: -len(suffix)]
+        pairs.append(_pair_from_futures_token(token))
+    return pairs
+
+
+def _resolve_mining_data(
+    *,
+    data_venue: str,
+    data_dir: Optional[str | Path],
+    timeframe: str,
+    pairs: Optional[Sequence[str] | str],
+) -> tuple[Path, list[str], list[Path]]:
+    venue = str(data_venue or "kucoin").strip().lower()
+    if venue in FUTURES_VENUE_DIRS:
+        data_root = Path(data_dir) if data_dir is not None else FUTURES_VENUE_DIRS[venue]
+        if isinstance(pairs, str) and pairs.strip().lower() == "auto":
+            pair_list = _discover_futures_pairs(data_root, timeframe) or resolve_pairs("default")
+        else:
+            pair_list = resolve_pairs(pairs, data_dir=data_root, timeframe=timeframe)
+        return data_root, pair_list, [_futures_feather(pair, timeframe=timeframe, data_dir=data_root) for pair in pair_list]
+
+    data_root = Path(data_dir) if data_dir is not None else KUCOIN_DIR
+    pair_list = resolve_pairs(pairs, data_dir=data_root, timeframe=timeframe)
+    return data_root, pair_list, [feather_for_pair(pair, timeframe=timeframe, data_dir=data_root) for pair in pair_list]
+
+
 def build_big(
     timeframe: str = "1h",
     label_bars: Optional[int] = None,
@@ -243,6 +346,7 @@ def build_big(
     label_mode: str = "forward_return",
     pair_reference: str = "BTC/USDT",
     data_dir: Optional[str | Path] = None,
+    data_venue: str = "auto",
     pairs: Optional[Sequence[str] | str] = None,
     cache_dir: Optional[str | Path] = None,
     no_cache: bool = False,
@@ -254,9 +358,13 @@ def build_big(
     """
     if label_bars is None:
         label_bars = TIMEFRAME_LABEL_BARS.get(timeframe, DEFAULT_LABEL_PERIOD)
-    data_root = Path(data_dir) if data_dir is not None else KUCOIN_DIR
-    pair_list = resolve_pairs(pairs, data_dir=data_root, timeframe=timeframe)
-    feather_paths = [feather_for_pair(pair, timeframe=timeframe, data_dir=data_root) for pair in pair_list]
+    venue = str(data_venue or "kucoin").strip().lower()
+    data_root, pair_list, feather_paths = _resolve_mining_data(
+        data_venue=venue,
+        data_dir=data_dir,
+        timeframe=timeframe,
+        pairs=pairs,
+    )
     existing_paths = [p for p in feather_paths if p.exists()]
     cache_enabled = bool(cache_dir) and not bool(no_cache)
     cache = get_cache(cache_dir, no_cache=not cache_enabled)
@@ -267,6 +375,7 @@ def build_big(
         "label_bars": int(label_bars),
         "label_mode": str(label_mode or "forward_return"),
         "pair_reference": pair_reference,
+        "data_venue": venue,
         "data_root": str(data_root),
         "pairs": pair_list,
         "feature_file": file_fingerprint(FEATURE_FILE),
@@ -294,7 +403,7 @@ def build_big(
         df["__pair__"] = pair
         frames.append(df)
     if not frames:
-        raise FileNotFoundError(f"no {timeframe} feather data found under {data_root}")
+        raise FileNotFoundError(f"no {venue} {timeframe} feather data found under {data_root}")
     big = pd.concat(frames, ignore_index=True)
     big["date"] = pd.to_datetime(big["date"], utc=True)
     big = big.sort_values(["__pair__", "date"]).reset_index(drop=True)
@@ -354,13 +463,59 @@ def build_big(
                 "label_bars": int(label_bars),
                 "label_mode": str(label_mode or "forward_return"),
                 "pair_reference": pair_reference,
+                "data_venue": venue,
             },
         )
     return big, base_cols
 
 
+_PAIR_INDEXERS_ATTR = "factor_lab_pair_indexers"
+
+
+def _pair_indexers_in_big(big: pd.DataFrame) -> List[Tuple[str, slice | np.ndarray]]:
+    cached = big.attrs.get(_PAIR_INDEXERS_ATTR)
+    if isinstance(cached, dict) and int(cached.get("length", -1)) == len(big):
+        indexers = cached.get("indexers")
+        if isinstance(indexers, list):
+            return indexers
+
+    pair_values = big["__pair__"].to_numpy()
+    if len(pair_values) == 0:
+        big.attrs[_PAIR_INDEXERS_ATTR] = {"length": 0, "indexers": []}
+        return []
+
+    boundaries = np.flatnonzero(pair_values[1:] != pair_values[:-1]) + 1
+    starts = np.r_[0, boundaries]
+    stops = np.r_[boundaries, len(pair_values)]
+
+    seen: set[str] = set()
+    indexers: List[Tuple[str, slice | np.ndarray]] = []
+    contiguous = True
+    for start, stop in zip(starts, stops):
+        pair = str(pair_values[int(start)])
+        if pair in seen:
+            contiguous = False
+            break
+        seen.add(pair)
+        indexers.append((pair, slice(int(start), int(stop))))
+
+    if not contiguous:
+        indexers = [
+            (str(pair), np.asarray(idx, dtype=np.int64))
+            for pair, idx in big.groupby("__pair__", sort=False).indices.items()
+        ]
+
+    big.attrs[_PAIR_INDEXERS_ATTR] = {"length": len(big), "indexers": indexers}
+    return indexers
+
+
+def _iter_pair_frames(big: pd.DataFrame):
+    for pair, indexer in _pair_indexers_in_big(big):
+        yield pair, indexer, big.iloc[indexer]
+
+
 def _pairs_in_big(big: pd.DataFrame) -> List[str]:
-    return [str(pair) for pair in big["__pair__"].drop_duplicates().tolist()]
+    return [pair for pair, _ in _pair_indexers_in_big(big)]
 
 
 def _is_composite_eval_mode(cfg: MiningConfig) -> bool:
@@ -449,6 +604,9 @@ def _eval_payload(big: pd.DataFrame, expr: str, cfg: MiningConfig) -> Dict[str, 
         "cache_version": CACHE_VERSION,
         "panel": panel_fingerprint(big),
         "expression": stable_hash({"expr": str(expr)}),
+        "evaluation_lane": str(cfg.evaluation_lane),
+        "label_horizons": list(_effective_label_horizons(cfg)),
+        "embargo_bars": int(cfg.embargo_bars or 0),
         "eval_mode": "composite" if _is_composite_eval_mode(cfg) else "legacy",
         "train": list(cfg.train),
         "oos": list(cfg.oos),
@@ -466,6 +624,40 @@ def _eval_payload(big: pd.DataFrame, expr: str, cfg: MiningConfig) -> Dict[str, 
         "alpha_objective": _alpha_objective(cfg),
         "pure_residual_gates": _pure_residual_gates(cfg) if _pure_residual_enabled(cfg) else None,
     }
+
+
+def _effective_lane(cfg: MiningConfig):
+    return normalize_lane(getattr(cfg, "evaluation_lane", "") or "auto", timeframe=cfg.timeframe)
+
+
+def _effective_label_horizons(cfg: MiningConfig) -> tuple[int, ...]:
+    lane = _effective_lane(cfg)
+    return parse_label_horizons(getattr(cfg, "label_horizons", ()), default=lane.label_horizons)
+
+
+def _effective_embargo_bars(cfg: MiningConfig) -> int:
+    lane = _effective_lane(cfg)
+    raw = int(getattr(cfg, "embargo_bars", 0) or 0)
+    return raw if raw > 0 else int(lane.embargo_bars)
+
+
+def mining_lane_manifest(cfg: MiningConfig) -> dict[str, Any]:
+    horizons = _effective_label_horizons(cfg)
+    fee_bps = float(cfg.fee_rate) * 10_000.0
+    slippage_bps = float(cfg.slippage) * 10_000.0
+    quality = str(getattr(cfg, "micro_data_quality", "") or "unknown")
+    if _effective_lane(cfg).lane in {"1m_micro", "5m_micro"} and quality == "unknown":
+        quality = "ohlcv_only"
+    return lane_manifest(
+        lane=_effective_lane(cfg).lane,
+        timeframe=cfg.timeframe,
+        data_venue=str(getattr(cfg, "data_venue", "kucoin") or "kucoin"),
+        label_horizons=horizons,
+        fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
+        embargo_bars=_effective_embargo_bars(cfg),
+        micro_data_quality=quality,
+    )
 
 
 def factor_versions(big: pd.DataFrame, expr: str, cfg: MiningConfig) -> Dict[str, Any]:
@@ -558,12 +750,11 @@ def _effective_purify_sign_gate(big: pd.DataFrame, cfg: MiningConfig) -> int:
 def _eval_factor_by_pair(big: pd.DataFrame, expr: str) -> pd.Series:
     """Evaluate an expression per pair to preserve rolling-window causality."""
     out = pd.Series(np.nan, index=big.index, dtype="float64")
-    for pair in _pairs_in_big(big):
-        sub = big.loc[big["__pair__"] == pair]
+    for _, indexer, sub in _iter_pair_frames(big):
         if sub.empty:
             continue
         values = safe_eval_expression(expr, sub)
-        out.loc[sub.index] = np.asarray(values, dtype=np.float64)
+        out.iloc[indexer] = np.asarray(values, dtype=np.float64)
     return out.replace([np.inf, -np.inf], np.nan)
 
 
@@ -576,8 +767,7 @@ def _legacy_metrics_for_series(
     ics_tr, ics_oo = [], []
     oos_chunks: List[np.ndarray] = []
     series = pd.Series(factor, index=big.index, dtype="float64").replace([np.inf, -np.inf], np.nan)
-    for pair in _pairs_in_big(big):
-        sub = big.loc[big["__pair__"] == pair]
+    for _, _, sub in _iter_pair_frames(big):
         s_pair = series.loc[sub.index]
         m_tr = ((sub["date"] >= pd.Timestamp(cfg.train[0], tz="UTC"))
                 & (sub["date"] < pd.Timestamp(cfg.train[1], tz="UTC")))
@@ -791,8 +981,7 @@ def _eval_legacy(big: pd.DataFrame, expr: str, cfg: MiningConfig,
         return _eval_legacy_purified(big, expr, cfg, return_oos_series)
     ics_tr, ics_oo = [], []
     oos_chunks: List[np.ndarray] = []
-    for pair in _pairs_in_big(big):
-        sub = big.loc[big["__pair__"] == pair]
+    for _, _, sub in _iter_pair_frames(big):
         series = safe_eval_expression(expr, sub)
         m_tr = ((sub["date"] >= pd.Timestamp(cfg.train[0], tz="UTC"))
                 & (sub["date"] < pd.Timestamp(cfg.train[1], tz="UTC")))
@@ -834,8 +1023,7 @@ def _eval_composite_series(big: pd.DataFrame, factor: pd.Series, cfg: MiningConf
     ts_val   = pd.Timestamp(cfg.val3[0],   tz="UTC")
     te_val   = pd.Timestamp(cfg.val3[1],   tz="UTC")
 
-    for pair in _pairs_in_big(big):
-        sub = big.loc[big["__pair__"] == pair]
+    for pair, _, sub in _iter_pair_frames(big):
         if len(sub) < 500:
             continue
         s_arr = np.asarray(series_all.loc[sub.index], dtype=np.float64)
@@ -976,8 +1164,7 @@ def _eval_composite(big: pd.DataFrame, expr: str, cfg: MiningConfig,
     ts_val   = pd.Timestamp(cfg.val3[0],   tz="UTC")
     te_val   = pd.Timestamp(cfg.val3[1],   tz="UTC")
 
-    for pair in _pairs_in_big(big):
-        sub = big.loc[big["__pair__"] == pair]
+    for pair, _, sub in _iter_pair_frames(big):
         if len(sub) < 500:
             continue
         series = safe_eval_expression(expr, sub)
@@ -1708,6 +1895,8 @@ def save_state(
     }
     if cfg is not None:
         state["config"] = asdict(cfg)
+        state.update(mining_lane_manifest(cfg))
+        state["intraday"] = mining_lane_manifest(cfg)
         state["alpha_objective"] = _alpha_objective(cfg)
         state["cache_stats"] = _cache_for_cfg(cfg).snapshot()
         if _pure_residual_enabled(cfg):
@@ -1737,6 +1926,145 @@ def load_state(tag: str) -> Optional[Tuple[int, List[CandidateRecord], set]]:
     allowed = {f.name for f in fields(CandidateRecord)}
     sur = [CandidateRecord(**{k: v for k, v in r.items() if k in allowed}) for r in d["survivors"]]
     return int(d["loop"]), sur, set(d.get("all_evaluated", []))
+
+
+FUTURES_LEAN_VENUES = {"okx", "bybit", "binance"}
+
+
+def _lean_gate_enabled(cfg: MiningConfig) -> bool:
+    try:
+        return int(getattr(cfg, "lean_gate_every", 0) or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _should_run_loop_lean_gate(cfg: MiningConfig, loop: int) -> bool:
+    if not _lean_gate_enabled(cfg):
+        return False
+    every = max(1, int(getattr(cfg, "lean_gate_every", 0) or 0))
+    return loop % every == 0 or loop == int(cfg.rounds)
+
+
+def _effective_lean_gate_venue(cfg: MiningConfig) -> str:
+    raw = str(getattr(cfg, "lean_gate_venue", "auto") or "auto").strip().lower()
+    if raw != "auto":
+        return raw
+    data_venue = str(getattr(cfg, "data_venue", "") or "").strip().lower()
+    return data_venue if data_venue in FUTURES_LEAN_VENUES else "okx"
+
+
+def _effective_lean_gate_data_venue(cfg: MiningConfig) -> str:
+    raw = str(getattr(cfg, "lean_gate_data_venue", "auto") or "auto").strip().lower()
+    if raw != "auto":
+        return raw
+    data_venue = str(getattr(cfg, "data_venue", "") or "").strip().lower()
+    return data_venue if data_venue else "auto"
+
+
+def _lean_gate_rank_kwargs(cfg: MiningConfig) -> Dict[str, Any]:
+    return {
+        "top_k": int(getattr(cfg, "lean_gate_rank_top_k", 2) or 2),
+        "gross_cap": float(getattr(cfg, "lean_gate_gross_cap", 2.0) or 2.0),
+        "net_cap": float(getattr(cfg, "lean_gate_net_cap", 2.0) or 2.0),
+        "single_pair_cap": float(getattr(cfg, "lean_gate_single_pair_cap", 2.0) or 2.0),
+        "side_mode": str(getattr(cfg, "lean_gate_side_mode", "short") or "short"),
+        "min_abs_score_z": float(getattr(cfg, "lean_gate_score_threshold", 1.5) or 0.0),
+        "rebalance_hours": int(getattr(cfg, "lean_gate_rebalance_hours", 8) or 8),
+        "rebalance_minutes": (
+            int(getattr(cfg, "lean_gate_rebalance_minutes", 0))
+            if int(getattr(cfg, "lean_gate_rebalance_minutes", 0) or 0) > 0
+            else None
+        ),
+        "risk_per_trade": float(getattr(cfg, "lean_gate_risk_per_trade", 0.08) or 0.08),
+        "leverage_cap": float(getattr(cfg, "lean_gate_leverage_cap", 5.0) or 5.0),
+        "recompute_corr": bool(getattr(cfg, "lean_gate_recompute_corr", False)),
+    }
+
+
+def _cfg_float(cfg: MiningConfig, name: str, default: float) -> float:
+    raw = getattr(cfg, name, default)
+    if raw is None or raw == "":
+        return float(default)
+    return float(raw)
+
+
+def _cfg_int(cfg: MiningConfig, name: str, default: int) -> int:
+    raw = getattr(cfg, name, default)
+    if raw is None or raw == "":
+        return int(default)
+    return int(raw)
+
+
+def _lean_gate_summary(result: Mapping[str, Any], loop: int) -> Dict[str, Any]:
+    artifacts = result.get("artifacts") if isinstance(result.get("artifacts"), dict) else {}
+    return {
+        "loop": int(loop),
+        "status": result.get("status"),
+        "reason": result.get("reason"),
+        "comparison_status": result.get("comparison_status"),
+        "violations": result.get("violations") if isinstance(result.get("violations"), list) else [],
+        "duration_sec": result.get("duration_sec"),
+        "summary": artifacts.get("summary"),
+        "comparison_json": artifacts.get("comparison_json"),
+        "lean_project": artifacts.get("lean_project"),
+        "lean_result": artifacts.get("lean_result"),
+    }
+
+
+def _record_loop_lean_gate(tag: str, loop: int, result: Mapping[str, Any]) -> None:
+    sd = state_dir(tag)
+    summary = _lean_gate_summary(result, loop)
+    history_path = sd / "lean_gate_history.jsonl"
+    with history_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(summary, sort_keys=True, default=str) + "\n")
+    for state_path in (sd / "latest.json", sd / f"state_{loop:04d}.json"):
+        if not state_path.exists():
+            continue
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            state["lean_gate_latest"] = summary
+            state["lean_gate_history"] = str(history_path)
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+        except Exception:
+            pass
+
+
+def _run_loop_lean_gate(tag: str, loop: int, cfg: MiningConfig) -> Dict[str, Any]:
+    from . import mine_lean_gate
+
+    sd = state_dir(tag)
+    candidate_state = sd / f"state_{loop:04d}.json"
+    if not candidate_state.exists():
+        raise FileNotFoundError(f"mining state snapshot missing for LEAN gate: {candidate_state}")
+    run_id = f"loop_{loop:04d}"
+    result = mine_lean_gate.run_mine_lean_gate(
+        tag=tag,
+        n=int(getattr(cfg, "lean_gate_n", 30) or 30),
+        candidate_state=candidate_state,
+        run_id=run_id,
+        output=sd / "lean_gate" / run_id,
+        rank_tag=f"{tag}_lean_{run_id}",
+        venue=_effective_lean_gate_venue(cfg),
+        timeframe=cfg.timeframe,
+        data_venue=_effective_lean_gate_data_venue(cfg),
+        start=str(getattr(cfg, "lean_gate_start", "2025-12-01") or "2025-12-01"),
+        end=str(getattr(cfg, "lean_gate_end", "2026-04-12") or "2026-04-12"),
+        lean_bin=str(getattr(cfg, "lean_gate_bin", "lean") or "lean"),
+        lean_timeout=(
+            int(getattr(cfg, "lean_gate_timeout", 0))
+            if int(getattr(cfg, "lean_gate_timeout", 0) or 0) > 0
+            else None
+        ),
+        lean_data_root=(str(getattr(cfg, "lean_gate_data_root", "") or "") or None),
+        lean_required_status=str(getattr(cfg, "lean_gate_required_status", "ok") or "ok"),
+        min_final_equity=_cfg_float(cfg, "lean_gate_min_final_equity", 1.0),
+        max_drawdown_pct=_cfg_float(cfg, "lean_gate_max_drawdown_pct", 25.0),
+        min_trades=_cfg_int(cfg, "lean_gate_min_trades", 80),
+        force=bool(getattr(cfg, "lean_gate_force", True)),
+        rank_kwargs=_lean_gate_rank_kwargs(cfg),
+    )
+    _record_loop_lean_gate(tag, loop, result)
+    return dict(result)
 
 
 REJECTION_REASON_ORDER = (
@@ -1920,16 +2248,25 @@ def _llm_generate(
 
 def mine(cfg: MiningConfig, tag: str = "default", resume: bool = True) -> List[CandidateRecord]:
     random.seed(42); np.random.seed(42)
+    lane = _effective_lane(cfg)
+    cfg.evaluation_lane = lane.lane
+    cfg.timeframe = lane.timeframe
+    cfg.label_horizons = _effective_label_horizons(cfg)
+    cfg.embargo_bars = _effective_embargo_bars(cfg)
+    cfg.label_period = primary_label_horizon(cfg.label_horizons, default=lane.label_horizons)
     print(f"[mining] loading {cfg.timeframe} feature matrix "
-          f"(eval_mode={cfg.eval_mode}, turnover_w={cfg.turnover_weight}, "
+          f"(lane={cfg.evaluation_lane}, venue={cfg.data_venue}, horizons={list(cfg.label_horizons)}, "
+          f"eval_mode={cfg.eval_mode}, turnover_w={cfg.turnover_weight}, "
           f"xs_w={cfg.xs_weight}, label_mode={cfg.label_mode}, pairs={cfg.pairs}, "
           f"purify={_effective_purify_mode(cfg)}/{cfg.purify_neutralize}, "
           f"alpha_objective={_alpha_objective(cfg)}, prompt_profile={cfg.prompt_profile})...", flush=True)
     big, base_cols = build_big(
         timeframe=cfg.timeframe,
+        label_bars=int(cfg.label_period),
         label_mode=cfg.label_mode,
         pair_reference=cfg.pair_reference,
         data_dir=cfg.data_dir,
+        data_venue=cfg.data_venue,
         pairs=cfg.pairs,
         cache_dir=cfg.cache_dir,
         no_cache=cfg.no_cache,
@@ -1956,6 +2293,10 @@ def mine(cfg: MiningConfig, tag: str = "default", resume: bool = True) -> List[C
                max_same_family_in_top40=cfg.max_same_family_in_top40,
                max_same_signature=cfg.max_same_signature,
                label_period=cfg.label_period,
+               label_horizons=list(cfg.label_horizons),
+               evaluation_lane=cfg.evaluation_lane,
+               data_venue=cfg.data_venue,
+               embargo_bars=cfg.embargo_bars,
                label_mode=cfg.label_mode,
                pair_reference=cfg.pair_reference,
                data_dir=cfg.data_dir,
@@ -2011,7 +2352,8 @@ def mine(cfg: MiningConfig, tag: str = "default", resume: bool = True) -> List[C
         seed_rank_cache: Dict[str, np.ndarray] = {}
         seed_rejections: Dict[str, int] = {reason: 0 for reason in REJECTION_REASON_ORDER}
         for i, expr in enumerate(seeds):
-            if i % 50 == 0: print(f"  seed eval [{i}/{len(seeds)}] scored={len(seed_candidates)}", flush=True)
+            if i == 0 or i % 5 == 0:
+                print(f"  seed eval [{i}/{len(seeds)}] scored={len(seed_candidates)}", flush=True)
             if expr in evaluated: continue
             evaluated.add(expr)
             m = eval_ic(big, expr, cfg, return_oos_series=_needs_diversity_rank_cache(cfg))
@@ -2085,7 +2427,9 @@ def mine(cfg: MiningConfig, tag: str = "default", resume: bool = True) -> List[C
         )[:max(12, min(cfg.top_k, 24))]
         elite_exprs = _prompt_elites_by_family(survivors, limit=max(12, min(cfg.top_k, 24)))
         if cfg.use_llm:
-            for c in _llm_generate(cfg, elite_records[:12], glossary, loop, rejection_summary):
+            llm_rows = _llm_generate(cfg, elite_records[:12], glossary, loop, rejection_summary)
+            llm_queued = 0
+            for c in llm_rows:
                 e = (c.get("expression") or "").strip()
                 if not e or len(e) >= MAX_EXPR_LEN:
                     _record_rejection(rejection_summary, loop_rejections, "invalid_expr", expression=e)
@@ -2108,6 +2452,12 @@ def mine(cfg: MiningConfig, tag: str = "default", resume: bool = True) -> List[C
                         _record_rejection(rejection_summary, loop_rejections, "already_evaluated", expression=e)
                     else:
                         new_cands.append(("llm", e))
+                        llm_queued += 1
+            if bool(getattr(cfg, "llm_required", False)) and llm_queued <= 0:
+                raise RuntimeError(
+                    f"LLM required but produced no usable candidates at loop {loop}; "
+                    f"raw_candidates={len(llm_rows)}"
+                )
             llm_calls += 1
         for e in gen_python_offspring(elite_exprs[:cfg.top_k], loop, cfg.py_per_loop, available_cols=set(base_cols)):
             reason, detail = _feature_rejection_detail(
@@ -2224,10 +2574,49 @@ def mine(cfg: MiningConfig, tag: str = "default", resume: bool = True) -> List[C
                    best_oos_ic=best, evaluated=len(evaluated),
                    elapsed_min=round(elapsed, 2))
 
-        if loop % cfg.checkpoint_every == 0:
+        should_checkpoint = loop % cfg.checkpoint_every == 0
+        should_lean_gate = _should_run_loop_lean_gate(cfg, loop)
+        if should_checkpoint or should_lean_gate:
             save_state(tag, loop, survivors, evaluated, cfg, rejection_summary=rejection_summary)
+        if should_lean_gate:
+            print(f"[lean-gate loop {loop:>3}/{cfg.rounds}] running LEAN gate...", flush=True)
+            try:
+                gate_result = _run_loop_lean_gate(tag, loop, cfg)
+            except Exception as exc:
+                gate_result = {
+                    "status": "failed",
+                    "reason": f"LEAN gate hook failed: {exc}",
+                    "violations": [f"LEAN gate hook failed: {exc}"],
+                    "artifacts": {},
+                }
+                _record_loop_lean_gate(tag, loop, gate_result)
+            status = str(gate_result.get("status") or "unknown")
+            comparison_status = str(gate_result.get("comparison_status") or "missing")
+            reason = str(gate_result.get("reason") or "")
+            print(
+                f"[lean-gate loop {loop:>3}/{cfg.rounds}] "
+                f"status={status} comparison={comparison_status} reason={reason[:220]}",
+                flush=True,
+            )
+            _hub_event(
+                hub,
+                "mining.lean_gate_completed",
+                tag=tag,
+                loop=loop,
+                status=status,
+                comparison_status=comparison_status,
+                reason=reason,
+                artifacts=gate_result.get("artifacts"),
+            )
+            if bool(getattr(cfg, "lean_gate_fail_fast", False)) and status != "passed":
+                raise RuntimeError(f"LEAN gate failed at loop {loop}: {reason or status}")
 
-    save_state(tag, cfg.rounds, survivors, evaluated, cfg, rejection_summary=rejection_summary)
+    final_saved_in_loop = (
+        (int(cfg.rounds) % int(cfg.checkpoint_every) == 0)
+        or _should_run_loop_lean_gate(cfg, int(cfg.rounds))
+    )
+    if not final_saved_in_loop:
+        save_state(tag, cfg.rounds, survivors, evaluated, cfg, rejection_summary=rejection_summary)
     _hub_event(hub, "mining.finished", tag=tag, rounds=cfg.rounds,
                survivors=len(survivors), evaluated=len(evaluated),
                novelty_rejected_total=novelty_rejected,
@@ -2544,6 +2933,9 @@ def export_top(
     score_mode: str = "combined",
     family_max: int = 6,
     timeframe: str = "1h",
+    evaluation_lane: str = "auto",
+    data_venue: str = "auto",
+    label_horizons: Sequence[int] | str | None = None,
     eval_mode: str = "legacy",
     label_mode: str = "forward_return",
     pair_reference: str = "BTC/USDT",
@@ -2596,7 +2988,21 @@ def export_top(
             no_cache = bool(run_cfg.get("no_cache", no_cache))
     cfg_kwargs = {f.name: run_cfg[f.name] for f in fields(MiningConfig) if f.name in run_cfg}
     export_cfg = MiningConfig(**cfg_kwargs) if cfg_kwargs else MiningConfig()
+    lane_raw = str(evaluation_lane or getattr(export_cfg, "evaluation_lane", "auto") or "auto").strip().lower()
+    if lane_raw not in {"", "auto", "1h"} and str(timeframe or "1h").strip().lower() == "1h":
+        lane = normalize_lane(lane_raw)
+        timeframe = lane.timeframe
+    else:
+        lane = normalize_lane(lane_raw, timeframe=timeframe)
     export_cfg.timeframe = timeframe
+    export_cfg.evaluation_lane = lane.lane
+    export_cfg.label_horizons = parse_label_horizons(label_horizons, default=lane.label_horizons) if label_horizons not in (None, "") else parse_label_horizons(getattr(export_cfg, "label_horizons", ()), default=lane.label_horizons)
+    export_cfg.label_period = primary_label_horizon(export_cfg.label_horizons, default=lane.label_horizons)
+    export_cfg.embargo_bars = int(getattr(export_cfg, "embargo_bars", 0) or lane.embargo_bars)
+    if str(data_venue or "auto").lower() == "auto":
+        export_cfg.data_venue = str(getattr(export_cfg, "data_venue", "kucoin") or "kucoin")
+    else:
+        export_cfg.data_venue = str(data_venue)
     export_cfg.eval_mode = eval_mode
     export_cfg.label_mode = label_mode
     export_cfg.pair_reference = pair_reference
@@ -2622,9 +3028,11 @@ def export_top(
         print(f"[export] recomputing OOS rank series for {len(survivors)} survivors...")
         big, _ = build_big(
             timeframe=timeframe,
+            label_bars=int(export_cfg.label_period),
             label_mode=label_mode,
             pair_reference=pair_reference,
             data_dir=data_dir,
+            data_venue=export_cfg.data_venue,
             pairs=pairs,
             cache_dir=cache_dir,
             no_cache=no_cache,
@@ -2662,11 +3070,14 @@ def export_top(
         out_name = out_name or f"freqai_expressions_{tag}.json"
 
     out = USER_DATA / out_name
+    manifest = mining_lane_manifest(export_cfg)
     out.write_text(json.dumps({
         "version": f"lab-{tag}{'-diverse' if diverse else ''}",
         "diverse": bool(diverse),
         "corr_gate": corr_gate if diverse else None,
         "score_mode": score_mode,
+        **manifest,
+        "intraday": manifest,
         "expressions": [
             _candidate_export_row(s, i)
             for i, s in enumerate(top)

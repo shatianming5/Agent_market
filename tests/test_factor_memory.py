@@ -182,6 +182,14 @@ def test_factor_multiagent_critic_uses_engine_functions_and_semantics() -> None:
     assert leak["ok"] is False
     assert any("shift second argument must be >= 0" in reason for reason in leak["reasons"])
 
+    grouped = critic_audit_expression("rank_xs(close, date) + zscore_xs(volume, ts)", ["close", "volume"])
+    assert grouped["ok"], grouped
+
+    for expr in ("date", "ts_z(date, 3)", "neutralize(close, ts)"):
+        audit = critic_audit_expression(expr, ["close"])
+        assert audit["ok"] is False
+        assert any(reason.startswith("time_key_not_factor:") for reason in audit["reasons"])
+
 
 def test_factor_multiagent_roles_control_transfer_and_curator() -> None:
     expressions = [

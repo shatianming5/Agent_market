@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[3]
 USER_DATA = ROOT / "user_data"
 KUCOIN_DIR = USER_DATA / "data" / "kucoin"
 OKX_FUTURES_DIR = USER_DATA / "data" / "okx" / "futures"
+BYBIT_FUTURES_DIR = USER_DATA / "data" / "bybit" / "futures"
+BINANCE_FUTURES_DIR = USER_DATA / "data" / "binance" / "futures"
 FUNDING_DIR = USER_DATA / "data" / "funding"
 
 FEATURE_FILE = USER_DATA / "freqai_features_real.json"

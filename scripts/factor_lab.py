@@ -64,9 +64,14 @@ if env_file.exists():
         os.environ.setdefault(k.strip(), v.strip())
 
 from agent_market import paths as repo_paths
-from agent_market.factor_lab import data, features, mining, validation, backtest, deploy, combo_ga, rl, reporting, rank_portfolio, strategy_loop
+from agent_market.factor_lab import data, features, mining, validation, backtest, deploy, combo_ga, rl, reporting, rank_portfolio, strategy_loop, okx_universe, lean_bridge, mine_lean_gate
 from agent_market.factor_lab.cache import DEFAULT_CACHE_DIR, cache_inventory, clear_cache
+from agent_market.factor_lab.timeframes import bps_to_rate, normalize_lane, parse_label_horizons, primary_label_horizon
 from agent_market.factor_memory import audit_factor_memory_path
+
+FUTURES_VENUE_CHOICES = ["okx", "bybit", "binance"]
+DATA_VENUE_CHOICES = ["auto", "kucoin", "okx", "bybit", "binance"]
+MINING_DATA_VENUE_CHOICES = ["kucoin", "okx", "bybit", "binance"]
 
 
 # ============================================================
@@ -81,12 +86,72 @@ def cmd_data(args):
             from datetime import datetime, timedelta
             start = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=args.years * 365)).strftime("%Y-%m-%d")
         start = start or "2023-04-12"
-        data.download_kucoin(timeframe=args.timeframe, start=start, end=end)
+        data.download_kucoin(timeframe=args.timeframe, start=start, end=end, pairs=args.pairs, sleep_s=args.sleep)
     elif args.source == "okx-futures":
+        pairs = args.pairs
+        pair_start_dates = None
+        if args.universe:
+            universe_pairs, universe_starts = okx_universe.manifest_pairs_and_starts(args.universe)
+            if pairs:
+                selected = [part.strip() for part in str(pairs).replace(";", ",").split(",") if part.strip()]
+                pairs = selected
+                pair_start_dates = {pair: universe_starts[pair] for pair in selected if pair in universe_starts}
+            else:
+                pairs = universe_pairs
+                pair_start_dates = universe_starts
         if args.aux_only:
-            print(json.dumps(data.prepare_okx_futures_auxiliary(), indent=2))
+            print(json.dumps(data.prepare_okx_futures_auxiliary(data_dir=Path(args.data_dir) if args.data_dir else data.OKX_FUTURES_DIR, timeframe=args.timeframe), indent=2))
         else:
-            data.download_okx_futures(start=args.start or "2025-04-12", end=args.end or "2026-04-12")
+            data.download_okx_futures(
+                start=args.start or "2025-04-12",
+                end=args.end or "2026-04-12",
+                timeframe=args.timeframe,
+                pairs=pairs,
+                sleep_s=args.sleep,
+                data_dir=Path(args.data_dir) if args.data_dir else data.OKX_FUTURES_DIR,
+                pair_start_dates=pair_start_dates,
+            )
+    elif args.source == "bybit-futures":
+        if args.aux_only:
+            raise SystemExit("--aux-only only applies to okx-futures")
+        data.download_bybit_futures(
+            start=args.start or "2025-04-12",
+            end=args.end or "2026-04-12",
+            timeframe=args.timeframe,
+            pairs=args.pairs,
+            sleep_s=args.sleep,
+            data_dir=Path(args.data_dir) if args.data_dir else data.BYBIT_FUTURES_DIR,
+        )
+    elif args.source == "binance-futures":
+        if args.aux_only:
+            raise SystemExit("--aux-only only applies to okx-futures")
+        data.download_binance_futures(
+            start=args.start or "2025-04-12",
+            end=args.end or "2026-04-12",
+            timeframe=args.timeframe,
+            pairs=args.pairs,
+            sleep_s=args.sleep,
+            data_dir=Path(args.data_dir) if args.data_dir else data.BINANCE_FUTURES_DIR,
+        )
+    elif args.source == "okx-universe":
+        if args.universe:
+            path = okx_universe.write_okx_universe_manifest(
+                args.universe,
+                full_history_start=args.full_history_start,
+                top_n=args.top_n,
+            )
+            payload = okx_universe.load_okx_universe_manifest(path)
+            print(json.dumps({
+                "path": str(path),
+                "name": payload.get("name"),
+                "pair_count": payload.get("pair_count"),
+                "spot_matched_count": payload.get("spot_matched_count"),
+                "min_list_date": payload.get("min_list_date"),
+                "max_list_date": payload.get("max_list_date"),
+            }, indent=2))
+        else:
+            paths = okx_universe.build_default_okx_universe_manifests(full_history_start=args.full_history_start)
+            print(json.dumps([str(path) for path in paths], indent=2))
     elif args.source == "funding":
         data.download_funding(start=args.start or "2023-04-12", end=args.end or "2026-04-18")
 
@@ -137,6 +202,14 @@ def cmd_features_restore(args):
 
 
 def cmd_mine(args):
+    lane_tf = args.timeframe
+    if str(args.lane or "auto") not in {"auto", "1h"} and str(args.timeframe or "1h") == "1h":
+        lane_tf = None
+    lane = normalize_lane(args.lane, timeframe=lane_tf)
+    label_horizons = parse_label_horizons(args.label_horizons, default=lane.label_horizons)
+    fee_rate = bps_to_rate(args.fee_bps) if args.fee_bps is not None else float(args.fee_rate)
+    slippage = bps_to_rate(args.slippage_bps) if args.slippage_bps is not None else float(args.slippage)
+    label_period = primary_label_horizon(label_horizons, default=lane.label_horizons)
     cfg = mining.MiningConfig(
         rounds=args.rounds, top_k=args.top_k,
         llm_per_loop=args.llm_per_loop, py_per_loop=args.py_per_loop,
@@ -147,15 +220,23 @@ def cmd_mine(args):
         max_same_family_in_top40=args.max_same_family_in_top40,
         max_same_signature=args.max_same_signature,
         checkpoint_every=args.checkpoint_every,
-        use_llm=args.llm, llm_timeout=args.llm_timeout, llm_retries=args.llm_retries,
+        use_llm=args.llm, llm_required=args.llm_required,
+        llm_timeout=args.llm_timeout, llm_retries=args.llm_retries,
         llm_max_tokens=args.llm_max_tokens,
         llm_reasoning_effort=args.llm_reasoning_effort,
-        timeframe=args.timeframe,
+        timeframe=lane.timeframe,
+        evaluation_lane=lane.lane,
+        data_venue=args.data_venue,
+        label_horizons=label_horizons,
+        label_period=label_period,
+        embargo_bars=args.embargo_bars or lane.embargo_bars,
+        micro_data_quality=args.micro_data_quality,
         eval_mode=args.eval_mode,
         xs_weight=args.xs_weight,
         turnover_weight=args.turnover_weight,
         stability_mode=args.stability_mode,
-        fee_rate=args.fee_rate,
+        fee_rate=fee_rate,
+        slippage=slippage,
         label_mode=args.label_mode,
         pair_reference=args.pair_reference,
         data_dir=args.data_dir,
@@ -173,6 +254,32 @@ def cmd_mine(args):
         llm_min_feature_rows=args.llm_min_feature_rows,
         cache_dir=args.cache_dir,
         no_cache=args.no_cache,
+        lean_gate_every=args.lean_gate_every,
+        lean_gate_fail_fast=args.lean_gate_fail_fast,
+        lean_gate_force=not args.lean_gate_no_force,
+        lean_gate_n=args.lean_gate_n,
+        lean_gate_venue=args.lean_gate_venue,
+        lean_gate_data_venue=args.lean_gate_data_venue,
+        lean_gate_start=args.lean_gate_start,
+        lean_gate_end=args.lean_gate_end,
+        lean_gate_bin=args.lean_gate_bin,
+        lean_gate_timeout=args.lean_gate_timeout,
+        lean_gate_data_root=args.lean_gate_data_root,
+        lean_gate_required_status=args.lean_gate_required_status,
+        lean_gate_min_final_equity=args.lean_gate_min_final_equity,
+        lean_gate_max_drawdown_pct=args.lean_gate_max_drawdown_pct,
+        lean_gate_min_trades=args.lean_gate_min_trades,
+        lean_gate_rank_top_k=args.lean_gate_rank_top_k,
+        lean_gate_gross_cap=args.lean_gate_gross_cap,
+        lean_gate_net_cap=args.lean_gate_net_cap,
+        lean_gate_single_pair_cap=args.lean_gate_single_pair_cap,
+        lean_gate_side_mode=args.lean_gate_side_mode,
+        lean_gate_score_threshold=args.lean_gate_score_threshold,
+        lean_gate_rebalance_hours=args.lean_gate_rebalance_hours,
+        lean_gate_rebalance_minutes=args.lean_gate_rebalance_minutes,
+        lean_gate_risk_per_trade=args.lean_gate_risk_per_trade,
+        lean_gate_leverage_cap=args.lean_gate_leverage_cap,
+        lean_gate_recompute_corr=args.lean_gate_recompute_corr,
     )
     survivors = mining.mine(cfg, tag=args.tag, resume=args.resume)
     print(f"\n[mining] final: {len(survivors)} survivors")
@@ -195,6 +302,9 @@ def cmd_mine_export(args):
         score_mode=args.score_mode,
         family_max=args.family_max,
         timeframe=args.timeframe,
+        evaluation_lane=args.lane,
+        data_venue=args.data_venue,
+        label_horizons=args.label_horizons,
         eval_mode=args.eval_mode,
         label_mode=args.label_mode,
         pair_reference=args.pair_reference,
@@ -214,6 +324,80 @@ def cmd_mine_export(args):
         print(f"Wrote {USER_DATA / f'factor_diversity_report_{args.tag}.json'}")
 
 
+def _rank_gate_kwargs_from_args(args):
+    return {
+        "top_k": args.top_k,
+        "gross_cap": args.gross_cap,
+        "net_cap": args.net_cap,
+        "single_pair_cap": args.single_pair_cap,
+        "risk_profile": args.risk_profile,
+        "side_mode": args.side_mode,
+        "min_abs_score_z": args.score_threshold,
+        "rebalance_hours": args.rebalance_hours,
+        "rebalance_minutes": args.rebalance_minutes,
+        "risk_per_trade": args.risk_per_trade,
+        "leverage_cap": args.leverage_cap,
+        "edge_mode": args.edge_mode,
+        "edge_lookback_hours": args.edge_lookback_hours,
+        "edge_min_periods": args.edge_min_periods,
+        "edge_deadband": args.edge_deadband,
+        "pair_edge_leverage": args.pair_edge_leverage,
+        "pair_edge_deadband": args.pair_edge_deadband,
+        "pair_edge_strong_ic": args.pair_edge_strong_ic,
+        "pair_edge_very_strong_ic": args.pair_edge_very_strong_ic,
+        "pair_edge_weak_cap": args.pair_edge_weak_cap,
+        "regime_mode": args.regime_mode,
+        "regime_min_edge_ic": args.regime_min_edge_ic,
+        "regime_min_pair_edge_ic": args.regime_min_pair_edge_ic,
+        "regime_min_pair_count": args.regime_min_pair_count,
+        "regime_short_max_market_mom_24h": args.regime_short_max_market_mom_24h,
+        "regime_short_max_market_mom_72h": args.regime_short_max_market_mom_72h,
+        "regime_max_market_atr_pct": args.regime_max_market_atr_pct,
+        "short_max_mom_24h": args.short_max_mom_24h,
+        "short_max_mom_72h": args.short_max_mom_72h,
+        "long_min_mom_24h": args.long_min_mom_24h,
+        "max_entry_atr_pct": args.max_entry_atr_pct,
+        "short_max_market_mom_24h": args.short_max_market_mom_24h,
+        "short_max_market_mom_72h": args.short_max_market_mom_72h,
+        "short_max_market_ma_gap": args.short_max_market_ma_gap,
+        "short_exit_mom_24h": args.short_exit_mom_24h,
+        "short_exit_mom_72h": args.short_exit_mom_72h,
+        "short_exit_market_mom_24h": args.short_exit_market_mom_24h,
+        "short_exit_market_ma_gap": args.short_exit_market_ma_gap,
+        "exclude_pairs": args.exclude_pairs,
+        "recompute_corr": not args.no_corr_recompute,
+    }
+
+
+def cmd_mine_lean_gate(args):
+    result = mine_lean_gate.run_mine_lean_gate(
+        tag=args.tag,
+        n=args.n,
+        candidate_state=args.candidate_state,
+        run_id=args.run_id,
+        output=args.output,
+        rank_tag=args.rank_tag,
+        venue=args.venue,
+        timeframe=args.timeframe,
+        data_venue=args.data_venue,
+        pairs=args.pairs,
+        start=args.start,
+        end=args.end,
+        lean_bin=args.lean_bin,
+        lean_timeout=args.lean_timeout,
+        lean_data_root=args.lean_data_root,
+        lean_required_status=args.lean_required_status,
+        min_final_equity=args.min_final_equity,
+        max_drawdown_pct=args.max_drawdown_pct,
+        min_trades=args.min_trades,
+        force=args.force,
+        rank_kwargs=_rank_gate_kwargs_from_args(args),
+    )
+    print(json.dumps(result, indent=2, default=str))
+    if result.get("status") != mine_lean_gate.STATUS_PASSED and not args.no_fail_on_reject:
+        raise SystemExit(2)
+
+
 def cmd_validate(args):
     r = validation.validate(Path(args.factors))
     print(f"\nValidation JSON: {json.dumps(r, indent=2)}")
@@ -229,9 +413,11 @@ def cmd_factor_report(args):
         purify_neutralize=args.purify_neutralize,
         purify_exposures=args.purify_exposures,
         timeframe=args.timeframe,
+        label_bars=args.label_bars,
         label_mode=args.label_mode,
         pair_reference=args.pair_reference,
         data_dir=args.data_dir,
+        data_venue=args.data_venue,
         pairs=args.pairs,
         score_mode=args.score_mode,
         cache_dir=args.cache_dir,
@@ -250,9 +436,11 @@ def cmd_exposure_report(args):
         purify_neutralize=args.purify_neutralize,
         purify_exposures=args.purify_exposures,
         timeframe=args.timeframe,
+        label_bars=args.label_bars,
         label_mode=args.label_mode,
         pair_reference=args.pair_reference,
         data_dir=args.data_dir,
+        data_venue=args.data_venue,
         pairs=args.pairs,
         score_mode=args.score_mode,
         cache_dir=args.cache_dir,
@@ -393,6 +581,8 @@ def cmd_rank_export(args):
         n=args.n,
         risk_profile=args.risk_profile,
         venue=args.venue,
+        timeframe=args.timeframe,
+        data_venue=args.data_venue,
         start=args.start,
         end=args.end,
         top_k=args.top_k,
@@ -402,6 +592,7 @@ def cmd_rank_export(args):
         side_mode=args.side_mode,
         min_abs_score_z=args.score_threshold,
         rebalance_hours=args.rebalance_hours,
+        rebalance_minutes=args.rebalance_minutes,
         risk_per_trade=args.risk_per_trade,
         leverage_cap=args.leverage_cap,
         edge_mode=args.edge_mode,
@@ -442,6 +633,9 @@ def cmd_rank_backtest(args):
     result = rank_portfolio.rank_backtest(
         tag=args.tag,
         venue=args.venue,
+        timeframe=args.timeframe,
+        data_venue=args.data_venue,
+        pairs=args.pairs,
         top_k=args.top_k,
         gross_cap=args.gross_cap,
         net_cap=args.net_cap,
@@ -453,6 +647,7 @@ def cmd_rank_backtest(args):
         side_mode=args.side_mode,
         min_abs_score_z=args.score_threshold,
         rebalance_hours=args.rebalance_hours,
+        rebalance_minutes=args.rebalance_minutes,
         risk_per_trade=args.risk_per_trade,
         leverage_cap=args.leverage_cap,
         edge_mode=args.edge_mode,
@@ -489,6 +684,35 @@ def cmd_rank_backtest(args):
     print(json.dumps(result, indent=2, default=str))
 
 
+def cmd_lean_export(args):
+    manifest = lean_bridge.export_project(
+        rank_artifact=args.rank_artifact,
+        output=args.output,
+        timeframe=args.timeframe,
+        data_root=args.data_root,
+    )
+    print(json.dumps(manifest, indent=2, default=str))
+
+
+def cmd_lean_backtest(args):
+    result = lean_bridge.run_lean_backtest(
+        lean_project=args.lean_project,
+        lean_bin=args.lean_bin,
+        timeout=args.timeout,
+    )
+    print(json.dumps(result, indent=2, default=str))
+
+
+def cmd_lean_compare(args):
+    report = lean_bridge.compare_results(
+        rank_artifact=args.rank_artifact,
+        lean_result=args.lean_result,
+        output=args.output,
+        timeframe=args.timeframe,
+    )
+    print(json.dumps(report, indent=2, default=str))
+
+
 def cmd_strategy_loop(args):
     if args.resume and not args.run_id:
         raise SystemExit("--run-id is required with --resume")
@@ -498,6 +722,9 @@ def cmd_strategy_loop(args):
         agent=args.agent,
         model=args.model,
         risk_profile=args.risk_profile,
+        timeframe=args.timeframe,
+        data_venue=args.data_venue,
+        evaluation_lane=args.lane,
         max_iterations=args.max_iterations,
         timerange=args.timerange,
         run_id=args.run_id,
@@ -525,6 +752,11 @@ def cmd_strategy_loop(args):
         blind_timerange=args.blind_timerange,
         verify_policy=args.verify_policy,
         pareto_size_per_axis=args.pareto_size_per_axis,
+        lean_gate_mode=args.lean_gate_mode,
+        lean_bin=args.lean_bin,
+        lean_timeout=args.lean_timeout,
+        lean_required_status=args.lean_required_status,
+        lean_data_root=args.lean_data_root,
     )
     print(json.dumps(result, indent=2, default=str))
 
@@ -535,6 +767,9 @@ def cmd_strategy_loop_eval(args):
         tag=args.tag,
         venue=args.venue,
         risk_profile=args.risk_profile,
+        timeframe=args.timeframe,
+        data_venue=args.data_venue,
+        evaluation_lane=args.lane,
         timerange=args.timerange,
         n=args.n,
         run_id=args.run_id,
@@ -551,6 +786,11 @@ def cmd_strategy_loop_eval(args):
         blind_timerange=args.blind_timerange,
         verify_policy=args.verify_policy,
         pareto_size_per_axis=args.pareto_size_per_axis,
+        lean_gate_mode=args.lean_gate_mode,
+        lean_bin=args.lean_bin,
+        lean_timeout=args.lean_timeout,
+        lean_required_status=args.lean_required_status,
+        lean_data_root=args.lean_data_root,
     )
     print(json.dumps(result, indent=2, default=str))
 
@@ -581,9 +821,13 @@ def cmd_rank_sweep(args):
     side_modes = [str(x).strip() for x in str(args.side_modes).split(",") if str(x).strip()]
     score_thresholds = [float(x) for x in str(args.score_thresholds).split(",") if str(x).strip()]
     rebalance_hours_values = [int(x) for x in str(args.rebalance_hours_values).split(",") if str(x).strip()]
+    rebalance_minutes_values = [int(x) for x in str(args.rebalance_minutes_values).split(",") if str(x).strip()] if args.rebalance_minutes_values else None
     result = rank_portfolio.rank_sweep(
         tag=args.tag,
         venue=args.venue,
+        timeframe=args.timeframe,
+        data_venue=args.data_venue,
+        pairs=args.pairs,
         risk_profile=args.risk_profile,
         n=args.n,
         start=args.start,
@@ -594,6 +838,7 @@ def cmd_rank_sweep(args):
         side_modes=side_modes,
         score_thresholds=score_thresholds,
         rebalance_hours_values=rebalance_hours_values,
+        rebalance_minutes_values=rebalance_minutes_values,
         risk_per_trade=args.risk_per_trade,
         leverage_cap=args.leverage_cap,
         single_pair_cap=args.single_pair_cap,
@@ -724,8 +969,20 @@ def build_parser():
 
     # data
     d = sub.add_parser("data", help="download raw data")
-    d.add_argument("source", choices=["kucoin", "okx-futures", "funding"])
-    d.add_argument("--timeframe", choices=["1m", "1h", "4h"], default="1h")
+    d.add_argument("source", choices=["kucoin", "okx-futures", "bybit-futures", "binance-futures", "okx-universe", "funding"])
+    d.add_argument("--timeframe", choices=["1m", "5m", "15m", "1h", "4h"], default="1h")
+    d.add_argument("--pairs", default=None,
+                   help="comma-separated pair list, e.g. BTC/USDT,ETH/USDT; use 'all' for all discoverable futures symbols")
+    d.add_argument("--universe", default=None,
+                   help="[okx-futures/okx-universe] universe name or manifest path: core_160, top200_dynamic, all_raw")
+    d.add_argument("--full-history-start", default="2025-04-12",
+                   help="[okx-universe] required listing cutoff for full-history core universe")
+    d.add_argument("--top-n", type=int, default=None,
+                   help="[okx-universe] optional override for selected instrument count")
+    d.add_argument("--sleep", type=float, default=0.15,
+                   help="[futures/kucoin] sleep seconds between API calls")
+    d.add_argument("--data-dir", default=None,
+                   help="[futures] override destination feather directory")
     d.add_argument("--start", default=None)
     d.add_argument("--end", default=None)
     d.add_argument("--years", type=int, default=None)
@@ -784,8 +1041,19 @@ def build_parser():
     m.add_argument("--max-same-signature", type=int, default=2,
                     help="maximum survivors with the same canonical source signature")
     m.add_argument("--checkpoint-every", type=int, default=10)
+    m.add_argument("--lane", default="auto", choices=["auto", "1h", "4h", "15m_intraday", "5m_micro", "1m_micro"],
+                    help="factor evaluation lane; auto follows --timeframe")
     m.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h", "1d"],
                     help="feather timeframe to load (must have data at that freq)")
+    m.add_argument("--data-venue", default="kucoin", choices=MINING_DATA_VENUE_CHOICES,
+                    help="data file convention for mining; futures venues read user_data/data/<venue>/futures/*-futures.feather")
+    m.add_argument("--label-horizons", default=None,
+                    help="comma-separated forward label horizons in bars; defaults from --lane")
+    m.add_argument("--embargo-bars", type=int, default=0,
+                    help="purged split embargo bars recorded in artifacts; 0 uses lane default")
+    m.add_argument("--micro-data-quality", default="unknown",
+                    choices=["unknown", "ohlcv_only", "spread_orderflow"],
+                    help="data quality marker for micro lanes; 1m OHLCV-only is not promotion eligible")
     m.add_argument("--data-dir", default=None,
                    help="directory containing spot OHLCV feathers (default: user_data/data/kucoin)")
     m.add_argument("--pairs", default="auto",
@@ -801,12 +1069,20 @@ def build_parser():
                     help="[composite] how to aggregate multi-period IC")
     m.add_argument("--fee-rate", type=float, default=0.0008,
                     help="[composite] taker fee, default 0.08%% KuCoin")
+    m.add_argument("--fee-bps", type=float, default=None,
+                    help="[composite] taker fee in bps; overrides --fee-rate")
+    m.add_argument("--slippage", type=float, default=0.0003,
+                    help="[composite] slippage rate, default 3bps")
+    m.add_argument("--slippage-bps", type=float, default=None,
+                    help="[composite] slippage in bps; overrides --slippage")
     m.add_argument("--label-mode", default="forward_return",
                     choices=["forward_return", "pair_spread_btc", "pair_beta_resid_btc"],
                     help="target mode: raw forward return or pair-relative forward return")
     m.add_argument("--pair-reference", default="BTC/USDT",
                     help="[label-mode=pair_*] reference pair, default BTC/USDT")
     m.add_argument("--llm", action="store_true", help="enable LLM generation")
+    m.add_argument("--llm-required", action="store_true",
+                    help="[llm] fail the mining loop if a round produces no usable LLM candidate")
     m.add_argument("--llm-timeout", type=float, default=120.0)
     m.add_argument("--llm-retries", type=int, default=3)
     m.add_argument("--llm-max-tokens", type=int, default=0,
@@ -841,6 +1117,47 @@ def build_parser():
                     help="persistent FactorLab cache directory")
     m.add_argument("--no-cache", action="store_true",
                     help="disable persistent panel/exposure/eval cache")
+    m.add_argument("--lean-gate-every", type=int, default=0,
+                    help="run post-loop LEAN gate every N mining loops; 1 means every loop, 0 disables")
+    m.add_argument("--lean-gate-fail-fast", action="store_true",
+                    help="stop mining immediately if a scheduled LEAN gate fails")
+    m.add_argument("--lean-gate-no-force", action="store_true",
+                    help="reuse an existing per-loop LEAN gate summary when present")
+    m.add_argument("--lean-gate-n", type=int, default=30,
+                    help="[lean gate] number of mined factors selected for rank portfolio")
+    m.add_argument("--lean-gate-venue", default="auto", choices=["auto", *FUTURES_VENUE_CHOICES],
+                    help="[lean gate] execution venue; auto follows futures --data-venue")
+    m.add_argument("--lean-gate-data-venue", default="auto", choices=DATA_VENUE_CHOICES,
+                    help="[lean gate] feature data venue; auto follows mining --data-venue")
+    m.add_argument("--lean-gate-start", default="2025-12-01",
+                    help="[lean gate] rank/LEAN backtest start date")
+    m.add_argument("--lean-gate-end", default="2026-04-12",
+                    help="[lean gate] rank/LEAN backtest end date")
+    m.add_argument("--lean-gate-bin", default=os.environ.get("LEAN_BIN", "lean"),
+                    help="[lean gate] LEAN CLI binary")
+    m.add_argument("--lean-gate-timeout", type=int, default=0,
+                    help="[lean gate] LEAN backtest timeout seconds; 0 disables timeout")
+    m.add_argument("--lean-gate-data-root", default="",
+                    help="[lean gate] override futures feather root for LEAN export")
+    m.add_argument("--lean-gate-required-status", default="ok",
+                    help="[lean gate] required lean-compare status")
+    m.add_argument("--lean-gate-min-final-equity", type=float, default=mine_lean_gate.DEFAULT_MIN_FINAL_EQUITY)
+    m.add_argument("--lean-gate-max-drawdown-pct", type=float, default=mine_lean_gate.DEFAULT_MAX_DRAWDOWN_PCT)
+    m.add_argument("--lean-gate-min-trades", type=int, default=mine_lean_gate.DEFAULT_MIN_TRADES)
+    m.add_argument("--lean-gate-rank-top-k", type=int, default=2,
+                    help="[lean gate] rank portfolio active factor count")
+    m.add_argument("--lean-gate-gross-cap", type=float, default=2.0)
+    m.add_argument("--lean-gate-net-cap", type=float, default=2.0)
+    m.add_argument("--lean-gate-single-pair-cap", type=float, default=2.0)
+    m.add_argument("--lean-gate-side-mode", default="short", choices=["both", "long", "short"])
+    m.add_argument("--lean-gate-score-threshold", type=float, default=1.5)
+    m.add_argument("--lean-gate-rebalance-hours", type=int, default=8)
+    m.add_argument("--lean-gate-rebalance-minutes", type=int, default=0,
+                    help="[lean gate] wall-clock rebalance minutes; 0 uses hours")
+    m.add_argument("--lean-gate-risk-per-trade", type=float, default=0.08)
+    m.add_argument("--lean-gate-leverage-cap", type=float, default=5.0)
+    m.add_argument("--lean-gate-recompute-corr", action="store_true",
+                    help="[lean gate] recompute rank-series correlations inside rank portfolio")
     m.add_argument("--no-resume", dest="resume", action="store_false", default=True)
     m.set_defaults(func=cmd_mine)
 
@@ -857,6 +1174,12 @@ def build_parser():
                     help="[--diverse] maximum factors from one primary family")
     me.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h", "1d"],
                     help="[--diverse] timeframe used to recompute OOS rank series")
+    me.add_argument("--lane", default="auto", choices=["auto", "1h", "4h", "15m_intraday", "5m_micro", "1m_micro"],
+                    help="[--diverse] factor evaluation lane")
+    me.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES,
+                    help="[--diverse] data file convention; auto inherits checkpoint config")
+    me.add_argument("--label-horizons", default=None,
+                    help="[--diverse] comma-separated label horizons in bars; auto inherits lane/checkpoint")
     me.add_argument("--data-dir", default=None,
                     help="[--diverse] directory containing spot OHLCV feathers")
     me.add_argument("--pairs", default="auto",
@@ -881,13 +1204,98 @@ def build_parser():
                     help="disable persistent panel/exposure/eval cache")
     me.set_defaults(func=cmd_mine_export)
 
+    mlg = sub.add_parser("mine-lean-gate", help="post-mining LEAN gate for a mined factor candidate pool")
+    mlg.add_argument("--tag", required=True,
+                     help="mining tag/checkpoint to validate")
+    mlg.add_argument("--n", type=int, default=30,
+                     help="number of factors to select for the rank portfolio stage")
+    mlg.add_argument("--candidate-state", default=None,
+                     help="freeze factor candidates from a specific mining state/export JSON instead of latest checkpoint")
+    mlg.add_argument("--run-id", default=None,
+                     help="stable run id for artifact paths; default uses tag + UTC timestamp")
+    mlg.add_argument("--output", default=None,
+                     help="output directory for candidate_state, LEAN project, comparison, and summary")
+    mlg.add_argument("--rank-tag", default=None,
+                     help="rank_portfolio artifact tag; default derives from tag + run-id")
+    mlg.add_argument("--venue", default="okx", choices=FUTURES_VENUE_CHOICES)
+    mlg.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
+    mlg.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES,
+                     help="feature panel venue; auto inherits candidate/rank defaults")
+    mlg.add_argument("--pairs", default=None,
+                     help="pair universe: default, auto/all, or comma-separated pairs")
+    mlg.add_argument("--start", default="2025-12-01")
+    mlg.add_argument("--end", default="2026-04-12")
+    mlg.add_argument("--top-k", type=int, default=2)
+    mlg.add_argument("--gross-cap", type=float, default=2.0)
+    mlg.add_argument("--net-cap", type=float, default=2.0)
+    mlg.add_argument("--single-pair-cap", type=float, default=2.0)
+    mlg.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
+    mlg.add_argument("--side-mode", default="short", choices=["both", "long", "short"])
+    mlg.add_argument("--score-threshold", type=float, default=1.5,
+                     help="minimum abs(rp_score_z) required for new entries")
+    mlg.add_argument("--rebalance-hours", type=int, default=8)
+    mlg.add_argument("--rebalance-minutes", type=int, default=None,
+                     help="rebalance cadence in wall-clock minutes; overrides --rebalance-hours")
+    mlg.add_argument("--risk-per-trade", type=float, default=0.08)
+    mlg.add_argument("--leverage-cap", type=float, default=5.0)
+    mlg.add_argument("--edge-mode", default="rolling_ic", choices=["off", "rolling_ic"])
+    mlg.add_argument("--edge-lookback-hours", type=int, default=336)
+    mlg.add_argument("--edge-min-periods", type=int, default=168)
+    mlg.add_argument("--edge-deadband", type=float, default=0.005)
+    mlg.add_argument("--pair-edge-deadband", type=float, default=None)
+    mlg.add_argument("--pair-edge-strong-ic", type=float, default=None)
+    mlg.add_argument("--pair-edge-very-strong-ic", type=float, default=None)
+    mlg.add_argument("--pair-edge-weak-cap", type=float, default=None)
+    mlg.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true")
+    mlg.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false")
+    mlg.add_argument("--regime-mode", default=None, choices=["off", "hq"])
+    mlg.add_argument("--regime-min-edge-ic", type=float, default=None)
+    mlg.add_argument("--regime-min-pair-edge-ic", type=float, default=None)
+    mlg.add_argument("--regime-min-pair-count", type=int, default=None)
+    mlg.add_argument("--regime-short-max-market-mom-24h", type=float, default=None)
+    mlg.add_argument("--regime-short-max-market-mom-72h", type=float, default=None)
+    mlg.add_argument("--regime-max-market-atr-pct", type=float, default=None)
+    mlg.add_argument("--short-max-mom-24h", type=float, default=None)
+    mlg.add_argument("--short-max-mom-72h", type=float, default=None)
+    mlg.add_argument("--long-min-mom-24h", type=float, default=None)
+    mlg.add_argument("--max-entry-atr-pct", type=float, default=None)
+    mlg.add_argument("--short-max-market-mom-24h", type=float, default=None)
+    mlg.add_argument("--short-max-market-mom-72h", type=float, default=None)
+    mlg.add_argument("--short-max-market-ma-gap", type=float, default=None)
+    mlg.add_argument("--short-exit-mom-24h", type=float, default=None)
+    mlg.add_argument("--short-exit-mom-72h", type=float, default=None)
+    mlg.add_argument("--short-exit-market-mom-24h", type=float, default=None)
+    mlg.add_argument("--short-exit-market-ma-gap", type=float, default=None)
+    mlg.add_argument("--exclude-pairs", default=None,
+                     help="comma-separated normalized pairs to block, e.g. SOL/USDT,BTC/USDT")
+    mlg.add_argument("--no-corr-recompute", action="store_true",
+                     help="skip rank-series recomputation for fast diagnostics")
+    mlg.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"))
+    mlg.add_argument("--lean-timeout", type=int, default=None)
+    mlg.add_argument("--lean-data-root", default=None,
+                     help="override futures feather root for LEAN export")
+    mlg.add_argument("--lean-required-status", default="ok",
+                     help="required lean-compare status, or comma-separated statuses such as ok,partial")
+    mlg.add_argument("--min-final-equity", type=float, default=mine_lean_gate.DEFAULT_MIN_FINAL_EQUITY)
+    mlg.add_argument("--max-drawdown-pct", type=float, default=mine_lean_gate.DEFAULT_MAX_DRAWDOWN_PCT)
+    mlg.add_argument("--min-trades", type=int, default=mine_lean_gate.DEFAULT_MIN_TRADES)
+    mlg.add_argument("--force", action="store_true",
+                     help="rerun even if the output summary already exists")
+    mlg.add_argument("--no-fail-on-reject", action="store_true",
+                     help="return exit code 0 even when the LEAN gate fails")
+    mlg.set_defaults(pair_edge_leverage=None)
+    mlg.set_defaults(func=cmd_mine_lean_gate)
+
     # factor-report
     frep = sub.add_parser("factor-report", help="generate IC/turnover/decay diagnostics for mined factors")
     frep.add_argument("--tag", required=True)
     frep.add_argument("--n", type=int, default=200)
     frep.add_argument("--score-mode", default="portfolio", choices=["combined", "fitness", "portfolio"])
     frep.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h", "1d"])
+    frep.add_argument("--label-bars", type=int, default=None,
+                      help="forward-return label horizon in bars; default inherits mining tag config")
     frep.add_argument("--data-dir", default=None)
+    frep.add_argument("--data-venue", default="auto", choices=MINING_DATA_VENUE_CHOICES + ["auto"])
     frep.add_argument("--pairs", default="auto")
     frep.add_argument("--label-mode", default="forward_return",
                       choices=["forward_return", "pair_spread_btc", "pair_beta_resid_btc"])
@@ -909,7 +1317,10 @@ def build_parser():
     erep.add_argument("--n", type=int, default=200)
     erep.add_argument("--score-mode", default="portfolio", choices=["combined", "fitness", "portfolio"])
     erep.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h", "1d"])
+    erep.add_argument("--label-bars", type=int, default=None,
+                      help="forward-return label horizon in bars; default inherits mining tag config")
     erep.add_argument("--data-dir", default=None)
+    erep.add_argument("--data-venue", default="auto", choices=MINING_DATA_VENUE_CHOICES + ["auto"])
     erep.add_argument("--pairs", default="auto")
     erep.add_argument("--label-mode", default="forward_return",
                       choices=["forward_return", "pair_spread_btc", "pair_beta_resid_btc"])
@@ -982,7 +1393,12 @@ def build_parser():
     rx.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
     rx.add_argument("--n", type=int, default=50)
     rx.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
-    rx.add_argument("--venue", default="okx", choices=["okx"])
+    rx.add_argument("--venue", default="okx", choices=FUTURES_VENUE_CHOICES)
+    rx.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
+    rx.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES,
+                    help="feature panel venue; auto inherits lane defaults")
+    rx.add_argument("--pairs", default=None,
+                    help="pair universe: default, auto/all, or comma-separated pairs; default inherits mining tag config")
     rx.add_argument("--top-k", type=int, default=None)
     rx.add_argument("--gross-cap", type=float, default=None)
     rx.add_argument("--net-cap", type=float, default=None)
@@ -991,6 +1407,8 @@ def build_parser():
     rx.add_argument("--score-threshold", type=float, default=None,
                     help="minimum abs(rp_score_z) required for new entries")
     rx.add_argument("--rebalance-hours", type=int, default=None)
+    rx.add_argument("--rebalance-minutes", type=int, default=None,
+                    help="rebalance cadence in wall-clock minutes; overrides --rebalance-hours")
     rx.add_argument("--risk-per-trade", type=float, default=None)
     rx.add_argument("--leverage-cap", type=float, default=None)
     rx.add_argument("--edge-mode", default=None, choices=["off", "rolling_ic"],
@@ -1046,9 +1464,14 @@ def build_parser():
     rx.set_defaults(pair_edge_leverage=None)
     rx.set_defaults(func=cmd_rank_export)
 
-    rb = sub.add_parser("rank-backtest", help="research backtest for rank-portfolio OKX futures signals")
+    rb = sub.add_parser("rank-backtest", help="research backtest for rank-portfolio futures signals")
     rb.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
-    rb.add_argument("--venue", default="okx", choices=["okx"])
+    rb.add_argument("--venue", default="okx", choices=FUTURES_VENUE_CHOICES)
+    rb.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
+    rb.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES,
+                    help="feature panel venue; auto inherits lane defaults")
+    rb.add_argument("--pairs", default=None,
+                    help="pair universe: default, auto/all, or comma-separated pairs; default inherits mining tag config")
     rb.add_argument("--top-k", type=int, default=2)
     rb.add_argument("--gross-cap", type=float, default=2.0)
     rb.add_argument("--net-cap", type=float, default=2.0)
@@ -1061,6 +1484,8 @@ def build_parser():
     rb.add_argument("--score-threshold", type=float, default=1.5,
                     help="minimum abs(rp_score_z) required for new entries")
     rb.add_argument("--rebalance-hours", type=int, default=8)
+    rb.add_argument("--rebalance-minutes", type=int, default=None,
+                    help="rebalance cadence in wall-clock minutes; overrides --rebalance-hours")
     rb.add_argument("--risk-per-trade", type=float, default=0.08)
     rb.add_argument("--leverage-cap", type=float, default=5.0)
     rb.add_argument("--edge-mode", default="rolling_ic", choices=["off", "rolling_ic"],
@@ -1114,9 +1539,43 @@ def build_parser():
     rb.set_defaults(pair_edge_leverage=None)
     rb.set_defaults(func=cmd_rank_backtest)
 
+    le = sub.add_parser("lean-export", help="export a local LEAN validation project from rank signals")
+    le.add_argument("--rank-artifact", required=True,
+                    help="rank_export.json or backtest.json produced by rank-export/rank-backtest")
+    le.add_argument("--output", required=True,
+                    help="output LEAN project directory, e.g. artifacts/lean/<run_id>")
+    le.add_argument("--timeframe", default=None, choices=["1m", "5m", "15m", "1h", "4h"],
+                    help="optional guard; must match the artifact timeframe")
+    le.add_argument("--data-root", default=None,
+                    help="override futures feather root for the artifact venue")
+    le.set_defaults(func=cmd_lean_export)
+
+    lb = sub.add_parser("lean-backtest", help="run local LEAN backtest for an exported bridge project")
+    lb.add_argument("--lean-project", required=True,
+                    help="exported LEAN project directory")
+    lb.add_argument("--lean-bin", default="lean",
+                    help="LEAN CLI binary/path (default: lean)")
+    lb.add_argument("--timeout", type=int, default=None,
+                    help="optional subprocess timeout in seconds")
+    lb.set_defaults(func=cmd_lean_backtest)
+
+    lc = sub.add_parser("lean-compare", help="compare rank research metrics with a LEAN result JSON")
+    lc.add_argument("--rank-artifact", required=True,
+                    help="rank_export.json or backtest.json used for the LEAN export")
+    lc.add_argument("--lean-result", required=True,
+                    help="LEAN result JSON or exported LEAN project directory")
+    lc.add_argument("--output", default=None,
+                    help="comparison JSON path (default: <lean-project>/comparison.json when discoverable)")
+    lc.add_argument("--timeframe", default=None, choices=["1m", "5m", "15m", "1h", "4h"],
+                    help="optional guard; must match the artifact timeframe")
+    lc.set_defaults(func=cmd_lean_compare)
+
     sl = sub.add_parser("strategy-loop", help="agentic rank/factor strategy loop with checkpoint/resume")
     sl.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
-    sl.add_argument("--venue", default="okx", choices=["okx"])
+    sl.add_argument("--venue", default="okx", choices=FUTURES_VENUE_CHOICES)
+    sl.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
+    sl.add_argument("--lane", default="auto", choices=["auto", "1h", "4h", "15m_intraday", "5m_micro", "1m_micro"])
+    sl.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES)
     sl.add_argument("--agent", default="hermes", choices=["hermes", "opencode"],
                     help="candidate-generation agent; Hermes is the default, OpenCode is legacy")
     sl.add_argument("--model", default=(os.environ.get("HERMES_MODEL") or os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or os.environ.get("OPENCODE_MODEL") or ""))
@@ -1168,6 +1627,16 @@ def build_parser():
                     help="which candidates get lookahead/recursive verification; triple_holdout promotion requires passed gates")
     sl.add_argument("--pareto-size-per-axis", type=int, default=3,
                     help="number of deduped candidates retained per Pareto axis")
+    sl.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"],
+                    help="run local LEAN validation as a promotion gate; enabled modes fail closed")
+    sl.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"),
+                    help="LEAN CLI binary/path for --lean-gate-mode")
+    sl.add_argument("--lean-timeout", type=int, default=None,
+                    help="optional LEAN backtest timeout in seconds")
+    sl.add_argument("--lean-required-status", default="ok",
+                    help="required lean-compare status, or comma-separated statuses such as ok,partial")
+    sl.add_argument("--lean-data-root", default=None,
+                    help="override futures feather root for LEAN export")
     sl.add_argument("--no-promote", action="store_true",
                     help="score candidates but do not write optimized_profile.json or strategy files")
     sl.set_defaults(func=cmd_strategy_loop)
@@ -1175,7 +1644,10 @@ def build_parser():
     sle = sub.add_parser("strategy-loop-eval", help="validate/backtest/score one strategy-loop candidate")
     sle.add_argument("--candidate", required=True, help="path to candidate.json")
     sle.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
-    sle.add_argument("--venue", default="okx", choices=["okx"])
+    sle.add_argument("--venue", default="okx", choices=FUTURES_VENUE_CHOICES)
+    sle.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
+    sle.add_argument("--lane", default="auto", choices=["auto", "1h", "4h", "15m_intraday", "5m_micro", "1m_micro"])
+    sle.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES)
     sle.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
     sle.add_argument("--timerange", default="20251201-20260412",
                      help="holdout window as YYYYMMDD-YYYYMMDD")
@@ -1196,13 +1668,18 @@ def build_parser():
     sle.add_argument("--blind-timerange", default="20260401-20260412")
     sle.add_argument("--verify-policy", default="none", choices=["pareto", "best", "all", "none"])
     sle.add_argument("--pareto-size-per-axis", type=int, default=3)
+    sle.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"])
+    sle.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"))
+    sle.add_argument("--lean-timeout", type=int, default=None)
+    sle.add_argument("--lean-required-status", default="ok")
+    sle.add_argument("--lean-data-root", default=None)
     sle.add_argument("--promote", action="store_true",
                      help="allow formal promotion if the candidate passes full holdout gates")
     sle.set_defaults(func=cmd_strategy_loop_eval)
 
     slr = sub.add_parser("strategy-loop-replay", help="replay optimized_profile.json research and fixed Freqtrade baselines")
     slr.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
-    slr.add_argument("--venue", default="okx", choices=["okx"])
+    slr.add_argument("--venue", default="okx", choices=FUTURES_VENUE_CHOICES)
     slr.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
     slr.add_argument("--timerange", default="20251201-20260412",
                      help="holdout window as YYYYMMDD-YYYYMMDD")
@@ -1220,7 +1697,12 @@ def build_parser():
 
     rs = sub.add_parser("rank-sweep", help="sweep rank-portfolio top-k and gross-cap settings")
     rs.add_argument("--tag", default="gpt54_purealpha_v2_full1000_fix1")
-    rs.add_argument("--venue", default="okx", choices=["okx"])
+    rs.add_argument("--venue", default="okx", choices=FUTURES_VENUE_CHOICES)
+    rs.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
+    rs.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES,
+                    help="feature panel venue; auto inherits lane defaults")
+    rs.add_argument("--pairs", default=None,
+                    help="pair universe: default, auto/all, or comma-separated pairs; default inherits mining tag config")
     rs.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
     rs.add_argument("--n", type=int, default=50)
     rs.add_argument("--start", default="2025-12-01")
@@ -1230,6 +1712,8 @@ def build_parser():
     rs.add_argument("--side-modes", default="short")
     rs.add_argument("--score-thresholds", default="1.5,2.0")
     rs.add_argument("--rebalance-hours-values", default="8,12,24")
+    rs.add_argument("--rebalance-minutes-values", default=None,
+                    help="comma-separated rebalance cadences in wall-clock minutes; overrides hours grid")
     rs.add_argument("--risk-per-trade", type=float, default=0.08)
     rs.add_argument("--leverage-cap", type=float, default=5.0)
     rs.add_argument("--single-pair-cap", type=float, default=None)

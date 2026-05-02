@@ -4,6 +4,7 @@ import json
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from agent_market.factor_lab import mining, rank_portfolio as rp
 
@@ -27,6 +28,37 @@ def _ranks(values: np.ndarray) -> np.ndarray:
     ranks = mining._series_to_ranks(values.astype(float))  # noqa: SLF001
     assert ranks is not None
     return ranks
+
+
+def _write_futures_feather(root, pair: str, timeframe: str = "1h", *, close: float = 100.0) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    dates = pd.date_range("2026-01-01", periods=3, freq=timeframe, tz="UTC")
+    frame = pd.DataFrame(
+        {
+            "date": dates,
+            "open": [close] * len(dates),
+            "high": [close + 1.0] * len(dates),
+            "low": [close - 1.0] * len(dates),
+            "close": [close] * len(dates),
+            "volume": [1000.0] * len(dates),
+        }
+    )
+    frame.to_feather(root / f"{rp._pair_file_token(pair)}-{timeframe}-futures.feather")  # noqa: SLF001
+
+
+def test_load_venue_ohlcv_uses_target_futures_root_without_okx_fallback(tmp_path, monkeypatch) -> None:
+    user_data = tmp_path / "user_data"
+    monkeypatch.setenv("AGENT_MARKET_USER_DATA_ROOT", str(user_data))
+    _write_futures_feather(user_data / "data" / "okx" / "futures", "BTC/USDT", close=100.0)
+
+    with pytest.raises(FileNotFoundError, match="no bybit 1h futures"):
+        rp.load_venue_ohlcv(venue="bybit", pairs=["BTC/USDT"], timeframe="1h")
+
+    _write_futures_feather(user_data / "data" / "bybit" / "futures", "BTC/USDT", close=200.0)
+    panel = rp.load_venue_ohlcv(venue="bybit", pairs=["BTC/USDT"], timeframe="1h")
+
+    assert panel["__pair__"].unique().tolist() == ["BTC/USDT"]
+    assert panel["close"].tolist() == [200.0, 200.0, 200.0]
 
 
 def test_load_candidates_can_freeze_specific_mining_state(tmp_path) -> None:
@@ -56,6 +88,38 @@ def test_load_candidates_can_freeze_specific_mining_state(tmp_path) -> None:
     assert len(candidates) == 1
     assert candidates[0].expression == "close"
     assert candidates[0].origin == "unit_state"
+
+
+def test_rank_pair_universe_inherits_auto_futures_pairs_from_candidate_state(tmp_path) -> None:
+    data_root = tmp_path / "binance_futures"
+    for pair in ("BTC/USDT", "ETH/USDT", "SOL/USDT"):
+        _write_futures_feather(data_root, pair, timeframe="4h")
+    state_path = tmp_path / "state_0001.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "config": {
+                    "timeframe": "4h",
+                    "data_venue": "binance",
+                    "data_dir": str(data_root),
+                    "pairs": "auto",
+                },
+                "survivors": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pairs, report = rp._resolve_rank_pair_universe(  # noqa: SLF001
+        tag="unit",
+        candidate_state=state_path,
+        timeframe="4h",
+        feature_venue="binance",
+    )
+
+    assert report["source"] == "mining_config"
+    assert report["count"] == 3
+    assert pairs == ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
 
 
 def test_negative_ic_factor_is_reversed_in_ensemble_score() -> None:

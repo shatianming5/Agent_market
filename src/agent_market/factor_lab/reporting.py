@@ -98,25 +98,39 @@ def _inherit_run_defaults(
     tag: str,
     *,
     timeframe: str,
+    label_bars: Optional[int],
     label_mode: str,
     pair_reference: str,
     data_dir: Optional[str],
+    data_venue: str,
     pairs: str,
-) -> Tuple[str, str, str, Optional[str], str]:
+) -> Tuple[str, Optional[int], str, str, Optional[str], str, str]:
     cfg = _load_run_config(tag)
     if not cfg:
-        return timeframe, label_mode, pair_reference, data_dir, pairs
+        return timeframe, label_bars, label_mode, pair_reference, data_dir, data_venue, pairs
     if timeframe == "1h":
         timeframe = str(cfg.get("timeframe") or timeframe)
+    if label_bars is None:
+        raw_label = cfg.get("label_period")
+        if raw_label in (None, ""):
+            horizons = cfg.get("label_horizons")
+            if isinstance(horizons, (list, tuple)) and horizons:
+                raw_label = list(horizons)[0]
+        try:
+            label_bars = int(raw_label) if raw_label not in (None, "") else None
+        except Exception:
+            label_bars = None
     if label_mode == "forward_return":
         label_mode = str(cfg.get("label_mode") or label_mode)
     if pair_reference == "BTC/USDT":
         pair_reference = str(cfg.get("pair_reference") or pair_reference)
     if data_dir is None and cfg.get("data_dir") is not None:
         data_dir = str(cfg.get("data_dir"))
+    if str(data_venue or "auto").lower() == "auto":
+        data_venue = str(cfg.get("data_venue") or data_venue)
     if pairs == "auto":
         pairs = str(cfg.get("pairs") or pairs)
-    return timeframe, label_mode, pair_reference, data_dir, pairs
+    return timeframe, label_bars, label_mode, pair_reference, data_dir, data_venue, pairs
 
 
 def _inherit_cache_defaults(tag: str, cache_dir: Optional[str | Path], no_cache: bool) -> Tuple[Optional[str | Path], bool]:
@@ -285,29 +299,35 @@ def factor_report(
     purify_neutralize: str = "ridge",
     purify_exposures: str = ",".join(DEFAULT_EXPOSURE_GROUPS),
     timeframe: str = "1h",
+    label_bars: Optional[int] = None,
     label_mode: str = "forward_return",
     pair_reference: str = "BTC/USDT",
     data_dir: Optional[str] = None,
+    data_venue: str = "auto",
     pairs: str = "auto",
     score_mode: str = "portfolio",
     cache_dir: Optional[str | Path] = DEFAULT_CACHE_DIR,
     no_cache: bool = False,
 ) -> Dict[str, Any]:
     candidates = _load_candidates(tag, n, score_mode=score_mode)
-    timeframe, label_mode, pair_reference, data_dir, pairs = _inherit_run_defaults(
+    timeframe, label_bars, label_mode, pair_reference, data_dir, data_venue, pairs = _inherit_run_defaults(
         tag,
         timeframe=timeframe,
+        label_bars=label_bars,
         label_mode=label_mode,
         pair_reference=pair_reference,
         data_dir=data_dir,
+        data_venue=data_venue,
         pairs=pairs,
     )
     cache_dir, no_cache = _inherit_cache_defaults(tag, cache_dir, no_cache)
     cfg = mining.MiningConfig(
         timeframe=timeframe,
+        label_period=int(label_bars) if label_bars is not None else mining.DEFAULT_LABEL_PERIOD,
         label_mode=label_mode,
         pair_reference=pair_reference,
         data_dir=data_dir,
+        data_venue=data_venue,
         pairs=pairs,
         purify_mode=purify_mode,
         purify_winsor=purify_winsor,
@@ -319,9 +339,11 @@ def factor_report(
     )
     big, _ = mining.build_big(
         timeframe=timeframe,
+        label_bars=label_bars,
         label_mode=label_mode,
         pair_reference=pair_reference,
         data_dir=data_dir,
+        data_venue=data_venue,
         pairs=pairs,
         cache_dir=cache_dir,
         no_cache=no_cache,
@@ -392,6 +414,13 @@ def factor_report(
         "n_requested": int(n),
         "n_reported": len(summary_rows),
         "purify_mode": purify_mode,
+        "timeframe": timeframe,
+        "label_bars": label_bars,
+        "label_mode": label_mode,
+        "pair_reference": pair_reference,
+        "data_venue": data_venue,
+        "data_dir": data_dir,
+        "pairs": pairs,
         "rows": summary_rows,
     }
     json_path = out_dir / "factor_report.json"
@@ -721,9 +750,11 @@ def exposure_report(
     purify_neutralize: str = "ridge",
     purify_exposures: str = ",".join(DEFAULT_EXPOSURE_GROUPS),
     timeframe: str = "1h",
+    label_bars: Optional[int] = None,
     label_mode: str = "forward_return",
     pair_reference: str = "BTC/USDT",
     data_dir: Optional[str] = None,
+    data_venue: str = "auto",
     pairs: str = "auto",
     score_mode: str = "portfolio",
     cache_dir: Optional[str | Path] = DEFAULT_CACHE_DIR,
@@ -733,29 +764,35 @@ def exposure_report(
     attribution_max_exposures: int = 12,
 ) -> Dict[str, Any]:
     candidates = _load_candidates(tag, n, score_mode=score_mode)
-    timeframe, label_mode, pair_reference, data_dir, pairs = _inherit_run_defaults(
+    timeframe, label_bars, label_mode, pair_reference, data_dir, data_venue, pairs = _inherit_run_defaults(
         tag,
         timeframe=timeframe,
+        label_bars=label_bars,
         label_mode=label_mode,
         pair_reference=pair_reference,
         data_dir=data_dir,
+        data_venue=data_venue,
         pairs=pairs,
     )
     cache_dir, no_cache = _inherit_cache_defaults(tag, cache_dir, no_cache)
     big, _ = mining.build_big(
         timeframe=timeframe,
+        label_bars=label_bars,
         label_mode=label_mode,
         pair_reference=pair_reference,
         data_dir=data_dir,
+        data_venue=data_venue,
         pairs=pairs,
         cache_dir=cache_dir,
         no_cache=no_cache,
     )
     cfg = mining.MiningConfig(
         timeframe=timeframe,
+        label_period=int(label_bars) if label_bars is not None else mining.DEFAULT_LABEL_PERIOD,
         label_mode=label_mode,
         pair_reference=pair_reference,
         data_dir=data_dir,
+        data_venue=data_venue,
         pairs=pairs,
         purify_mode=purify_mode,
         purify_winsor=purify_winsor,
@@ -823,6 +860,13 @@ def exposure_report(
         "n_requested": int(n),
         "n_reported": len(summary_rows),
         "purify_mode": purify_mode,
+        "timeframe": timeframe,
+        "label_bars": label_bars,
+        "label_mode": label_mode,
+        "pair_reference": pair_reference,
+        "data_venue": data_venue,
+        "data_dir": data_dir,
+        "pairs": pairs,
         "attribution_mode": mode,
         "attribution_max_dates": int(attribution_max_dates),
         "attribution_max_exposures": int(attribution_max_exposures),
