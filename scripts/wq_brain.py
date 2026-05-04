@@ -255,6 +255,58 @@ def cmd_report(args: argparse.Namespace) -> None:
     }, indent=2, default=str))
 
 
+def cmd_review(args: argparse.Namespace) -> None:
+    """Show iter_review.json across all loop iterations for a tag."""
+    from agent_market.wq_brain.paths import alpha_pool_path, wq_brain_root
+    from agent_market.wq_brain.pool import AlphaPool
+
+    runs_root = wq_brain_root() / "runs"
+    if not runs_root.exists():
+        print(json.dumps({"tag": args.tag, "iters": [], "note": "no runs/ directory"}, indent=2))
+        return
+
+    prefix = f"wqbrain_agent_{args.tag}_"
+    iters: list[dict] = []
+    for d in sorted(runs_root.iterdir(), key=lambda p: p.name):
+        if not d.is_dir() or not d.name.startswith(prefix):
+            continue
+        review_path = d / "iter_review.json"
+        if not review_path.exists():
+            continue
+        try:
+            r = json.loads(review_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        iters.append({
+            "run_id": d.name,
+            "duration_sec": r.get("iter_window", {}).get("duration_sec"),
+            "simulated": r.get("iter_simulated"),
+            "completed": r.get("iter_completed"),
+            "passed": r.get("iter_passed"),
+            "errored": r.get("iter_errored"),
+            "top_3": r.get("top_3_by_fitness", []),
+            "pool_size_after": r.get("pool_size_after"),
+        })
+
+    if args.last and args.last > 0:
+        iters = iters[-args.last:]
+
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    totals = {
+        "simulated": sum((i.get("simulated") or 0) for i in iters),
+        "completed": sum((i.get("completed") or 0) for i in iters),
+        "passed": sum((i.get("passed") or 0) for i in iters),
+        "errored": sum((i.get("errored") or 0) for i in iters),
+    }
+    print(json.dumps({
+        "tag": args.tag,
+        "iter_count": len(iters),
+        "totals": totals,
+        "pool_size_now": len(pool),
+        "iters": iters,
+    }, indent=2, default=str))
+
+
 # ── Parser ────────────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -340,6 +392,12 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("report", help="show pool report")
     sp.add_argument("--tag", required=True)
     sp.set_defaults(func=cmd_report)
+
+    sp = sub.add_parser("review", help="show per-iter reviews across loop iterations")
+    sp.add_argument("--tag", required=True)
+    sp.add_argument("--last", type=int, default=0,
+                    help="show only the last N iterations (0 = all)")
+    sp.set_defaults(func=cmd_review)
 
     return p
 

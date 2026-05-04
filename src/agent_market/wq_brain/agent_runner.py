@@ -207,6 +207,66 @@ def _build_opencode_cmd(config: AgentConfig, prompt: str) -> list[str]:
     return ["opencode", "run", "-m", model, prompt]
 
 
+def _build_iter_review(
+    *, tag: str, start_ts: float, end_ts: float,
+    sharpe_min: float, fitness_min: float,
+) -> dict:
+    tried = read_tried(tried_exprs_path(tag), tail=2000)
+    iter_tried = [
+        t for t in tried
+        if start_ts <= float(t.get("ts") or 0) <= end_ts + 1.0
+    ]
+    simulated = len(iter_tried)
+    completed = [t for t in iter_tried if t.get("status") == "COMPLETE"]
+    passed = [
+        t for t in completed
+        if (t.get("sharpe") is not None and float(t["sharpe"]) >= sharpe_min)
+        and (t.get("fitness") is not None and float(t["fitness"]) >= fitness_min)
+    ]
+    errored = [t for t in iter_tried if t.get("status") in ("ERROR", "FAILED")]
+
+    def _fi(t: dict) -> float:
+        v = t.get("fitness")
+        return float(v) if isinstance(v, (int, float)) else float("-inf")
+
+    top3 = sorted(completed, key=_fi, reverse=True)[:3]
+
+    pool = AlphaPool(alpha_pool_path(tag))
+    return {
+        "tag": tag,
+        "iter_window": {"start_ts": start_ts, "end_ts": end_ts,
+                        "duration_sec": round(end_ts - start_ts, 1)},
+        "iter_simulated": simulated,
+        "iter_completed": len(completed),
+        "iter_passed": len(passed),
+        "iter_errored": len(errored),
+        "top_3_by_fitness": [
+            {"expr": t.get("expr"), "sh": t.get("sharpe"),
+             "fi": t.get("fitness"), "to": t.get("turnover"),
+             "alpha_id": t.get("alpha_id")} for t in top3
+        ],
+        "passed_alpha_ids": [t.get("alpha_id") for t in passed if t.get("alpha_id")],
+        "pool_size_after": len(pool),
+        "thresholds": {"sharpe_min": sharpe_min, "fitness_min": fitness_min},
+    }
+
+
+def _format_review_oneline(review: dict) -> str:
+    top = review.get("top_3_by_fitness") or []
+    top_fi = top[0].get("fi") if top and top[0].get("fi") is not None else "-"
+    top_id = top[0].get("alpha_id") if top else "-"
+    return (
+        f"review[tag={review['tag']}] "
+        f"sim={review['iter_simulated']} "
+        f"complete={review['iter_completed']} "
+        f"passed={review['iter_passed']} "
+        f"err={review['iter_errored']} "
+        f"top_fi={top_fi} "
+        f"top_id={top_id} "
+        f"pool={review['pool_size_after']}"
+    )
+
+
 def run_agent(config: AgentConfig) -> dict:
     run_id = _make_run_id(config.tag)
     run_dir = wq_brain_run_dir(run_id)
@@ -252,7 +312,20 @@ def run_agent(config: AgentConfig) -> dict:
         rc = -1
         logger.warning("Agent session timed out after %.0fs", config.timeout_sec)
 
-    elapsed = time.time() - start
+    end = time.time()
+    elapsed = end - start
+
+    review = _build_iter_review(
+        tag=config.tag, start_ts=start, end_ts=end,
+        sharpe_min=config.quality_sharpe_min,
+        fitness_min=config.quality_fitness_min,
+    )
+    (run_dir / "iter_review.json").write_text(
+        json.dumps(review, indent=2, default=str), encoding="utf-8"
+    )
+    one_line = _format_review_oneline(review)
+    logger.info(one_line)
+
     summary: dict[str, object] = {
         "run_id": run_id,
         "run_dir": str(run_dir),
@@ -260,6 +333,7 @@ def run_agent(config: AgentConfig) -> dict:
         "elapsed_sec": elapsed,
         "agent_returncode": rc,
         "log_path": str(log_path),
+        "review": review,
     }
     for fname in ("notes.md", "summary.md", "pool.json"):
         if (run_dir / fname).exists():
