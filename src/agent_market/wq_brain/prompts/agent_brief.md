@@ -35,8 +35,10 @@ python {WQ_TOOLS} auth
 python {WQ_TOOLS} validate "rank(close)"
 
 # Simulate one alpha — returns sharpe/fitness/turnover/alpha_id
+# IMPORTANT: ALWAYS pass --tag {TAG} so the result is logged to the
+# cross-loop tried_exprs.jsonl ledger (next loop reads it for evolution).
 python {WQ_TOOLS} simulate "rank(close / ts_mean(close, 20) - 1)" \
-  --region {REGION} --universe {UNIVERSE} --decay {DECAY}
+  --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}
 
 # Submit a passing alpha to your permanent pool (alpha_id from simulate)
 python {WQ_TOOLS} submit ALPHA_ID --tag {TAG}
@@ -55,6 +57,14 @@ python {WQ_TOOLS} docs operators
 ```
 
 You may also use file/terminal freely to write notes, run quick analyses, etc.
+
+## Cross-Loop Knowledge (auto-evolution)
+
+This is loop iteration N of an ongoing campaign sharing the tag `{TAG}`.
+**Prior loops have already tried** the expressions below — DO NOT rerun them.
+Build on what worked; avoid what failed.
+
+{PRIOR_KNOWLEDGE}
 
 ## Suggested Workflow
 

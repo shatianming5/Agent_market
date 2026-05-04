@@ -18,6 +18,11 @@ def alpha_pool_path(tag: str) -> Path:
     return wq_brain_root() / "pools" / f"{tag}.json"
 
 
+def tried_exprs_path(tag: str) -> Path:
+    """Cross-loop ledger: every simulated expression appended as JSONL."""
+    return wq_brain_root() / "tried_exprs" / f"{tag}.jsonl"
+
+
 def run_registry_path() -> Path:
     return wq_brain_root() / "run_registry.jsonl"
 

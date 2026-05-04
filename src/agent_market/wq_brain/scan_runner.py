@@ -12,9 +12,10 @@ from typing import Optional
 from .client import WQSession, session_from_env
 from .dtypes import AlphaCandidate, AlphaSettings
 from .operators import validate_expression
-from .paths import alpha_pool_path, wq_brain_run_dir
+from .paths import alpha_pool_path, tried_exprs_path, wq_brain_run_dir
 from .pool import AlphaPool, DuplicateDetector
 from .seeds import expand_all, load_seeds_config
+from .tried_log import append_tried
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,22 @@ def run_scan(config: ScanConfig, session: Optional[WQSession] = None) -> dict:
         )
     ]
     logger.info("Scan: %d/%d passed quality gate", len(passed), len(candidates))
+
+    # Append every simulated candidate to cross-loop tried log
+    tried_path = tried_exprs_path(config.tag)
+    for c in candidates:
+        r = c.sim_result
+        if r is None:
+            continue
+        try:
+            append_tried(
+                tried_path, expr=c.expr,
+                sharpe=r.sharpe, fitness=r.fitness, turnover=r.turnover,
+                alpha_id=r.alpha_id, status=r.status, error=r.error,
+                region=config.region, universe=config.universe, decay=config.decay,
+            )
+        except Exception as exc:
+            logger.warning("tried_log append failed for %s: %s", c.candidate_id, exc)
 
     pool = AlphaPool(alpha_pool_path(config.tag))
     submitted_count = 0

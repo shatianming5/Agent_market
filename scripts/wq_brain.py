@@ -62,6 +62,8 @@ def cmd_validate(args: argparse.Namespace) -> None:
 def cmd_simulate(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.client import session_from_env
     from agent_market.wq_brain.dtypes import AlphaSettings
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import append_tried
     settings = AlphaSettings(
         region=args.region, universe=args.universe, decay=args.decay,
         neutralization=args.neutralization, truncation=args.truncation,
@@ -69,8 +71,32 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     try:
         sess = session_from_env()
         result = sess.simulate_and_parse(args.expr, settings, timeout=args.timeout)
+        if args.tag:
+            append_tried(
+                tried_exprs_path(args.tag),
+                expr=args.expr,
+                sharpe=result.sharpe,
+                fitness=result.fitness,
+                turnover=result.turnover,
+                alpha_id=result.alpha_id,
+                status=result.status,
+                error=result.error,
+                region=args.region,
+                universe=args.universe,
+                decay=args.decay,
+            )
         _emit({"ok": True, "expr": args.expr, **result.to_dict()})
     except Exception as exc:
+        if args.tag:
+            try:
+                append_tried(
+                    tried_exprs_path(args.tag), expr=args.expr,
+                    sharpe=None, fitness=None, turnover=None, alpha_id=None,
+                    status="ERROR", error=str(exc),
+                    region=args.region, universe=args.universe, decay=args.decay,
+                )
+            except Exception:
+                pass
         _emit({"ok": False, "expr": args.expr, "error": str(exc)}, code=1)
 
 
@@ -250,6 +276,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--neutralization", default="SUBINDUSTRY")
     sp.add_argument("--truncation", type=float, default=0.08)
     sp.add_argument("--timeout", type=float, default=600.0)
+    sp.add_argument("--tag", default="", help="when set, append result to tried_exprs.jsonl")
     sp.set_defaults(func=cmd_simulate)
 
     sp = sub.add_parser("submit", help="submit alpha to WQ PROD pool")

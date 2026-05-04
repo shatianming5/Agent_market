@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import Optional
 
 from .operators import operators_prompt_block
-from .paths import repo_root, wq_brain_run_dir
+from .paths import alpha_pool_path, repo_root, tried_exprs_path, wq_brain_run_dir
+from .pool import AlphaPool
+from .tried_log import format_for_prompt, read_tried
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +127,35 @@ def _resolve_cli(requested: str, *, env: Optional[dict[str, str]] = None) -> str
     raise RuntimeError("No agentic CLI found on PATH; install opencode or hermes")
 
 
+def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int = 60) -> str:
+    """Render cross-loop knowledge: passing pool + recent tried_exprs."""
+    parts: list[str] = []
+
+    pool = AlphaPool(alpha_pool_path(tag))
+    if len(pool):
+        top = pool.top_n_by_fitness(max_pool)
+        lines = ["### Passing Alphas In Pool (TAG=" + tag + ")", "", "| alpha_id | expr | sh | fi | to |", "|---|---|---|---|---|"]
+        for e in top:
+            expr = (e.expr or "")[:80].replace("|", "/")
+            lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |")
+        parts.append("\n".join(lines))
+
+    tried = read_tried(tried_exprs_path(tag), tail=max_tried * 4)
+    if tried:
+        parts.append("### Recently Attempted Expressions (latest result per expr)\n\n" + format_for_prompt(tried, max_rows=max_tried))
+
+    if not parts:
+        return "_(no prior loop data — fresh start)_"
+    return "\n\n".join(parts)
+
+
 def _build_system_prompt(config: AgentConfig, run_dir: Path) -> str:
     brief_path = repo_root() / "src" / "agent_market" / "wq_brain" / "prompts" / "agent_brief.md"
     if not brief_path.exists():
         raise FileNotFoundError(f"Agent brief template not found: {brief_path}")
     template = brief_path.read_text(encoding="utf-8")
     op_block = operators_prompt_block()
+    prior_block = _build_prior_knowledge_block(config.tag)
     return template.format(
         TAG=config.tag,
         REGION=config.region,
@@ -142,6 +167,7 @@ def _build_system_prompt(config: AgentConfig, run_dir: Path) -> str:
         MAX_TURNS=config.max_turns,
         AUTO_SUBMIT="yes" if config.auto_submit else "no",
         OPERATORS=op_block,
+        PRIOR_KNOWLEDGE=prior_block,
         REPO_ROOT=str(repo_root()),
         RUN_DIR=str(run_dir),
         WQ_TOOLS=str(repo_root() / "scripts" / "wq_brain.py"),
