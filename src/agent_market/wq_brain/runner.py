@@ -251,6 +251,38 @@ Each session: generate FASTEXPR alpha expressions → write `candidate.json` to 
 ## Nesting Rules
   BAD (causes timeout): ts_mean(group_zscore(x, sector), 20)
   GOOD: rank(group_zscore(ts_mean(x, 20), sector))  — group OUTSIDE ts
+
+## VERIFIED NEAR-PASS RESULTS (calibrated from actual simulations)
+  Best observed so far: sh=1.35, fi=0.76, to=0.36
+    → rank(ts_rank(close,252) * (-ts_delta(close,5)/close))
+  To cross fi=1.0 from this base: need either sh≥1.8 OR to≤0.18 OR annual_return≥20%
+
+## UNTRIED DIRECTIONS — explore these (none have been submitted yet)
+
+  ### 1. Price-Volume Correlation (ts_corr)
+    rank(ts_corr(returns, volume, 20))
+    rank(-ts_corr(close, volume, 10))
+    rank(group_zscore(ts_corr(returns, volume, 20), sector))
+
+  ### 2. Sector-Neutral Momentum × Reversal
+    rank(group_zscore(ts_rank(close,252) * (-ts_delta(close,5)/close), sector))
+    rank(group_zscore(ts_rank(close,120), sector) - group_zscore(ts_rank(close,20), sector))
+
+  ### 3. Intraday Range / Volatility
+    rank(-ts_mean((high - low) / close, 20))
+    rank(ts_corr(close - open, volume, 10))
+    rank(-ts_mean(abs(close - open) / close, 20))
+
+  ### 4. VWAP Deviation Momentum
+    rank(ts_rank(close/vwap - 1, 60))
+    rank(ts_mean(sign(close/vwap - 1), 20) * ts_rank(close, 120))
+
+  ### 5. Volume-Weighted Return
+    rank(-ts_mean(returns * volume / adv20, 20))
+    rank(group_zscore(-ts_mean(returns * volume / adv20, 10), sector))
+
+  NOTE: Pick ONE direction per batch and generate 5 variations within it.
+  Do NOT mix directions in one batch — focused exploration beats random scatter.
 """
     if not tried_exprs:
         return base
