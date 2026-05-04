@@ -175,6 +175,15 @@ class WQBrainState:
     total_passed: int = 0
     total_submitted: int = 0
     score_history: list[dict[str, Any]] = field(default_factory=list)
+    # Rolling window of all simulated expressions with actual results (last 30)
+    tried_exprs: list[dict[str, Any]] = field(default_factory=list)
+
+    _TRIED_EXPRS_MAXLEN: int = field(default=30, init=False, repr=False, compare=False)
+
+    def add_tried(self, expr: str, sharpe: Optional[float], fitness: Optional[float], turnover: Optional[float]) -> None:
+        self.tried_exprs.append({"expr": expr, "sh": sharpe, "fi": fitness, "to": turnover})
+        if len(self.tried_exprs) > self._TRIED_EXPRS_MAXLEN:
+            self.tried_exprs = self.tried_exprs[-self._TRIED_EXPRS_MAXLEN:]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -186,6 +195,7 @@ class WQBrainState:
             "total_passed": self.total_passed,
             "total_submitted": self.total_submitted,
             "score_history": self.score_history,
+            "tried_exprs": self.tried_exprs,
         }
 
     @classmethod
@@ -200,4 +210,5 @@ class WQBrainState:
             total_passed=d.get("total_passed", 0),
             total_submitted=d.get("total_submitted", 0),
             score_history=d.get("score_history", []),
+            tried_exprs=d.get("tried_exprs", []),
         )

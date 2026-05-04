@@ -203,13 +203,14 @@ def _find_hermes() -> Optional[str]:
     return None
 
 
-def _make_wq_claude_md() -> str:
+def _make_wq_claude_md(tried_exprs: Optional[list[dict]] = None) -> str:
     """Persistent WQ skill context written to hermes working directory as CLAUDE.md.
 
     Hermes (Claude Code) auto-loads CLAUDE.md from its cwd, giving the LLM
     background skill context independent of the per-iteration prompt.
+    Includes a rolling "already tried" section so the LLM does not repeat expressions.
     """
-    return """\
+    base = """\
 # WorldQuant BRAIN Alpha Mining — Persistent Session Context
 
 You are an automated alpha researcher for WorldQuant BRAIN.
@@ -251,6 +252,19 @@ Each session: generate FASTEXPR alpha expressions → write `candidate.json` to 
   BAD (causes timeout): ts_mean(group_zscore(x, sector), 20)
   GOOD: rank(group_zscore(ts_mean(x, 20), sector))  — group OUTSIDE ts
 """
+    if not tried_exprs:
+        return base
+
+    lines = ["\n## ALREADY SIMULATED — Do NOT reproduce these (exact or near-identical)\n"]
+    lines.append("  expr | sharpe | fitness | turnover")
+    lines.append("  ---- | ------ | ------- | --------")
+    for e in tried_exprs[-30:]:
+        sh = f"{e['sh']:.2f}" if e.get("sh") is not None else "timeout"
+        fi = f"{e['fi']:.2f}" if e.get("fi") is not None else "timeout"
+        to = f"{e['to']:.2f}" if e.get("to") is not None else "N/A"
+        lines.append(f"  {e['expr'][:72]} | {sh} | {fi} | {to}")
+    lines.append("\nGenerate expressions with DIFFERENT structure, operators, and windows.\n")
+    return base + "\n".join(lines)
 
 
 # Field and operator substitution table for auto-fix purification
@@ -300,6 +314,7 @@ def _run_hermes_cli(
     config: WQBrainConfig,
     *,
     env: Optional[Mapping[str, str]] = None,
+    tried_exprs: Optional[list[dict]] = None,
 ) -> None:
     hermes_bin = _find_hermes()
     if hermes_bin is None:
@@ -307,10 +322,10 @@ def _run_hermes_cli(
     hermes_env = _hermes_cli_env(env)
     hermes_home = _prepare_hermes_run_home(config.run_id, hermes_env)
 
-    # Write persistent WQ skill context — hermes auto-loads CLAUDE.md from cwd
+    # Write persistent WQ skill context — hermes auto-loads CLAUDE.md from cwd.
+    # Always rewrite so the "already tried" section reflects the latest state.
     claude_md_path = idir / "CLAUDE.md"
-    if not claude_md_path.exists():
-        claude_md_path.write_text(_make_wq_claude_md(), encoding="utf-8")
+    claude_md_path.write_text(_make_wq_claude_md(tried_exprs), encoding="utf-8")
 
     effort = str(
         config.hermes_reasoning_effort or hermes_env.get("HERMES_REASONING_EFFORT") or ""
@@ -576,7 +591,7 @@ class WQBrainRunner:
         candidate_path = idir / "candidate.json"
 
         try:
-            _run_hermes_cli(idir, prompt, self.config)
+            _run_hermes_cli(idir, prompt, self.config, tried_exprs=state.tried_exprs)
         except RuntimeError as exc:
             if candidate_path.exists():
                 logger.warning("hermes exited non-zero but candidate.json found; proceeding. (%s)", exc)
@@ -821,6 +836,17 @@ class WQBrainRunner:
             key=lambda c: c.sim_result.sharpe,  # type: ignore[union-attr]
             default=None,
         )
+
+        # Record all simulated expressions so the next iteration's CLAUDE.md
+        # can show "already tried — do not repeat" to prevent LLM repetition loops.
+        for c in simulated:
+            sr = c.sim_result
+            state.add_tried(
+                c.expr,
+                sharpe=sr.sharpe if sr else None,
+                fitness=sr.fitness if sr else None,
+                turnover=sr.turnover if sr else None,
+            )
 
         record: dict[str, Any] = {
             "iteration": state.iteration,
