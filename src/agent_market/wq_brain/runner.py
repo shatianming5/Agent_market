@@ -290,7 +290,7 @@ Each session: generate FASTEXPR alpha expressions → write `candidate.json` to 
     lines = ["\n## ALREADY SIMULATED — Do NOT reproduce these (exact or near-identical)\n"]
     lines.append("  expr | sharpe | fitness | turnover")
     lines.append("  ---- | ------ | ------- | --------")
-    for e in tried_exprs[-30:]:
+    for e in tried_exprs[-80:]:
         sh = f"{e['sh']:.2f}" if e.get("sh") is not None else "timeout"
         fi = f"{e['fi']:.2f}" if e.get("fi") is not None else "timeout"
         to = f"{e['to']:.2f}" if e.get("to") is not None else "N/A"
@@ -298,6 +298,82 @@ Each session: generate FASTEXPR alpha expressions → write `candidate.json` to 
     lines.append("\nGenerate expressions with DIFFERENT structure, operators, and windows.\n")
     return base + "\n".join(lines)
 
+
+# Forced direction rotation — one direction per iteration to prevent LLM stagnation.
+# Each tuple: (name, instruction for the prompt).
+_ALPHA_DIRECTIONS: list[tuple[str, str]] = [
+    (
+        "PRICE_VOLUME_CORR",
+        "Generate 5 PRICE-VOLUME CORRELATION alphas using ts_corr.\n"
+        "ALL 5 must use ts_corr as the main building block.\n"
+        "Try: rank(ts_corr(returns, volume, 20)), rank(-ts_corr(close, volume, 10)),\n"
+        "     rank(group_zscore(ts_corr(returns, volume, 20), sector)),\n"
+        "     rank(ts_corr(close/vwap-1, volume/adv20, 15)),\n"
+        "     rank(ts_corr(ts_delta(close,5)/close, volume, 20))",
+    ),
+    (
+        "INTRADAY_RANGE",
+        "Generate 5 INTRADAY RANGE alphas using high, low, or open fields.\n"
+        "ALL 5 must use high, low, or open as a primary signal component.\n"
+        "Try: rank(-ts_mean((high-low)/close, 20)), rank(ts_mean((close-open)/close, 20)),\n"
+        "     rank(-ts_rank((high-low)/close, 60)), rank(group_zscore(-ts_mean((high-low)/close,20), sector)),\n"
+        "     rank(ts_corr((high-low)/close, volume, 20))",
+    ),
+    (
+        "VWAP_MOMENTUM",
+        "Generate 5 VWAP DEVIATION MOMENTUM alphas.\n"
+        "ALL 5 must use vwap as a primary component (close/vwap ratio or deviation).\n"
+        "Try: rank(ts_rank(close/vwap-1, 60)), rank(ts_mean(close/vwap-1, 40)),\n"
+        "     rank(ts_corr(close/vwap-1, volume, 20)), rank(group_zscore(ts_rank(close/vwap-1,40), sector)),\n"
+        "     rank(-ts_mean(close/vwap-1, 20) * ts_rank(volume, 20))",
+    ),
+    (
+        "SECTOR_RELATIVE",
+        "Generate 5 SECTOR-RELATIVE alphas using group_zscore on diverse signals.\n"
+        "ALL 5 must use group_zscore as the outer normalization.\n"
+        "Try: rank(group_zscore(ts_rank(close,252), sector)),\n"
+        "     rank(group_zscore(ts_corr(returns, volume, 20), sector)),\n"
+        "     rank(group_zscore(-ts_mean((high-low)/close, 20), sector)),\n"
+        "     rank(group_zscore(ts_mean(close/vwap-1, 40), sector)),\n"
+        "     rank(group_zscore(ts_rank(volume/adv20, 60), sector))",
+    ),
+    (
+        "VOLUME_RANK",
+        "Generate 5 VOLUME PATTERN alphas using volume rank or acceleration.\n"
+        "ALL 5 must use ts_rank(volume, N) or volume/adv20 as a primary signal.\n"
+        "Try: rank(ts_rank(volume, 60)), rank(-ts_mean(returns, 20) * ts_rank(volume/adv20, 20)),\n"
+        "     rank(ts_corr(ts_rank(volume,20), ts_rank(close,20), 10)),\n"
+        "     rank(group_zscore(ts_rank(volume,40), sector)),\n"
+        "     rank(ts_mean(volume/adv20, 20) * sign(-ts_mean(returns, 10)))",
+    ),
+    (
+        "OPEN_GAP",
+        "Generate 5 OVERNIGHT GAP alphas using open field.\n"
+        "ALL 5 must use open as a primary component.\n"
+        "Try: rank(-ts_mean(open/close-1, 20)), rank(ts_rank(open/close-1, 60)),\n"
+        "     rank(ts_corr(open/close-1, volume, 20)),\n"
+        "     rank(group_zscore(-ts_mean(open/close-1, 20), sector)),\n"
+        "     rank(ts_mean(sign(open-close), 20) * ts_rank(volume, 20))",
+    ),
+    (
+        "LONG_REVERSAL",
+        "Generate 5 LONG-TERM REVERSAL alphas with very low turnover (window>=60).\n"
+        "ALL 5 must use lookback windows >= 60 days to keep turnover low.\n"
+        "Try: rank(-ts_mean(returns, 120)), rank(-ts_delta(close,60)/close * ts_rank(volume,60)),\n"
+        "     rank(ts_rank(close,252) + ts_mean(returns, 120)),\n"
+        "     rank(group_zscore(-ts_mean(returns, 60), sector)),\n"
+        "     rank(ts_corr(returns, volume, 60))",
+    ),
+    (
+        "DECAY_WEIGHTED",
+        "Generate 5 DECAY-WEIGHTED alphas using ts_decay_linear for recency-weighted signals.\n"
+        "ALL 5 must use ts_decay_linear as the main time-weighting operator.\n"
+        "Try: rank(-ts_decay_linear(returns, 20)), rank(ts_decay_linear(close/vwap-1, 30)),\n"
+        "     rank(-ts_decay_linear(returns * volume/adv20, 15)),\n"
+        "     rank(group_zscore(ts_decay_linear(-returns, 20), sector)),\n"
+        "     rank(ts_decay_linear(ts_corr(returns, volume, 10), 20))",
+    ),
+]
 
 # Field and operator substitution table for auto-fix purification
 _AUTO_FIX_FIELDS: dict[str, str] = {
@@ -611,6 +687,11 @@ class WQBrainRunner:
             for e in kb_hits
         ] if kb_hits else None
 
+        # Rotate direction each iteration to force LLM to explore new alpha families
+        dir_idx = (state.iteration - 1) % len(_ALPHA_DIRECTIONS)
+        direction_name, direction_text = _ALPHA_DIRECTIONS[dir_idx]
+        logger.info("iter=%d forcing direction: %s", state.iteration, direction_name)
+
         prompt = build_alpha_gen_prompt(
             batch_size=self.config.batch_size,
             iteration=state.iteration,
@@ -619,6 +700,7 @@ class WQBrainRunner:
             region=self.config.region,
             universe=self.config.universe,
             kb_examples=kb_examples,
+            forced_direction=direction_text,
         )
         candidate_path = idir / "candidate.json"
 

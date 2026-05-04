@@ -17,6 +17,7 @@ def build_alpha_gen_prompt(
     region: str = "USA",
     universe: str = "TOP3000",
     kb_examples: list[str] | None = None,
+    forced_direction: str | None = None,
 ) -> str:
     op_block = operators_prompt_block()
     pool_block = pool_summary or "Alpha pool is empty — generate fresh diverse alphas."
@@ -29,6 +30,17 @@ def build_alpha_gen_prompt(
     if kb_examples:
         kb_block = "\n=== Retrieved Similar Examples (from KB) ===\n"
         kb_block += "\n".join(f"  {ex}" for ex in kb_examples) + "\n"
+
+    direction_block = ""
+    if forced_direction:
+        direction_block = f"""
+=== MANDATORY DIRECTION FOR THIS ITERATION ===
+{forced_direction}
+You MUST follow this direction for ALL {batch_size} candidates. Do NOT generate Amihud/ts_delta/ts_rank
+variations — those have been exhausted. This direction is REQUIRED, not optional.
+
+"""
+
     return f"""\
 You are a quantitative researcher generating alpha factors for WorldQuant BRAIN.
 
@@ -39,49 +51,42 @@ Generate exactly {batch_size} distinct WorldQuant FASTEXPR alpha expressions for
   Region: {region}
   Universe: {universe}
   Delay: 1 (signal on T, fill at T+1 open — NO look-ahead)
-
+{direction_block}
 === Previously Submitted Alphas ===
 {pool_block}
 {history_block}
 {kb_block}
-=== VERIFIED RESULTS (real backtest — learn from these) ===
-  rank(-ts_mean(returns, 60))                                      # sh=1.20 fi=0.62 to=0.10  FAIL (low return level)
-  rank(-ts_delta(close,1)/ts_mean(volume,20) - ts_delta(close,5)/ts_mean(volume,60))  # sh=1.47 fi=0.78 to=0.39  FAIL
-  rank(-ts_delta(close,1)/close*volume/adv20)                      # sh=1.77 fi=0.93 to=0.71  FAIL (to too high)
-  rank(group_zscore(-returns, sector))                             # sh=1.70 fi=0.89 to=0.72  FAIL (to too high)
-  rank(-ts_zscore(returns,20)*ts_mean(volume/adv20,20))            # sh=1.90 fi=0.87 to=0.69  FAIL
-  rank(group_zscore(-ts_delta(close,1)/close*volume/adv20,sector)) # sh=1.79 fi=0.92 to=0.69  FAIL (sector adj barely helps)
-  rank(-ts_mean(returns*volume/adv20, 10))                         # sh=1.11 fi=~0.6  FAIL (smoothing kills sharpe)
+=== CALIBRATED RESULTS FROM ACTUAL WQ SIMULATION ===
+  NOTE: These are REAL simulation results — the estimates in textbooks are wrong.
+  rank(-ts_delta(close,5)/close * ts_mean(volume/adv20,5))          # sh=1.12 fi=0.66 to=0.35  FAIL
+  rank(ts_rank(close,252) * (-ts_delta(close,5)/close))             # sh=1.35 fi=0.76 to=0.36  FAIL (best seen)
+  rank(-ts_delta(close,5)/close * ts_mean(volume/adv20,60))         # sh=1.06 fi=0.62 to=0.35  FAIL
+  rank(-ts_delta(close,10)/close * ts_mean(volume/adv20,10))        # sh=0.54 fi=0.27 to=0.23  FAIL
+  rank(ts_rank(close,252) - ts_rank(close,20))                      # sh=0.57 fi=0.33 to=0.17  FAIL
+  rank(-ts_delta(close,60)/close)                                    # sh=0.64 fi=0.54 to=0.09  FAIL
+  rank(group_zscore(-ts_delta(close,5)/close, sector))              # sh=1.06 fi=0.62 to=0.35  FAIL
 
-=== FITNESS FORMULA INSIGHT ===
-  WQ fitness ≈ sqrt(|annualized_return|) * sharpe / sqrt(turnover)
-  To pass fi>=1.0 with sh=1.8 and ret=20%/yr:  need to<=0.58
-  CRITICAL OBSERVATION: All 1-day signals cluster at to=0.69-0.72 — adding sector neutralization barely moves to.
-                        Smoothing Amihud with ts_mean(N>=5) reduces sharpe from 1.77 to <1.2 — NOT viable.
-  STRATEGY — USE LONGER PRICE LAG (5d or 10d) instead of ts_delta(close,1):
-    rank(-ts_delta(close,5)/close * volume/adv20)                  # expected to≈0.20-0.30, sh≈1.3-1.5
-    rank(-ts_delta(close,5)/close * ts_mean(volume/adv20,5))       # 5d return * smoothed volume
-    rank(-ts_delta(close,10)/close * ts_mean(volume/adv20,10))     # 10d price impact
-  WHY: 5-day return Amihud: fi = sqrt(0.17)*1.4/sqrt(0.25) ≈ 1.15 → SHOULD PASS
-  ALSO TRY medium-frequency momentum with low to:
-    rank(ts_rank(close,252) - ts_rank(close,20))                   # 12m-1m momentum, to≈0.08
-    rank(-ts_delta(close,60)/close)                                 # 60d reversal, to≈0.10
-    rank(ts_mean(close/vwap-1,20))                                  # 20d close-to-VWAP
+  CONCLUSION: All Amihud/ts_delta/ts_rank(close) variants FAIL. DO NOT generate more.
+  To pass: need fi>=1.0 AND sh>=1.25. Gap to close: fi needs to reach 1.0 from current best 0.76.
+  Try COMPLETELY DIFFERENT alpha families: ts_corr, (high-low)/close, open gap, volume rank patterns.
+
+=== Fitness Calibration ===
+  fi ≈ sqrt(|annual_return|) × sharpe / sqrt(turnover)
+  Best seen: sh=1.35, fi=0.76, to=0.36, implied annual_return≈11%
+  To reach fi=1.0 with sh=1.35: need annual_return≥20% OR turnover≤0.18
 
 === Rules ===
 1. Each alpha MUST be a single expression that produces a per-stock score (float).
 2. Use rank() or group_rank() as the outermost layer to normalise output.
-3. Combine multiple signals for robustness (e.g. value + momentum, quality + mean-reversion).
-4. Generate structurally DIVERSE alphas — different operator families, different fields.
-5. AVOID repeating the same logic as already-submitted alphas shown above.
-6. Do NOT use Python-only syntax (no lambda, import, def, class, print).
-7. Each expression should be concise (< 200 characters ideally).
-8. Provide brief economic intuition for each alpha.
-9. ONLY use fields: open, close, high, low, vwap, volume, adv20, returns, sector, industry, subindustry.
-10. DO NOT use adv60, adv120, adv180, cap, or any fundamental fields.
-11. AVOID nesting group_* inside ts_* — e.g., ts_mean(group_zscore(...)) causes timeouts.
-    OK: rank(group_zscore(ts_mean(returns,20), sector))  (group applied OUTSIDE ts)
-    BAD: rank(ts_mean(group_zscore(returns, sector), 20))  (group INSIDE ts — slow!)
+3. AVOID all patterns listed in "CALIBRATED RESULTS" above — they are exhausted.
+4. Follow the MANDATORY DIRECTION above — generate variations within that family only.
+5. Do NOT use Python-only syntax (no lambda, import, def, class, print).
+6. Each expression should be concise (< 200 characters ideally).
+7. ONLY use fields: open, close, high, low, vwap, volume, adv20, returns, sector, industry, subindustry.
+8. DO NOT use adv60, adv120, adv180, cap, or any fundamental fields.
+9. AVOID nesting group_* inside ts_* — causes timeouts.
+   OK: rank(group_zscore(ts_mean(returns,20), sector))
+   BAD: rank(ts_mean(group_zscore(returns, sector), 20))
 
 === Output Format ===
 Write ONLY a JSON file named `candidate.json` (no other text) with this schema:

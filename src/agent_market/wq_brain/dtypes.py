@@ -178,7 +178,7 @@ class WQBrainState:
     # Rolling window of all simulated expressions with actual results (last 30)
     tried_exprs: list[dict[str, Any]] = field(default_factory=list)
 
-    _TRIED_EXPRS_MAXLEN: int = field(default=30, init=False, repr=False, compare=False)
+    _TRIED_EXPRS_MAXLEN: int = field(default=80, init=False, repr=False, compare=False)
 
     def add_tried(self, expr: str, sharpe: Optional[float], fitness: Optional[float], turnover: Optional[float]) -> None:
         self.tried_exprs.append({"expr": expr, "sh": sharpe, "fi": fitness, "to": turnover})
