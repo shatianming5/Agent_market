@@ -238,6 +238,71 @@ def cmd_pre_check(args: argparse.Namespace) -> None:
         _emit({"ok": False, "error": str(exc)}, code=1)
 
 
+def cmd_fetch_data(args: argparse.Namespace) -> None:
+    """Bulk-fetch US stock OHLCV + sectors via yfinance into local parquet cache."""
+    from agent_market.wq_brain.data_loader import fetch_data, load_tickers
+    tickers = load_tickers(Path(args.tickers_file) if args.tickers_file else None)
+    print(f"Fetching {len(tickers)} tickers from {args.start} to {args.end}", file=sys.stderr)
+    summary = fetch_data(
+        tickers, args.start, args.end,
+        skip_sectors=args.skip_sectors,
+    )
+    print(json.dumps(summary, indent=2, default=str))
+
+
+def cmd_update_data(args: argparse.Namespace) -> None:
+    """Incremental daily update of the OHLCV cache."""
+    import time as _t
+    from agent_market.wq_brain.data_loader import (
+        fetch_data, load_cached_ohlcv, load_tickers, metadata_path,
+    )
+    tickers = load_tickers(Path(args.tickers_file) if args.tickers_file else None)
+
+    # Determine start = last cached date + 1, end = today
+    cached = load_cached_ohlcv()
+    if not cached.empty:
+        last_date = cached.index.get_level_values("date").max()
+        start = (last_date + _t.timedelta(days=1) if hasattr(last_date, "year")
+                 else args.start).strftime("%Y-%m-%d") if hasattr(last_date, "strftime") else args.start
+    else:
+        start = args.start
+
+    end = args.end or _t.strftime("%Y-%m-%d", _t.gmtime())
+    print(f"Updating {len(tickers)} tickers from {start} to {end}", file=sys.stderr)
+    summary = fetch_data(tickers, start, end, skip_sectors=True)
+    print(json.dumps(summary, indent=2, default=str))
+
+
+def cmd_local_simulate(args: argparse.Namespace) -> None:
+    """Run wq_simulate against cached OHLCV — no WQ API call, pure local."""
+    from agent_market.wq_brain.local_sim import simulate_expression_locally
+    try:
+        result = simulate_expression_locally(args.expr, rebalance_freq=args.rebalance_freq)
+        _emit({
+            "ok": True,
+            "expr": result.expr,
+            "wq_sharpe": result.wq_sharpe,
+            "wq_fitness": result.wq_fitness,
+            "wq_turnover": result.wq_turnover,
+            "wq_returns": result.wq_returns,
+            "submittable": result.submittable,
+            "rating": result.rating,
+            "raw": result.raw,
+        })
+    except Exception as exc:
+        _emit({"ok": False, "expr": args.expr, "error": str(exc)}, code=1)
+
+
+def cmd_anti_overfit(args: argparse.Namespace) -> None:
+    """Run 4-layer anti-overfit detection against cached OHLCV."""
+    from agent_market.wq_brain.anti_overfit import run_anti_overfit_for_expression
+    try:
+        result = run_anti_overfit_for_expression(args.expr, holding_period=args.holding_period)
+        _emit({"ok": True, "expr": args.expr, **result})
+    except Exception as exc:
+        _emit({"ok": False, "expr": args.expr, "error": str(exc)}, code=1)
+
+
 def cmd_score(args: argparse.Namespace) -> None:
     """Score a single SimulationResult-like input."""
     from agent_market.wq_brain.dtypes import SimulationResult
@@ -478,6 +543,34 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("alpha_id")
     sp.add_argument("--corr-max", type=float, default=0.7)
     sp.set_defaults(func=cmd_pre_check)
+
+    sp = sub.add_parser("fetch-data", help="bulk-fetch US stock OHLCV + sectors into local cache")
+    sp.add_argument("--tickers-file", default=None,
+                    help="path to file with one ticker per line; default uses bundled ~300-name list")
+    sp.add_argument("--start", default="2021-01-01")
+    sp.add_argument("--end", default="2026-05-05")
+    sp.add_argument("--skip-sectors", action="store_true",
+                    help="skip the slow per-ticker sector lookup")
+    sp.set_defaults(func=cmd_fetch_data)
+
+    sp = sub.add_parser("update-data", help="incremental daily OHLCV update")
+    sp.add_argument("--tickers-file", default=None)
+    sp.add_argument("--start", default="2021-01-01",
+                    help="fallback start when cache is empty")
+    sp.add_argument("--end", default=None,
+                    help="default: today UTC")
+    sp.set_defaults(func=cmd_update_data)
+
+    sp = sub.add_parser("local-simulate", help="local WQ-aligned simulation against cached OHLCV (no WQ API)")
+    sp.add_argument("expr")
+    sp.add_argument("--rebalance-freq", type=int, default=5,
+                    help="rebalance every N trading days (default: 5)")
+    sp.set_defaults(func=cmd_local_simulate)
+
+    sp = sub.add_parser("anti-overfit", help="4-layer anti-overfit detection on cached OHLCV")
+    sp.add_argument("expr")
+    sp.add_argument("--holding-period", type=int, default=5)
+    sp.set_defaults(func=cmd_anti_overfit)
 
     sp = sub.add_parser("score", help="multi-dim score a single alpha result")
     sp.add_argument("--sharpe", type=float, default=None)
