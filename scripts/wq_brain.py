@@ -201,6 +201,34 @@ def cmd_docs(args: argparse.Namespace) -> None:
         _emit({"ok": False, "error": f"unknown topic: {args.topic}"}, code=1)
 
 
+def cmd_web_search(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.web_search import web_search
+    sources = tuple(s.strip() for s in args.source.split(",") if s.strip())
+    out = web_search(args.query, max_results=args.max, sources=sources or ("auto",))
+    _emit({"ok": True, **out})
+
+
+def cmd_fetch_url(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.web_search import fetch_url
+    out = fetch_url(args.url, timeout=args.timeout, max_chars=args.max_chars)
+    if not out.get("ok"):
+        _emit(out, code=1)
+    else:
+        _emit(out)
+
+
+def cmd_skill_search(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.skill_search import search_skill
+    out = search_skill(args.query, top_k=args.top_k)
+    _emit(out, code=0 if out.get("ok") else 1)
+
+
+def cmd_skill_list(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.skill_search import list_skill_files
+    out = list_skill_files()
+    _emit(out, code=0 if out.get("ok") else 1)
+
+
 # ── Human-facing commands ─────────────────────────────────────────────────
 
 def cmd_scan(args: argparse.Namespace) -> None:
@@ -355,6 +383,27 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("docs", help="show local FASTEXPR docs")
     sp.add_argument("topic", choices=["operators"])
     sp.set_defaults(func=cmd_docs)
+
+    sp = sub.add_parser("web-search", help="general web search (Brave/Wikipedia/GitHub fallback)")
+    sp.add_argument("query")
+    sp.add_argument("--max", type=int, default=5)
+    sp.add_argument("--source", default="auto",
+                    help="comma-separated: auto | brave | wikipedia | github")
+    sp.set_defaults(func=cmd_web_search)
+
+    sp = sub.add_parser("fetch-url", help="fetch URL → plain text")
+    sp.add_argument("url")
+    sp.add_argument("--timeout", type=float, default=20.0)
+    sp.add_argument("--max-chars", type=int, default=6000)
+    sp.set_defaults(func=cmd_fetch_url)
+
+    sp = sub.add_parser("skill-search", help="search the vendored worldquant-skill knowledge base")
+    sp.add_argument("query")
+    sp.add_argument("--top-k", type=int, default=5)
+    sp.set_defaults(func=cmd_skill_search)
+
+    sp = sub.add_parser("skill-list", help="list files in the vendored worldquant-skill")
+    sp.set_defaults(func=cmd_skill_list)
 
     sp = sub.add_parser("scan", help="non-LLM batch scan from seed templates")
     sp.add_argument("--tag", required=True)

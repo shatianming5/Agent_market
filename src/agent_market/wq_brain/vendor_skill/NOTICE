@@ -1,0 +1,12 @@
+Vendored from https://github.com/GRD-Chang/worldquant-skill (Apache License 2.0).
+Files in this directory are excerpts from the upstream repository, kept here so
+the agentic mining loop can search them locally without an internet round-trip.
+
+Original upstream license:
+  Apache License 2.0 — see LICENSE-APACHE-2.0 in this directory.
+
+Modifications:
+  - Files copied verbatim, only renamed for namespacing (e.g. `SKILL.md` from
+    skills/knowledge_base_search/ → `knowledge_base_search.md`).
+  - The upstream repo expects a `Resources/` directory with dataset/example
+    content; that directory is not included upstream and thus not vendored.

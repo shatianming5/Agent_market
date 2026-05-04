@@ -52,6 +52,19 @@ python {WQ_TOOLS} corr ALPHA_ID
 # Search arxiv abstracts for ideas
 python {WQ_TOOLS} search-arxiv "cross-sectional momentum reversal" --max 5
 
+# General web search (Brave API if BRAVE_API_KEY env, else Wikipedia → GitHub fallback)
+python {WQ_TOOLS} web-search "intraday volatility spillover effect" --max 5
+
+# Fetch and clean a URL → plain text (~6KB excerpt)
+python {WQ_TOOLS} fetch-url "https://en.wikipedia.org/wiki/Carhart_four-factor_model"
+
+# Search the vendored worldquant-skill knowledge base (TF-IDF + Jaccard)
+python {WQ_TOOLS} skill-search "降低 turnover" --top-k 5
+python {WQ_TOOLS} skill-search "neutralization choices" --top-k 3
+
+# List skill knowledge files
+python {WQ_TOOLS} skill-list
+
 # Show full operator/field reference (also embedded below)
 python {WQ_TOOLS} docs operators
 ```
