@@ -54,13 +54,13 @@ def test_resolve_cli_explicit_returns_input():
 
 def test_resolve_cli_auto_prefers_opencode_when_available():
     with patch("agent_market.wq_brain.agent_runner.shutil.which") as mock_which:
-        mock_which.side_effect = lambda c: "/usr/bin/opencode" if c == "opencode" else None
+        mock_which.side_effect = lambda c, **kw: "/usr/bin/opencode" if c == "opencode" else None
         assert _resolve_cli("auto") == "opencode"
 
 
 def test_resolve_cli_auto_falls_back_to_hermes():
     with patch("agent_market.wq_brain.agent_runner.shutil.which") as mock_which:
-        mock_which.side_effect = lambda c: "/usr/bin/hermes" if c == "hermes" else None
+        mock_which.side_effect = lambda c, **kw: "/usr/bin/hermes" if c == "hermes" else None
         assert _resolve_cli("auto") == "hermes"
 
 

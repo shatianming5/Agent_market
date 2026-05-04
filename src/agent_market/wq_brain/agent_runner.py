@@ -78,6 +78,12 @@ def _llm_cli_env(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
             no_proxy = host if not no_proxy else f"{no_proxy},{host}"
     env["NO_PROXY"] = no_proxy
     env["no_proxy"] = no_proxy
+    # Ensure ~/.local/bin is on PATH for tmux/non-login shells where
+    # opencode/hermes/claude were installed via uv/pipx.
+    local_bin = str(Path.home() / ".local" / "bin")
+    path = env.get("PATH", "")
+    if local_bin not in path.split(":"):
+        env["PATH"] = f"{local_bin}:{path}" if path else local_bin
     if extra:
         env.update(extra)
     return env
@@ -104,12 +110,13 @@ def _prepare_hermes_home(run_dir: Path, env: dict[str, str]) -> Path:
     return target
 
 
-def _resolve_cli(requested: str) -> str:
+def _resolve_cli(requested: str, *, env: Optional[dict[str, str]] = None) -> str:
     if requested != "auto":
         return requested
-    if shutil.which("opencode"):
+    path = (env or os.environ).get("PATH", os.environ.get("PATH", ""))
+    if shutil.which("opencode", path=path):
         return "opencode"
-    if shutil.which("hermes"):
+    if shutil.which("hermes", path=path):
         return "hermes"
     raise RuntimeError("No agentic CLI found on PATH; install opencode or hermes")
 
@@ -174,7 +181,8 @@ def run_agent(config: AgentConfig) -> dict:
     run_dir = wq_brain_run_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    cli = _resolve_cli(config.cli)
+    env = _llm_cli_env({"WQB_TAG": config.tag, "WQB_RUN_DIR": str(run_dir)})
+    cli = _resolve_cli(config.cli, env=env)
     prompt = _build_system_prompt(config, run_dir)
     (run_dir / "system_prompt.md").write_text(prompt, encoding="utf-8")
     (run_dir / "config.json").write_text(
@@ -182,7 +190,6 @@ def run_agent(config: AgentConfig) -> dict:
         encoding="utf-8",
     )
 
-    env = _llm_cli_env({"WQB_TAG": config.tag, "WQB_RUN_DIR": str(run_dir)})
     if not config.model and env.get("LLM_MODEL"):
         config = AgentConfig(**{**asdict(config), "model": env["LLM_MODEL"]})
 
