@@ -362,7 +362,35 @@ def render_top_failures_block(records: list[dict[str, Any]], *, top_n: int = 3) 
     candidates.sort(key=lambda c: -c[1].score)
     candidates = candidates[:top_n]
 
-    out = ["## Mutation Hints (from top near-failures)", ""]
+    out = [
+        "## Mutation Hints (MANDATORY — see binding constraints below)",
+        "",
+        "### 🚫 HARD CONSTRAINTS (violating these wastes WQ budget and pool slot)",
+        "",
+        "1. **NO PURE PARAMETER TUNING THIS SESSION.** Re-running the same operator",
+        "   stack with a different window (`ts_delta(close, 3)` → `ts_delta(close, 4)`)",
+        "   is BANNED. Prior runs already explored windows 2/3/4/5/7/10/20 — fitness",
+        "   ceiling is 0.80 in this family. Stop.",
+        "",
+        "2. **MUST simulate ≥ 2 cross-family alphas BEFORE any same-family attempt.**",
+        "   Cross-family = different `family` label in the Cross-Over Candidates",
+        "   table. If you've only seen ts_rank_close in prior runs, your first",
+        "   2 simulates MUST be from: `ts_corr_pv`, `intraday_range`, `vwap_dev`,",
+        "   `volume_rank`, `decay_linear`, or a NOVEL family not yet listed.",
+        "",
+        "3. **PRIORITIZE the recommended `strategy` field below.** If the diagnosis",
+        "   says `reduce_turnover`, your next alpha MUST wrap with `hump(_)` or",
+        "   `ts_decay_linear(_, N)`. If it says `mutate_nonlinear`, MUST add",
+        "   `signed_power` / `sign(_) * sqrt(abs(_))`. Don't skip to window tuning.",
+        "",
+        "4. **Multi-signal alphas are HIGHEST priority.** Combinations like",
+        "   `rank(family_A) + 0.5 * rank(family_B)` cracked turnover to 0.18",
+        "   (vs 0.46 single-signal). If you haven't tried multi-signal yet,",
+        "   try one as your FIRST simulate of this session.",
+        "",
+        "### Top near-failure diagnoses",
+        "",
+    ]
     for ctx, eng in candidates:
         out.append(eng.format_for_prompt())
         out.append("")

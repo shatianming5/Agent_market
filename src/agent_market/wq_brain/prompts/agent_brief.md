@@ -144,9 +144,41 @@ Save to `notes.md`. **Do not duplicate** what's already in cross-loop knowledge.
 
 Generate 5-10 distinct candidate expressions covering ≥3 different families.
 
-**Design principles** (from QuantGPT FACTOR_MINING.md):
+### 🚫 HARDEST CONSTRAINTS (read every session — these are session-limit BINDING)
+
+1. **NO single-family parameter tuning**. If the Cross-Over table shows ≥3
+   alphas from the same family (e.g. `ts_rank_close`), this family is
+   ALREADY EXPLORED. Generating `ts_rank(close, 252) * (-ts_delta(close, N))`
+   for any new N (5/7/10/20/etc) is FORBIDDEN unless you ran ≥3 cross-family
+   alphas first.
+
+2. **At least the FIRST 3 alphas you simulate this session MUST come from
+   distinct families**, NONE of which are the most-frequent family in the
+   Cross-Over table. The 8 acceptable families are:
+   - `ts_corr_pv` — ts_corr(close/vwap/high/low, volume/adv*, N)
+   - `intraday_range` — (high-low)/close × X
+   - `vwap_dev` — close/vwap, vwap-close
+   - `volume_rank` — ts_rank(volume, N) × Y
+   - `open_gap` — open - ts_delay(close, 1)
+   - `humped_alpha` — hump(rank(...)) — single-arg only
+   - `multi_signal` — `0.5*rank(A) - 0.5*rank(B)` linear combos
+   - `sector_relative` — group_zscore(_, sector / industry / subindustry)
+
+3. **Multi-signal combinations are HIGHEST PRIORITY**. The best alpha so far
+   that broke turnover (sh=1.17 fi=0.68 to=0.18) was a multi-signal:
+   `rank(ts_rank(close,252) * (-ts_delta(close,3)/close) + 0.5 * (-ts_corr(close,volume,20)))`.
+   You SHOULD try at least 2 multi-signal alphas this session.
+
+4. **If Mutation Hints diagnoses `reduce_turnover` for the top alpha**, you
+   MUST try `hump(rank(<top_alpha>))` (single-arg) AND
+   `ts_decay_linear(rank(<top_alpha>), 20)` BEFORE any new variation of
+   that family.
+
+### Design principles (when not constrained above)
+
 - **Ratio > multiplication > addition**: `rank(A / (B + 0.01))` > `rank(A) * rank(B)` > `rank(A) + rank(B)`
-- **Nonlinear compression** for extreme values: `sign_power`, `signed_power`, `log(1+abs(x))*sign(x)`
+- **Nonlinear compression** for extreme values: `signed_power(x, 0.5)`, `log(1+abs(x))*sign(x)`
+  (Note: `sign_power` is NOT available — use `signed_power`)
 - **Conditional gating**: `if_else(condition, alpha_a, alpha_b)` to switch behavior by regime
 - **Simplicity**: nesting > 4 usually degrades; ≤ 8 hard limit. **Length ≤ 300 chars**.
 
@@ -196,8 +228,15 @@ Use the `mutate` subcommand on every near-miss. The 7 strategies cover all
 common improvement axes (window-tune, operator-swap, normalization-add,
 sign-flip, nonlinear-add, interaction-add, turnover-reduce, simplify, full-regen).
 
-**Highest-ROI mutation we've seen**: top alpha sh=1.47 fi=0.77 to=0.46
-→ wrap with `hump(_, 0.01)` typically drops to ≈0.20 → fi past 1.0.
+**HARD RULE on iteration**: do NOT iterate the SAME family more than 2 times
+in a row. If your last 2 simulated alphas were both `ts_rank_close`, the
+NEXT one MUST be from a different family — pick from the 8-family list in
+Phase 2. The cross-over engine is there for a reason — USE IT.
+
+**Highest-ROI mutation observed**: top alpha sh=1.47 fi=0.77 to=0.46
+→ wrap with `hump(rank(<alpha>))` (1-arg only on free tier) drops turnover
+substantially. Try this at LEAST ONCE per session on whatever your current
+top alpha is.
 
 ### Phase 5 — Submit + Record (final 5-10 turns)
 
