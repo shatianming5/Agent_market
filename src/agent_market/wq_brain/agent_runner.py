@@ -173,7 +173,8 @@ def _build_hermes_cmd(config: AgentConfig, prompt: str, run_dir: Path, env: dict
 def _build_opencode_cmd(config: AgentConfig, prompt: str) -> list[str]:
     if not config.model:
         raise RuntimeError("opencode requires --model (or OPENCODE_MODEL env)")
-    return ["opencode", "run", "-m", config.model, prompt]
+    model = config.model if "/" in config.model else f"custom/{config.model}"
+    return ["opencode", "run", "-m", model, prompt]
 
 
 def run_agent(config: AgentConfig) -> dict:
