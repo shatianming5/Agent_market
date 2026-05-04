@@ -8,6 +8,7 @@ from agent_market.wq_brain.operators import (
     FIELDS_PRICE_VOLUME,
     OPERATORS_CS,
     OPERATORS_MATH,
+    OPERATORS_TRANSFORM,
     OPERATORS_TS,
     OPERATORS_TS_UNAVAILABLE,
     operators_prompt_block,
@@ -23,6 +24,15 @@ def test_basic_valid_expressions_pass():
         "rank(group_zscore(returns, sector))",
         "rank(ts_decay_linear(returns, 10))",
         "rank((high - low) / close)",
+        # New: hump for turnover reduction
+        "hump(rank(close), 0.01)",
+        "hump(rank(ts_rank(close,252) * (-ts_delta(close,3)/close)), 0.01)",
+        # New: longer ADV variants
+        "rank(volume / adv60)",
+        "rank(returns * volume / adv120)",
+        "rank(ts_mean(volume / adv180, 20))",
+        # New: multi-line binding (semicolon-separated)
+        "x = ts_mean(close, 20); rank(close - x)",
     ]:
         assert validate_expression(expr) == [], f"unexpected errors for {expr}"
 
@@ -80,10 +90,34 @@ def test_operators_prompt_block_contains_all_categories():
         assert op in block
     for op in OPERATORS_MATH:
         assert op in block, f"missing {op} in prompt block"
+    for op in OPERATORS_TRANSFORM:
+        assert op in block, f"missing transform {op}"
     for op in OPERATORS_TS_UNAVAILABLE:
         assert op in block
     for fld in FIELDS_FUNDAMENTAL_UNAVAILABLE:
         assert fld in block
+
+
+def test_operators_prompt_block_advertises_hump_with_examples():
+    block = operators_prompt_block()
+    assert "hump(" in block
+    assert "Turnover Reduction" in block
+    # Should show concrete hump_value examples
+    assert "0.01" in block
+
+
+def test_operators_prompt_block_advertises_adv_variants():
+    block = operators_prompt_block()
+    for adv in ("adv20", "adv60", "adv120", "adv180"):
+        assert adv in block, f"missing {adv} in prompt block"
+
+
+def test_operators_prompt_block_advertises_multiline_binding():
+    block = operators_prompt_block()
+    assert "Multi-Line Binding" in block
+    assert ";" in block
+    # The classic x = ...; y = ...; rank(...) shape
+    assert "x =" in block or "x=" in block
 
 
 def test_operators_prompt_block_no_truncation_marker():
@@ -93,5 +127,17 @@ def test_operators_prompt_block_no_truncation_marker():
 
 
 def test_all_operators_count():
-    assert len(ALL_OPERATORS) == len(OPERATORS_TS) + len(OPERATORS_CS) + len(OPERATORS_MATH)
-    assert len(ALL_OPERATORS) >= 30
+    assert len(ALL_OPERATORS) == (
+        len(OPERATORS_TS) + len(OPERATORS_CS) + len(OPERATORS_MATH) + len(OPERATORS_TRANSFORM)
+    )
+    assert len(ALL_OPERATORS) >= 33
+
+
+def test_adv_variants_in_price_volume_fields():
+    for adv in ("adv20", "adv60", "adv120", "adv180"):
+        assert adv in FIELDS_PRICE_VOLUME, f"{adv} missing"
+
+
+def test_hump_in_transform():
+    assert "hump" in OPERATORS_TRANSFORM
+    assert "hump" in ALL_OPERATORS
