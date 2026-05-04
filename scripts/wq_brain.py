@@ -205,11 +205,12 @@ def cmd_agent(args: argparse.Namespace) -> None:
         neutralization=args.neutralization,
         truncation=args.truncation,
         max_turns=args.max_turns,
+        cli=args.cli,
         model=args.model,
-        hermes_provider=args.hermes_provider,
-        hermes_yolo=args.hermes_yolo,
-        hermes_toolsets=args.hermes_toolsets,
-        hermes_reasoning_effort=args.hermes_reasoning_effort,
+        provider=args.provider,
+        yolo=args.yolo,
+        toolsets=args.toolsets,
+        reasoning_effort=args.reasoning_effort,
         auto_submit=args.auto_submit,
         timeout_sec=args.timeout_sec,
     )
@@ -289,7 +290,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--dry-run", action="store_true")
     sp.set_defaults(func=cmd_scan)
 
-    sp = sub.add_parser("agent", help="launch hermes for autonomous WQ research")
+    sp = sub.add_parser("agent", help="launch LLM CLI for autonomous WQ research")
     sp.add_argument("--tag", required=True)
     sp.add_argument("--region", default="USA")
     sp.add_argument("--universe", default="TOP3000")
@@ -297,12 +298,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--neutralization", default="SUBINDUSTRY")
     sp.add_argument("--truncation", type=float, default=0.08)
     sp.add_argument("--max-turns", type=int, default=100)
+    sp.add_argument("--cli", default="auto", choices=["auto", "opencode", "hermes"],
+                    help="agentic LLM CLI to spawn")
     sp.add_argument("--model", default="")
-    sp.add_argument("--hermes-provider", default="")
-    sp.add_argument("--hermes-yolo", dest="hermes_yolo", action="store_true", default=True)
-    sp.add_argument("--no-hermes-yolo", dest="hermes_yolo", action="store_false")
-    sp.add_argument("--hermes-toolsets", default="terminal,file")
-    sp.add_argument("--hermes-reasoning-effort", default="")
+    sp.add_argument("--provider", default="")
+    sp.add_argument("--yolo", dest="yolo", action="store_true", default=True)
+    sp.add_argument("--no-yolo", dest="yolo", action="store_false")
+    sp.add_argument("--toolsets", default="terminal,file", help="hermes-only")
+    sp.add_argument("--reasoning-effort", default="", help="hermes-only")
     sp.add_argument("--auto-submit", action="store_true")
     sp.add_argument("--timeout-sec", type=float, default=7200.0)
     sp.set_defaults(func=cmd_agent)
