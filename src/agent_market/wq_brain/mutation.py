@@ -142,9 +142,10 @@ class MutationEngine:
                 MutationStrategy.REDUCE_TURNOVER,
                 f"turnover={turnover:.2f} caps fitness — wrap with hump() or ts_decay_linear()",
                 {"turnover": turnover, "fitness": fitness,
-                 "candidates": ["hump(_, 0.01)", "hump(_, 0.005)",
+                 "candidates": ["hump(_)  # 1-arg only on free tier",
                                 "ts_decay_linear(_, 10)", "ts_decay_linear(_, 20)",
-                                "switch adv20 → adv60/120 in liquidity terms"]},
+                                "switch adv20 → adv60/120 in liquidity terms",
+                                "wrap inner ts_delta(close,N) → use larger N (10→20)"]},
             )
 
         # 5. Deep nesting → simplify
@@ -289,11 +290,14 @@ _STRATEGY_GUIDANCE: dict[MutationStrategy, list[str]] = {
     ],
     MutationStrategy.REDUCE_TURNOVER: [
         "- Turnover capping fitness — apply a turnover-reduction layer:",
-        "    - Outer: `hump(rank(<alpha>), 0.01)`  (typically -50% turnover)",
+        "    - Outer: `hump(rank(<alpha>))`  — 1-arg ONLY on free tier (no threshold)",
         "    - Inner smooth: `ts_decay_linear(<alpha>, 10)` or 20",
         "    - Liquidity: replace `adv20` with `adv60` / `adv120`",
-        "- For top alpha (sh=1.47 fi=0.77 to=0.46): `hump(rank(...), 0.01)` should",
-        "  drop turnover to ~0.20 and lift fitness past 1.0",
+        "    - Larger windows: `ts_delta(close, 10)` instead of `ts_delta(close, 3)`",
+        "- WARNING: `hump(<alpha>, 0.01)` triggers 'Invalid number of inputs: 2'",
+        "  on free tier — costs budget on rejection. Use 1-arg form only.",
+        "- BEWARE: humping a near-zero alpha kills the signal. Only hump alphas",
+        "  with sh ≥ 1.0 already.",
     ],
     MutationStrategy.SIMPLIFY: [
         "- Nesting too deep (>8 levels)",

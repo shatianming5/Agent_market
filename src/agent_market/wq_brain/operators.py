@@ -120,6 +120,8 @@ AVAILABLE Math ({len(OPERATORS_MATH)}):
 
 AVAILABLE Turnover-Reduction Transform ({len(OPERATORS_TRANSFORM)}):
   {", ".join(OPERATORS_TRANSFORM)}
+  CRITICAL: hump takes ONLY 1 argument in this WQ tier — `hump(<alpha>)`.
+  `hump(<alpha>, 0.01)` returns "Invalid number of inputs: 2" and wastes budget.
 
 UNAVAILABLE Time-Series — DO NOT USE ({len(OPERATORS_TS_UNAVAILABLE)}):
   {", ".join(OPERATORS_TS_UNAVAILABLE)}
@@ -137,13 +139,14 @@ UNAVAILABLE Fields (fundamental) — DO NOT USE ({len(FIELDS_FUNDAMENTAL_UNAVAIL
 Past best alpha hit sh=1.47 fi=0.77 to=0.46 — the turnover (0.46) caps fitness.
 Two main levers to slash turnover (and thus boost fitness):
 
-(a) `hump(<alpha>, hump_value)` — clips per-period weight deltas below
-    hump_value. Typical reductions:
-        hump(<alpha>, 0.005) → ~30% turnover cut
-        hump(<alpha>, 0.01)  → ~50% turnover cut (most common)
-        hump(<alpha>, 0.05)  → ~80% turnover cut, larger sharpe hit
+(a) `hump(<alpha>)` — single-argument turnover-reduction wrapper. WQ free
+    tier ONLY accepts 1 arg; `hump(<alpha>, 0.01)` returns
+    "Invalid number of inputs: 2" and wastes budget. Typical effect:
+        hump(rank(...))  → ~50-70% turnover cut, modest sharpe hit
+    BEWARE: hump on a near-zero alpha kills the signal entirely. Only
+    hump alphas with sh ≥ 1.0 already.
     Example: rank(ts_rank(close,252) * (-ts_delta(close,3)/close))  # to=0.46
-             hump(rank(ts_rank(close,252) * (-ts_delta(close,3)/close)), 0.01)  # to≈0.20
+             hump(rank(ts_rank(close,252) * (-ts_delta(close,3)/close)))  # to≈0.10-0.15
 
 (b) Use longer ADV/window: replace `adv20` with `adv60`/`adv120`, replace
     `ts_*(field, 5)` with `ts_*(field, 20)` etc. — same shape, less churn.

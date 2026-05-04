@@ -69,8 +69,9 @@ _OP_META: dict[str, tuple[int, Optional[int]]] = {
     "clamp": (3, 3),
     "correlation": (3, 3),
     "covariance": (3, 3),
-    # Turnover-reduction transform
-    "hump": (1, 2),  # hump(alpha) or hump(alpha, threshold)
+    # Turnover-reduction transform — WQ accepts ONLY 1 arg in our tier
+    # (`hump(alpha, 0.01)` → "Invalid number of inputs: 2")
+    "hump": (1, 1),
 }
 
 _TOKEN_RE = re.compile(

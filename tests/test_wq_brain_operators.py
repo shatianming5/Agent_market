@@ -24,9 +24,9 @@ def test_basic_valid_expressions_pass():
         "rank(group_zscore(returns, sector))",
         "rank(ts_decay_linear(returns, 10))",
         "rank((high - low) / close)",
-        # New: hump for turnover reduction
-        "hump(rank(close), 0.01)",
-        "hump(rank(ts_rank(close,252) * (-ts_delta(close,3)/close)), 0.01)",
+        # New: hump for turnover reduction (1-arg ONLY on WQ free tier)
+        "hump(rank(close))",
+        "hump(rank(ts_rank(close,252) * (-ts_delta(close,3)/close)))",
         # New: longer ADV variants
         "rank(volume / adv60)",
         "rank(returns * volume / adv120)",
