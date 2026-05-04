@@ -153,10 +153,32 @@ Generate 5-10 distinct candidate expressions covering ≥3 different families.
 **ALWAYS validate locally first**: `python {WQ_TOOLS} validate "<expr>"`
 The strict parser catches arity mismatches and unknown ops BEFORE you burn WQ budget.
 
-### Phase 3 — Simulate (20-40 turns)
+### Phase 3 — Local Pre-Screen + Remote Simulate (20-40 turns)
 
-For each candidate that passes `validate`, run:
-`python {WQ_TOOLS} simulate "<expr>" --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}`
+**Pre-screen with local backtest** (if `fetch-data` has been run, OHLCV
+cache exists). This **does not consume WQ budget**:
+
+```bash
+python {WQ_TOOLS} local-simulate "<expr>" --rebalance-freq 5
+```
+
+Returns wq_sharpe/wq_fitness/wq_turnover from a dollar-neutral L/S portfolio
+on cached US-stock data. Only candidates with **local wq_fitness ≥ 0.5**
+are worth burning WQ budget on. If local-simulate errors with "no cached
+OHLCV", skip this step and go straight to remote.
+
+**Optional anti-overfitting check** (slow, ~30-60s):
+```bash
+python {WQ_TOOLS} anti-overfit "<expr>" --holding-period 5
+```
+Returns score 0-100 + recommendation (RECOMMEND/CAUTION/NEEDS_WORK/REJECT).
+Run this only on candidates that BOTH pass local-simulate AND look likely
+to clear remote thresholds. REJECT score (<25) → drop without remote sim.
+
+**Remote simulate** (the budget-burning step):
+```bash
+python {WQ_TOOLS} simulate "<expr>" --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}
+```
 
 After each result:
 - If sh ≥ 1.25 AND fi ≥ 1.0 → mark as PASS, plan submission in Phase 5.
