@@ -18,9 +18,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
+from .crossover import extract_top_segments, format_crossover_block
+from .mutation import render_top_failures_block
 from .operators import operators_prompt_block
 from .paths import alpha_pool_path, repo_root, tried_exprs_path, wq_brain_run_dir
 from .pool import AlphaPool
+from .scoring import score_record
 from .tried_log import format_for_prompt, read_tried
 
 logger = logging.getLogger(__name__)
@@ -128,7 +131,8 @@ def _resolve_cli(requested: str, *, env: Optional[dict[str, str]] = None) -> str
 
 
 def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int = 60) -> str:
-    """Render cross-loop knowledge: passing pool + recent tried_exprs."""
+    """Render cross-loop knowledge: passing pool + recent tried_exprs +
+    cross-over candidates + mutation hints."""
     parts: list[str] = []
 
     pool = AlphaPool(alpha_pool_path(tag))
@@ -143,6 +147,17 @@ def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int
     tried = read_tried(tried_exprs_path(tag), tail=max_tried * 4)
     if tried:
         parts.append("### Recently Attempted Expressions (latest result per expr)\n\n" + format_for_prompt(tried, max_rows=max_tried))
+
+        # Cross-over: top fragments by quick-score, diversified by family
+        segments = extract_top_segments(tried, min_score=30, top_n=5, diversify_by_family=True)
+        cross_block = format_crossover_block(segments)
+        if cross_block:
+            parts.append(cross_block)
+
+        # Mutation hints: top near-misses with diagnoses
+        mutation_block = render_top_failures_block(tried, top_n=3)
+        if mutation_block:
+            parts.append(mutation_block)
 
     if not parts:
         return "_(no prior loop data — fresh start)_"
@@ -231,6 +246,37 @@ def _build_iter_review(
 
     top3 = sorted(completed, key=_fi, reverse=True)[:3]
 
+    # Multi-dim score for every iter candidate
+    grades = {"A": 0, "B": 0, "C": 0, "D": 0}
+    scored_top3: list[dict] = []
+    for t in top3:
+        try:
+            s = score_record(t)
+            grades[s.grade] = grades.get(s.grade, 0) + 1
+            scored_top3.append({
+                "expr": t.get("expr"), "sh": t.get("sharpe"),
+                "fi": t.get("fitness"), "to": t.get("turnover"),
+                "alpha_id": t.get("alpha_id"),
+                "score": round(s.score, 1),
+                "grade": s.grade,
+                "recommendation": s.recommendation,
+            })
+        except Exception:
+            scored_top3.append({
+                "expr": t.get("expr"), "sh": t.get("sharpe"),
+                "fi": t.get("fitness"), "to": t.get("turnover"),
+                "alpha_id": t.get("alpha_id"),
+            })
+    # Grade distribution across all completed (not just top 3)
+    for t in completed:
+        if t in top3:
+            continue
+        try:
+            s = score_record(t)
+            grades[s.grade] = grades.get(s.grade, 0) + 1
+        except Exception:
+            pass
+
     pool = AlphaPool(alpha_pool_path(tag))
     return {
         "tag": tag,
@@ -240,11 +286,8 @@ def _build_iter_review(
         "iter_completed": len(completed),
         "iter_passed": len(passed),
         "iter_errored": len(errored),
-        "top_3_by_fitness": [
-            {"expr": t.get("expr"), "sh": t.get("sharpe"),
-             "fi": t.get("fitness"), "to": t.get("turnover"),
-             "alpha_id": t.get("alpha_id")} for t in top3
-        ],
+        "grade_distribution": grades,
+        "top_3_by_fitness": scored_top3,
         "passed_alpha_ids": [t.get("alpha_id") for t in passed if t.get("alpha_id")],
         "pool_size_after": len(pool),
         "thresholds": {"sharpe_min": sharpe_min, "fitness_min": fitness_min},
@@ -255,6 +298,9 @@ def _format_review_oneline(review: dict) -> str:
     top = review.get("top_3_by_fitness") or []
     top_fi = top[0].get("fi") if top and top[0].get("fi") is not None else "-"
     top_id = top[0].get("alpha_id") if top else "-"
+    top_grade = top[0].get("grade", "-") if top else "-"
+    grades = review.get("grade_distribution", {})
+    grade_str = "/".join(f"{g}:{grades.get(g, 0)}" for g in ("A", "B", "C", "D"))
     return (
         f"review[tag={review['tag']}] "
         f"sim={review['iter_simulated']} "
@@ -262,6 +308,8 @@ def _format_review_oneline(review: dict) -> str:
         f"passed={review['iter_passed']} "
         f"err={review['iter_errored']} "
         f"top_fi={top_fi} "
+        f"top_grade={top_grade} "
+        f"grades={grade_str} "
         f"top_id={top_id} "
         f"pool={review['pool_size_after']}"
     )

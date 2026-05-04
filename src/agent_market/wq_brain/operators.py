@@ -58,8 +58,12 @@ _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PYTHON_FORBIDDEN = ("import ", "def ", "class ", "lambda", "print(", "exec(", "eval(", "__")
 
 
-def validate_expression(expr: str) -> list[str]:
-    """Returns list of error messages; empty list = OK."""
+def _validate_expression_v1(expr: str) -> list[str]:
+    """Legacy token-level validator. Kept as `--lax` mode fallback.
+
+    Catches: empty, Python keywords, unbalanced parens, UNAVAILABLE ops/fields.
+    Misses: arity mismatches, unknown ops, deep nesting, length overflow.
+    """
     errors: list[str] = []
     if not expr or not expr.strip():
         errors.append("empty expression")
@@ -82,6 +86,22 @@ def validate_expression(expr: str) -> list[str]:
             errors.append(f"unavailable field: {tok}")
 
     return errors
+
+
+def validate_expression(expr: str, *, strict: bool = True) -> list[str]:
+    """Returns list of error messages; empty list = OK.
+
+    strict=True (default): full recursive-descent parser + arity / nesting /
+    length / unknown-op / unavailable-op / unavailable-field checks.
+
+    strict=False (legacy): token scan only. Use when an expression is known to
+    have non-standard syntax we want to send to WQ as-is.
+    """
+    if not strict:
+        return _validate_expression_v1(expr)
+    # Lazy import to avoid circular dep at module load
+    from .expr_parser import validate_expression_strict
+    return validate_expression_strict(expr)
 
 
 def operators_prompt_block() -> str:

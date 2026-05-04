@@ -55,8 +55,35 @@ def cmd_auth(args: argparse.Namespace) -> None:
 
 def cmd_validate(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.operators import validate_expression
-    errors = validate_expression(args.expr)
-    _emit({"ok": not errors, "errors": errors, "expr": args.expr})
+    errors = validate_expression(args.expr, strict=not args.lax)
+    _emit({
+        "ok": not errors,
+        "errors": errors,
+        "expr": args.expr,
+        "mode": "lax" if args.lax else "strict",
+    })
+
+
+def cmd_mutate(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.mutation import FailureContext, MutationEngine
+    ctx = FailureContext(
+        expr=args.expr,
+        sharpe=args.sharpe,
+        fitness=args.fitness,
+        turnover=args.turnover,
+        returns=args.returns,
+        status=args.status,
+        error=args.error,
+    )
+    engine = MutationEngine(ctx)
+    diag = engine.diagnose()
+    _emit({
+        "ok": True,
+        "expr": args.expr,
+        "quick_score": engine.score,
+        "diagnosis": diag.to_dict(),
+        "prompt_hints": engine.format_for_prompt(),
+    })
 
 
 def cmd_simulate(args: argparse.Namespace) -> None:
@@ -107,6 +134,29 @@ def cmd_submit(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.pool import AlphaPool
 
     sess = session_from_env()
+
+    # Pre-check: reject if too correlated with existing pool (unless --no-pre-check)
+    if not args.no_pre_check:
+        try:
+            corrs = sess.get_alpha_correlations(args.alpha_id)
+            max_corr = max((float(c.get("correlation", 0)) for c in corrs), default=0.0)
+            if max_corr >= args.corr_max:
+                _emit({
+                    "ok": False,
+                    "rejected_by": "pre_check",
+                    "alpha_id": args.alpha_id,
+                    "max_correlation": max_corr,
+                    "corr_max_threshold": args.corr_max,
+                    "reason": (
+                        f"max_corr={max_corr:.3f} >= threshold={args.corr_max:.3f} "
+                        f"— too similar to existing pool. Use --no-pre-check to override."
+                    ),
+                }, code=2)
+                return
+        except Exception as exc:
+            # If pre_check itself fails, log but don't block submission
+            print(f"WARN: pre_check failed ({exc}); proceeding to submit", file=sys.stderr)
+
     try:
         wq_resp = sess.submit_alpha(args.alpha_id)
     except Exception as exc:
@@ -158,6 +208,49 @@ def cmd_corr(args: argparse.Namespace) -> None:
                "correlations": corrs[:20]})
     except Exception as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
+
+
+def cmd_pre_check(args: argparse.Namespace) -> None:
+    """Pre-submission gate: query WQ correlations and decide submit/reject."""
+    from agent_market.wq_brain.client import session_from_env
+    try:
+        sess = session_from_env()
+        corrs = sess.get_alpha_correlations(args.alpha_id)
+        max_corr = max((float(c.get("correlation", 0)) for c in corrs), default=0.0)
+        accept = max_corr < args.corr_max
+        _emit({
+            "ok": True,
+            "alpha_id": args.alpha_id,
+            "max_correlation": max_corr,
+            "corr_max_threshold": args.corr_max,
+            "accept": accept,
+            "reason": (
+                f"max_corr={max_corr:.3f} < threshold={args.corr_max:.3f}"
+                if accept else
+                f"REJECT: max_corr={max_corr:.3f} >= threshold={args.corr_max:.3f} "
+                f"(too similar to existing pool)"
+            ),
+            "top_5_correlations": sorted(
+                corrs, key=lambda c: -abs(float(c.get("correlation", 0)))
+            )[:5],
+        }, code=0 if accept else 2)
+    except Exception as exc:
+        _emit({"ok": False, "error": str(exc)}, code=1)
+
+
+def cmd_score(args: argparse.Namespace) -> None:
+    """Score a single SimulationResult-like input."""
+    from agent_market.wq_brain.dtypes import SimulationResult
+    from agent_market.wq_brain.scoring import score_simulation_result
+    sim = SimulationResult(
+        sharpe=args.sharpe,
+        fitness=args.fitness,
+        turnover=args.turnover,
+        returns=args.returns,
+        status=args.status,
+    )
+    out = score_simulation_result(sim)
+    _emit({"ok": True, "expr": args.expr or "", **out.to_dict()})
 
 
 def cmd_search_arxiv(args: argparse.Namespace) -> None:
@@ -346,7 +439,19 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("validate", help="locally validate a FASTEXPR")
     sp.add_argument("expr")
+    sp.add_argument("--lax", action="store_true",
+                    help="use legacy token scan only (skip arity / unknown-op / nesting checks)")
     sp.set_defaults(func=cmd_validate)
+
+    sp = sub.add_parser("mutate", help="diagnose a failure + recommend mutation strategy")
+    sp.add_argument("expr")
+    sp.add_argument("--sharpe", type=float, default=None)
+    sp.add_argument("--fitness", type=float, default=None)
+    sp.add_argument("--turnover", type=float, default=None)
+    sp.add_argument("--returns", type=float, default=None)
+    sp.add_argument("--status", default="COMPLETE")
+    sp.add_argument("--error", default=None)
+    sp.set_defaults(func=cmd_mutate)
 
     sp = sub.add_parser("simulate", help="run a single WQ simulation")
     sp.add_argument("expr")
@@ -363,7 +468,25 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("alpha_id")
     sp.add_argument("--tag", default="", help="local pool tag")
     sp.add_argument("--expr", default="", help="optional expr to record locally")
+    sp.add_argument("--corr-max", type=float, default=0.7,
+                    help="reject if max correlation with existing pool >= this (default 0.7)")
+    sp.add_argument("--no-pre-check", action="store_true",
+                    help="skip the correlation pre-check")
     sp.set_defaults(func=cmd_submit)
+
+    sp = sub.add_parser("pre-check", help="check if alpha is similar enough to existing pool to reject")
+    sp.add_argument("alpha_id")
+    sp.add_argument("--corr-max", type=float, default=0.7)
+    sp.set_defaults(func=cmd_pre_check)
+
+    sp = sub.add_parser("score", help="multi-dim score a single alpha result")
+    sp.add_argument("--sharpe", type=float, default=None)
+    sp.add_argument("--fitness", type=float, default=None)
+    sp.add_argument("--turnover", type=float, default=None)
+    sp.add_argument("--returns", type=float, default=None)
+    sp.add_argument("--status", default="COMPLETE")
+    sp.add_argument("--expr", default="")
+    sp.set_defaults(func=cmd_score)
 
     sp = sub.add_parser("pool", help="local alpha pool ops")
     pool_sub = sp.add_subparsers(dest="pool_cmd", required=True)
