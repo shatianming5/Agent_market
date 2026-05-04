@@ -1,29 +1,27 @@
+"""Path resolution for wq_brain artifacts."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from agent_market import paths as repo_paths
+from agent_market.paths import artifacts_root
 
 
 def wq_brain_root() -> Path:
-    return repo_paths.artifacts_root() / "wq_brain"
+    return artifacts_root() / "wq_brain"
 
 
 def wq_brain_run_dir(run_id: str) -> Path:
-    return wq_brain_root() / "runs" / str(run_id)
+    return wq_brain_root() / "runs" / run_id
 
 
 def alpha_pool_path(tag: str) -> Path:
     return wq_brain_root() / "pools" / f"{tag}.json"
 
 
-def wq_brain_registry_path() -> Path:
+def run_registry_path() -> Path:
     return wq_brain_root() / "run_registry.jsonl"
 
 
-def hermes_home_dir(run_id: str) -> Path:
-    return wq_brain_run_dir(run_id) / "hermes_home"
-
-
-def kb_index_path() -> Path:
-    return wq_brain_root() / "kb_index.json"
+def repo_root() -> Path:
+    """Project root — used to resolve scripts/wq_tools.py and prompts/."""
+    return Path(__file__).resolve().parents[3]

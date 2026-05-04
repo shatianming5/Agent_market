@@ -1,181 +1,110 @@
-"""WorldQuant BRAIN FASTEXPR operator and field reference.
+"""FASTEXPR whitelist + simple validator.
 
-Used to validate LLM-generated expressions before submitting to the API
-and to inject into prompts as a constraint list.
+Validator scope: token-level + balanced parens. The agent itself iterates
+when WQ API rejects an expression — the validator is just a first-pass filter
+to save WQ simulation budget on obviously broken expressions.
 """
 from __future__ import annotations
 
 import re
-from typing import Optional
 
-# ── Time-series operators ──────────────────────────────────────────────────
-OPERATORS_TIME_SERIES: list[str] = [
+# AVAILABLE on free tier
+OPERATORS_TS = [
     "ts_mean", "ts_rank", "ts_zscore", "ts_sum", "ts_max",
-    "ts_delta", "ts_delay", "ts_decay_linear",
-    "ts_corr",
+    "ts_delta", "ts_delay", "ts_decay_linear", "ts_corr",
 ]
-OPERATORS_TIME_SERIES_UNAVAILABLE: list[str] = [
+OPERATORS_CS = [
+    "rank", "group_rank", "group_mean", "group_sum", "group_std",
+    "group_zscore", "group_neutralize", "group_count", "scale", "signed_power",
+]
+OPERATORS_MATH = [
+    "abs", "log", "sqrt", "sign", "power", "exp",
+    "min", "max", "sum", "mean", "if_else", "clamp",
+    "correlation", "covariance",
+]
+
+# UNAVAILABLE on free tier — DO NOT USE
+OPERATORS_TS_UNAVAILABLE = [
     "ts_std", "ts_min", "ts_product", "ts_skewness", "ts_kurtosis",
     "ts_decay_exp", "ts_regression_slope", "ts_regression_intercept",
     "ts_covariance", "ts_arg_min", "ts_arg_max", "ts_count",
 ]
 
-# ── Cross-sectional operators ──────────────────────────────────────────────
-OPERATORS_CROSS_SECTIONAL: list[str] = [
-    "rank", "group_rank", "group_mean", "group_sum", "group_std",
-    "group_zscore", "group_neutralize", "group_count",
-    "scale", "signed_power",
+FIELDS_PRICE_VOLUME = [
+    "open", "close", "high", "low", "volume", "vwap", "adv20", "returns",
+]
+FIELDS_GROUP = ["sector", "industry", "subindustry"]
+FIELDS_FUNDAMENTAL_UNAVAILABLE = [
+    "book_to_price", "earnings_yield", "dividend_yield", "fcf_yield",
+    "roe", "roa", "operating_margin", "gross_margin",
+    "debt_to_equity", "current_ratio", "quick_ratio",
+    "revenue_growth", "earnings_growth", "fcf_growth",
+    "market_cap", "cap", "shares_out", "float_shares",
+    "pe", "pb",
 ]
 
-# ── Math / elementwise operators ───────────────────────────────────────────
-OPERATORS_MATH: list[str] = [
-    "abs", "log", "sqrt", "sign", "power", "exp",
-    "min", "max", "sum", "mean",
-    "if_else", "clamp",
-    "correlation", "covariance",
-]
+ALL_OPERATORS = OPERATORS_TS + OPERATORS_CS + OPERATORS_MATH
+ALL_FIELDS = FIELDS_PRICE_VOLUME + FIELDS_GROUP
 
-ALL_OPERATORS: set[str] = (
-    set(OPERATORS_TIME_SERIES)
-    | set(OPERATORS_TIME_SERIES_UNAVAILABLE)
-    | set(OPERATORS_CROSS_SECTIONAL)
-    | set(OPERATORS_MATH)
-)
-
-# ── Price/Volume fields ─────────────────────────────────────────────────────
-FIELDS_PRICE_VOLUME: list[str] = [
-    "open", "close", "high", "low", "volume", "vwap",
-    "adv20",
-    "returns",  # "adv60","adv120","adv180","cap" NOT confirmed available
-]
-
-# ── Fundamental fields ──────────────────────────────────────────────────────
-FIELDS_FUNDAMENTAL: list[str] = [
-    "book_to_price", "earnings_yield", "sales_yield",
-    "ebitda_yield", "fcf_yield", "dividend_yield",
-    "debt_to_equity", "debt_to_assets",
-    "roe", "roa", "gross_margin", "net_margin",
-    "revenue_growth", "earnings_growth",
-    "pe_ratio", "pb_ratio", "ps_ratio",
-    "analyst_consensus", "analyst_revision",
-]
-
-# ── Sector/industry classification ─────────────────────────────────────────
-FIELDS_CLASSIFICATION: list[str] = [
-    "sector", "subindustry", "industry",
-]
-
-ALL_FIELDS: set[str] = (
-    set(FIELDS_PRICE_VOLUME)
-    | set(FIELDS_FUNDAMENTAL)
-    | set(FIELDS_CLASSIFICATION)
-)
-
-UNAVAILABLE_FUNDAMENTAL_FIELDS: frozenset[str] = frozenset(FIELDS_FUNDAMENTAL)
-UNAVAILABLE_PRICE_FIELDS: frozenset[str] = frozenset(["adv60", "adv120", "adv180", "cap"])
-UNAVAILABLE_TS_OPERATORS: frozenset[str] = frozenset(OPERATORS_TIME_SERIES_UNAVAILABLE)
-
-# ── Tokenizer ───────────────────────────────────────────────────────────────
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-
-
-def _tokens(expr: str) -> list[str]:
-    return _TOKEN_RE.findall(expr)
-
-
-# ── Validator ────────────────────────────────────────────────────────────────
-_RESERVED_WORDS = {"if", "else", "and", "or", "not", "in", "True", "False", "None"}
-_NUMERIC_LIKE = re.compile(r"^\d+$")
+_PYTHON_FORBIDDEN = ("import ", "def ", "class ", "lambda", "print(", "exec(", "eval(", "__")
 
 
 def validate_expression(expr: str) -> list[str]:
-    """Light token-level pre-check. Returns list of error strings (empty = ok)."""
+    """Returns list of error messages; empty list = OK."""
     errors: list[str] = []
-    stripped = expr.strip()
-    if not stripped:
-        errors.append("Empty expression")
+    if not expr or not expr.strip():
+        errors.append("empty expression")
         return errors
 
-    tokens = _tokens(stripped)
-    if not tokens:
-        errors.append("No recognisable tokens found")
-        return errors
+    for kw in _PYTHON_FORBIDDEN:
+        if kw in expr:
+            errors.append(f"forbidden Python syntax: {kw!r}")
 
-    # Check for obvious Python-only constructs that WQ doesn't support
-    for bad in ("import", "def ", "class ", "lambda ", "print(", "exec(", "eval("):
-        if bad in stripped:
-            errors.append(f"Forbidden construct: {bad!r}")
+    open_paren = expr.count("(")
+    close_paren = expr.count(")")
+    if open_paren != close_paren:
+        errors.append(f"unbalanced parens: {open_paren} '(' vs {close_paren} ')'")
 
-    # Identify unknown identifiers (not operators, not fields, not numbers)
-    unknown: list[str] = []
+    tokens = set(_TOKEN_RE.findall(expr))
     for tok in tokens:
-        if tok in _RESERVED_WORDS:
-            continue
-        if _NUMERIC_LIKE.match(tok):
-            continue
-        if tok in ALL_OPERATORS:
-            continue
-        if tok in ALL_FIELDS:
-            continue
-        # Single-letter variables (e.g. x in lambda-like expressions) are fine
-        if len(tok) == 1:
-            continue
-        unknown.append(tok)
-
-    if unknown:
-        errors.append(f"Unrecognised identifiers (may be unlisted fields): {unknown[:5]}")
-
-    # Block unavailable fundamental fields
-    blocked_fund = [tok for tok in tokens if tok in UNAVAILABLE_FUNDAMENTAL_FIELDS]
-    if blocked_fund:
-        errors.append(f"Unavailable fundamental field(s): {blocked_fund[:5]} (not on this account)")
-
-    # Block unavailable price fields
-    blocked_pv = [tok for tok in tokens if tok in UNAVAILABLE_PRICE_FIELDS]
-    if blocked_pv:
-        errors.append(f"Unavailable price field(s): {blocked_pv[:5]} (not on this account)")
-
-    # Block unavailable time-series operators
-    blocked_ts = [tok for tok in tokens if tok in UNAVAILABLE_TS_OPERATORS]
-    if blocked_ts:
-        errors.append(f"Unavailable operator(s): {blocked_ts[:5]} (not on this account)")
+        if tok in OPERATORS_TS_UNAVAILABLE:
+            errors.append(f"unavailable operator: {tok}")
+        if tok in FIELDS_FUNDAMENTAL_UNAVAILABLE:
+            errors.append(f"unavailable field: {tok}")
 
     return errors
 
 
 def operators_prompt_block() -> str:
-    """Return a compact prompt snippet listing key operators and fields."""
-    ts_ops = ", ".join(OPERATORS_TIME_SERIES) + "  (ONLY these! ts_std/ts_min NOT available)"
-    cs_ops = ", ".join(OPERATORS_CROSS_SECTIONAL)
-    math_ops = ", ".join(OPERATORS_MATH[:8]) + ", ..."
-    pv = ", ".join(f for f in FIELDS_PRICE_VOLUME if f != "returns")
-    return f"""\
-=== WorldQuant FASTEXPR Reference ===
+    """Markdown reference block — full disclosure, no truncation."""
+    return f"""
+=== FASTEXPR Operator Reference ===
 
-OPERATORS (called with arguments, e.g. rank(close)):
-  Time-series  : {ts_ops}
-  Cross-section: {cs_ops}
-  Math/Scalar  : {math_ops}
+AVAILABLE Time-Series ({len(OPERATORS_TS)}):
+  {", ".join(OPERATORS_TS)}
 
-AVAILABLE DATA FIELDS (plain tokens, NO parentheses ever):
-  Price        : open, close, high, low, vwap
-  Volume       : volume, adv20  (adv60/adv120/adv180 NOT available!)
-  Return       : returns  (1-day return — use ts_mean(returns,N) for N-day avg)
-  Grouping     : sector, industry, subindustry  (for group_* operators only)
+AVAILABLE Cross-Sectional ({len(OPERATORS_CS)}):
+  {", ".join(OPERATORS_CS)}
 
-*** FUNDAMENTAL FIELDS ARE NOT AVAILABLE (roe, book_to_price, etc.) ***
+AVAILABLE Math ({len(OPERATORS_MATH)}):
+  {", ".join(OPERATORS_MATH)}
 
-*** GROUP OPERATORS NOTE ***
-  group_rank(x, group) and group_zscore(x, group) take 2 args — CONFIRMED WORKING.
-  group_mean/group_sum/group_count require 3 args — AVOID, use group_rank/group_zscore instead.
+UNAVAILABLE Time-Series — DO NOT USE ({len(OPERATORS_TS_UNAVAILABLE)}):
+  {", ".join(OPERATORS_TS_UNAVAILABLE)}
 
-*** CRITICAL SYNTAX RULES ***
-1. Fields are plain tokens — NEVER add () after them.
-   CORRECT: rank(returns)        WRONG: returns(20)
-   CORRECT: ts_mean(returns, 60) WRONG: returns(60)
-2. Use rank() or group_rank() as outermost wrapper to normalize output.
-3. Target turnover < 0.60 (daily). HIGH_TURNOVER limit is 0.70 — crossing it kills fitness.
-   Use LONG windows (20-120 days). BAD: rank(-ts_zscore(returns,5))  GOOD: rank(ts_mean(returns,60))
-4. Delay=1: signal at T, fill at T+1 open (no look-ahead bias).
-5. Do NOT use Python syntax: lambda, import, def, class, print.
-"""
+AVAILABLE Fields:
+  Price/Volume: {", ".join(FIELDS_PRICE_VOLUME)}
+  Group: {", ".join(FIELDS_GROUP)}
+
+UNAVAILABLE Fields (fundamental) — DO NOT USE ({len(FIELDS_FUNDAMENTAL_UNAVAILABLE)}):
+  {", ".join(FIELDS_FUNDAMENTAL_UNAVAILABLE)}
+
+=== Common Pitfalls ===
+- Avoid nesting group_* INSIDE ts_* (causes timeouts):
+    OK:  rank(group_zscore(ts_mean(returns,20), sector))
+    BAD: rank(ts_mean(group_zscore(returns, sector), 20))
+- All ts_* operators take (field, window). Window typically in [3, 240].
+- rank() should usually be the OUTERMOST layer.
+- Quality gates: sharpe >= 1.25 AND fitness >= 1.0.
+""".strip()

@@ -1,165 +1,121 @@
-"""Alpha pool management: persistence, dedup, and diversity tracking."""
+"""Per-tag alpha pool with jaccard duplicate detection.
+
+Atomic JSON write (tmp + rename + fsync). Thread-safe.
+"""
 from __future__ import annotations
 
 import json
-import logging
 import os
-import time
+import re
+import threading
 from collections import deque
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
-from .dtypes import AlphaPoolEntry, AlphaCandidate
+from .dtypes import AlphaCandidate, AlphaPoolEntry
 
-logger = logging.getLogger(__name__)
-
-
-def _tokenset(expr: str) -> frozenset[str]:
-    import re
-    return frozenset(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expr.lower()))
+_TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+")
+_SAVE_LOCK = threading.Lock()
 
 
-def jaccard(a: frozenset, b: frozenset) -> float:
-    if not a and not b:
-        return 1.0
-    union = a | b
-    return len(a & b) / len(union)
+def _tokenize(expr: str) -> frozenset[str]:
+    return frozenset(_TOKEN_RE.findall(expr.lower()))
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    union = len(a | b)
+    return len(a & b) / union if union else 0.0
 
 
 class DuplicateDetector:
-    """Fast local dedup using Jaccard similarity on token sets.
+    """In-memory rolling window of recently-seen exprs (default 200)."""
 
-    Two expressions are considered duplicates if their token-set Jaccard
-    similarity is ≥ threshold (default 0.95).
-    """
-
-    def __init__(self, threshold: float = 0.95, maxlen: int = 200) -> None:
+    def __init__(self, *, threshold: float = 0.95, maxlen: int = 200) -> None:
+        self._seen: deque[tuple[str, frozenset[str]]] = deque(maxlen=maxlen)
         self._threshold = threshold
-        self._cache: deque[tuple[str, frozenset]] = deque(maxlen=maxlen)
 
     def is_duplicate(self, expr: str) -> bool:
-        ts = _tokenset(expr)
-        for _, cached_ts in self._cache:
-            if jaccard(ts, cached_ts) >= self._threshold:
+        toks = _tokenize(expr)
+        for prior_expr, prior_toks in self._seen:
+            if prior_expr == expr:
+                return True
+            if _jaccard(toks, prior_toks) >= self._threshold:
                 return True
         return False
 
     def add(self, expr: str) -> None:
-        self._cache.append((expr, _tokenset(expr)))
-
-    def seen_count(self) -> int:
-        return len(self._cache)
+        self._seen.append((expr, _tokenize(expr)))
 
 
 class AlphaPool:
-    """Persistent alpha pool for a given tag.
+    """Persistent JSON-backed pool of submitted alphas, scoped by tag."""
 
-    Persists to a JSON file and keeps a DuplicateDetector in memory for
-    fast pre-check before submitting to the WQ API.
-    """
-
-    def __init__(self, pool_path: Path, *, corr_threshold: float = 0.70) -> None:
-        self._path = pool_path
-        self._corr_threshold = corr_threshold
+    def __init__(self, path: Path) -> None:
+        self._path = Path(path)
         self._entries: list[AlphaPoolEntry] = []
-        self._detector = DuplicateDetector()
-        pool_path.parent.mkdir(parents=True, exist_ok=True)
-        if pool_path.exists():
+        if self._path.exists():
             self._load()
-            for e in self._entries:
-                self._detector.add(e.expr)
-
-    # ── Persistence ──────────────────────────────────────────────────────
-
-    def _load(self) -> None:
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-            self._entries = [AlphaPoolEntry.from_dict(d) for d in data.get("entries", [])]
-            logger.info("Loaded %d alphas from pool %s", len(self._entries), self._path)
-        except Exception as exc:
-            logger.warning("Failed to load pool from %s: %s", self._path, exc)
-            self._entries = []
-
-    def save(self) -> None:
-        data = json.dumps(
-            {"entries": [e.to_dict() for e in self._entries], "saved_at": time.time()},
-            ensure_ascii=False,
-            indent=2,
-        )
-        tmp = self._path.with_suffix(".tmp")
-        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
-        try:
-            os.write(fd, data.encode("utf-8"))
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-        tmp.rename(self._path)
-
-    # ── Query ─────────────────────────────────────────────────────────────
 
     def __len__(self) -> int:
         return len(self._entries)
 
-    def is_local_duplicate(self, expr: str) -> bool:
-        return self._detector.is_duplicate(expr)
+    def __iter__(self) -> Iterable[AlphaPoolEntry]:
+        return iter(self._entries)
 
-    def all_exprs(self) -> list[str]:
-        return [e.expr for e in self._entries]
+    @property
+    def path(self) -> Path:
+        return self._path
 
-    def top_n_by_fitness(self, n: int = 10) -> list[AlphaPoolEntry]:
-        return sorted(self._entries, key=lambda e: e.fitness, reverse=True)[:n]
+    @property
+    def entries(self) -> list[AlphaPoolEntry]:
+        return list(self._entries)
 
-    def summary_for_prompt(self, n: int = 20) -> str:
-        """Return a compact text summary of the pool for LLM context."""
-        top = self.top_n_by_fitness(n)
-        if not top:
-            return "Alpha pool is empty — generate fresh diverse alphas."
-        lines = [f"Pool has {len(self._entries)} submitted alphas. Top {len(top)} by fitness:"]
-        for i, e in enumerate(top, 1):
-            lines.append(
-                f"  {i}. [sharpe={e.sharpe:.2f} fitness={e.fitness:.2f}] {e.expr[:80]}"
-            )
-        lines.append(
-            "\nIMPORTANT: Generate structurally DIFFERENT alphas — avoid reusing the "
-            "same operators/fields combination as the above."
-        )
-        return "\n".join(lines)
-
-    # ── Mutation ──────────────────────────────────────────────────────────
-
-    def add(self, entry: AlphaPoolEntry) -> None:
+    def add(self, entry: AlphaPoolEntry) -> bool:
+        if any(e.alpha_id == entry.alpha_id for e in self._entries):
+            return False
         self._entries.append(entry)
-        self._detector.add(entry.expr)
-        self.save()
+        self._save()
+        return True
 
-    def add_from_candidate(
-        self, candidate: AlphaCandidate, *, tag: str = ""
-    ) -> Optional[AlphaPoolEntry]:
-        if not candidate.sim_result or not candidate.sim_result.alpha_id:
+    def add_from_candidate(self, c: AlphaCandidate, *, tag: str) -> Optional[AlphaPoolEntry]:
+        if not c.sim_result or not c.sim_result.alpha_id:
             return None
-        r = candidate.sim_result
+        r = c.sim_result
+        if r.sharpe is None or r.fitness is None or r.returns is None or r.turnover is None:
+            return None
         entry = AlphaPoolEntry(
             alpha_id=r.alpha_id,
-            expr=candidate.expr,
-            settings_dict=candidate.settings.to_api_dict(),
-            sharpe=r.sharpe or 0.0,
-            fitness=r.fitness or 0.0,
-            returns=r.returns or 0.0,
-            turnover=r.turnover or 0.0,
+            expr=c.expr,
+            settings_dict=c.settings.to_api_dict() if hasattr(c.settings, "to_api_dict") else dict(c.settings.__dict__),
+            sharpe=float(r.sharpe),
+            fitness=float(r.fitness),
+            returns=float(r.returns),
+            turnover=float(r.turnover),
             tag=tag,
+            source=c.source,
         )
-        self.add(entry)
-        return entry
+        if self.add(entry):
+            return entry
+        return None
 
-    def clean(self, *, keep_top_n: Optional[int] = None) -> int:
-        before = len(self._entries)
-        if keep_top_n is not None:
-            self._entries = self.top_n_by_fitness(keep_top_n)
-        self._rebuild_detector()
-        self.save()
-        return before - len(self._entries)
+    def top_n_by_fitness(self, n: int = 5) -> list[AlphaPoolEntry]:
+        return sorted(self._entries, key=lambda e: -e.fitness)[:n]
 
-    def _rebuild_detector(self) -> None:
-        self._detector = DuplicateDetector()
-        for e in self._entries:
-            self._detector.add(e.expr)
+    def _load(self) -> None:
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+        except Exception:
+            self._entries = []
+            return
+        self._entries = [AlphaPoolEntry.from_dict(d) for d in data]
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with _SAVE_LOCK:
+            tmp = self._path.with_suffix(".json.tmp")
+            payload = json.dumps([e.to_dict() for e in self._entries], indent=2)
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self._path)

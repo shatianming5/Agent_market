@@ -1,0 +1,22 @@
+{
+  "_doc": "Seed templates × grid for wq_brain scan pipeline. Placeholders <F1>/<F2>/<WIN>.",
+  "seeds": [
+    "rank(ts_corr(<F1>, <F2>, <WIN>))",
+    "rank(-ts_corr(<F1>, <F2>, <WIN>))",
+    "rank(group_zscore(<F1> / <F2>, sector))",
+    "rank(ts_decay_linear((<F1> * volume) / adv20, <WIN>))",
+    "rank((high - low) / close * ts_rank(volume, <WIN>))",
+    "rank((<F1> - ts_mean(<F1>, <WIN>)) / ts_mean(<F1>, <WIN>))",
+    "rank(ts_zscore(volume / adv20, <WIN>))",
+    "rank(group_zscore(ts_mean(returns, <WIN>), sector))",
+    "rank(ts_decay_linear(returns, <WIN>))",
+    "rank(close / vwap - ts_mean(close / vwap, <WIN>))",
+    "rank(-ts_delta(<F1>, <WIN>) / <F1>)",
+    "rank(group_neutralize(ts_zscore(<F1>, <WIN>), sector))"
+  ],
+  "grid": {
+    "<F1>": ["close", "vwap", "high", "low"],
+    "<F2>": ["volume", "returns", "vwap"],
+    "<WIN>": [5, 10, 20, 60]
+  }
+}
