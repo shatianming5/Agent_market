@@ -60,13 +60,20 @@ class SimulationResult:
     alpha_id: Optional[str] = None
     status: str = "UNKNOWN"
     error: Optional[str] = None
+    checks: list = field(default_factory=list)  # WQ quality check results
+
+    def failed_check_names(self) -> list[str]:
+        return [c["name"] for c in self.checks if c.get("result") == "FAIL"]
+
+    def check_quality(self, *, sharpe_min: float = 1.25, fitness_min: float = 1.0) -> bool:
+        return (
+            self.sharpe is not None and self.sharpe >= sharpe_min
+            and self.fitness is not None and self.fitness >= fitness_min
+        )
 
     @property
     def passes_quality(self) -> bool:
-        return (
-            self.sharpe is not None and self.sharpe > 1.25
-            and self.fitness is not None and self.fitness > 1.0
-        )
+        return self.check_quality()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

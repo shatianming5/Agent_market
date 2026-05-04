@@ -5,7 +5,10 @@ Subcommands:
   auth      — verify WQ credentials
   simulate  — run a single alpha expression through WebSim
   mine      — main LLM-driven iterative mining loop
+  mine-multi — run mining across multiple regions in parallel
+  mutate    — genetic mutation of top pool alphas (no LLM)
   pool      — manage the local alpha pool (list / clean)
+  kb        — knowledge base management (search / list / rebuild / stats)
   report    — print run statistics from the registry
 """
 from __future__ import annotations
@@ -53,8 +56,11 @@ logger = logging.getLogger("wq_brain")
 # ── Lazy imports (after sys.path setup) ───────────────────────────────────
 from agent_market.wq_brain.client import WQSession, session_from_env
 from agent_market.wq_brain.dtypes import AlphaSettings, WQBrainConfig
+from agent_market.wq_brain.knowledge_base import KnowledgeBase
 from agent_market.wq_brain.multiregion import MultiRegionConfig, MultiRegionRunner, parse_regions
-from agent_market.wq_brain.paths import alpha_pool_path
+from agent_market.wq_brain.mutation import generate_mutations
+from agent_market.wq_brain.operators import validate_expression
+from agent_market.wq_brain.paths import alpha_pool_path, kb_index_path
 from agent_market.wq_brain.pool import AlphaPool
 from agent_market.wq_brain.registry import load_registry
 from agent_market.wq_brain.runner import WQBrainRunner, make_wqb_run_id
@@ -189,6 +195,187 @@ def cmd_mine_multi(args: argparse.Namespace) -> None:
         print(f"  [error] {tag}: {err}")
 
 
+def cmd_mutate(args: argparse.Namespace) -> None:
+    """Standalone genetic mutation of top pool alphas — no LLM needed."""
+    source_tag = args.source_tag
+    target_tag = args.target_tag or source_tag
+
+    src_pool = AlphaPool(alpha_pool_path(source_tag))
+    if len(src_pool) == 0:
+        print(f"ERROR: source pool '{source_tag}' is empty — run `mine` first.")
+        sys.exit(1)
+
+    settings = AlphaSettings(
+        region=args.region,
+        universe=args.universe,
+        delay=args.delay,
+        decay=args.decay,
+        neutralization=args.neutralization,
+        truncation=args.truncation,
+    )
+    parents = src_pool.top_n_by_fitness(args.top_n)
+    print(
+        f"Mutating top {len(parents)} alphas from pool '{source_tag}' "
+        f"(pool size={len(src_pool)})"
+    )
+
+    candidates = generate_mutations(
+        parents,
+        settings,
+        top_n=args.top_n,
+        variants_per_parent=args.variants_per_parent,
+        crossover=not args.no_crossover,
+    )
+    if not candidates:
+        print("Mutation produced 0 candidates. Try a larger pool or different parents.")
+        sys.exit(0)
+    print(f"Generated {len(candidates)} mutation candidates")
+
+    # Pre-filter invalid expressions
+    valid = []
+    for c in candidates:
+        errs = validate_expression(c.expr)
+        if errs:
+            print(f"  [skip-invalid] {c.expr[:70]}  ({errs[0]})")
+        elif src_pool.is_local_duplicate(c.expr):
+            print(f"  [skip-dup]     {c.expr[:70]}")
+        else:
+            valid.append(c)
+    print(f"After filter: {len(valid)} valid candidates to simulate")
+    if not valid:
+        sys.exit(0)
+
+    if args.dry_run:
+        print("dry-run: skipping simulation")
+        for c in valid:
+            print(f"  would simulate: {c.expr}")
+        sys.exit(0)
+
+    sess = session_from_env()
+    sess.login()
+    max_concurrent = int(os.environ.get("WQ_MAX_CONCURRENT", "3"))
+    sess.batch_simulate(valid, max_concurrent=max_concurrent, timeout=300.0)
+
+    target_pool = AlphaPool(alpha_pool_path(target_tag))
+    passed = []
+    print("\n=== Mutation Results ===")
+    for c in valid:
+        r = c.sim_result
+        if r is None:
+            print(f"  [no-result]  {c.expr[:70]}")
+            continue
+        if r.status in ("ERROR", "FAILED", "INVALID_EXPR"):
+            print(f"  [error]      {c.expr[:60]}  ({r.status})")
+            continue
+        passes = r.passes_quality
+        tag_str = "PASS" if passes else "fail"
+        print(
+            f"  [{tag_str}]  sh={r.sharpe or 0:.2f}  fi={r.fitness or 0:.2f}  "
+            f"to={r.turnover or 0:.2f}  {c.expr[:60]}"
+        )
+        if passes:
+            passed.append(c)
+
+    print(f"\nPassed QC: {len(passed)} / {len(valid)}")
+    if not passed:
+        sys.exit(0)
+
+    if args.auto_submit:
+        submitted = 0
+        for c in passed:
+            if not c.sim_result or not c.sim_result.alpha_id:
+                continue
+            try:
+                corr_list = sess.get_alpha_correlations(c.sim_result.alpha_id)
+                max_corr = max(
+                    (abs(float(x.get("value", 0))) for x in corr_list), default=0.0
+                )
+                if max_corr >= args.corr_max:
+                    print(f"  [corr-skip]  {c.expr[:60]}  max_corr={max_corr:.3f}")
+                    continue
+                sess.submit_alpha(c.sim_result.alpha_id)
+                entry = target_pool.add_from_candidate(c, tag=target_tag)
+                if entry:
+                    submitted += 1
+                    print(
+                        f"  [submitted]  alpha_id={c.sim_result.alpha_id}  "
+                        f"sh={entry.sharpe:.2f}  fi={entry.fitness:.2f}"
+                    )
+            except Exception as exc:
+                print(f"  [submit-error] {c.sim_result.alpha_id}: {exc}")
+        print(f"Submitted to WQ pool: {submitted}")
+    else:
+        print("(--auto-submit not set; skipping WQ pool submission)")
+        print("Passing alpha IDs (submit manually if desired):")
+        for c in passed:
+            if c.sim_result:
+                print(f"  {c.sim_result.alpha_id}  {c.expr[:70]}")
+
+
+def cmd_kb(args: argparse.Namespace) -> None:
+    """Knowledge base management: search / list / rebuild / stats."""
+    kb = KnowledgeBase(kb_index_path())
+
+    if args.kb_cmd == "search":
+        query = args.query
+        top_k = args.top_k
+        results = kb.search(query, top_k=top_k)
+        if not results:
+            print("No results.")
+            return
+        print(f"Top {len(results)} results for query: '{query}'")
+        print("-" * 80)
+        for i, e in enumerate(results, 1):
+            sh = e.metadata.get("sharpe", "?")
+            fi = e.metadata.get("fitness", e.metadata.get("turnover", "?"))
+            to = e.metadata.get("turnover", "?")
+            desc = e.metadata.get("desc", "")
+            print(f"  {i:2d}. [{e.source}] sh={sh}  to={to}  {e.text}")
+            if desc:
+                print(f"       → {desc}")
+
+    elif args.kb_cmd == "list":
+        source_filter = args.source  # None means all
+        entries = [e for e in kb._entries if source_filter is None or e.source == source_filter]
+        if not entries:
+            print(f"No entries{' for source=' + source_filter if source_filter else ''}.")
+            return
+        print(f"Knowledge base entries ({len(entries)}):")
+        print("-" * 80)
+        for i, e in enumerate(entries, 1):
+            sh = e.metadata.get("sharpe", "?")
+            to = e.metadata.get("turnover", "?")
+            print(f"  {i:3d}. [{e.source:<10}] sh={sh}  to={to}  {e.text[:70]}")
+
+    elif args.kb_cmd == "rebuild":
+        tags = [t.strip() for t in (args.from_tags or "").split(",") if t.strip()]
+        added = 0
+        for tag in tags:
+            pool = AlphaPool(alpha_pool_path(tag))
+            for entry in pool._entries:
+                kb.add_alpha(
+                    entry.expr,
+                    sharpe=entry.sharpe,
+                    fitness=entry.fitness,
+                    turnover=entry.turnover,
+                )
+                added += 1
+            print(f"  Added {len(pool)} entries from pool '{tag}'")
+        kb.save()
+        print(f"KB rebuilt: {len(kb)} total entries ({added} added from pools, seeds always present)")
+
+    elif args.kb_cmd == "stats":
+        from collections import Counter
+        counts: Counter = Counter(e.source for e in kb._entries)
+        print(f"Knowledge base: {len(kb)} total entries")
+        for src, cnt in sorted(counts.items()):
+            print(f"  {src:<15}: {cnt}")
+
+    else:
+        print(f"Unknown kb subcommand: {args.kb_cmd}")
+        sys.exit(1)
+
+
 def cmd_pool(args: argparse.Namespace) -> None:
     """Manage the local alpha pool."""
     pool = AlphaPool(alpha_pool_path(args.tag))
@@ -309,6 +496,36 @@ def build_parser() -> argparse.ArgumentParser:
     pmm.add_argument("--fitness-min", type=float, default=1.0)
     pmm.add_argument("--corr-max", type=float, default=0.70)
 
+    # mutate
+    pmt = sub.add_parser("mutate", help="Genetic mutation of top pool alphas (no LLM)")
+    pmt.add_argument("--source-tag", required=True, help="Pool tag to take parents from")
+    pmt.add_argument("--target-tag", default="", help="Pool tag to save results (default: same as source)")
+    _add_common_sim_args(pmt)
+    pmt.add_argument("--top-n", type=int, default=10, help="Number of top pool entries to use as parents")
+    pmt.add_argument("--variants-per-parent", type=int, default=4)
+    pmt.add_argument("--no-crossover", action="store_true", help="Disable crossover mutation")
+    pmt.add_argument("--auto-submit", action="store_true")
+    pmt.add_argument("--dry-run", action="store_true")
+    pmt.add_argument("--corr-max", type=float, default=0.70)
+
+    # kb
+    pkb = sub.add_parser("kb", help="Knowledge base management")
+    kb_sub = pkb.add_subparsers(dest="kb_cmd", required=True)
+
+    kb_search = kb_sub.add_parser("search", help="Search the KB")
+    kb_search.add_argument("--query", required=True, help="Search query text")
+    kb_search.add_argument("--top-k", type=int, default=5)
+
+    kb_list = kb_sub.add_parser("list", help="List KB entries")
+    kb_list.add_argument("--source", default=None, choices=["seed", "pool"],
+                         help="Filter by source (seed/pool). Omit for all.")
+
+    kb_rebuild = kb_sub.add_parser("rebuild", help="Rebuild KB from pool(s) + seeds")
+    kb_rebuild.add_argument("--from-tags", default="",
+                            help="Comma-separated pool tags to import (e.g. 'wqb_v1,wqb_v2')")
+
+    kb_sub.add_parser("stats", help="Show KB entry counts by source")
+
     # pool
     pp = sub.add_parser("pool", help="Manage local alpha pool")
     pp.add_argument("--tag", required=True)
@@ -334,6 +551,8 @@ def main() -> None:
         "simulate": cmd_simulate,
         "mine": cmd_mine,
         "mine-multi": cmd_mine_multi,
+        "mutate": cmd_mutate,
+        "kb": cmd_kb,
         "pool": cmd_pool,
         "report": cmd_report,
     }

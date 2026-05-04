@@ -23,3 +23,7 @@ def wq_brain_registry_path() -> Path:
 
 def hermes_home_dir(run_id: str) -> Path:
     return wq_brain_run_dir(run_id) / "hermes_home"
+
+
+def kb_index_path() -> Path:
+    return wq_brain_root() / "kb_index.json"
