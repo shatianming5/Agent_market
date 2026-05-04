@@ -67,6 +67,44 @@ def search_wikipedia(query: str, *, max_results: int = 5) -> list[dict[str, Any]
     return out
 
 
+def search_bing(query: str, *, max_results: int = 5) -> list[dict[str, Any]]:
+    """Scrape Bing search HTML — works in CN where Wikipedia is blocked."""
+    import re
+    url = f"https://cn.bing.com/search?q={urllib.parse.quote(query)}"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return []
+
+    blocks = re.findall(r'<li[^>]*class="b_algo"[^>]*>(.*?)</li>', html, re.DOTALL)
+    out: list[dict[str, Any]] = []
+    for blk in blocks:
+        m_title = re.search(r'<h2[^>]*><a[^>]*href="([^"]+)"[^>]*>(.*?)</a></h2>', blk, re.DOTALL)
+        if not m_title:
+            continue
+        link = m_title.group(1)
+        if link.startswith("/"):
+            continue
+        title = re.sub(r"<[^>]+>", "", m_title.group(2)).strip()
+        m_snip = re.search(r'<p[^>]*class="[^"]*b_lineclamp[^"]*"[^>]*>(.*?)</p>', blk, re.DOTALL)
+        if not m_snip:
+            m_snip = re.search(r"<p[^>]*>(.*?)</p>", blk, re.DOTALL)
+        snippet = re.sub(r"<[^>]+>", "", m_snip.group(1)).strip() if m_snip else ""
+        out.append({"source": "bing", "title": title[:300], "url": link, "snippet": snippet[:600]})
+        if len(out) >= max_results:
+            break
+    return out
+
+
 def search_github(query: str, *, max_results: int = 5) -> list[dict[str, Any]]:
     headers = {"Accept": "application/vnd.github.v3+json"}
     if token := os.environ.get("GITHUB_TOKEN"):
@@ -104,13 +142,18 @@ def web_search(
     """
     chosen: list[str]
     if sources == ("auto",):
-        chosen = ["brave", "wikipedia", "github"]
+        chosen = ["brave", "wikipedia", "bing", "github"]
         merge = False
     else:
         chosen = list(sources)
         merge = True
 
-    backends = {"brave": search_brave, "wikipedia": search_wikipedia, "github": search_github}
+    backends = {
+        "brave": search_brave,
+        "wikipedia": search_wikipedia,
+        "bing": search_bing,
+        "github": search_github,
+    }
     used: list[str] = []
     results: list[dict[str, Any]] = []
 

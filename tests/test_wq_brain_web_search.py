@@ -9,6 +9,7 @@ import pytest
 
 from agent_market.wq_brain.web_search import (
     fetch_url,
+    search_bing,
     search_brave,
     search_github,
     search_wikipedia,
@@ -108,10 +109,44 @@ def test_web_search_auto_fallback_uses_first_non_empty():
     with patch("agent_market.wq_brain.web_search.search_brave", return_value=[]), \
          patch("agent_market.wq_brain.web_search.search_wikipedia",
                return_value=[{"source": "wikipedia", "title": "X", "url": "u", "snippet": ""}]), \
+         patch("agent_market.wq_brain.web_search.search_bing", return_value=[]), \
          patch("agent_market.wq_brain.web_search.search_github", return_value=[]):
         out = web_search("q", max_results=5)
     assert out["backends_used"] == ["wikipedia"]
     assert out["count"] == 1
+
+
+def test_web_search_auto_falls_back_to_bing_when_others_empty():
+    with patch("agent_market.wq_brain.web_search.search_brave", return_value=[]), \
+         patch("agent_market.wq_brain.web_search.search_wikipedia", return_value=[]), \
+         patch("agent_market.wq_brain.web_search.search_bing",
+               return_value=[{"source": "bing", "title": "B", "url": "bu", "snippet": ""}]), \
+         patch("agent_market.wq_brain.web_search.search_github", return_value=[]):
+        out = web_search("q", max_results=5)
+    assert out["backends_used"] == ["bing"]
+    assert out["count"] == 1
+
+
+def test_search_bing_parses_html_results():
+    fake_html = """
+    <li class="b_algo">
+      <h2><a href="https://example.com/a">Result A title</a></h2>
+      <p class="b_lineclamp">snippet text A</p>
+    </li>
+    <li class="b_algo">
+      <h2><a href="https://example.com/b">Result B</a></h2>
+      <p>snippet B</p>
+    </li>
+    """
+    fake = _fake_response(fake_html, content_type="text/html; charset=utf-8")
+    with patch("agent_market.wq_brain.web_search.urllib.request.urlopen", return_value=fake):
+        out = search_bing("query", max_results=5)
+    assert len(out) == 2
+    assert out[0]["source"] == "bing"
+    assert out[0]["title"] == "Result A title"
+    assert out[0]["url"] == "https://example.com/a"
+    assert "snippet text A" in out[0]["snippet"]
+    assert out[1]["url"] == "https://example.com/b"
 
 
 def test_web_search_explicit_sources_merges():

@@ -388,7 +388,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("query")
     sp.add_argument("--max", type=int, default=5)
     sp.add_argument("--source", default="auto",
-                    help="comma-separated: auto | brave | wikipedia | github")
+                    help="comma-separated: auto | brave | wikipedia | bing | github")
     sp.set_defaults(func=cmd_web_search)
 
     sp = sub.add_parser("fetch-url", help="fetch URL → plain text")
