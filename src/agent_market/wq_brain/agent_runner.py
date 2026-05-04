@@ -84,6 +84,10 @@ def _llm_cli_env(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
     path = env.get("PATH", "")
     if local_bin not in path.split(":"):
         env["PATH"] = f"{local_bin}:{path}" if path else local_bin
+    # opencode reads provider/model registry from $OPENCODE_CONFIG (project-level)
+    project_config = repo_root() / ".opencode.json"
+    if project_config.exists():
+        env.setdefault("OPENCODE_CONFIG", str(project_config))
     if extra:
         env.update(extra)
     return env
