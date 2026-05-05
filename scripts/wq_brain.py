@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import time
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
@@ -157,17 +159,56 @@ def cmd_submit(args: argparse.Namespace) -> None:
             print(f"WARN: pre_check failed ({exc}); proceeding to submit", file=sys.stderr)
 
     try:
-        wq_resp = sess.submit_alpha(args.alpha_id)
+        wq_resp = sess.submit_alpha(args.alpha_id, verify_after_sec=args.verify_after_sec)
     except Exception as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
         return
 
+    # If WQ async-rejected, surface the rejection prominently
+    if wq_resp.get("verified_status") in ("REJECTED", "UNSUBMITTED"):
+        # Still update pool with rejection so agent learns
+        pool_added = False
+        if args.tag:
+            try:
+                metrics = sess.fetch_alpha_metrics(args.alpha_id)
+                if metrics.alpha_id:
+                    actual_expr = args.expr or _auto_fill_expr(args.tag, metrics.alpha_id) \
+                                  or "(submitted via CLI)"
+                    entry = AlphaPoolEntry(
+                        alpha_id=metrics.alpha_id,
+                        expr=actual_expr,
+                        settings_dict={},
+                        sharpe=float(metrics.sharpe or 0.0),
+                        fitness=float(metrics.fitness or 0.0),
+                        returns=float(metrics.returns or 0.0),
+                        turnover=float(metrics.turnover or 0.0),
+                        tag=args.tag, source="agent",
+                        verified_status=wq_resp.get("verified_status", "REJECTED"),
+                        verified_at=time.time(),
+                        rejection_reasons=wq_resp.get("rejection_reasons") or [],
+                    )
+                    pool = AlphaPool(alpha_pool_path(args.tag))
+                    pool_added = pool.add(entry)
+            except Exception:
+                pass
+        _emit({
+            "ok": False,
+            "rejected_by": "wq_review",
+            "alpha_id": args.alpha_id,
+            "verified_status": wq_resp.get("verified_status"),
+            "rejection_reasons": wq_resp.get("rejection_reasons", []),
+            "summary": _summarize_rejection(wq_resp.get("rejection_reasons") or []),
+            "recorded_to_pool": pool_added,
+            "hint": "Try a structurally different alpha family — check Cross-Over Candidates.",
+        }, code=2)
+        return
+
+    # Successful path: verified ACTIVE
     pool_added = False
     if args.tag:
         try:
             metrics = sess.fetch_alpha_metrics(args.alpha_id)
             if metrics.alpha_id and metrics.sharpe is not None:
-                # Auto-fill expr from tried_exprs.jsonl if --expr not provided
                 actual_expr = args.expr or _auto_fill_expr(args.tag, metrics.alpha_id) \
                               or "(submitted via CLI)"
                 entry = AlphaPoolEntry(
@@ -180,6 +221,9 @@ def cmd_submit(args: argparse.Namespace) -> None:
                     turnover=float(metrics.turnover or 0.0),
                     tag=args.tag,
                     source="agent",
+                    verified_status=wq_resp.get("verified_status", "ACTIVE"),
+                    verified_at=time.time(),
+                    rejection_reasons=[],
                 )
                 pool = AlphaPool(alpha_pool_path(args.tag))
                 pool_added = pool.add(entry)
@@ -210,6 +254,19 @@ def cmd_corr(args: argparse.Namespace) -> None:
                "correlations": corrs[:20]})
     except Exception as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
+
+
+def _summarize_rejection(reasons: list) -> str:
+    """One-line human summary of failed IS checks."""
+    if not reasons:
+        return "no specific check failures captured"
+    parts = []
+    for r in reasons[:5]:
+        n = r.get("name", "?")
+        v = r.get("value", "?")
+        lim = r.get("limit", "?")
+        parts.append(f"{n}={v} (limit={lim})")
+    return "; ".join(parts)
 
 
 def _auto_fill_expr(tag: str, alpha_id: str) -> str:
@@ -440,6 +497,105 @@ def cmd_pool_status(args: argparse.Namespace) -> None:
             print(f"... {i+1}/{len(pool)}", file=sys.stderr)
     _emit({"ok": True, "tag": args.tag, "pool_size": len(pool),
            "summary_by_status": by_status, "rows": rows})
+
+
+def cmd_pool_sync_status(args: argparse.Namespace) -> None:
+    """Query WQ for each pool entry's actual status + IS check failures,
+    write verified_status + rejection_reasons back to pool.json."""
+    import time as _t
+    from agent_market.wq_brain.client import session_from_env
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.pool import AlphaPool
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    sess = session_from_env()
+    by_status: dict[str, int] = {}
+    print(f"Syncing {len(pool)} pool alphas with WQ...", file=sys.stderr)
+    for i, entry in enumerate(pool.entries):
+        try:
+            url = f"{sess._api_base}/alphas/{entry.alpha_id}"
+            data = sess._request_with_retry("GET", url, timeout=20).json()
+            actual_status = data.get("status") or "UNKNOWN"
+            checks = (data.get("is") or {}).get("checks") or []
+            failed = [{"name": c.get("name"), "result": c.get("result"),
+                       "limit": c.get("limit"), "value": c.get("value")}
+                      for c in checks if c.get("result") == "FAIL"]
+            entry.verified_status = actual_status
+            entry.verified_at = _t.time()
+            entry.rejection_reasons = failed
+            by_status[actual_status] = by_status.get(actual_status, 0) + 1
+        except Exception as exc:
+            print(f"WARN: {entry.alpha_id} sync failed: {exc}", file=sys.stderr)
+        if (i + 1) % 5 == 0:
+            print(f"... {i+1}/{len(pool)}", file=sys.stderr)
+        _t.sleep(args.polite_sleep)
+    pool._save()  # type: ignore[attr-defined]
+    _emit({
+        "ok": True, "tag": args.tag,
+        "pool_size": len(pool),
+        "summary_by_status": by_status,
+    })
+
+
+def cmd_pool_dedup(args: argparse.Namespace) -> None:
+    """Greedy dedup: keep highest-fitness alpha per token-similarity cluster.
+
+    Two entries are considered the "same cluster" if their expression
+    token-set Jaccard similarity ≥ threshold (default 0.85). For each cluster,
+    keep the entry with highest fitness, drop the rest. Useful before
+    re-submission campaigns to avoid burning slots on near-duplicates that
+    WQ self-correlation will reject.
+    """
+    import re
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.pool import AlphaPool
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    entries = sorted(pool.entries, key=lambda e: -e.fitness)
+
+    def tokens(expr: str) -> frozenset:
+        return frozenset(re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+", expr.lower()))
+
+    def jaccard(a: frozenset, b: frozenset) -> float:
+        return len(a & b) / max(1, len(a | b))
+
+    kept: list[Any] = []  # AlphaPoolEntry
+    kept_tokens: list[frozenset] = []
+    dropped: list[dict[str, Any]] = []
+    for entry in entries:
+        toks = tokens(entry.expr)
+        max_sim = 0.0
+        winner_id = ""
+        for k_toks, k_entry in zip(kept_tokens, kept):
+            sim = jaccard(toks, k_toks)
+            if sim > max_sim:
+                max_sim = sim
+                winner_id = k_entry.alpha_id
+        if max_sim >= args.threshold:
+            dropped.append({
+                "alpha_id": entry.alpha_id,
+                "fitness": entry.fitness,
+                "max_jaccard": round(max_sim, 3),
+                "winner_id": winner_id,
+            })
+        else:
+            kept.append(entry)
+            kept_tokens.append(toks)
+
+    if not args.dry_run:
+        pool._entries = kept  # type: ignore[attr-defined]
+        pool._save()  # type: ignore[attr-defined]
+
+    _emit({
+        "ok": True,
+        "tag": args.tag,
+        "threshold": args.threshold,
+        "before": len(entries),
+        "after_kept": len(kept),
+        "dropped_count": len(dropped),
+        "dry_run": args.dry_run,
+        "kept_top_5": [{"alpha_id": k.alpha_id, "fi": k.fitness, "expr": k.expr[:80]}
+                       for k in kept[:5]],
+        "dropped_sample": dropped[:10],
+    })
 
 
 def cmd_pool_backfill(args: argparse.Namespace) -> None:
@@ -776,6 +932,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="WQ override rule: high-corr submission still allowed if our sharpe ≥ (1+margin) × theirs (default 0.10 = 10%%)")
     sp.add_argument("--no-pre-check", action="store_true",
                     help="skip the correlation pre-check")
+    sp.add_argument("--verify-after-sec", type=float, default=30.0,
+                    help="seconds to wait before re-fetching alpha to verify ACTIVE/REJECTED (default 30, 0 to skip)")
     sp.set_defaults(func=cmd_submit)
 
     sp = sub.add_parser("pre-check", help="check if alpha would be rejected by WQ self-correlation gate")
@@ -833,6 +991,14 @@ def _build_parser() -> argparse.ArgumentParser:
                              help="fill in missing expr fields from tried_exprs.jsonl by alpha_id")
     bf.add_argument("--tag", required=True)
     bf.set_defaults(func=cmd_pool_backfill)
+    dd = pool_sub.add_parser("dedup",
+                             help="merge near-duplicate pool entries (jaccard ≥ threshold), keep highest fitness")
+    dd.add_argument("--tag", required=True)
+    dd.add_argument("--threshold", type=float, default=0.85,
+                    help="jaccard similarity threshold for clustering (default 0.85)")
+    dd.add_argument("--dry-run", action="store_true",
+                    help="show what would be dropped without modifying pool")
+    dd.set_defaults(func=cmd_pool_dedup)
     rs = pool_sub.add_parser("resubmit-all",
                              help="POST /alphas/{id}/submit for every pool entry still UNSUBMITTED")
     rs.add_argument("--tag", required=True)
@@ -843,6 +1009,11 @@ def _build_parser() -> argparse.ArgumentParser:
                              help="query WQ for each pool alpha's current submission status")
     ps.add_argument("--tag", required=True)
     ps.set_defaults(func=cmd_pool_status)
+    ss = pool_sub.add_parser("sync-status",
+                             help="query WQ for each entry's actual status + IS checks; write verified_status + rejection_reasons into pool.json")
+    ss.add_argument("--tag", required=True)
+    ss.add_argument("--polite-sleep", type=float, default=2.0)
+    ss.set_defaults(func=cmd_pool_sync_status)
 
     sp = sub.add_parser("corr", help="get correlations of alpha with WQ pool")
     sp.add_argument("alpha_id")

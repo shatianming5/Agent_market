@@ -218,26 +218,26 @@ class WQSession(requests.Session):
             return data.get("alphas", [])
         return []
 
-    def submit_alpha(self, alpha_id: str) -> dict[str, Any]:
-        """Submit an alpha to the WQ consultant program.
+    def submit_alpha(self, alpha_id: str, *, verify_after_sec: float = 30.0) -> dict[str, Any]:
+        """Submit an alpha + verify final status.
 
-        WQ's actual submit endpoint is POST /alphas/{id}/submit (returns 201).
-        The PATCH /alphas/{id} {stage: PROD} call we used previously only
-        updates metadata and does NOT submit — alphas stayed at status=UNSUBMITTED
-        and earned nothing.
+        WQ's POST /alphas/{id}/submit returns 201 even when the alpha will
+        ultimately be rejected by async server-side review (e.g. self-correlation
+        > 0.7). To distinguish queued-but-rejected from queued-and-accepted, we
+        sleep `verify_after_sec` seconds and re-fetch the alpha; a true success
+        is `status: ACTIVE` after the wait.
 
-        WQ runs server-side checks (self-correlation, sharpe-margin, etc.) on
-        this endpoint and may return 4xx with a structured rejection message.
+        Returns dict with always-present fields:
+            submitted: bool          — True only if verified ACTIVE
+            verified_status: str     — ACTIVE / REJECTED / QUEUED / VERIFICATION_FAILED
+            rejection_reasons: list  — failed `is.checks` entries (when REJECTED)
+            initial_status_code: int — POST response status
+            alpha_id: str
         """
         url = f"{self._api_base}/alphas/{alpha_id}/submit"
         with self._global_sem:
             resp = super().request("POST", url, timeout=30)
-        # Don't use _request_with_retry: 4xx self-corr rejections are not retriable
-        if resp.status_code in (200, 201):
-            try:
-                return resp.json() or {"submitted": True, "alpha_id": alpha_id, "status_code": resp.status_code}
-            except ValueError:
-                return {"submitted": True, "alpha_id": alpha_id, "status_code": resp.status_code}
+
         if resp.status_code == 401:
             self._logged_in = False
             with self._login_lock:
@@ -245,19 +245,79 @@ class WQSession(requests.Session):
                     self.login()
             with self._global_sem:
                 resp = super().request("POST", url, timeout=30)
-            if resp.status_code in (200, 201):
-                try:
-                    return resp.json() or {"submitted": True, "alpha_id": alpha_id}
-                except ValueError:
-                    return {"submitted": True, "alpha_id": alpha_id}
-        # 4xx submission rejection — surface the message
+
+        # Parse response body (best-effort)
         try:
             body = resp.json()
-        except ValueError:
-            body = {"text": resp.text[:500]}
-        raise RuntimeError(
-            f"WQ submit rejected (HTTP {resp.status_code}) for alpha {alpha_id}: {body}"
-        )
+            if not isinstance(body, dict):
+                body = {"raw": body}
+        except (ValueError, AttributeError):
+            body = {"text": (getattr(resp, "text", "") or "")[:500]}
+
+        # Synchronous 4xx rejection — WQ has previous failure cached
+        if resp.status_code >= 400 and resp.status_code != 429:
+            checks = (body.get("is") or {}).get("checks") or []
+            failed = [{"name": c.get("name"), "result": c.get("result"),
+                       "limit": c.get("limit"), "value": c.get("value")}
+                      for c in checks if c.get("result") == "FAIL"]
+            return {
+                "submitted": False,
+                "alpha_id": alpha_id,
+                "verified_status": "REJECTED",
+                "rejection_reasons": failed,
+                "initial_status_code": resp.status_code,
+                "raw": body,
+            }
+        if resp.status_code == 429:
+            raise RuntimeError(
+                f"WQ submit throttled (HTTP 429) for alpha {alpha_id}: {body}"
+            )
+        # 2xx — submission queued; need to verify
+        if verify_after_sec > 0:
+            time.sleep(verify_after_sec)
+            try:
+                check_url = f"{self._api_base}/alphas/{alpha_id}"
+                with self._global_sem:
+                    check_resp = self._request_with_retry("GET", check_url, timeout=20)
+                data = check_resp.json()
+                actual_status = data.get("status") or "UNKNOWN"
+                checks = (data.get("is") or {}).get("checks") or []
+                failed = [{"name": c.get("name"), "result": c.get("result"),
+                           "limit": c.get("limit"), "value": c.get("value")}
+                          for c in checks if c.get("result") == "FAIL"]
+                if actual_status == "ACTIVE":
+                    return {
+                        "submitted": True,
+                        "alpha_id": alpha_id,
+                        "verified_status": "ACTIVE",
+                        "rejection_reasons": [],
+                        "initial_status_code": resp.status_code,
+                        "date_submitted": data.get("dateSubmitted"),
+                    }
+                # Not ACTIVE → rejection
+                return {
+                    "submitted": False,
+                    "alpha_id": alpha_id,
+                    "verified_status": actual_status,  # typically UNSUBMITTED
+                    "rejection_reasons": failed,
+                    "initial_status_code": resp.status_code,
+                }
+            except Exception as exc:
+                return {
+                    "submitted": None,
+                    "alpha_id": alpha_id,
+                    "verified_status": "VERIFICATION_FAILED",
+                    "verification_error": str(exc)[:200],
+                    "initial_status_code": resp.status_code,
+                }
+        # verify disabled
+        return {
+            "submitted": None,
+            "alpha_id": alpha_id,
+            "verified_status": "QUEUED",
+            "initial_status_code": resp.status_code,
+            "raw": body,
+        }
 
     def get_alpha_status(self, alpha_id: str) -> dict[str, Any]:
         """Quick status check: is alpha submitted? Returns raw fields."""

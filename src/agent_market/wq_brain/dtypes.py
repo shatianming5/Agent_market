@@ -101,6 +101,14 @@ class AlphaPoolEntry:
     submitted_at: float = field(default_factory=time.time)
     tag: str = ""
     source: str = "agent"
+    # Submit verification (filled after WQ async review):
+    # - "ACTIVE"     → truly submitted to consultant program
+    # - "REJECTED"   → WQ rejected (rejection_reasons has details)
+    # - "QUEUED"     → submission queued, verification not yet run
+    # - "UNSUBMITTED" → never submitted (pre-check blocked, etc)
+    verified_status: str = "QUEUED"
+    verified_at: float = 0.0
+    rejection_reasons: list = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

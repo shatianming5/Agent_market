@@ -127,31 +127,69 @@ def test_submit_alpha_uses_post_submit_endpoint():
     captured = {}
 
     def fake_request(method, url, **kwargs):
-        captured["method"] = method
-        captured["url"] = url
-        return _make_resp(status=201, json_data={})
+        captured.setdefault("method", method)
+        captured.setdefault("url", url)
+        # Initial POST 201, then GET returns ACTIVE on verify
+        if method == "POST":
+            return _make_resp(status=201, json_data={})
+        return _make_resp(status=200, json_data={"status": "ACTIVE", "is": {"checks": []}})
 
     with patch("requests.Session.request", side_effect=fake_request):
-        result = sess.submit_alpha("ABC123")
+        result = sess.submit_alpha("ABC123", verify_after_sec=0)
 
     assert captured["method"] == "POST"
     assert captured["url"].endswith("/alphas/ABC123/submit")
-    assert result.get("submitted") is True
+    assert result.get("verified_status") == "QUEUED"
     assert result.get("alpha_id") == "ABC123"
 
 
-def test_submit_alpha_raises_on_4xx_with_body():
+def test_submit_alpha_returns_rejected_on_4xx():
     sess = WQSession("e@x.com", "pw")
     sess._logged_in = True
 
     def fake_request(method, url, **kwargs):
-        return _make_resp(status=400, json_data={
-            "message": "Self-correlation 0.79 above cutoff 0.7"
+        return _make_resp(status=403, json_data={
+            "is": {"checks": [
+                {"name": "SELF_CORRELATION", "result": "FAIL",
+                 "limit": 0.7, "value": 0.99},
+                {"name": "LOW_SHARPE", "result": "PASS",
+                 "limit": 1.25, "value": 1.76},
+            ]}
         })
 
     with patch("requests.Session.request", side_effect=fake_request):
-        with pytest.raises(RuntimeError, match="Self-correlation"):
-            sess.submit_alpha("ABC123")
+        result = sess.submit_alpha("ABC123", verify_after_sec=0)
+
+    assert result["submitted"] is False
+    assert result["verified_status"] == "REJECTED"
+    assert any(r["name"] == "SELF_CORRELATION" for r in result["rejection_reasons"])
+    assert all(r["result"] == "FAIL" for r in result["rejection_reasons"])
+
+
+def test_submit_alpha_verify_detects_silent_async_rejection():
+    """201 from POST, but GET shows status=UNSUBMITTED → silent async rejection."""
+    sess = WQSession("e@x.com", "pw")
+    sess._logged_in = True
+
+    def fake_request(method, url, **kwargs):
+        if method == "POST":
+            return _make_resp(status=201, json_data={})
+        # GET → still UNSUBMITTED with self-corr fail
+        return _make_resp(status=200, json_data={
+            "status": "UNSUBMITTED",
+            "is": {"checks": [
+                {"name": "SELF_CORRELATION", "result": "FAIL",
+                 "limit": 0.7, "value": 0.95},
+            ]},
+        })
+
+    with patch("requests.Session.request", side_effect=fake_request), \
+         patch("time.sleep"):  # don't actually sleep in tests
+        result = sess.submit_alpha("ABC123", verify_after_sec=1.0)
+
+    assert result["submitted"] is False
+    assert result["verified_status"] == "UNSUBMITTED"
+    assert any(r["name"] == "SELF_CORRELATION" for r in result["rejection_reasons"])
 
 
 def test_get_alpha_status_returns_subset():

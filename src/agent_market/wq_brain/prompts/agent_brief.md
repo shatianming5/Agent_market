@@ -242,10 +242,31 @@ top alpha is.
 
 ### Phase 5 — Submit + Record (final 5-10 turns)
 
+🚫 **HARD LIMITS for submission this session**:
+1. **MAX 3 submits per session.** Each submit uses a daily quota slot AND
+   risks WQ self-correlation rejection (failed submissions are tracked in
+   the SUBMIT FAILURES table above and CAN'T be retried with the same
+   structure — WQ caches the rejection).
+2. **Each submit MUST be from a DIFFERENT family.** If you've already
+   submitted a `multi_signal` alpha this session, your next submit MUST
+   be `humped_alpha`, `vwap_dev`, `intraday_range`, or another family.
+   No exceptions.
+3. **CHECK SUBMIT FAILURES table first.** If your candidate is similar
+   in structure (same operator stack, same fields) to any rejected
+   alpha there, **DO NOT SUBMIT** — it WILL be rejected. Iterate or
+   try a different family instead.
+
 For each alpha that passes the WQ gate (sh ≥ {SHARPE_MIN} AND fi ≥ {FITNESS_MIN}):
-1. Run `python {WQ_TOOLS} submit ALPHA_ID --tag {TAG}`.
-   The CLI will auto-pre-check correlation; submit aborts if max_corr ≥ 0.7.
-2. Confirm with `pool list --tag {TAG}` that it landed.
+1. Compare to the SUBMIT FAILURES table — if it shares ≥3 operators with
+   any rejected alpha, **mutate to a new family** before submitting.
+2. Run `python {WQ_TOOLS} submit ALPHA_ID --tag {TAG}`.
+   The CLI now waits 30s and verifies the alpha actually became ACTIVE
+   on WQ (vs being silently rejected). The response will show:
+   - `verified_status: ACTIVE` → real success
+   - `verified_status: REJECTED` + `rejection_reasons: [...]` → failed,
+     learn from the specific check (usually SELF_CORRELATION ≥ 0.7).
+3. If REJECTED: read the rejection reason. Mutate to a structurally
+   different alpha. Do NOT re-submit a near-duplicate.
 
 ### Phase 6 — Summarize
 

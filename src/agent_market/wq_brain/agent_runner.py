@@ -132,17 +132,71 @@ def _resolve_cli(requested: str, *, env: Optional[dict[str, str]] = None) -> str
 
 def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int = 60) -> str:
     """Render cross-loop knowledge: passing pool + recent tried_exprs +
-    cross-over candidates + mutation hints."""
+    cross-over candidates + mutation hints + submit rejections."""
     parts: list[str] = []
 
     pool = AlphaPool(alpha_pool_path(tag))
     if len(pool):
-        top = pool.top_n_by_fitness(max_pool)
-        lines = ["### Passing Alphas In Pool (TAG=" + tag + ")", "", "| alpha_id | expr | sh | fi | to |", "|---|---|---|---|---|"]
-        for e in top:
-            expr = (e.expr or "")[:80].replace("|", "/")
-            lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |")
-        parts.append("\n".join(lines))
+        # Split pool by verified_status: ACTIVE (real submissions) vs REJECTED/UNSUBMITTED
+        active = [e for e in pool.entries
+                  if getattr(e, "verified_status", "QUEUED") == "ACTIVE"]
+        rejected = [e for e in pool.entries
+                    if getattr(e, "verified_status", "QUEUED") in ("REJECTED", "UNSUBMITTED")
+                    and getattr(e, "rejection_reasons", [])]
+        queued = [e for e in pool.entries
+                  if e not in active and e not in rejected]
+
+        if active:
+            top_active = sorted(active, key=lambda e: -e.fitness)[:max_pool]
+            lines = [
+                "### ✅ ACTIVE Submitted Alphas (TAG=" + tag + ")",
+                "",
+                f"_{len(active)} alpha(s) verified ACTIVE on WQ. These earn rewards. Avoid"
+                f" submitting near-duplicates — WQ self-correlation will reject._",
+                "",
+                "| alpha_id | expr | sh | fi | to |",
+                "|---|---|---|---|---|",
+            ]
+            for e in top_active:
+                expr = (e.expr or "")[:80].replace("|", "/")
+                lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |")
+            parts.append("\n".join(lines))
+
+        if rejected:
+            recent_rejected = sorted(rejected, key=lambda e: -getattr(e, "verified_at", 0))[:max_pool]
+            lines = [
+                "### 🚫 SUBMIT FAILURES — DO NOT REPEAT THESE STRUCTURES",
+                "",
+                f"_{len(rejected)} alpha(s) passed local quality gate (sh≥1.25 fi≥1.0)_"
+                f" _BUT WERE REJECTED BY WQ. The most common reason is_"
+                f" _SELF_CORRELATION ≥ 0.7 against an ACTIVE alpha. If your new_"
+                f" _candidate is similar to any of these, IT WILL ALSO BE REJECTED._",
+                "",
+                "| alpha_id | expr | sh | fi | to | failed_check |",
+                "|---|---|---|---|---|---|",
+            ]
+            for e in recent_rejected:
+                expr = (e.expr or "")[:70].replace("|", "/")
+                fails = getattr(e, "rejection_reasons", []) or []
+                fail_str = ", ".join(
+                    f"{r.get('name')}={r.get('value')}" if isinstance(r, dict) else str(r)
+                    for r in fails[:2]
+                ) or "?"
+                lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} | {fail_str} |")
+            parts.append("\n".join(lines))
+
+        if queued:
+            top_queued = sorted(queued, key=lambda e: -e.fitness)[:max_pool]
+            lines = [
+                "### ⏳ Submission Pending (verification not yet run)",
+                "",
+                "| alpha_id | expr | sh | fi | to |",
+                "|---|---|---|---|---|",
+            ]
+            for e in top_queued:
+                expr = (e.expr or "")[:80].replace("|", "/")
+                lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |")
+            parts.append("\n".join(lines))
 
     tried = read_tried(tried_exprs_path(tag), tail=max_tried * 4)
     if tried:
