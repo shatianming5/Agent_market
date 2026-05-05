@@ -944,6 +944,7 @@ def cmd_kaggle_import(args: argparse.Namespace) -> None:
             date_col=args.date_col,
             ticker_from_filename=args.ticker_from_filename,
             column_map=column_map,
+            split_adjust_from_col=args.split_adjust_from or None,
         )
     except (FileNotFoundError, RuntimeError) as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
@@ -1355,6 +1356,11 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="derive ticker from each CSV's filename stem instead of a column")
     sp.add_argument("--column-map", default=None,
                     help='JSON dict, e.g. \'{"adj_close":"close"}\' — applied on top of defaults')
+    sp.add_argument("--split-adjust-from", default=None,
+                    help='Name of the *raw* close column (after column-map rename) used to back out '
+                         'a split factor and apply it to open/high/low. Use this when the dataset '
+                         'has separate raw + adjusted close (e.g. close + adjusted) and you want '
+                         'a fully split-consistent OHLC bar.')
     sp.set_defaults(func=cmd_kaggle_import)
 
     sp = sub.add_parser("local-simulate", help="local WQ-aligned simulation against cached OHLCV (no WQ API)")

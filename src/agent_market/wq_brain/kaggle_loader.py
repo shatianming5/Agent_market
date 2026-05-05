@@ -196,6 +196,27 @@ def _quality_warnings(df: Any, label: str) -> dict[str, int]:
     return out
 
 
+def _apply_split_adjustment(df: Any, raw_close_col: str) -> Any:
+    """Back out a split-adjustment factor from raw vs adjusted close, then
+    apply it to ``open / high / low`` so the whole OHLC bar is consistent.
+
+    Kaggle datasets often store ``adjusted`` (split-adjusted close) but leave
+    ``open / high / low`` as raw exchange prices. Mixing the two breaks the
+    ``low <= min(open, close) <= high`` invariant for every pre-split day.
+
+    factor = close / raw_close  (≈ 1 / cumulative_split_ratio after the split)
+    Apply to OHL only; volume is left as raw (we don't backtest on it).
+    """
+    if raw_close_col not in df.columns or "close" not in df.columns:
+        return df
+    raw = df[raw_close_col]
+    factor = df["close"] / raw.where(raw != 0)
+    for col in ("open", "high", "low"):
+        if col in df.columns:
+            df[col] = df[col] * factor
+    return df.drop(columns=[raw_close_col])
+
+
 def _read_one_kaggle_csv(
     path: Path,
     *,
@@ -204,9 +225,16 @@ def _read_one_kaggle_csv(
     date_col: str,
     column_map: dict[str, str],
     ticker_from_filename: bool,
+    split_adjust_from_col: Optional[str] = None,
 ) -> tuple[Any, dict[str, int]]:
     """Read a single CSV from a Kaggle dump and normalize to our long-format
     schema (index=(date, ticker), columns=open/high/low/close/volume).
+
+    ``split_adjust_from_col`` (e.g. ``"close_raw"``): when set, the function
+    will compute a split-adjustment factor from
+    ``df['close'] / df[split_adjust_from_col]`` and apply it to OHL so the
+    whole bar is split-consistent with the (already-adjusted) close. The
+    raw column is then dropped before write.
 
     Returns ``(df, warnings)`` where warnings maps quality-check name → count.
     A return of ``(None, {})`` means the file was empty (skip silently).
@@ -230,6 +258,8 @@ def _read_one_kaggle_csv(
             f"{path.name}: cannot derive ticker — neither ticker_from_filename nor "
             f"a ticker_col {ticker_col!r} present in {list(df.columns)[:8]}"
         )
+    if split_adjust_from_col:
+        df = _apply_split_adjustment(df, split_adjust_from_col)
     keep = ["date", "ticker"] + [c for c in _OUR_COLUMNS if c in df.columns]
     df = df[keep].set_index(["date", "ticker"]).sort_index()
     warnings = _quality_warnings(df, label=path.name)
@@ -245,6 +275,7 @@ def import_kaggle_to_cache(
     date_col: str = "Date",
     column_map: Optional[dict[str, str]] = None,
     ticker_from_filename: bool = False,
+    split_adjust_from_col: Optional[str] = None,
 ) -> dict[str, Any]:
     """Walk extracted dataset, parse each matching CSV, merge into ohlcv.parquet.
 
@@ -278,6 +309,7 @@ def import_kaggle_to_cache(
                 date_col=date_col,
                 column_map=cmap,
                 ticker_from_filename=ticker_from_filename,
+                split_adjust_from_col=split_adjust_from_col,
             )
         except Exception as exc:
             logger.warning("Skip %s: %s", p.name, exc)

@@ -345,3 +345,67 @@ def test_import_kaggle_to_cache_clean_data_yields_no_warnings(tmp_path: Path):
         ticker_col="Ticker", date_col="Date",
     )
     assert summary.get("quality_warnings") == {}
+
+
+def _split_adjust_csv() -> bytes:
+    """Pre-split day with raw close=400, adjusted=100 (4-for-1 split next day).
+    open/high/low are RAW, mismatched with adjusted close — exactly the
+    Kaggle Russell 3000 problem we're fixing."""
+    return (
+        b"Date,Open,High,Low,Close,Volume,Adjusted,Ticker\n"
+        b"2020-08-30,395,410,390,400,1000000,100,X\n"
+        b"2020-08-31,99,103,98,100,4000000,100,X\n"
+    )
+
+
+def test_split_adjust_makes_ohlc_consistent(tmp_path: Path):
+    """When --split-adjust-from rewrites OHL by close/raw_close ratio,
+    pre-split OHL must scale down to match adjusted close (within 30%)."""
+    pd = pytest.importorskip("pandas")
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    (extract_dir / "x.csv").write_bytes(_split_adjust_csv())
+    cache = tmp_path / "ohlcv.parquet"
+    summary = import_kaggle_to_cache(
+        extract_dir,
+        cache_path=cache,
+        files_glob="*.csv",
+        ticker_col="Ticker",
+        date_col="Date",
+        column_map={"Close": "close_raw", "Adjusted": "close"},
+        split_adjust_from_col="close_raw",
+    )
+    assert summary["files_imported"] == 1
+    df = pd.read_parquet(cache)
+    # close_raw must be dropped from cache schema
+    assert "close_raw" not in df.columns
+    # Pre-split row (2020-08-30): adjusted close = 100; OHL should now be in
+    # ~100 range (not raw 395/410/390)
+    pre_split = df.loc[(pd.Timestamp("2020-08-30"), "X")]
+    assert pre_split["close"] == pytest.approx(100, abs=1)
+    # factor = 100/400 = 0.25 → open=395*0.25=98.75, high=410*0.25=102.5, low=390*0.25=97.5
+    assert pre_split["open"] == pytest.approx(98.75, abs=1)
+    assert pre_split["high"] == pytest.approx(102.5, abs=1)
+    assert pre_split["low"] == pytest.approx(97.5, abs=1)
+    # OHLC invariant must hold after adjustment
+    assert pre_split["low"] <= min(pre_split["open"], pre_split["close"])
+    assert pre_split["high"] >= max(pre_split["open"], pre_split["close"])
+
+
+def test_split_adjust_skipped_when_raw_col_absent(tmp_path: Path):
+    """If split_adjust_from_col is set but the column isn't present, no-op."""
+    pytest.importorskip("pandas")
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    (extract_dir / "x.csv").write_bytes(_world_stock_csv())  # no close_raw
+    cache = tmp_path / "ohlcv.parquet"
+    # Should still import successfully — split_adjust is an opportunistic op
+    summary = import_kaggle_to_cache(
+        extract_dir,
+        cache_path=cache,
+        files_glob="*.csv",
+        ticker_col="Ticker",
+        date_col="Date",
+        split_adjust_from_col="close_raw",  # not in source
+    )
+    assert summary["files_imported"] == 1
