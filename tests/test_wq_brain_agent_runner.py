@@ -187,17 +187,27 @@ def test_family_diversity_hint_full_coverage_picks_lowest():
     assert "LOWEST count" in hint
 
 
-def test_tried_family_concentration_hint_silent_below_threshold():
-    """7/10 of one family — exactly at threshold (default 0.7), should fire."""
+def test_tried_family_concentration_hint_fires_at_default_threshold():
+    """6/10 of one family — exactly at default threshold (0.6), should fire."""
     records = [
-        {"ts": i, "expr": "rank(group_zscore(close, sector))"} for i in range(7)
+        {"ts": i, "expr": "rank(group_zscore(close, sector))"} for i in range(6)
     ] + [
-        {"ts": 100 + i, "expr": "rank(close)"} for i in range(3)
+        {"ts": 100 + i, "expr": "rank(close)"} for i in range(4)
     ]
     hint = _tried_family_concentration_hint(records)
     assert "STUCK IN" in hint
     assert "sector_relative" in hint
-    assert "7/10" in hint
+    assert "6/10" in hint
+
+
+def test_tried_family_concentration_hint_below_threshold_silent():
+    """5/10 of one family — under default threshold, should NOT fire."""
+    records = [
+        {"ts": i, "expr": "rank(group_zscore(close, sector))"} for i in range(5)
+    ] + [
+        {"ts": 100 + i, "expr": "rank(close)"} for i in range(5)
+    ]
+    assert _tried_family_concentration_hint(records) == ""
 
 
 def test_tried_family_concentration_hint_quiet_when_diverse():

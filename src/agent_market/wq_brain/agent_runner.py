@@ -180,7 +180,7 @@ def _tried_family_concentration_hint(
     tried_records: list[dict],
     *,
     window: int = 10,
-    threshold: float = 0.7,
+    threshold: float = 0.6,
 ) -> str:
     """Hard rotation hint: if recent attempts are dominated by one family,
     forbid that family for the next handful of candidates.
