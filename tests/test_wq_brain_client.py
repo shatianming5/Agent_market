@@ -121,6 +121,56 @@ def test_session_global_semaphore_limits_concurrency():
     sess._global_sem.release()
 
 
+def test_submit_alpha_uses_post_submit_endpoint():
+    sess = WQSession("e@x.com", "pw", api_base="https://api.example.com")
+    sess._logged_in = True
+    captured = {}
+
+    def fake_request(method, url, **kwargs):
+        captured["method"] = method
+        captured["url"] = url
+        return _make_resp(status=201, json_data={})
+
+    with patch("requests.Session.request", side_effect=fake_request):
+        result = sess.submit_alpha("ABC123")
+
+    assert captured["method"] == "POST"
+    assert captured["url"].endswith("/alphas/ABC123/submit")
+    assert result.get("submitted") is True
+    assert result.get("alpha_id") == "ABC123"
+
+
+def test_submit_alpha_raises_on_4xx_with_body():
+    sess = WQSession("e@x.com", "pw")
+    sess._logged_in = True
+
+    def fake_request(method, url, **kwargs):
+        return _make_resp(status=400, json_data={
+            "message": "Self-correlation 0.79 above cutoff 0.7"
+        })
+
+    with patch("requests.Session.request", side_effect=fake_request):
+        with pytest.raises(RuntimeError, match="Self-correlation"):
+            sess.submit_alpha("ABC123")
+
+
+def test_get_alpha_status_returns_subset():
+    sess = WQSession("e@x.com", "pw")
+    sess._logged_in = True
+    with patch.object(sess, "_request_with_retry") as mock_req:
+        mock_req.return_value = _make_resp(status=200, json_data={
+            "id": "X1",
+            "status": "UNSUBMITTED",
+            "stage": "IS",
+            "dateSubmitted": None,
+            "grade": "GOOD",
+        })
+        s = sess.get_alpha_status("X1")
+    assert s["status"] == "UNSUBMITTED"
+    assert s["stage"] == "IS"
+    assert s["grade"] == "GOOD"
+
+
 def test_request_with_retry_relogs_on_401():
     sess = WQSession("e@x.com", "pw")
     sess._logged_in = True

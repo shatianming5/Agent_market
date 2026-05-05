@@ -219,11 +219,59 @@ class WQSession(requests.Session):
         return []
 
     def submit_alpha(self, alpha_id: str) -> dict[str, Any]:
-        url = f"{self._api_base}/alphas/{alpha_id}"
-        payload = {"stage": "PROD"}
+        """Submit an alpha to the WQ consultant program.
+
+        WQ's actual submit endpoint is POST /alphas/{id}/submit (returns 201).
+        The PATCH /alphas/{id} {stage: PROD} call we used previously only
+        updates metadata and does NOT submit — alphas stayed at status=UNSUBMITTED
+        and earned nothing.
+
+        WQ runs server-side checks (self-correlation, sharpe-margin, etc.) on
+        this endpoint and may return 4xx with a structured rejection message.
+        """
+        url = f"{self._api_base}/alphas/{alpha_id}/submit"
         with self._global_sem:
-            resp = self._request_with_retry("PATCH", url, json=payload, timeout=30)
-        return resp.json()
+            resp = super().request("POST", url, timeout=30)
+        # Don't use _request_with_retry: 4xx self-corr rejections are not retriable
+        if resp.status_code in (200, 201):
+            try:
+                return resp.json() or {"submitted": True, "alpha_id": alpha_id, "status_code": resp.status_code}
+            except ValueError:
+                return {"submitted": True, "alpha_id": alpha_id, "status_code": resp.status_code}
+        if resp.status_code == 401:
+            self._logged_in = False
+            with self._login_lock:
+                if not self._logged_in:
+                    self.login()
+            with self._global_sem:
+                resp = super().request("POST", url, timeout=30)
+            if resp.status_code in (200, 201):
+                try:
+                    return resp.json() or {"submitted": True, "alpha_id": alpha_id}
+                except ValueError:
+                    return {"submitted": True, "alpha_id": alpha_id}
+        # 4xx submission rejection — surface the message
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {"text": resp.text[:500]}
+        raise RuntimeError(
+            f"WQ submit rejected (HTTP {resp.status_code}) for alpha {alpha_id}: {body}"
+        )
+
+    def get_alpha_status(self, alpha_id: str) -> dict[str, Any]:
+        """Quick status check: is alpha submitted? Returns raw fields."""
+        url = f"{self._api_base}/alphas/{alpha_id}"
+        with self._global_sem:
+            data = self._request_with_retry("GET", url, timeout=20).json()
+        return {
+            "alpha_id": alpha_id,
+            "status": data.get("status"),
+            "stage": data.get("stage"),
+            "date_submitted": data.get("dateSubmitted"),
+            "grade": data.get("grade"),
+            "category": data.get("category"),
+        }
 
     def batch_simulate(
         self,

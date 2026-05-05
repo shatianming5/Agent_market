@@ -345,6 +345,93 @@ def cmd_pre_check(args: argparse.Namespace) -> None:
         _emit({"ok": False, "error": str(exc)}, code=1)
 
 
+def cmd_pool_resubmit(args: argparse.Namespace) -> None:
+    """Re-run POST /alphas/{id}/submit for every pool entry that's still UNSUBMITTED."""
+    from agent_market.wq_brain.client import session_from_env
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.pool import AlphaPool
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    sess = session_from_env()
+    submitted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    print(f"Checking {len(pool)} pool alphas for tag={args.tag}", file=sys.stderr)
+    for i, entry in enumerate(pool.entries):
+        try:
+            status = sess.get_alpha_status(entry.alpha_id)
+        except Exception as exc:
+            rejected.append({"alpha_id": entry.alpha_id, "error": f"status fetch: {exc}"})
+            continue
+        if status.get("status") == "ACTIVE" or status.get("date_submitted"):
+            skipped.append({"alpha_id": entry.alpha_id,
+                            "reason": "already submitted",
+                            "status": status})
+            continue
+        # Try submit
+        try:
+            if not args.no_pre_check:
+                check = _check_self_correlation(
+                    sess, entry.alpha_id,
+                    corr_max=args.corr_max,
+                    sharpe_margin=args.sharpe_margin,
+                    tag=args.tag,
+                )
+                if not check["accept"]:
+                    rejected.append({
+                        "alpha_id": entry.alpha_id,
+                        "rejected_by": "pre_check",
+                        **check,
+                    })
+                    continue
+            resp = sess.submit_alpha(entry.alpha_id)
+            submitted.append({"alpha_id": entry.alpha_id, "response": resp})
+        except Exception as exc:
+            rejected.append({"alpha_id": entry.alpha_id, "error": str(exc)[:300]})
+        if (i + 1) % 5 == 0:
+            print(f"... {i+1}/{len(pool)}", file=sys.stderr)
+    _emit({
+        "ok": True,
+        "tag": args.tag,
+        "pool_size": len(pool),
+        "submitted_count": len(submitted),
+        "rejected_count": len(rejected),
+        "skipped_count": len(skipped),
+        "submitted": submitted,
+        "rejected": rejected[:20],
+        "skipped": skipped[:5],
+    })
+
+
+def cmd_pool_status(args: argparse.Namespace) -> None:
+    """Query WQ for each pool alpha's current status (UNSUBMITTED / ACTIVE / ...)."""
+    from agent_market.wq_brain.client import session_from_env
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.pool import AlphaPool
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    sess = session_from_env()
+    by_status: dict[str, int] = {}
+    rows: list[dict[str, Any]] = []
+    print(f"Checking {len(pool)} pool alphas...", file=sys.stderr)
+    for i, entry in enumerate(pool.entries):
+        try:
+            s = sess.get_alpha_status(entry.alpha_id)
+            status = s.get("status") or "UNKNOWN"
+            by_status[status] = by_status.get(status, 0) + 1
+            rows.append({
+                "alpha_id": entry.alpha_id, "status": status,
+                "stage": s.get("stage"),
+                "date_submitted": s.get("date_submitted"),
+                "fitness": entry.fitness, "sharpe": entry.sharpe,
+                "expr": entry.expr[:80],
+            })
+        except Exception as exc:
+            rows.append({"alpha_id": entry.alpha_id, "error": str(exc)[:200]})
+        if (i + 1) % 10 == 0:
+            print(f"... {i+1}/{len(pool)}", file=sys.stderr)
+    _emit({"ok": True, "tag": args.tag, "pool_size": len(pool),
+           "summary_by_status": by_status, "rows": rows})
+
+
 def cmd_pool_backfill(args: argparse.Namespace) -> None:
     """Backfill pool.json `expr` field from tried_exprs.jsonl by alpha_id."""
     from agent_market.wq_brain.paths import alpha_pool_path, tried_exprs_path
@@ -736,6 +823,17 @@ def _build_parser() -> argparse.ArgumentParser:
                              help="fill in missing expr fields from tried_exprs.jsonl by alpha_id")
     bf.add_argument("--tag", required=True)
     bf.set_defaults(func=cmd_pool_backfill)
+    rs = pool_sub.add_parser("resubmit-all",
+                             help="POST /alphas/{id}/submit for every pool entry still UNSUBMITTED")
+    rs.add_argument("--tag", required=True)
+    rs.add_argument("--corr-max", type=float, default=0.7)
+    rs.add_argument("--sharpe-margin", type=float, default=0.10)
+    rs.add_argument("--no-pre-check", action="store_true")
+    rs.set_defaults(func=cmd_pool_resubmit)
+    ps = pool_sub.add_parser("status",
+                             help="query WQ for each pool alpha's current submission status")
+    ps.add_argument("--tag", required=True)
+    ps.set_defaults(func=cmd_pool_status)
 
     sp = sub.add_parser("corr", help="get correlations of alpha with WQ pool")
     sp.add_argument("alpha_id")
