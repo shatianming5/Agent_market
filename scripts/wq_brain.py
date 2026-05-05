@@ -346,49 +346,59 @@ def cmd_pre_check(args: argparse.Namespace) -> None:
 
 
 def cmd_pool_resubmit(args: argparse.Namespace) -> None:
-    """Re-run POST /alphas/{id}/submit for every pool entry that's still UNSUBMITTED."""
+    """POST /alphas/{id}/submit for every pool entry that's not already ACTIVE.
+
+    Strategy: skip the local pre_check (it triple-burns API calls under rate
+    limit). Let WQ's submit endpoint do the self-corr gating itself; capture
+    the rejection message so we know why each alpha was rejected.
+    """
+    import time as _time
     from agent_market.wq_brain.client import session_from_env
     from agent_market.wq_brain.paths import alpha_pool_path
     from agent_market.wq_brain.pool import AlphaPool
     pool = AlphaPool(alpha_pool_path(args.tag))
+    # Sort by fitness desc — submit best alphas first; later near-duplicates
+    # will be rejected by WQ self-corr but won't displace earlier winners.
+    entries = sorted(pool.entries, key=lambda e: -e.fitness)
     sess = session_from_env()
     submitted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    print(f"Checking {len(pool)} pool alphas for tag={args.tag}", file=sys.stderr)
-    for i, entry in enumerate(pool.entries):
+    print(f"Resubmitting {len(entries)} pool alphas for tag={args.tag}", file=sys.stderr)
+    for i, entry in enumerate(entries):
+        # Quick status pre-check — 1 GET, no correlations
         try:
             status = sess.get_alpha_status(entry.alpha_id)
         except Exception as exc:
-            rejected.append({"alpha_id": entry.alpha_id, "error": f"status fetch: {exc}"})
+            rejected.append({"alpha_id": entry.alpha_id, "error": f"status fetch: {exc}"[:200]})
+            _time.sleep(args.polite_sleep)
             continue
         if status.get("status") == "ACTIVE" or status.get("date_submitted"):
-            skipped.append({"alpha_id": entry.alpha_id,
-                            "reason": "already submitted",
-                            "status": status})
+            skipped.append({"alpha_id": entry.alpha_id, "reason": "already submitted"})
+            _time.sleep(args.polite_sleep)
             continue
-        # Try submit
+        # POST /submit — let WQ do the self-corr check
         try:
-            if not args.no_pre_check:
-                check = _check_self_correlation(
-                    sess, entry.alpha_id,
-                    corr_max=args.corr_max,
-                    sharpe_margin=args.sharpe_margin,
-                    tag=args.tag,
-                )
-                if not check["accept"]:
-                    rejected.append({
-                        "alpha_id": entry.alpha_id,
-                        "rejected_by": "pre_check",
-                        **check,
-                    })
-                    continue
             resp = sess.submit_alpha(entry.alpha_id)
-            submitted.append({"alpha_id": entry.alpha_id, "response": resp})
+            submitted.append({
+                "alpha_id": entry.alpha_id,
+                "fitness": entry.fitness,
+                "sharpe": entry.sharpe,
+                "response": resp,
+            })
         except Exception as exc:
-            rejected.append({"alpha_id": entry.alpha_id, "error": str(exc)[:300]})
+            msg = str(exc)[:300]
+            rejected.append({
+                "alpha_id": entry.alpha_id,
+                "fitness": entry.fitness,
+                "sharpe": entry.sharpe,
+                "error": msg,
+                "is_self_corr": "Self-correlation" in msg or "correlation" in msg.lower(),
+            })
+        _time.sleep(args.polite_sleep)
         if (i + 1) % 5 == 0:
-            print(f"... {i+1}/{len(pool)}", file=sys.stderr)
+            print(f"... {i+1}/{len(entries)} (submitted={len(submitted)}, "
+                  f"rejected={len(rejected)}, skipped={len(skipped)})", file=sys.stderr)
     _emit({
         "ok": True,
         "tag": args.tag,
@@ -826,9 +836,8 @@ def _build_parser() -> argparse.ArgumentParser:
     rs = pool_sub.add_parser("resubmit-all",
                              help="POST /alphas/{id}/submit for every pool entry still UNSUBMITTED")
     rs.add_argument("--tag", required=True)
-    rs.add_argument("--corr-max", type=float, default=0.7)
-    rs.add_argument("--sharpe-margin", type=float, default=0.10)
-    rs.add_argument("--no-pre-check", action="store_true")
+    rs.add_argument("--polite-sleep", type=float, default=3.0,
+                    help="seconds to sleep between alphas (default 3.0)")
     rs.set_defaults(func=cmd_pool_resubmit)
     ps = pool_sub.add_parser("status",
                              help="query WQ for each pool alpha's current submission status")
