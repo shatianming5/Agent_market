@@ -58,8 +58,10 @@ python {WQ_TOOLS} pre-check ALPHA_ID --corr-max 0.7
 python {WQ_TOOLS} simulate "rank(close / ts_mean(close, 20) - 1)" \
   --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}
 
-# Submit a passing alpha to your permanent pool. Built-in pre-check rejects
-# alphas with max_corr >= 0.7 vs existing pool (override with --no-pre-check).
+# Submit a passing alpha to your permanent pool. Built-in pre-check uses
+# WQ-aligned self-correlation rule:
+#   reject if any pool alpha has corr ≥ 0.7 AND our sharpe < 1.10 × theirs.
+# (WQ silently rejects on submit otherwise — wasting the submission slot.)
 python {WQ_TOOLS} submit ALPHA_ID --tag {TAG}
 
 # List your pool (passing alphas accumulated in this run + prior)
@@ -274,7 +276,7 @@ LOWER TURNOVER via smoother signals (longer windows, decay-weighted).
 - **Nesting depth**: max 8 levels (parser-enforced); typically prefer ≤ 4-6.
 - **WQ daily simulation budget**: ~60-100 per account per day.
 - **Per-simulation latency**: 60-180s. Plan accordingly.
-- **Correlation gate**: max 0.7 vs existing pool (auto-pre-check on submit).
+- **Correlation gate**: max 0.7 vs existing pool, OR our sharpe ≥ 110% of correlated alpha (auto-pre-check on submit). When pool grows past 30 alphas, near-duplicates of existing high-sharpe alphas will be rejected unless our sharpe is materially better.
 - **Forbidden syntax**: no Python keywords (`lambda`, `import`, `def`, `class`, etc.).
 - **Avoid `group_*` nested inside `ts_*`** — causes WQ timeouts.
 - **Always pass `--tag {TAG}`** to `simulate` so cross-loop ledger captures the result.

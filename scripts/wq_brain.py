@@ -135,26 +135,25 @@ def cmd_submit(args: argparse.Namespace) -> None:
 
     sess = session_from_env()
 
-    # Pre-check: reject if too correlated with existing pool (unless --no-pre-check)
+    # Pre-check: WQ-aligned self-correlation + sharpe-margin rule
     if not args.no_pre_check:
         try:
-            corrs = sess.get_alpha_correlations(args.alpha_id)
-            max_corr = max((float(c.get("correlation", 0)) for c in corrs), default=0.0)
-            if max_corr >= args.corr_max:
+            check = _check_self_correlation(
+                sess, args.alpha_id,
+                corr_max=args.corr_max,
+                sharpe_margin=getattr(args, "sharpe_margin", 0.10),
+                tag=args.tag,
+            )
+            if not check["accept"]:
                 _emit({
                     "ok": False,
                     "rejected_by": "pre_check",
                     "alpha_id": args.alpha_id,
-                    "max_correlation": max_corr,
-                    "corr_max_threshold": args.corr_max,
-                    "reason": (
-                        f"max_corr={max_corr:.3f} >= threshold={args.corr_max:.3f} "
-                        f"— too similar to existing pool. Use --no-pre-check to override."
-                    ),
+                    **check,
+                    "hint": "Use --no-pre-check to override (will likely be rejected by WQ submit step).",
                 }, code=2)
                 return
         except Exception as exc:
-            # If pre_check itself fails, log but don't block submission
             print(f"WARN: pre_check failed ({exc}); proceeding to submit", file=sys.stderr)
 
     try:
@@ -168,9 +167,12 @@ def cmd_submit(args: argparse.Namespace) -> None:
         try:
             metrics = sess.fetch_alpha_metrics(args.alpha_id)
             if metrics.alpha_id and metrics.sharpe is not None:
+                # Auto-fill expr from tried_exprs.jsonl if --expr not provided
+                actual_expr = args.expr or _auto_fill_expr(args.tag, metrics.alpha_id) \
+                              or "(submitted via CLI)"
                 entry = AlphaPoolEntry(
                     alpha_id=metrics.alpha_id,
-                    expr=args.expr or "(submitted via CLI)",
+                    expr=actual_expr,
                     settings_dict={},
                     sharpe=float(metrics.sharpe),
                     fitness=float(metrics.fitness or 0.0),
@@ -210,32 +212,170 @@ def cmd_corr(args: argparse.Namespace) -> None:
         _emit({"ok": False, "error": str(exc)}, code=1)
 
 
+def _auto_fill_expr(tag: str, alpha_id: str) -> str:
+    """Look up the most-recent tried_exprs.jsonl row for alpha_id."""
+    if not tag or not alpha_id:
+        return ""
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import read_tried
+    rows = read_tried(tried_exprs_path(tag), tail=2000)
+    for r in reversed(rows):
+        if r.get("alpha_id") == alpha_id and r.get("expr"):
+            return r["expr"]
+    return ""
+
+
+def _check_self_correlation(
+    sess: Any,
+    alpha_id: str,
+    *,
+    corr_max: float = 0.7,
+    sharpe_margin: float = 0.10,
+    tag: str = "",
+) -> dict[str, Any]:
+    """WQ-aligned self-correlation gate.
+
+    WQ rejects a submission if any pool alpha has correlation ≥ corr_max AND
+    the new alpha's sharpe is NOT ≥ (1+sharpe_margin) × correlated.sharpe.
+
+    Returns a dict with 'accept' bool + diagnostic fields.
+    """
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.pool import AlphaPool
+
+    corrs = sess.get_alpha_correlations(alpha_id)
+    if not corrs:
+        return {"accept": True, "reason": "no correlation data — accepting",
+                "max_correlation": 0.0, "high_corr_count": 0}
+
+    abs_max = max((abs(float(c.get("correlation", 0))) for c in corrs), default=0.0)
+    high_corr = [c for c in corrs if abs(float(c.get("correlation", 0))) >= corr_max]
+    if not high_corr:
+        return {"accept": True, "reason": f"max_corr={abs_max:.3f} < {corr_max:.3f}",
+                "max_correlation": abs_max, "high_corr_count": 0}
+
+    # Need new alpha's sharpe — fetch if not already known
+    new_sharpe = None
+    try:
+        m = sess.fetch_alpha_metrics(alpha_id)
+        new_sharpe = m.sharpe
+    except Exception as exc:
+        return {"accept": False,
+                "reason": f"high_corr count={len(high_corr)} but sharpe unknown: {exc}",
+                "max_correlation": abs_max, "high_corr_count": len(high_corr)}
+
+    if new_sharpe is None:
+        return {"accept": False,
+                "reason": f"high_corr count={len(high_corr)} but our sharpe missing",
+                "max_correlation": abs_max, "high_corr_count": len(high_corr)}
+
+    # Look up correlated alphas' sharpes (local pool first, WQ fallback)
+    pool_by_id: dict[str, Any] = {}
+    if tag:
+        try:
+            pool = AlphaPool(alpha_pool_path(tag))
+            pool_by_id = {e.alpha_id: e for e in pool.entries}
+        except Exception:
+            pass
+
+    blocking: list[dict[str, Any]] = []
+    overrides: list[dict[str, Any]] = []
+    for c in high_corr:
+        corr_id = c.get("alpha") or c.get("id") or c.get("alphaId") or ""
+        corr_value = float(c.get("correlation", 0))
+        other_sharpe: Optional[float] = None
+        if corr_id and corr_id in pool_by_id:
+            other_sharpe = pool_by_id[corr_id].sharpe
+        elif corr_id:
+            try:
+                om = sess.fetch_alpha_metrics(corr_id)
+                other_sharpe = om.sharpe
+            except Exception:
+                other_sharpe = None
+
+        entry: dict[str, Any] = {
+            "id": corr_id, "correlation": round(corr_value, 4),
+        }
+        if other_sharpe is None:
+            entry["reason"] = "unknown sharpe — assumed blocking"
+            blocking.append(entry)
+            continue
+        required = (1.0 + sharpe_margin) * other_sharpe
+        entry["other_sharpe"] = round(other_sharpe, 3)
+        entry["required_sharpe"] = round(required, 3)
+        entry["our_sharpe"] = round(new_sharpe, 3)
+        if new_sharpe >= required:
+            entry["status"] = "override (sharpe ≥ 110% of correlated)"
+            overrides.append(entry)
+        else:
+            entry["status"] = f"BLOCK: short by {required - new_sharpe:.3f}"
+            blocking.append(entry)
+
+    accept = not blocking
+    reason = (
+        f"all {len(overrides)} high_corr alphas overridden by sharpe-margin"
+        if accept else
+        f"BLOCK: {len(blocking)} high_corr alphas with insufficient sharpe-margin"
+    )
+    return {
+        "accept": accept,
+        "reason": reason,
+        "max_correlation": abs_max,
+        "high_corr_count": len(high_corr),
+        "new_sharpe": round(new_sharpe, 3),
+        "blocking": blocking[:10],
+        "overrides": overrides[:5],
+    }
+
+
 def cmd_pre_check(args: argparse.Namespace) -> None:
-    """Pre-submission gate: query WQ correlations and decide submit/reject."""
+    """Pre-submission gate: WQ-aligned self-correlation + sharpe-margin rule."""
     from agent_market.wq_brain.client import session_from_env
     try:
         sess = session_from_env()
-        corrs = sess.get_alpha_correlations(args.alpha_id)
-        max_corr = max((float(c.get("correlation", 0)) for c in corrs), default=0.0)
-        accept = max_corr < args.corr_max
-        _emit({
-            "ok": True,
-            "alpha_id": args.alpha_id,
-            "max_correlation": max_corr,
-            "corr_max_threshold": args.corr_max,
-            "accept": accept,
-            "reason": (
-                f"max_corr={max_corr:.3f} < threshold={args.corr_max:.3f}"
-                if accept else
-                f"REJECT: max_corr={max_corr:.3f} >= threshold={args.corr_max:.3f} "
-                f"(too similar to existing pool)"
-            ),
-            "top_5_correlations": sorted(
-                corrs, key=lambda c: -abs(float(c.get("correlation", 0)))
-            )[:5],
-        }, code=0 if accept else 2)
+        result = _check_self_correlation(
+            sess, args.alpha_id,
+            corr_max=args.corr_max,
+            sharpe_margin=args.sharpe_margin,
+            tag=args.tag,
+        )
+        _emit({"ok": True, "alpha_id": args.alpha_id, **result},
+              code=0 if result["accept"] else 2)
     except Exception as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
+
+
+def cmd_pool_backfill(args: argparse.Namespace) -> None:
+    """Backfill pool.json `expr` field from tried_exprs.jsonl by alpha_id."""
+    from agent_market.wq_brain.paths import alpha_pool_path, tried_exprs_path
+    from agent_market.wq_brain.pool import AlphaPool
+    from agent_market.wq_brain.tried_log import read_tried
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    tried = read_tried(tried_exprs_path(args.tag), tail=10000)
+    by_id: dict[str, str] = {}
+    for r in tried:
+        aid = r.get("alpha_id")
+        expr = r.get("expr")
+        if aid and expr and aid not in by_id:
+            by_id[aid] = expr
+
+    fixed = 0
+    skipped = 0
+    for entry in pool.entries:
+        if entry.expr and entry.expr != "(submitted via CLI)":
+            skipped += 1
+            continue
+        new_expr = by_id.get(entry.alpha_id)
+        if new_expr:
+            entry.expr = new_expr
+            fixed += 1
+    pool._save()  # type: ignore[attr-defined]
+    _emit({
+        "ok": True, "tag": args.tag,
+        "pool_size": len(pool),
+        "fixed": fixed, "skipped": skipped,
+        "still_missing": sum(1 for e in pool.entries if not e.expr or e.expr == "(submitted via CLI)"),
+    })
 
 
 def cmd_fetch_data(args: argparse.Namespace) -> None:
@@ -535,13 +675,19 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--expr", default="", help="optional expr to record locally")
     sp.add_argument("--corr-max", type=float, default=0.7,
                     help="reject if max correlation with existing pool >= this (default 0.7)")
+    sp.add_argument("--sharpe-margin", type=float, default=0.10,
+                    help="WQ override rule: high-corr submission still allowed if our sharpe ≥ (1+margin) × theirs (default 0.10 = 10%%)")
     sp.add_argument("--no-pre-check", action="store_true",
                     help="skip the correlation pre-check")
     sp.set_defaults(func=cmd_submit)
 
-    sp = sub.add_parser("pre-check", help="check if alpha is similar enough to existing pool to reject")
+    sp = sub.add_parser("pre-check", help="check if alpha would be rejected by WQ self-correlation gate")
     sp.add_argument("alpha_id")
     sp.add_argument("--corr-max", type=float, default=0.7)
+    sp.add_argument("--sharpe-margin", type=float, default=0.10,
+                    help="WQ allows high_corr submission if sharpe ≥ (1+margin) × correlated.sharpe")
+    sp.add_argument("--tag", default="",
+                    help="local pool tag (used to look up correlated alphas' sharpes)")
     sp.set_defaults(func=cmd_pre_check)
 
     sp = sub.add_parser("fetch-data", help="bulk-fetch US stock OHLCV + sectors into local cache")
@@ -586,6 +732,10 @@ def _build_parser() -> argparse.ArgumentParser:
     pl = pool_sub.add_parser("list", help="list pool entries")
     pl.add_argument("--tag", required=True)
     pl.set_defaults(func=cmd_pool_list)
+    bf = pool_sub.add_parser("backfill-exprs",
+                             help="fill in missing expr fields from tried_exprs.jsonl by alpha_id")
+    bf.add_argument("--tag", required=True)
+    bf.set_defaults(func=cmd_pool_backfill)
 
     sp = sub.add_parser("corr", help="get correlations of alpha with WQ pool")
     sp.add_argument("alpha_id")
