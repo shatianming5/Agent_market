@@ -14,6 +14,7 @@ from agent_market.wq_brain.agent_runner import (
     _build_system_prompt,
     _family_diversity_hint,
     _resolve_cli,
+    _tried_family_concentration_hint,
     run_agent,
 )
 from agent_market.wq_brain.dtypes import AlphaPoolEntry
@@ -184,6 +185,67 @@ def test_family_diversity_hint_full_coverage_picks_lowest():
                  "open_gap", "humped", "multi_signal", "sector_relative"})
     hint = _family_diversity_hint(full)
     assert "LOWEST count" in hint
+
+
+def test_tried_family_concentration_hint_silent_below_threshold():
+    """7/10 of one family — exactly at threshold (default 0.7), should fire."""
+    records = [
+        {"ts": i, "expr": "rank(group_zscore(close, sector))"} for i in range(7)
+    ] + [
+        {"ts": 100 + i, "expr": "rank(close)"} for i in range(3)
+    ]
+    hint = _tried_family_concentration_hint(records)
+    assert "STUCK IN" in hint
+    assert "sector_relative" in hint
+    assert "7/10" in hint
+
+
+def test_tried_family_concentration_hint_quiet_when_diverse():
+    """No single family >=70% → no hint."""
+    records = [
+        {"ts": 1, "expr": "rank(close)"},  # other
+        {"ts": 2, "expr": "rank(ts_corr(close, volume, 20))"},  # ts_corr_pv
+        {"ts": 3, "expr": "rank(close/vwap)"},  # vwap_dev
+        {"ts": 4, "expr": "rank((high-low)/close)"},  # intraday_range
+        {"ts": 5, "expr": "rank(ts_rank(volume, 20))"},  # volume_rank
+        {"ts": 6, "expr": "hump(rank(close))"},  # humped
+        {"ts": 7, "expr": "rank(open - ts_delay(close, 1))"},  # open_gap
+        {"ts": 8, "expr": "rank(group_zscore(close, sector))"},  # sector_relative
+        {"ts": 9, "expr": "rank(close) + 0.5 * rank(volume)"},  # multi_signal
+        {"ts": 10, "expr": "rank(close)"},
+    ]
+    assert _tried_family_concentration_hint(records) == ""
+
+
+def test_tried_family_concentration_hint_too_few_records():
+    records = [{"ts": i, "expr": "rank(close)"} for i in range(5)]
+    assert _tried_family_concentration_hint(records) == ""
+
+
+def test_tried_family_concentration_hint_uses_recency():
+    """Older records shouldn't pollute the recent-window analysis."""
+    # 10 sector_relative early, then 10 fresh ts_corr_pv → window=10 should
+    # see only ts_corr_pv (concentrated)
+    records = [
+        {"ts": i, "expr": "rank(group_zscore(close, sector))"} for i in range(10)
+    ] + [
+        {"ts": 100 + i, "expr": "rank(ts_corr(close, volume, 20))"} for i in range(10)
+    ]
+    hint = _tried_family_concentration_hint(records, window=10)
+    assert "ts_corr_pv" in hint
+    assert "sector_relative" not in hint  # the recent 10 are all ts_corr_pv
+
+
+def test_tried_family_concentration_hint_includes_anti_examples():
+    """Hint should mention concrete alternative expressions to try."""
+    records = [
+        {"ts": i, "expr": "rank(group_zscore(close, sector))"} for i in range(8)
+    ] + [
+        {"ts": 100 + i, "expr": "rank(close)"} for i in range(2)
+    ]
+    hint = _tried_family_concentration_hint(records)
+    # Should suggest something concrete for sector_relative
+    assert any(token in hint for token in ("hump", "high - low", "vwap"))
 
 
 def test_build_prior_knowledge_block_renders_family_column(isolated_artifacts, tmp_path):

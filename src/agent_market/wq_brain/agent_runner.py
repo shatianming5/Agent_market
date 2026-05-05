@@ -158,6 +158,61 @@ def _family_diversity_hint(active_families: list[str]) -> str:
     return f"_⚠️ Pool covers {dominant}. Pick the family with the LOWEST count next._"
 
 
+# Family-specific anti-recommendations — what to try when stuck
+_FAMILY_ANTI_EXAMPLES: dict[str, str] = {
+    "sector_relative":  "`hump(rank(vwap/close))`, `rank((high - low)/close)`, `rank(open - ts_delay(close, 1))`",
+    "ts_corr_pv":       "`rank((vwap - close)/close)`, `hump(rank(...))`, `group_zscore(_, subindustry)`",
+    "multi_signal":     "`ts_corr(close, volume, 20)`, `rank((high - low)/close)`, `humped(rank(...))`",
+    "ts_rank_close":    "`rank((vwap - close)/close)`, `rank((high - low)/close)`, `rank(open - ts_delay(close, 1))`",
+    "ts_delta_close":   "`ts_corr(_, _, _)`, `(high - low) / close`, `group_zscore(_, sector)`",
+    "decay_linear":     "swap to a different inner shape — `hump(rank(...))`, `(high - low) / close`, `vwap - close`",
+    "humped":           "`ts_corr(close, volume, 20)`, `(high - low)/close`, `group_zscore(_, sector)`",
+    "intraday_range":   "`rank(vwap/close)`, `ts_corr(close, volume, 20)`, `group_zscore(_, sector)`",
+    "open_gap":         "`rank(vwap/close)`, `(high - low)/close`, `group_zscore(_, sector)`",
+    "vwap_dev":         "`rank(ts_rank(volume, 20))`, `rank((high - low)/close)`, `ts_corr(close, volume, 20)`",
+    "volume_rank":      "`rank(vwap/close)`, `(high - low)/close`, `hump(rank(...))`",
+    "group_neutral":    "`hump(rank(...))`, `ts_corr(close, volume, 20)`, `(high - low)/close`",
+    "ts_corr_other":    "`group_zscore(_, sector)`, `(high - low)/close`, `hump(rank(...))`",
+}
+
+
+def _tried_family_concentration_hint(
+    tried_records: list[dict],
+    *,
+    window: int = 10,
+    threshold: float = 0.7,
+) -> str:
+    """Hard rotation hint: if recent attempts are dominated by one family,
+    forbid that family for the next handful of candidates.
+
+    Triggered when ≥ ``threshold`` of the last ``window`` attempts share a
+    family. Catches the failure mode where mutation engine endlessly twiddles
+    parameters within a single family even after that family is already ACTIVE
+    (so the ACTIVE-only diversity hint doesn't fire).
+    """
+    if len(tried_records) < window:
+        return ""
+    from collections import Counter
+    recent = sorted(tried_records, key=lambda r: r.get("ts", 0), reverse=True)[:window]
+    families = [infer_family(r.get("expr") or "") for r in recent if r.get("expr")]
+    if not families:
+        return ""
+    counts = Counter(families)
+    top_fam, top_count = counts.most_common(1)[0]
+    if top_count / window < threshold:
+        return ""
+    examples = _FAMILY_ANTI_EXAMPLES.get(
+        top_fam, "any of the 8 canonical families OTHER than this one"
+    )
+    return (
+        f"_🛑 STUCK IN `{top_fam}` ({top_count}/{window} of recent attempts). The "
+        f"mutation engine is over-twiddling parameters inside this family. "
+        f"YOUR NEXT 5 simulate calls MUST come from a DIFFERENT family. "
+        f"Try: {examples}. Re-entering `{top_fam}` before 5 cross-family "
+        f"simulations will be flagged as a session-rule violation._"
+    )
+
+
 def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int = 60) -> str:
     """Render cross-loop knowledge: passing pool + recent tried_exprs +
     cross-over candidates + mutation hints + submit rejections."""
@@ -239,6 +294,13 @@ def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int
 
     tried = read_tried(tried_exprs_path(tag), tail=max_tried * 4)
     if tried:
+        # Hard rotation: if recent attempts are dominated by one family,
+        # forbid it for the next 5 candidates. Goes BEFORE the tried table
+        # so the agent reads the rule before scanning the (tempting) history.
+        rotation_hint = _tried_family_concentration_hint(tried)
+        if rotation_hint:
+            parts.append(rotation_hint)
+
         parts.append("### Recently Attempted Expressions (latest result per expr)\n\n" + format_for_prompt(tried, max_rows=max_tried))
 
         # Cross-over: top fragments by quick-score, diversified by family
