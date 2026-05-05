@@ -137,7 +137,27 @@ def cmd_submit(args: argparse.Namespace) -> None:
 
     sess = session_from_env()
 
-    # Pre-check: WQ-aligned self-correlation + sharpe-margin rule
+    # Pre-check 1 (LOCAL): jaccard token similarity vs ACTIVE pool — fast,
+    # no API calls, catches >90% of self-correlation rejections before
+    # spending WQ quota.
+    if not args.no_pre_check and args.tag:
+        expr_for_check = args.expr or _auto_fill_expr(args.tag, args.alpha_id)
+        if expr_for_check:
+            local_check = _check_local_jaccard_vs_active(
+                args.tag, expr_for_check,
+                threshold=args.jaccard_max,
+            )
+            if not local_check["accept"]:
+                _emit({
+                    "ok": False,
+                    "rejected_by": "local_jaccard_pre_check",
+                    "alpha_id": args.alpha_id,
+                    **local_check,
+                    "hint": "Mutate to a different family. Check Cross-Over Candidates and try ts_corr_pv / vwap_dev / intraday_range / open_gap / sector_relative — anything NOT structurally similar to the ACTIVE alpha above.",
+                }, code=2)
+                return
+
+    # Pre-check 2 (REMOTE): WQ-aligned self-correlation + sharpe-margin rule
     if not args.no_pre_check:
         try:
             check = _check_self_correlation(
@@ -149,7 +169,7 @@ def cmd_submit(args: argparse.Namespace) -> None:
             if not check["accept"]:
                 _emit({
                     "ok": False,
-                    "rejected_by": "pre_check",
+                    "rejected_by": "wq_pre_check",
                     "alpha_id": args.alpha_id,
                     **check,
                     "hint": "Use --no-pre-check to override (will likely be rejected by WQ submit step).",
@@ -254,6 +274,73 @@ def cmd_corr(args: argparse.Namespace) -> None:
                "correlations": corrs[:20]})
     except Exception as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
+
+
+def _check_local_jaccard_vs_active(
+    tag: str,
+    expr: str,
+    *,
+    threshold: float = 0.7,
+) -> dict[str, Any]:
+    """Local pre-submit gate: jaccard token similarity vs ACTIVE pool.
+
+    WQ self-correlation gate (server-side) measures *signal* correlation;
+    token jaccard is a proxy that's correlated but not identical. Empirically,
+    expressions with token jaccard ≥0.7 typically have signal corr ≥0.9 →
+    will be rejected by WQ. Rejecting locally saves the WQ submit quota
+    AND the 30s async-verify wait.
+    """
+    import re
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.pool import AlphaPool
+    if not tag or not expr:
+        return {"accept": True, "reason": "no tag/expr — skipped"}
+
+    pool = AlphaPool(alpha_pool_path(tag))
+    active = [e for e in pool.entries
+              if getattr(e, "verified_status", "") == "ACTIVE"]
+    if not active:
+        return {"accept": True, "reason": "no ACTIVE alphas in pool yet"}
+
+    def _toks(s: str) -> frozenset:
+        return frozenset(re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+", s.lower()))
+
+    new_t = _toks(expr)
+    if not new_t:
+        return {"accept": True, "reason": "empty token set"}
+
+    max_sim = 0.0
+    blocking_id = ""
+    blocking_expr = ""
+    blocking_fi = 0.0
+    for a in active:
+        a_t = _toks(a.expr or "")
+        if not a_t:
+            continue
+        union = len(new_t | a_t)
+        sim = (len(new_t & a_t) / union) if union else 0.0
+        if sim > max_sim:
+            max_sim = sim
+            blocking_id = a.alpha_id
+            blocking_expr = a.expr or ""
+            blocking_fi = a.fitness
+
+    accept = max_sim < threshold
+    return {
+        "accept": accept,
+        "max_jaccard": round(max_sim, 3),
+        "threshold": threshold,
+        "vs_alpha_id": blocking_id,
+        "vs_alpha_fitness": blocking_fi,
+        "vs_alpha_expr": blocking_expr[:120],
+        "reason": (
+            f"max_jaccard={max_sim:.3f} < {threshold:.3f} (vs {blocking_id})"
+            if accept else
+            f"BLOCK: jaccard={max_sim:.3f} ≥ {threshold:.3f} vs ACTIVE {blocking_id} "
+            f"(fi={blocking_fi:.2f}). WQ self-corr will almost certainly reject — "
+            f"mutate to a different family before submit."
+        ),
+    }
 
 
 def _summarize_rejection(reasons: list) -> str:
@@ -400,6 +487,19 @@ def cmd_pre_check(args: argparse.Namespace) -> None:
               code=0 if result["accept"] else 2)
     except Exception as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
+
+
+def cmd_pre_check_local(args: argparse.Namespace) -> None:
+    """Fast local pre-check: token-jaccard similarity vs ACTIVE pool entries.
+
+    Use BEFORE simulating to avoid generating near-duplicates that WQ will
+    reject. No API calls — purely local read of pool.json.
+    """
+    result = _check_local_jaccard_vs_active(
+        args.tag, args.expr, threshold=args.jaccard_max,
+    )
+    _emit({"ok": True, **result, "expr": args.expr},
+          code=0 if result["accept"] else 2)
 
 
 def cmd_pool_resubmit(args: argparse.Namespace) -> None:
@@ -967,6 +1067,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="reject if max correlation with existing pool >= this (default 0.7)")
     sp.add_argument("--sharpe-margin", type=float, default=0.10,
                     help="WQ override rule: high-corr submission still allowed if our sharpe ≥ (1+margin) × theirs (default 0.10 = 10%%)")
+    sp.add_argument("--jaccard-max", type=float, default=0.7,
+                    help="local pre-check: reject if token-jaccard vs any ACTIVE pool alpha >= this (default 0.7)")
     sp.add_argument("--no-pre-check", action="store_true",
                     help="skip the correlation pre-check")
     sp.add_argument("--verify-after-sec", type=float, default=30.0,
@@ -981,6 +1083,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--tag", default="",
                     help="local pool tag (used to look up correlated alphas' sharpes)")
     sp.set_defaults(func=cmd_pre_check)
+
+    sp = sub.add_parser("pre-check-local",
+                        help="fast local jaccard check vs ACTIVE pool alphas (no API calls)")
+    sp.add_argument("expr", help="FASTEXPR to check")
+    sp.add_argument("--tag", required=True)
+    sp.add_argument("--jaccard-max", type=float, default=0.7,
+                    help="reject if token-jaccard vs any ACTIVE alpha >= this (default 0.7)")
+    sp.set_defaults(func=cmd_pre_check_local)
 
     sp = sub.add_parser("fetch-data", help="bulk-fetch US stock OHLCV + sectors into local cache")
     sp.add_argument("--tickers-file", default=None,

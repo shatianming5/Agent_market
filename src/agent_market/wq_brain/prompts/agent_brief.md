@@ -58,11 +58,18 @@ python {WQ_TOOLS} pre-check ALPHA_ID --corr-max 0.7
 python {WQ_TOOLS} simulate "rank(close / ts_mean(close, 20) - 1)" \
   --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}
 
-# Submit a passing alpha to your permanent pool. Built-in pre-check uses
-# WQ-aligned self-correlation rule:
-#   reject if any pool alpha has corr ≥ 0.7 AND our sharpe < 1.10 × theirs.
-# (WQ silently rejects on submit otherwise — wasting the submission slot.)
+# Submit a passing alpha. The CLI runs TWO gates before calling WQ:
+#  (1) LOCAL jaccard: rejects if token-similarity ≥0.7 with any ACTIVE
+#      alpha — saves WQ submit quota + 30s verify wait.
+#  (2) REMOTE WQ self-correlation: reject if any pool alpha has corr ≥ 0.7
+#      AND our sharpe < 1.10 × theirs.
+# So if your candidate echoes the structure of {TAG}'s sole ACTIVE alpha
+# `akA1rPR1` (ts_decay_linear → rank → ts_rank × signed_power × -ts_corr),
+# it WILL be rejected before even reaching WQ. Mutate aggressively.
 python {WQ_TOOLS} submit ALPHA_ID --tag {TAG}
+
+# Quick local check BEFORE simulating (saves WQ daily quota too):
+python {WQ_TOOLS} pre-check-local "rank((vwap-close)/close)" --tag {TAG}
 
 # List your pool (passing alphas accumulated in this run + prior)
 python {WQ_TOOLS} pool list --tag {TAG}
@@ -278,6 +285,17 @@ top alpha is.
    in structure (same operator stack, same fields) to any rejected
    alpha there, **DO NOT SUBMIT** — it WILL be rejected. Iterate or
    try a different family instead.
+4. **MANDATORY: run `pre-check-local` before submit.** This computes
+   token-jaccard vs every ACTIVE alpha. If it says BLOCK, the alpha is
+   structurally too similar to an existing ACTIVE — mutate harder
+   (different operator stack, different fields, different normalization)
+   instead of trying to push it through with `--no-pre-check` (WQ will
+   reject anyway).
+5. **MANDATORY: do not generate alphas with token-jaccard ≥0.7 to ANY
+   ACTIVE pool entry.** When the ACTIVE list shows
+   `ts_decay_linear(rank(rank(ts_rank * signed_power(-ts_delta))*-ts_corr))`,
+   any alpha mixing those same operators+fields is on the death list.
+   Pick a different operator stack entirely.
 
 For each alpha that passes the WQ gate (sh ≥ {SHARPE_MIN} AND fi ≥ {FITNESS_MIN}):
 1. Compare to the SUBMIT FAILURES table — if it shares ≥3 operators with
