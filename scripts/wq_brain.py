@@ -549,7 +549,13 @@ def cmd_pool_dedup(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.paths import alpha_pool_path
     from agent_market.wq_brain.pool import AlphaPool
     pool = AlphaPool(alpha_pool_path(args.tag))
-    entries = sorted(pool.entries, key=lambda e: -e.fitness)
+    # Sort: ACTIVE alphas FIRST (always-keep), then by fitness desc.
+    # ACTIVE = WQ-confirmed earning alphas; never drop these in favor of
+    # an unverified higher-fitness sibling.
+    def _priority(e):
+        is_active = getattr(e, "verified_status", "") == "ACTIVE"
+        return (0 if is_active else 1, -e.fitness)
+    entries = sorted(pool.entries, key=_priority)
 
     def tokens(expr: str) -> frozenset:
         return frozenset(re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+", expr.lower()))
