@@ -14,7 +14,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import time
 
@@ -767,17 +767,92 @@ def cmd_pool_backfill(args: argparse.Namespace) -> None:
 
 
 def cmd_fetch_data(args: argparse.Namespace) -> None:
-    """Bulk-fetch US stock OHLCV + sectors via yfinance into local parquet cache."""
+    """Bulk-fetch US stock OHLCV + sectors into local parquet cache.
+
+    Default backend is Stooq (free, no API key); set --backend yfinance|auto
+    or env WQB_DATA_BACKEND to override.
+    """
     from agent_market.wq_brain.data_loader import fetch_data, load_tickers
     tickers = load_tickers(Path(args.tickers_file) if args.tickers_file else None)
+    backend = args.backend or os.environ.get("WQB_DATA_BACKEND") or "stooq"
     print(f"Fetching {len(tickers)} tickers from {args.start} to {args.end} "
-          f"(polite_sleep={args.polite_sleep}s)", file=sys.stderr)
+          f"(backend={backend}, polite_sleep={args.polite_sleep}s)", file=sys.stderr)
     summary = fetch_data(
         tickers, args.start, args.end,
         skip_sectors=args.skip_sectors,
         polite_sleep=args.polite_sleep,
+        backend=args.backend,
     )
     print(json.dumps(summary, indent=2, default=str))
+
+
+def cmd_kaggle_fetch(args: argparse.Namespace) -> None:
+    """Download a Kaggle stock dataset ZIP (and auto-extract by default)."""
+    from agent_market.wq_brain.kaggle_loader import (
+        KaggleCredentialsError,
+        download_kaggle_dataset,
+        extract_kaggle_zip,
+    )
+    from agent_market.wq_brain.paths import wq_brain_root
+
+    dest_dir = Path(args.dest_dir) if args.dest_dir else wq_brain_root() / "data" / "kaggle"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        zip_path = download_kaggle_dataset(args.dataset, dest_dir, force=args.force)
+    except KaggleCredentialsError as exc:
+        _emit({"ok": False, "error": str(exc)}, code=2)
+        return
+
+    out: dict[str, Any] = {
+        "ok": True,
+        "dataset": args.dataset,
+        "zip_path": str(zip_path),
+        "zip_bytes": zip_path.stat().st_size,
+    }
+    if not args.no_extract:
+        extract_dir = extract_kaggle_zip(zip_path, dest_dir)
+        out["extract_dir"] = str(extract_dir)
+        out["files"] = sum(1 for _ in extract_dir.rglob("*") if _.is_file())
+    _emit(out)
+
+
+def cmd_kaggle_import(args: argparse.Namespace) -> None:
+    """Parse an already-fetched Kaggle dataset and merge into ohlcv.parquet."""
+    from agent_market.wq_brain.kaggle_loader import import_kaggle_to_cache
+    from agent_market.wq_brain.paths import wq_brain_root
+
+    dest_dir = Path(args.dest_dir) if args.dest_dir else wq_brain_root() / "data" / "kaggle"
+    safe_name = args.dataset.replace("/", "__")
+    extract_dir = dest_dir / safe_name
+    if not extract_dir.is_dir():
+        _emit({
+            "ok": False,
+            "error": f"extract dir not found: {extract_dir}; run kaggle-fetch first",
+        }, code=2)
+        return
+
+    column_map: Optional[dict[str, str]] = None
+    if args.column_map:
+        try:
+            column_map = json.loads(args.column_map)
+        except ValueError as exc:
+            _emit({"ok": False, "error": f"--column-map invalid JSON: {exc}"}, code=2)
+            return
+
+    ticker_col = args.ticker_col or None  # empty string → None
+    try:
+        summary = import_kaggle_to_cache(
+            extract_dir,
+            files_glob=args.files_glob,
+            ticker_col=ticker_col,
+            date_col=args.date_col,
+            ticker_from_filename=args.ticker_from_filename,
+            column_map=column_map,
+        )
+    except (FileNotFoundError, RuntimeError) as exc:
+        _emit({"ok": False, "error": str(exc)}, code=1)
+        return
+    _emit(summary)
 
 
 def cmd_update_data(args: argparse.Namespace) -> None:
@@ -799,7 +874,7 @@ def cmd_update_data(args: argparse.Namespace) -> None:
 
     end = args.end or _t.strftime("%Y-%m-%d", _t.gmtime())
     print(f"Updating {len(tickers)} tickers from {start} to {end}", file=sys.stderr)
-    summary = fetch_data(tickers, start, end, skip_sectors=True)
+    summary = fetch_data(tickers, start, end, skip_sectors=True, backend=args.backend)
     print(json.dumps(summary, indent=2, default=str))
 
 
@@ -1099,8 +1174,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--end", default="2026-05-05")
     sp.add_argument("--skip-sectors", action="store_true",
                     help="skip the slow per-ticker sector lookup")
-    sp.add_argument("--polite-sleep", type=float, default=5.0,
-                    help="seconds between single-ticker yfinance calls (default 5)")
+    sp.add_argument("--polite-sleep", type=float, default=2.0,
+                    help="seconds between single-ticker calls (default 2)")
+    sp.add_argument("--backend", choices=("stooq", "yfinance", "auto"), default=None,
+                    help="data backend (default: env WQB_DATA_BACKEND or stooq)")
     sp.set_defaults(func=cmd_fetch_data)
 
     sp = sub.add_parser("update-data", help="incremental daily OHLCV update")
@@ -1109,7 +1186,42 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="fallback start when cache is empty")
     sp.add_argument("--end", default=None,
                     help="default: today UTC")
+    sp.add_argument("--backend", choices=("stooq", "yfinance", "auto"), default=None)
     sp.set_defaults(func=cmd_update_data)
+
+    sp = sub.add_parser(
+        "kaggle-fetch",
+        help="download a Kaggle stock dataset ZIP (one HTTP roundtrip, ~tens of MB)",
+    )
+    sp.add_argument("--dataset", required=True,
+                    help="Kaggle slug, e.g. nelgiriyewithana/world-stock-prices-daily-updating")
+    sp.add_argument("--dest-dir", default=None,
+                    help="default: artifacts/wq_brain/data/kaggle")
+    sp.add_argument("--force", action="store_true",
+                    help="re-download even if ZIP already present")
+    sp.add_argument("--no-extract", action="store_true",
+                    help="just download, skip auto-extract")
+    sp.set_defaults(func=cmd_kaggle_fetch)
+
+    sp = sub.add_parser(
+        "kaggle-import",
+        help="parse an extracted Kaggle dataset into ohlcv.parquet",
+    )
+    sp.add_argument("--dataset", required=True,
+                    help="Kaggle slug — used to locate the extract dir")
+    sp.add_argument("--dest-dir", default=None,
+                    help="default: artifacts/wq_brain/data/kaggle (must match kaggle-fetch)")
+    sp.add_argument("--files-glob", default="*.csv",
+                    help="glob inside the extract dir (default *.csv)")
+    sp.add_argument("--ticker-col", default="Ticker",
+                    help='CSV column carrying the ticker (set to "" to use filename)')
+    sp.add_argument("--date-col", default="Date",
+                    help="CSV column carrying the date")
+    sp.add_argument("--ticker-from-filename", action="store_true",
+                    help="derive ticker from each CSV's filename stem instead of a column")
+    sp.add_argument("--column-map", default=None,
+                    help='JSON dict, e.g. \'{"adj_close":"close"}\' — applied on top of defaults')
+    sp.set_defaults(func=cmd_kaggle_import)
 
     sp = sub.add_parser("local-simulate", help="local WQ-aligned simulation against cached OHLCV (no WQ API)")
     sp.add_argument("expr")
