@@ -23,7 +23,10 @@ class Segment:
 
 # ── Family inference (heuristic, used to diversify the surfaced segments) ──
 
+# Order matters — first match wins. More specific (or composite) patterns go first.
 _FAMILY_PATTERNS: dict[str, re.Pattern] = {
+    "multi_signal":       re.compile(r"rank\s*\(.*?\)\s*[+\-]\s*\d*\.?\d+\s*\*\s*\(?-?rank\s*\(", re.DOTALL),
+    "sector_relative":    re.compile(r"group_(zscore|neutralize|rank|mean)\s*\(.*?\b(sector|industry|subindustry)\b", re.DOTALL),
     "ts_corr_pv":         re.compile(r"ts_corr\s*\(\s*(close|vwap|open|high|low)\s*,\s*(volume|adv\d+)"),
     "ts_corr_other":      re.compile(r"ts_corr\("),
     "ts_rank_close":      re.compile(r"ts_rank\s*\(\s*close"),

@@ -38,6 +38,7 @@ def wq_simulate(
     rebalance_dates: list,
     *,
     trading_days_per_year: int = 252,
+    fitness_gate: float = 0.5,
 ) -> dict[str, Any]:
     """Simulate WQ-aligned dollar-neutral portfolio.
 
@@ -117,7 +118,7 @@ def wq_simulate(
         if wq_sharpe != 0 else 0.0
     )
 
-    rating = _wq_rating(wq_fitness)
+    rating = _wq_rating(wq_fitness, gate=fitness_gate)
     daily_to_annualized = wq_turnover * trading_days_per_year
     margin_bps = wq_returns / daily_to_annualized * 10000 if daily_to_annualized > 0 else 0.0
 
@@ -132,6 +133,8 @@ def wq_simulate(
         "wq_fitness": round(wq_fitness, 4),
         "wq_max_weight": round(max_weight, 4),
         "wq_rating": rating,
+        "passes_local_gate": wq_fitness >= fitness_gate,
+        "fitness_gate": round(fitness_gate, 4),
         "margin_bps": round(margin_bps, 1),
         "submittable": submittable,
         "sub_universe": sub_uni,
@@ -139,14 +142,20 @@ def wq_simulate(
     }
 
 
-def _wq_rating(fi: float) -> str:
+def _wq_rating(fi: float, *, gate: float = 0.5) -> str:
+    """Bucket fitness into 5 quality levels.
+
+    ``gate`` controls only the "Average" / "Needs Improvement" cut — the
+    higher absolute milestones (Good ≥ 1.0, Excellent ≥ 1.5, Spectacular ≥ 2.5)
+    are universal and unchanged. ``calibrate-local`` recommends the gate.
+    """
     if fi >= 2.5:
         return "Spectacular"
     if fi >= 1.5:
         return "Excellent"
     if fi >= 1.0:
         return "Good"
-    if fi >= 0.5:
+    if fi >= gate:
         return "Average"
     return "Needs Improvement"
 
@@ -439,10 +448,18 @@ def simulate_expression_locally(
     ohlcv: Optional[Any] = None,
     *,
     rebalance_freq: int = 5,
+    tag: Optional[str] = None,
+    fitness_gate: Optional[float] = None,
 ) -> LocalSimResult:
-    """Evaluate `expr` against cached OHLCV and run wq_simulate.
+    """Evaluate ``expr`` against cached OHLCV and run wq_simulate.
 
-    rebalance_freq=5 means rebalance every 5 trading days (weekly).
+    ``rebalance_freq=5`` means rebalance every 5 trading days (weekly).
+
+    The "passes_local_gate" bit in the returned ``raw`` dict uses, in order:
+      1. the explicit ``fitness_gate`` kwarg (caller override)
+      2. the calibration file at ``calibration/{tag}/threshold.json`` if
+         ``tag`` is given and a calibration has been run
+      3. the legacy 0.5 default (back-compat)
     """
     pd = _pd()
     if ohlcv is None:
@@ -451,10 +468,17 @@ def simulate_expression_locally(
     if ohlcv is None or len(ohlcv) == 0:
         raise RuntimeError("no cached OHLCV; run `wq_brain fetch-data` first")
 
+    if fitness_gate is None:
+        if tag:
+            from .calibration import load_calibrated_threshold
+            fitness_gate = load_calibrated_threshold(tag, default=0.5)
+        else:
+            fitness_gate = 0.5
+
     work = evaluate_expression(expr, ohlcv)
     dates = sorted(pd.to_datetime(work["trade_date"]).unique())
     rebalance_dates = list(dates[::rebalance_freq])
-    raw = wq_simulate(work, rebalance_dates)
+    raw = wq_simulate(work, rebalance_dates, fitness_gate=fitness_gate)
     return LocalSimResult(
         expr=expr,
         wq_sharpe=raw["wq_sharpe"],

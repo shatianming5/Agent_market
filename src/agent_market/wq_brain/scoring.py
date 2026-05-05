@@ -8,8 +8,9 @@ metrics returned by `WQSession.simulate_and_parse`. Each dimension is
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
+from .diversity import max_semantic_similarity
 from .dtypes import SimulationResult
 
 
@@ -19,6 +20,7 @@ class ScoreBreakdown:
     wq_fitness: float = 0.0
     turnover: float = 0.0
     sub_universe: float = 0.0
+    family_diversity: Optional[float] = None  # 0-100; needs (expr, pool)
     ic_mean: Optional[float] = None  # Day 3+
     ic_ir: Optional[float] = None    # Day 3+
     stability: Optional[float] = None  # Day 3+
@@ -93,6 +95,25 @@ def score_turnover(turnover: Optional[float]) -> float:
     return 0.0
 
 
+def score_family_diversity(
+    expr: Optional[str],
+    active_pool_exprs: Optional[Iterable[str]],
+) -> Optional[float]:
+    """0-100 diversity score: how *different* this expr is from ACTIVE pool.
+
+    Uses :func:`agent_market.wq_brain.diversity.max_semantic_similarity` —
+    full credit (100) when no pool overlap, decays linearly to 0 at sim=1.0.
+    Returns ``None`` when expr or pool is missing so weights skip cleanly.
+    """
+    if not expr or active_pool_exprs is None:
+        return None
+    pool_list = [e for e in active_pool_exprs if e]
+    if not pool_list:
+        return 100.0  # empty pool → maximally diverse
+    max_sim, _ = max_semantic_similarity(expr, pool_list)
+    return max(0.0, min(100.0, (1.0 - max_sim) * 100.0))
+
+
 def score_sub_universe(checks: list[dict[str, Any]]) -> float:
     """Score WQ's IS check `LOW_SUB_UNIVERSE_SHARPE`.
 
@@ -114,23 +135,26 @@ def score_sub_universe(checks: list[dict[str, Any]]) -> float:
 # ── Composite ────────────────────────────────────────────────────────────
 
 # Weights (sum = 1.0). Tuned for the no-local-data regime (Days 1-2).
-# When Day 3+ adds IC/stability dims, weights will rebalance.
+# family_diversity carries 0.10 to break the "same family wins" deadlock —
+# its value is only filled when the caller passes (expr, active_pool).
 _WEIGHTS_NO_LOCAL_DATA = {
-    "wq_sharpe": 0.35,
-    "wq_fitness": 0.35,
+    "wq_sharpe": 0.30,
+    "wq_fitness": 0.30,
     "turnover": 0.15,
     "sub_universe": 0.15,
+    "family_diversity": 0.10,
 }
 
 # Weights once local data lands (Day 3+).
 _WEIGHTS_WITH_LOCAL_DATA = {
-    "wq_sharpe": 0.20,
-    "wq_fitness": 0.20,
+    "wq_sharpe": 0.18,
+    "wq_fitness": 0.18,
     "turnover": 0.10,
     "sub_universe": 0.10,
+    "family_diversity": 0.09,
     "ic_mean": 0.15,
     "ic_ir": 0.10,
-    "stability": 0.10,
+    "stability": 0.05,
     "anti_overfit": 0.05,
 }
 
@@ -164,13 +188,20 @@ def score_simulation_result(
     local_ic_ir: Optional[float] = None,
     local_stability: Optional[float] = None,
     local_anti_overfit: Optional[float] = None,
+    expr: Optional[str] = None,
+    active_pool_exprs: Optional[Iterable[str]] = None,
 ) -> AlphaScore:
-    """Score a single SimulationResult (and optional local-backtest dims)."""
+    """Score a single SimulationResult (and optional local-backtest dims).
+
+    Pass ``expr`` + ``active_pool_exprs`` to enable the family_diversity
+    dimension, which penalises shapes near-duplicate to the existing pool.
+    """
     breakdown = ScoreBreakdown(
         wq_sharpe=score_wq_sharpe(result.sharpe),
         wq_fitness=score_wq_fitness(result.fitness),
         turnover=score_turnover(result.turnover),
         sub_universe=score_sub_universe(result.checks or []),
+        family_diversity=score_family_diversity(expr, active_pool_exprs),
         ic_mean=local_ic_mean,
         ic_ir=local_ic_ir,
         stability=local_stability,

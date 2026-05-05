@@ -10,10 +10,15 @@ from agent_market.wq_brain.agent_runner import (
     AgentConfig,
     _build_hermes_cmd,
     _build_opencode_cmd,
+    _build_prior_knowledge_block,
     _build_system_prompt,
+    _family_diversity_hint,
     _resolve_cli,
     run_agent,
 )
+from agent_market.wq_brain.dtypes import AlphaPoolEntry
+from agent_market.wq_brain.paths import alpha_pool_path
+from agent_market.wq_brain.pool import AlphaPool
 
 
 @pytest.fixture
@@ -157,3 +162,53 @@ def test_run_agent_handles_timeout(isolated_artifacts):
         mock_run.side_effect = subprocess.TimeoutExpired("opencode", 1.0)
         summary = run_agent(config)
     assert summary["agent_returncode"] == -1
+
+
+def test_family_diversity_hint_calls_out_missing_families():
+    # Two ACTIVE alphas, both decay_linear → hint must list 8 missing families
+    hint = _family_diversity_hint(["decay_linear", "decay_linear"])
+    assert "MUST" in hint
+    assert "decay_linear" in hint  # dominant family is shown
+    # canonical missing families should appear
+    for fam in ("ts_corr_pv", "intraday_range", "vwap_dev"):
+        assert fam in hint
+
+
+def test_family_diversity_hint_empty_pool_returns_empty():
+    assert _family_diversity_hint([]) == ""
+
+
+def test_family_diversity_hint_full_coverage_picks_lowest():
+    """When all 8 families present, hint asks for lowest-count next."""
+    full = list({"ts_corr_pv", "intraday_range", "vwap_dev", "volume_rank",
+                 "open_gap", "humped", "multi_signal", "sector_relative"})
+    hint = _family_diversity_hint(full)
+    assert "LOWEST count" in hint
+
+
+def test_build_prior_knowledge_block_renders_family_column(isolated_artifacts, tmp_path):
+    """ACTIVE table must contain family column populated by infer_family."""
+    pool = AlphaPool(alpha_pool_path("difamily"))
+    pool.add(AlphaPoolEntry(
+        alpha_id="a1",
+        expr="rank(ts_corr(close, volume, 20))",  # ts_corr_pv
+        sharpe=1.30, fitness=1.10, returns=0.20, turnover=0.45,
+        settings_dict={}, tag="difamily", source="test", verified_status="ACTIVE",
+    ))
+    pool.add(AlphaPoolEntry(
+        alpha_id="a2",
+        expr="rank(close / vwap)",  # vwap_dev
+        sharpe=1.40, fitness=1.20, returns=0.22, turnover=0.40,
+        settings_dict={}, tag="difamily", source="test", verified_status="ACTIVE",
+    ))
+
+    block = _build_prior_knowledge_block("difamily", max_pool=10)
+    # family column header present
+    assert "| alpha_id | family | expr | sh | fi | to |" in block
+    assert "`ts_corr_pv`" in block
+    assert "`vwap_dev`" in block
+    # diversity hint must call out the missing 6 canonical families
+    assert "MUST" in block
+    for fam in ("intraday_range", "volume_rank", "open_gap", "humped",
+                "multi_signal", "sector_relative"):
+        assert fam in block

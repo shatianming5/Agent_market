@@ -305,3 +305,43 @@ def test_import_kaggle_to_cache_raises_when_zero_rows_parsed(tmp_path: Path):
             extract_dir, cache_path=cache, files_glob="*.csv",
             ticker_col="Ticker", date_col="Date",
         )
+
+
+def _bad_quality_csv() -> bytes:
+    """CSV with negative volume + inverted high/low + 10x close jump."""
+    return (
+        b"Date,Open,High,Low,Close,Volume,Ticker\n"
+        b"2024-01-02,150.0,151.0,149.5,150.5,1000000,X\n"
+        b"2024-01-03,150.5,149.0,151.0,150.5,1000000,X\n"   # high<low (inverted)
+        b"2024-01-04,150.5,151.0,149.0,150.0,-50,X\n"        # negative volume
+        b"2024-01-05,150.0,151.0,149.0,1500.0,1000000,X\n"   # 10x jump (un-adjusted split)
+    )
+
+
+def test_import_kaggle_to_cache_collects_quality_warnings(tmp_path: Path):
+    pytest.importorskip("pandas")
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    (extract_dir / "bad.csv").write_bytes(_bad_quality_csv())
+    cache = tmp_path / "ohlcv.parquet"
+    summary = import_kaggle_to_cache(
+        extract_dir, cache_path=cache, files_glob="*.csv",
+        ticker_col="Ticker", date_col="Date",
+    )
+    qw = summary.get("quality_warnings", {})
+    assert qw.get("inverted_high_low", 0) >= 1
+    assert qw.get("negative_volume", 0) >= 1
+    assert qw.get("extreme_close_jumps", 0) >= 1
+
+
+def test_import_kaggle_to_cache_clean_data_yields_no_warnings(tmp_path: Path):
+    pytest.importorskip("pandas")
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    (extract_dir / "good.csv").write_bytes(_world_stock_csv())
+    cache = tmp_path / "ohlcv.parquet"
+    summary = import_kaggle_to_cache(
+        extract_dir, cache_path=cache, files_glob="*.csv",
+        ticker_col="Ticker", date_col="Date",
+    )
+    assert summary.get("quality_warnings") == {}

@@ -146,6 +146,7 @@ def cmd_submit(args: argparse.Namespace) -> None:
             local_check = _check_local_jaccard_vs_active(
                 args.tag, expr_for_check,
                 threshold=args.jaccard_max,
+                semantic_threshold=args.semantic_max,
             )
             if not local_check["accept"]:
                 _emit({
@@ -281,16 +282,21 @@ def _check_local_jaccard_vs_active(
     expr: str,
     *,
     threshold: float = 0.7,
+    semantic_threshold: float = 0.65,
 ) -> dict[str, Any]:
-    """Local pre-submit gate: jaccard token similarity vs ACTIVE pool.
+    """Local pre-submit gate: token jaccard + semantic jaccard vs ACTIVE pool.
 
-    WQ self-correlation gate (server-side) measures *signal* correlation;
-    token jaccard is a proxy that's correlated but not identical. Empirically,
-    expressions with token jaccard ≥0.7 typically have signal corr ≥0.9 →
-    will be rejected by WQ. Rejecting locally saves the WQ submit quota
-    AND the 30s async-verify wait.
+    WQ self-correlation gate (server-side) measures *signal* correlation.
+    We use two cheap proxies:
+      * **token jaccard** — catches literal duplicates
+      * **semantic jaccard** — multiset over (operators, fields) so
+        ``rank(ts_rank(close,N))`` ≈ ``rank(ts_rank(vwap,N))`` correctly
+
+    Either one over its threshold → BLOCK. Rejecting locally saves the WQ
+    submit quota AND the 30s async-verify wait.
     """
     import re
+    from agent_market.wq_brain.diversity import semantic_jaccard
     from agent_market.wq_brain.paths import alpha_pool_path
     from agent_market.wq_brain.pool import AlphaPool
     if not tag or not expr:
@@ -309,37 +315,62 @@ def _check_local_jaccard_vs_active(
     if not new_t:
         return {"accept": True, "reason": "empty token set"}
 
-    max_sim = 0.0
-    blocking_id = ""
-    blocking_expr = ""
-    blocking_fi = 0.0
+    max_jac = 0.0
+    max_sem = 0.0
+    block_jac_id = ""
+    block_sem_id = ""
+    block_jac_fi = 0.0
+    block_sem_fi = 0.0
+    block_jac_expr = ""
+    block_sem_expr = ""
     for a in active:
-        a_t = _toks(a.expr or "")
-        if not a_t:
-            continue
-        union = len(new_t | a_t)
-        sim = (len(new_t & a_t) / union) if union else 0.0
-        if sim > max_sim:
-            max_sim = sim
-            blocking_id = a.alpha_id
-            blocking_expr = a.expr or ""
-            blocking_fi = a.fitness
+        a_expr = a.expr or ""
+        a_t = _toks(a_expr)
+        if a_t:
+            union = len(new_t | a_t)
+            jac = (len(new_t & a_t) / union) if union else 0.0
+            if jac > max_jac:
+                max_jac = jac
+                block_jac_id = a.alpha_id
+                block_jac_fi = a.fitness
+                block_jac_expr = a_expr
+        sem = semantic_jaccard(expr, a_expr) if a_expr else 0.0
+        if sem > max_sem:
+            max_sem = sem
+            block_sem_id = a.alpha_id
+            block_sem_fi = a.fitness
+            block_sem_expr = a_expr
 
-    accept = max_sim < threshold
+    jac_block = max_jac >= threshold
+    sem_block = max_sem >= semantic_threshold
+    accept = not (jac_block or sem_block)
+
+    if jac_block:
+        reason = (
+            f"BLOCK token-jaccard={max_jac:.3f} ≥ {threshold:.3f} vs ACTIVE "
+            f"{block_jac_id} (fi={block_jac_fi:.2f})"
+        )
+    elif sem_block:
+        reason = (
+            f"BLOCK semantic-jaccard={max_sem:.3f} ≥ {semantic_threshold:.3f} vs ACTIVE "
+            f"{block_sem_id} (fi={block_sem_fi:.2f}) — operator skeleton near-identical "
+            f"even after field swap"
+        )
+    else:
+        reason = (
+            f"jaccard={max_jac:.3f} < {threshold:.3f}, "
+            f"semantic={max_sem:.3f} < {semantic_threshold:.3f}"
+        )
     return {
         "accept": accept,
-        "max_jaccard": round(max_sim, 3),
-        "threshold": threshold,
-        "vs_alpha_id": blocking_id,
-        "vs_alpha_fitness": blocking_fi,
-        "vs_alpha_expr": blocking_expr[:120],
-        "reason": (
-            f"max_jaccard={max_sim:.3f} < {threshold:.3f} (vs {blocking_id})"
-            if accept else
-            f"BLOCK: jaccard={max_sim:.3f} ≥ {threshold:.3f} vs ACTIVE {blocking_id} "
-            f"(fi={blocking_fi:.2f}). WQ self-corr will almost certainly reject — "
-            f"mutate to a different family before submit."
-        ),
+        "max_jaccard": round(max_jac, 3),
+        "max_semantic": round(max_sem, 3),
+        "jaccard_threshold": threshold,
+        "semantic_threshold": semantic_threshold,
+        "vs_alpha_id": block_jac_id if jac_block else block_sem_id,
+        "vs_alpha_fitness": block_jac_fi if jac_block else block_sem_fi,
+        "vs_alpha_expr": (block_jac_expr if jac_block else block_sem_expr)[:120],
+        "reason": reason,
     }
 
 
@@ -490,13 +521,15 @@ def cmd_pre_check(args: argparse.Namespace) -> None:
 
 
 def cmd_pre_check_local(args: argparse.Namespace) -> None:
-    """Fast local pre-check: token-jaccard similarity vs ACTIVE pool entries.
+    """Fast local pre-check: token + semantic jaccard vs ACTIVE pool entries.
 
     Use BEFORE simulating to avoid generating near-duplicates that WQ will
     reject. No API calls — purely local read of pool.json.
     """
     result = _check_local_jaccard_vs_active(
-        args.tag, args.expr, threshold=args.jaccard_max,
+        args.tag, args.expr,
+        threshold=args.jaccard_max,
+        semantic_threshold=args.semantic_max,
     )
     _emit({"ok": True, **result, "expr": args.expr},
           code=0 if result["accept"] else 2)
@@ -786,6 +819,69 @@ def cmd_fetch_data(args: argparse.Namespace) -> None:
     print(json.dumps(summary, indent=2, default=str))
 
 
+def cmd_audit_data(args: argparse.Namespace) -> None:
+    """Audit OHLCV cache for split/dividend/survivor/outlier issues.
+
+    Five checks: ohlc_invariant, split_sanity, ticker_reuse, survivor_bias,
+    outliers. Writes _audit.json + _audit.md to the cache dir; never mutates
+    the OHLCV data itself.
+    """
+    from agent_market.wq_brain.data_audit import run_audit, write_audit_artifacts
+    from agent_market.wq_brain.data_loader import load_cached_ohlcv
+
+    df = load_cached_ohlcv()
+    if df is None or len(df) == 0:
+        _emit({"ok": False, "error": "no cached OHLCV; run kaggle-fetch + kaggle-import first"}, code=1)
+        return
+    if args.ticker:
+        df = df[df.index.get_level_values("ticker") == args.ticker.upper()]
+        if len(df) == 0:
+            _emit({"ok": False, "error": f"ticker {args.ticker!r} not in cache"}, code=1)
+            return
+    report = run_audit(df, sample_size=args.sample_size)
+    paths = write_audit_artifacts(report)
+    out = report.to_dict()
+    out["ok"] = True
+    out["artifacts"] = paths
+    _emit(out)
+
+
+def cmd_calibrate_local(args: argparse.Namespace) -> None:
+    """Calibrate local-simulate's wq_fitness gate against the tried_log ledger.
+
+    Picks the top-N COMPLETE remote results, re-runs each through
+    simulate_expression_locally on the cached OHLCV, computes
+    Pearson/Spearman/RMSE between local & remote fitness, and saves the
+    F1-maximising threshold to artifacts/wq_brain/calibration/{tag}/.
+    """
+    from agent_market.wq_brain.calibration import (
+        calibrate_local_threshold,
+        report_path,
+        threshold_path,
+    )
+
+    def _progress(i, total, expr):
+        print(f"  [{i}/{total}] local-simulate: {(expr or '')[:80]}", file=sys.stderr, flush=True)
+
+    try:
+        result = calibrate_local_threshold(
+            args.tag,
+            top_n=args.top_n,
+            max_time_sec=args.max_time_sec,
+            save=not args.no_save,
+            progress_cb=_progress,
+        )
+    except Exception as exc:
+        _emit({"ok": False, "tag": args.tag, "error": str(exc)}, code=1)
+        return
+
+    out = result.to_dict()
+    out["ok"] = True
+    out["threshold_path"] = str(threshold_path(args.tag))
+    out["report_path"] = str(report_path(args.tag))
+    _emit(out)
+
+
 def cmd_kaggle_fetch(args: argparse.Namespace) -> None:
     """Download a Kaggle stock dataset ZIP (and auto-extract by default)."""
     from agent_market.wq_brain.kaggle_loader import (
@@ -879,10 +975,19 @@ def cmd_update_data(args: argparse.Namespace) -> None:
 
 
 def cmd_local_simulate(args: argparse.Namespace) -> None:
-    """Run wq_simulate against cached OHLCV — no WQ API call, pure local."""
+    """Run wq_simulate against cached OHLCV — no WQ API call, pure local.
+
+    Pass ``--tag X`` to use the calibrated fitness gate for that tag (if
+    a calibration has been run); otherwise the legacy 0.5 default applies.
+    """
     from agent_market.wq_brain.local_sim import simulate_expression_locally
     try:
-        result = simulate_expression_locally(args.expr, rebalance_freq=args.rebalance_freq)
+        result = simulate_expression_locally(
+            args.expr,
+            rebalance_freq=args.rebalance_freq,
+            tag=args.tag or None,
+            fitness_gate=args.fitness_gate,
+        )
         _emit({
             "ok": True,
             "expr": result.expr,
@@ -891,6 +996,8 @@ def cmd_local_simulate(args: argparse.Namespace) -> None:
             "wq_turnover": result.wq_turnover,
             "wq_returns": result.wq_returns,
             "submittable": result.submittable,
+            "passes_local_gate": result.raw.get("passes_local_gate"),
+            "fitness_gate": result.raw.get("fitness_gate"),
             "rating": result.rating,
             "raw": result.raw,
         })
@@ -1144,6 +1251,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="WQ override rule: high-corr submission still allowed if our sharpe ≥ (1+margin) × theirs (default 0.10 = 10%%)")
     sp.add_argument("--jaccard-max", type=float, default=0.7,
                     help="local pre-check: reject if token-jaccard vs any ACTIVE pool alpha >= this (default 0.7)")
+    sp.add_argument("--semantic-max", type=float, default=0.65,
+                    help="local pre-check: reject if multiset semantic-jaccard (operators+fields) vs any ACTIVE alpha >= this (default 0.65)")
     sp.add_argument("--no-pre-check", action="store_true",
                     help="skip the correlation pre-check")
     sp.add_argument("--verify-after-sec", type=float, default=30.0,
@@ -1160,12 +1269,37 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_pre_check)
 
     sp = sub.add_parser("pre-check-local",
-                        help="fast local jaccard check vs ACTIVE pool alphas (no API calls)")
+                        help="fast local jaccard + semantic check vs ACTIVE pool (no API calls)")
     sp.add_argument("expr", help="FASTEXPR to check")
     sp.add_argument("--tag", required=True)
     sp.add_argument("--jaccard-max", type=float, default=0.7,
                     help="reject if token-jaccard vs any ACTIVE alpha >= this (default 0.7)")
+    sp.add_argument("--semantic-max", type=float, default=0.65,
+                    help="reject if multiset semantic-jaccard (operators+fields) >= this (default 0.65). Catches 'same skeleton, different fields' impostors that token jaccard misses.")
     sp.set_defaults(func=cmd_pre_check_local)
+
+    sp = sub.add_parser(
+        "audit-data",
+        help="run 5-check OHLCV cache audit (writes _audit.json + _audit.md)",
+    )
+    sp.add_argument("--ticker", default=None,
+                    help="restrict audit to a single ticker (default: all)")
+    sp.add_argument("--sample-size", type=int, default=10,
+                    help="rows-per-finding to include in the report (default 10)")
+    sp.set_defaults(func=cmd_audit_data)
+
+    sp = sub.add_parser(
+        "calibrate-local",
+        help="calibrate local-simulate fitness gate against tried_log history",
+    )
+    sp.add_argument("--tag", required=True)
+    sp.add_argument("--top-n", type=int, default=30,
+                    help="how many COMPLETE samples to re-simulate (default 30)")
+    sp.add_argument("--max-time-sec", type=float, default=None,
+                    help="hard time budget; stop early if exceeded (default unbounded)")
+    sp.add_argument("--no-save", action="store_true",
+                    help="compute report only; don't write threshold.json")
+    sp.set_defaults(func=cmd_calibrate_local)
 
     sp = sub.add_parser("fetch-data", help="bulk-fetch US stock OHLCV + sectors into local cache")
     sp.add_argument("--tickers-file", default=None,
@@ -1227,6 +1361,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("expr")
     sp.add_argument("--rebalance-freq", type=int, default=5,
                     help="rebalance every N trading days (default: 5)")
+    sp.add_argument("--tag", default="",
+                    help="calibration tag — if set, reads calibration/{tag}/threshold.json")
+    sp.add_argument("--fitness-gate", type=float, default=None,
+                    help="explicit local-fitness gate override (default: per-tag calibration or 0.5)")
     sp.set_defaults(func=cmd_local_simulate)
 
     sp = sub.add_parser("anti-overfit", help="4-layer anti-overfit detection on cached OHLCV")

@@ -160,6 +160,42 @@ _DEFAULT_COLUMN_MAP = {
 _OUR_COLUMNS = ("open", "high", "low", "close", "volume")
 
 
+def _quality_warnings(df: Any, label: str) -> dict[str, int]:
+    """Run cheap data-quality checks on a normalized OHLCV DataFrame.
+
+    Logs each finding via :mod:`logging` (so noisy imports flag themselves)
+    and returns a count dict the caller can roll up into the import summary.
+    Never raises — quality issues should be reported, not block the import.
+    """
+    out: dict[str, int] = {}
+    if df is None or df.empty:
+        return out
+    cols = set(df.columns)
+    if "volume" in cols:
+        n_neg_vol = int((df["volume"] < 0).sum())
+        if n_neg_vol:
+            out["negative_volume"] = n_neg_vol
+            logger.warning("%s: %d rows with volume < 0", label, n_neg_vol)
+    if "high" in cols and "low" in cols:
+        n_inv = int((df["high"] < df["low"]).sum())
+        if n_inv:
+            out["inverted_high_low"] = n_inv
+            logger.warning("%s: %d rows with high < low", label, n_inv)
+    if "close" in cols:
+        # Adjacent close ratios > 5 are nearly always un-adjusted splits
+        per_ticker = df["close"].groupby(level="ticker") if df.index.nlevels >= 2 else None
+        if per_ticker is not None:
+            ratios = (per_ticker.shift(0) / per_ticker.shift(1)).abs()
+            n_extreme = int(((ratios > 5.0) | (ratios < 0.2)).sum())
+            if n_extreme:
+                out["extreme_close_jumps"] = n_extreme
+                logger.warning(
+                    "%s: %d adjacent-day close ratios outside [0.2, 5.0] "
+                    "— possible un-adjusted split", label, n_extreme,
+                )
+    return out
+
+
 def _read_one_kaggle_csv(
     path: Path,
     *,
@@ -168,12 +204,16 @@ def _read_one_kaggle_csv(
     date_col: str,
     column_map: dict[str, str],
     ticker_from_filename: bool,
-) -> Any:
+) -> tuple[Any, dict[str, int]]:
     """Read a single CSV from a Kaggle dump and normalize to our long-format
-    schema (index=(date, ticker), columns=open/high/low/close/volume)."""
+    schema (index=(date, ticker), columns=open/high/low/close/volume).
+
+    Returns ``(df, warnings)`` where warnings maps quality-check name → count.
+    A return of ``(None, {})`` means the file was empty (skip silently).
+    """
     df = pd.read_csv(path)
     if df.empty:
-        return None
+        return None, {}
     rename = {src: dst for src, dst in column_map.items() if src in df.columns}
     df = df.rename(columns=rename)
     if date_col not in df.columns:
@@ -192,7 +232,8 @@ def _read_one_kaggle_csv(
         )
     keep = ["date", "ticker"] + [c for c in _OUR_COLUMNS if c in df.columns]
     df = df[keep].set_index(["date", "ticker"]).sort_index()
-    return df
+    warnings = _quality_warnings(df, label=path.name)
+    return df, warnings
 
 
 def import_kaggle_to_cache(
@@ -228,9 +269,10 @@ def import_kaggle_to_cache(
 
     frames: list[Any] = []
     n_files_ok = 0
+    warnings_total: dict[str, int] = {}
     for p in files:
         try:
-            df = _read_one_kaggle_csv(
+            res = _read_one_kaggle_csv(
                 p, pd=pd,
                 ticker_col=ticker_col,
                 date_col=date_col,
@@ -240,10 +282,15 @@ def import_kaggle_to_cache(
         except Exception as exc:
             logger.warning("Skip %s: %s", p.name, exc)
             continue
+        if res is None:
+            continue
+        df, file_warnings = res
         if df is None or df.empty:
             continue
         frames.append(df)
         n_files_ok += 1
+        for k, v in file_warnings.items():
+            warnings_total[k] = warnings_total.get(k, 0) + v
 
     if not frames:
         raise RuntimeError(
@@ -264,6 +311,7 @@ def import_kaggle_to_cache(
         "ok": True,
         "files_total": len(files),
         "files_imported": n_files_ok,
+        "quality_warnings": warnings_total,
         "rows_total": int(len(merged)),
         "tickers_total": int(merged.index.get_level_values("ticker").nunique()),
         "cache_path": str(cache_path),

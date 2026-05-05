@@ -138,3 +138,58 @@ def test_to_dict_serializable():
     # Round-trip via JSON should work
     import json
     json.dumps(d)
+
+
+def test_family_diversity_omitted_without_pool():
+    sim = SimulationResult(sharpe=1.4, fitness=1.05, turnover=0.30, status="COMPLETE")
+    s = score_simulation_result(sim)
+    assert s.breakdown.family_diversity is None
+    # to_dict() must drop None fields
+    assert "family_diversity" not in s.to_dict()["breakdown"]
+
+
+def test_family_diversity_full_credit_when_pool_empty():
+    sim = SimulationResult(sharpe=1.4, fitness=1.05, turnover=0.30, status="COMPLETE")
+    s = score_simulation_result(
+        sim,
+        expr="rank(close - vwap)",
+        active_pool_exprs=[],
+    )
+    assert s.breakdown.family_diversity == 100.0
+
+
+def test_family_diversity_penalizes_skeleton_dup():
+    """A 'field-swap' clone of an ACTIVE expr → low family_diversity."""
+    sim = SimulationResult(sharpe=1.4, fitness=1.05, turnover=0.30, status="COMPLETE")
+    s_dup = score_simulation_result(
+        sim,
+        expr="rank(ts_rank(vwap, 252) * (-ts_delta(vwap, 3) / vwap))",
+        active_pool_exprs=["rank(ts_rank(close, 252) * (-ts_delta(close, 3) / close))"],
+    )
+    s_new = score_simulation_result(
+        sim,
+        expr="rank(group_zscore(close, sector))",
+        active_pool_exprs=["rank(ts_rank(close, 252) * (-ts_delta(close, 3) / close))"],
+    )
+    # New family scores higher than skeleton duplicate
+    assert s_new.breakdown.family_diversity > s_dup.breakdown.family_diversity
+    # And the duplicate should be < 30 (i.e. > 0.7 sim) — the threshold zone
+    assert s_dup.breakdown.family_diversity < 30
+
+
+def test_family_diversity_changes_composite_score():
+    """Two alphas with identical sh/fi/to/sub_universe but different
+    family_diversity must produce different composite scores."""
+    sim = SimulationResult(sharpe=1.4, fitness=1.05, turnover=0.30, status="COMPLETE")
+    pool = ["rank(ts_rank(close, 252) * (-ts_delta(close, 3) / close))"]
+    s_dup = score_simulation_result(
+        sim,
+        expr="rank(ts_rank(vwap, 252) * (-ts_delta(vwap, 3) / vwap))",
+        active_pool_exprs=pool,
+    )
+    s_new = score_simulation_result(
+        sim,
+        expr="rank(group_zscore(close, sector))",
+        active_pool_exprs=pool,
+    )
+    assert s_new.score > s_dup.score

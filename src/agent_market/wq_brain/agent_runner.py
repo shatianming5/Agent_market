@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
-from .crossover import extract_top_segments, format_crossover_block
+from .crossover import extract_top_segments, format_crossover_block, infer_family
 from .mutation import render_top_failures_block
 from .operators import operators_prompt_block
 from .paths import alpha_pool_path, repo_root, tried_exprs_path, wq_brain_run_dir
@@ -130,6 +130,34 @@ def _resolve_cli(requested: str, *, env: Optional[dict[str, str]] = None) -> str
     raise RuntimeError("No agentic CLI found on PATH; install opencode or hermes")
 
 
+# Full canonical family roster — agent_brief lists these 8 as acceptable;
+# crossover.infer_family adds finer subdivisions but the prompt-level
+# rotation policy uses this top-level list.
+_CANONICAL_FAMILIES: tuple[str, ...] = (
+    "ts_corr_pv", "intraday_range", "vwap_dev", "volume_rank",
+    "open_gap", "humped", "multi_signal", "sector_relative",
+)
+
+
+def _family_diversity_hint(active_families: list[str]) -> str:
+    """Render the 'next candidate must come from family X' hint based on
+    what's already in ACTIVE pool. Returns empty string when pool is fresh."""
+    if not active_families:
+        return ""
+    from collections import Counter
+    counts = Counter(active_families)
+    seen = set(counts)
+    missing = [f for f in _CANONICAL_FAMILIES if f not in seen]
+    dominant = ", ".join(f"`{name}` (×{n})" for name, n in counts.most_common())
+    if missing:
+        miss_str = ", ".join(f"`{f}`" for f in missing)
+        return (
+            f"_⚠️ Pool currently dominated by {dominant}. Your NEXT candidate MUST "
+            f"come from a family NOT yet present: {miss_str}._"
+        )
+    return f"_⚠️ Pool covers {dominant}. Pick the family with the LOWEST count next._"
+
+
 def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int = 60) -> str:
     """Render cross-loop knowledge: passing pool + recent tried_exprs +
     cross-over candidates + mutation hints + submit rejections."""
@@ -148,18 +176,26 @@ def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int
 
         if active:
             top_active = sorted(active, key=lambda e: -e.fitness)[:max_pool]
+            active_families = [infer_family(e.expr or "") for e in top_active]
+            hint = _family_diversity_hint(active_families)
             lines = [
                 "### ✅ ACTIVE Submitted Alphas (TAG=" + tag + ")",
                 "",
                 f"_{len(active)} alpha(s) verified ACTIVE on WQ. These earn rewards. Avoid"
                 f" submitting near-duplicates — WQ self-correlation will reject._",
-                "",
-                "| alpha_id | expr | sh | fi | to |",
-                "|---|---|---|---|---|",
             ]
-            for e in top_active:
-                expr = (e.expr or "")[:80].replace("|", "/")
-                lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |")
+            if hint:
+                lines.extend(["", hint])
+            lines.extend([
+                "",
+                "| alpha_id | family | expr | sh | fi | to |",
+                "|---|---|---|---|---|---|",
+            ])
+            for e, fam in zip(top_active, active_families):
+                expr = (e.expr or "")[:75].replace("|", "/")
+                lines.append(
+                    f"| {e.alpha_id} | `{fam}` | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |"
+                )
             parts.append("\n".join(lines))
 
         if rejected:
@@ -172,17 +208,20 @@ def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int
                 f" _SELF_CORRELATION ≥ 0.7 against an ACTIVE alpha. If your new_"
                 f" _candidate is similar to any of these, IT WILL ALSO BE REJECTED._",
                 "",
-                "| alpha_id | expr | sh | fi | to | failed_check |",
-                "|---|---|---|---|---|---|",
+                "| alpha_id | family | expr | sh | fi | to | failed_check |",
+                "|---|---|---|---|---|---|---|",
             ]
             for e in recent_rejected:
-                expr = (e.expr or "")[:70].replace("|", "/")
+                expr = (e.expr or "")[:65].replace("|", "/")
+                fam = infer_family(e.expr or "")
                 fails = getattr(e, "rejection_reasons", []) or []
                 fail_str = ", ".join(
                     f"{r.get('name')}={r.get('value')}" if isinstance(r, dict) else str(r)
                     for r in fails[:2]
                 ) or "?"
-                lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} | {fail_str} |")
+                lines.append(
+                    f"| {e.alpha_id} | `{fam}` | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} | {fail_str} |"
+                )
             parts.append("\n".join(lines))
 
         if queued:

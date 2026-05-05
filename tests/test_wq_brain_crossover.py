@@ -16,9 +16,28 @@ def test_infer_family_classifies_known_patterns():
     assert infer_family("rank(close / vwap)") == "vwap_dev"
     assert infer_family("rank(ts_decay_linear(returns, 10))") == "decay_linear"
     assert infer_family("hump(rank(close), 0.01)") == "humped"
-    assert infer_family("rank(group_zscore(returns, sector))") == "group_neutral"
+    # group_zscore against a generic group → group_neutral
+    assert infer_family("rank(group_zscore(close, market))") == "group_neutral"
     assert infer_family("rank(ts_rank(volume, 20))") == "volume_rank"
     assert infer_family("rank(close + 1)") == "other"
+
+
+def test_infer_family_recognizes_sector_relative():
+    """group_* with sector / industry / subindustry is its own family."""
+    assert infer_family("rank(group_zscore(returns, sector))") == "sector_relative"
+    assert infer_family("group_neutralize(close - vwap, industry)") == "sector_relative"
+    assert infer_family("group_rank(ts_corr(close, volume, 20), subindustry)") == "sector_relative"
+
+
+def test_infer_family_recognizes_multi_signal():
+    """Linear combinations of rank()'d signals are multi_signal."""
+    assert infer_family("rank(close) + 0.5 * rank(volume)") == "multi_signal"
+    assert infer_family("rank(close) - 0.3 * rank(-ts_corr(close, volume, 20))") == "multi_signal"
+    assert infer_family("rank(close) + 0.5 * (-rank(volume))") == "multi_signal"
+    # Composite that contains ts_corr but is dominated by linear combo → still multi_signal
+    assert infer_family(
+        "rank(ts_rank(close, 252)) + 0.5 * rank(-ts_corr(close, volume, 20))"
+    ) == "multi_signal"
 
 
 def test_extract_top_segments_filters_by_score_and_status():
