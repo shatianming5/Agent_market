@@ -206,6 +206,14 @@ Generate 5-10 distinct candidate expressions covering ≥3 different families.
    `ts_decay_linear(rank(<top_alpha>), 20)` BEFORE any new variation of
    that family.
 
+5. **MANDATORY local-simulate before every remote simulate.** WQ has a
+   60-100/day quota; the OHLCV cache (12.99M rows / 2070 tickers) is
+   already loaded. Run `local-simulate` first; if `wq_sharpe < 0` flip
+   sign and re-run; if `wq_fitness < 0.5` after sign-flip, **DROP — do
+   not call remote `simulate`.** See Phase 3 for the full decision tree.
+   Bypassing this gate burns the daily quota on candidates that already
+   look bad locally.
+
 ### Design principles (when not constrained above)
 
 - **Ratio > multiplication > addition**: `rank(A / (B + 0.01))` > `rank(A) * rank(B)` > `rank(A) + rank(B)`
@@ -219,40 +227,55 @@ The strict parser catches arity mismatches and unknown ops BEFORE you burn WQ bu
 
 ### Phase 3 — Local Pre-Screen + Remote Simulate (20-40 turns)
 
-**Pre-screen with local backtest** (if `fetch-data` has been run, OHLCV
-cache exists). This **does not consume WQ budget**:
+#### 🚫 MANDATORY local-simulate gate (no exceptions)
+
+The OHLCV cache is loaded (Russell 3000 / 12.99M rows / 2070 tickers). You
+**MUST** run `local-simulate` on every candidate **before** any `simulate`
+call. WQ daily quota is the binding constraint — local pre-screen costs
+zero budget and rejects ~70% of weak candidates in seconds.
 
 ```bash
 python {WQ_TOOLS} local-simulate "<expr>" --rebalance-freq 5
 ```
 
-Returns wq_sharpe/wq_fitness/wq_turnover from a dollar-neutral L/S portfolio
-on cached US-stock data. Only candidates with **local wq_fitness ≥ 0.5**
-are worth burning WQ budget on. If local-simulate errors with "no cached
-OHLCV", skip this step and go straight to remote.
+Returns `wq_sharpe / wq_fitness / wq_turnover / wq_returns / submittable / rating`.
+Decision tree on the local result:
 
-**Optional anti-overfitting check** (slow, ~30-60s):
+1. **`wq_sharpe < 0`** — flip the sign locally (`-(<expr>)`) and re-run
+   `local-simulate`. Do this **before** burning a WQ simulate slot.
+2. **`wq_fitness < 0.5` (after sign-flip if needed)** — DROP. Do not
+   call `simulate`. Iterate to a different shape via Phase 4.
+3. **`wq_fitness ≥ 0.5` AND `wq_sharpe ≥ 0.6`** — proceed to remote
+   `simulate`. Optionally run anti-overfit first (see below).
+4. **`local-simulate` errors with "no cached OHLCV"** — re-fetch via
+   `kaggle-fetch / kaggle-import`; do NOT skip the gate.
+
+#### Optional anti-overfitting check (slow, ~30-60s)
+
 ```bash
 python {WQ_TOOLS} anti-overfit "<expr>" --holding-period 5
 ```
 Returns score 0-100 + recommendation (RECOMMEND/CAUTION/NEEDS_WORK/REJECT).
-Run this only on candidates that BOTH pass local-simulate AND look likely
-to clear remote thresholds. REJECT score (<25) → drop without remote sim.
+Run on candidates that PASS local-simulate AND look likely to clear remote
+thresholds. REJECT score (<25) → drop without remote sim.
 
-**Remote simulate** (the budget-burning step):
+#### Remote simulate (the budget-burning step)
+
 ```bash
 python {WQ_TOOLS} simulate "<expr>" --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}
 ```
 
-After each result:
-- If sh ≥ 1.25 AND fi ≥ 1.0 → mark as PASS, plan submission in Phase 5.
-- If sh ≥ 1.0 BUT fi < 1.0 → near-miss. Run `mutate "<expr>" --sharpe X --fitness Y --turnover Z`
-  to get a targeted mutation strategy. Loop the suggested transformation in Phase 4.
-- If sh < 0 → flip sign (`-(<expr>)`) and retry once.
-- If ERROR → read message, fix syntax, retry once. If still fails, drop.
+After each remote result:
+- `sh ≥ 1.25 AND fi ≥ 1.0` → PASS, plan submission in Phase 5.
+- `sh ≥ 1.0 BUT fi < 1.0` → near-miss. Run `mutate "<expr>" --sharpe X --fitness Y --turnover Z`
+  for a targeted strategy; loop the suggestion in Phase 4.
+- `sh < 0` (despite local sign-flip) → drop; the local↔remote disagreement
+  signals a regime / universe-coverage mismatch, not a sign bug.
+- `ERROR` → read message, fix syntax, retry once. If still fails, drop.
 
-**WQ daily budget ≈ 60-100 simulations.** Use `score` to rank candidates
-before simulating to spend budget on the most promising shapes first.
+**WQ daily budget ≈ 60-100 simulations.** Use `score` to rank
+local-simulate-passing candidates before remote-simulating, so budget goes
+to the most promising shapes first.
 
 ### Phase 4 — Iterate via Mutation (20-30 turns)
 
