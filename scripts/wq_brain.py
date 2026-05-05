@@ -670,10 +670,12 @@ def cmd_fetch_data(args: argparse.Namespace) -> None:
     """Bulk-fetch US stock OHLCV + sectors via yfinance into local parquet cache."""
     from agent_market.wq_brain.data_loader import fetch_data, load_tickers
     tickers = load_tickers(Path(args.tickers_file) if args.tickers_file else None)
-    print(f"Fetching {len(tickers)} tickers from {args.start} to {args.end}", file=sys.stderr)
+    print(f"Fetching {len(tickers)} tickers from {args.start} to {args.end} "
+          f"(polite_sleep={args.polite_sleep}s)", file=sys.stderr)
     summary = fetch_data(
         tickers, args.start, args.end,
         skip_sectors=args.skip_sectors,
+        polite_sleep=args.polite_sleep,
     )
     print(json.dumps(summary, indent=2, default=str))
 
@@ -987,6 +989,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--end", default="2026-05-05")
     sp.add_argument("--skip-sectors", action="store_true",
                     help="skip the slow per-ticker sector lookup")
+    sp.add_argument("--polite-sleep", type=float, default=5.0,
+                    help="seconds between single-ticker yfinance calls (default 5)")
     sp.set_defaults(func=cmd_fetch_data)
 
     sp = sub.add_parser("update-data", help="incremental daily OHLCV update")

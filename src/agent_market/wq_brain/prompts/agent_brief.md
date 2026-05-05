@@ -121,26 +121,49 @@ The block below may contain up to 4 sections — read them in order:
 You have ~{MAX_TURNS} turns. The phases are guidelines, not a rigid script —
 adapt cadence to what's available in `## Cross-Loop Knowledge` above.
 
-### Phase 0 — Triage (2-5 turns)
+### Phase 0 — Triage + Mandatory Research (5-8 turns) 🚫 REQUIRED
 
-Read the cross-loop knowledge above. Decide your starting strategy:
-- **If Mutation Hints present** → Phase 2 directly with the suggested
-  strategy. Skip research; the diagnosis already pins the bottleneck.
+You **MUST** complete ALL of the following before any simulate call:
+
+1. `python {WQ_TOOLS} auth` — confirm WQ access.
+2. **At least 2 `skill-search` queries** drawn from your current bottleneck:
+   - `skill-search "降低 turnover" --top-k 3` (always relevant)
+   - `skill-search "sub-universe sharpe 不达标" --top-k 3`
+   - `skill-search "neutralization 选择" --top-k 3`
+   - `skill-search "self-correlation 避免" --top-k 3`
+   - `skill-search "alpha 优化经验" --top-k 5`
+   These return Chinese-language WorldQuant playbook excerpts (vendored
+   from `worldquant-skill` repo) with concrete operator/window combos
+   that have worked in production. Skipping this step has historically
+   led to local-optimum tunneling.
+3. **At least 1 `search-arxiv` query** for academic novelty:
+   - `search-arxiv "cross-sectional alpha factor 2024" --max 5`
+   - `search-arxiv "VWAP volume rank momentum" --max 5`
+   - `search-arxiv "intraday range volatility prediction" --max 5`
+4. **Optionally 1 `web-search`** for SeekingAlpha/Bloomberg/Reddit angle:
+   `web-search "WorldQuant BRAIN consultant tips 2024" --max 5`
+5. **Read the cross-loop knowledge in this prompt** (## ACTIVE Submitted
+   Alphas, ## SUBMIT FAILURES, ## Cross-Over Candidates, ## Mutation Hints).
+6. Write your starting hypothesis to `notes.md` with citations:
+   `[skill: 降低 turnover §3]`, `[arxiv: 2403.12345 abstract]`, etc.
+
+After Phase 0:
+- **If Mutation Hints present** → Phase 2 directly with suggested strategy.
 - **If only pool/tried list** → Phase 1 (research) for fresh ideas.
 - **If completely empty** → Phase 1 (cold start).
 
-Run `auth` to confirm WQ access. Skim 1-2 skill docs for operator nuances:
-`python {WQ_TOOLS} skill-search "降低 turnover" --top-k 3`.
+### Phase 1 — Deeper Research (5-10 turns; OPTIONAL — Phase 0 covers basics)
 
-### Phase 1 — Research (5-10 turns; skip if hints present)
-
-Use `search-arxiv` / `web-search` for recent (2023-2026) cross-sectional
-alpha papers. Read 3-5 abstracts. Look for:
+Use `search-arxiv` / `web-search` / `fetch-url` to dig deeper into the
+specific gap your iteration is trying to close (e.g., if mutation hints
+say `reduce_turnover`, search for "alpha smoothing decay-weighted methods").
+Read 3-5 abstracts. Look for:
 - intraday range / VWAP / sector-relative / volume-rank / decay-weighted patterns
 - Order flow imbalance proxies, microstructure asymmetries
 - Anti-correlation / contrarian strategies
 
-Save to `notes.md`. **Do not duplicate** what's already in cross-loop knowledge.
+Save findings to `notes.md` with `[arxiv:id]` / `[url:...]` citations.
+**Do not duplicate** what's already in cross-loop knowledge.
 
 ### Phase 2 — Design (10-20 turns)
 

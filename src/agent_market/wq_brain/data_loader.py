@@ -114,15 +114,60 @@ def load_tickers(file_path: Optional[Path] = None) -> list[str]:
 
 # ── OHLCV fetch with retry ──────────────────────────────────────────────
 
+def _make_yf_session():
+    """Return a curl_cffi browser-fingerprint session if available, else None.
+
+    Yahoo aggressively rate-limits Python's default requests session by user-agent
+    fingerprint. curl_cffi's `impersonate="chrome120"` mimics a real browser TLS +
+    HTTP/2 fingerprint and bypasses most anti-bot measures.
+    """
+    try:
+        from curl_cffi import requests as cffi_req
+        return cffi_req.Session(impersonate="chrome120")
+    except ImportError:
+        logger.warning("curl_cffi not available — falling back to default session "
+                       "(yfinance rate-limit risk is high)")
+        return None
+
+
+def _fetch_one_ticker(
+    ticker: str,
+    start: str,
+    end: str,
+    *,
+    session: Any = None,
+    max_retries: int = 3,
+) -> Any:
+    """Fetch a SINGLE ticker via yfinance.Ticker(t).history() — more reliable
+    than batch yf.download() under rate limits."""
+    yf = _yfinance()
+    pd = _pd()
+    for attempt, delay in enumerate([0, 10, 30, 90][: max_retries + 1]):
+        if delay:
+            time.sleep(delay)
+        try:
+            t = yf.Ticker(ticker, session=session) if session else yf.Ticker(ticker)
+            df = t.history(start=start, end=end, auto_adjust=True, raise_errors=False)
+            if df is not None and not df.empty:
+                return df
+        except Exception as exc:
+            logger.debug("Ticker %s attempt %d failed: %s", ticker, attempt, exc)
+    return None
+
+
 def _fetch_batch(
     tickers: list[str],
     start: str,
     end: str,
     *,
-    max_retries: int = 4,
-    polite_sleep: float = 1.5,
+    max_retries: int = 3,
+    polite_sleep: float = 5.0,
+    use_single_ticker: bool = True,
+    session: Any = None,
 ) -> dict[str, Any]:
-    """Fetch one batch via yfinance.download with retry on transient errors.
+    """Fetch a batch of tickers. By default uses single-ticker mode with
+    a polite delay between each call — much more rate-limit tolerant than
+    yf.download(batch).
 
     Returns dict mapping ticker → DataFrame (date-indexed, columns:
     Open/High/Low/Close/Volume). Tickers that fail every retry are absent.
@@ -130,7 +175,20 @@ def _fetch_batch(
     yf = _yfinance()
     pd = _pd()
 
-    delays = [0, 5, 15, 60, 180]
+    if session is None:
+        session = _make_yf_session()
+
+    if use_single_ticker:
+        out: dict[str, Any] = {}
+        for ticker in tickers:
+            df = _fetch_one_ticker(ticker, start, end, session=session, max_retries=max_retries)
+            if df is not None:
+                out[ticker] = df
+            time.sleep(polite_sleep)
+        return out
+
+    # Legacy batch mode (kept for compatibility, but rarely succeeds today)
+    delays = [0, 10, 30, 90, 300]
     for attempt, delay in enumerate(delays[: max_retries + 1]):
         if delay:
             logger.info("Retry %d after %ds for batch [%s..%s]", attempt, delay,
@@ -143,8 +201,9 @@ def _fetch_batch(
                 end=end,
                 group_by="ticker",
                 auto_adjust=True,
-                threads=True,
+                threads=False,  # IMPORTANT: thread=True makes rate-limit MUCH worse
                 progress=False,
+                session=session,
             )
         except Exception as exc:
             logger.warning("yfinance.download raised: %s", exc)
@@ -153,21 +212,20 @@ def _fetch_batch(
         if df is None or df.empty:
             continue
 
-        out: dict[str, Any] = {}
+        out2: dict[str, Any] = {}
         if isinstance(df.columns, pd.MultiIndex):
             for t in tickers:
                 if t in df.columns.get_level_values(0):
                     sub = df[t].dropna(how="all")
                     if not sub.empty:
-                        out[t] = sub
+                        out2[t] = sub
         else:
-            # Single ticker — yfinance flattens columns
             if not df.dropna(how="all").empty and len(tickers) == 1:
-                out[tickers[0]] = df.dropna(how="all")
+                out2[tickers[0]] = df.dropna(how="all")
 
-        if out:
+        if out2:
             time.sleep(polite_sleep)
-            return out
+            return out2
 
     logger.warning("Batch fetch failed completely: %s..%s", tickers[0], tickers[-1])
     return {}
@@ -178,15 +236,21 @@ def fetch_ohlcv(
     start: str,
     end: str,
     *,
-    batch_size: int = 50,
     cache_path: Optional[Path] = None,
+    polite_sleep: float = 5.0,
+    save_every: int = 25,
 ) -> Any:
     """Fetch OHLCV for a list of tickers. Returns a long-format DataFrame.
 
     Schema: index unique on (date, ticker); columns open/high/low/close/volume.
 
     Uses cache_path (default: artifacts/wq_brain/data/ohlcv.parquet) — only
-    fetches tickers / date ranges not already cached.
+    fetches tickers / date ranges not already cached. Saves every `save_every`
+    tickers so partial progress survives interruption.
+
+    Uses single-ticker mode (one yf.Ticker(t).history() call per ticker) with
+    polite_sleep between calls and a curl_cffi browser fingerprint session
+    (when available) — far more rate-limit tolerant than batch yf.download.
     """
     pd = _pd()
     cache_path = Path(cache_path) if cache_path else ohlcv_cache_path()
@@ -202,28 +266,36 @@ def fetch_ohlcv(
     missing = [t for t in tickers if t not in cached_tickers]
 
     if missing:
-        logger.info("Fetching %d new tickers in batches of %d", len(missing), batch_size)
+        logger.info("Fetching %d new tickers (single-ticker mode, %.1fs polite sleep)",
+                    len(missing), polite_sleep)
+        session = _make_yf_session()
         new_rows: list[Any] = []
-        for i in range(0, len(missing), batch_size):
-            batch = missing[i: i + batch_size]
-            res = _fetch_batch(batch, start, end)
-            for t, df in res.items():
+        ok = 0
+        fail = 0
+        for i, ticker in enumerate(missing, 1):
+            df = _fetch_one_ticker(ticker, start, end, session=session)
+            if df is not None and not df.empty:
                 df = df.rename(columns=str.lower)
-                df["ticker"] = t
+                df["ticker"] = ticker
                 df.index.name = "date"
                 df = df.reset_index().set_index(["date", "ticker"])
-                new_rows.append(df[["open", "high", "low", "close", "volume"]])
-            logger.info("Batch %d/%d: fetched %d/%d", i // batch_size + 1,
-                        (len(missing) + batch_size - 1) // batch_size,
-                        len(res), len(batch))
-
-        if new_rows:
-            new_df = pd.concat(new_rows)
-            cached = pd.concat([cached, new_df]) if not cached.empty else new_df
-            cached = cached[~cached.index.duplicated(keep="last")]
-            cached = cached.sort_index()
-            cached.to_parquet(cache_path)
-            logger.info("Wrote %d total rows to %s", len(cached), cache_path)
+                cols = [c for c in ("open", "high", "low", "close", "volume") if c in df.columns]
+                new_rows.append(df[cols])
+                ok += 1
+            else:
+                fail += 1
+            time.sleep(polite_sleep)
+            # Periodic save so we don't lose progress
+            if i % save_every == 0 or i == len(missing):
+                if new_rows:
+                    new_df = pd.concat(new_rows)
+                    cached = pd.concat([cached, new_df]) if not cached.empty else new_df
+                    cached = cached[~cached.index.duplicated(keep="last")]
+                    cached = cached.sort_index()
+                    cached.to_parquet(cache_path)
+                    new_rows = []
+                logger.info("Progress %d/%d (ok=%d fail=%d cached_rows=%d)",
+                            i, len(missing), ok, fail, len(cached))
 
     # Filter to requested tickers + date range
     if cached.empty:
@@ -286,11 +358,12 @@ def fetch_data(
     end: str,
     *,
     skip_sectors: bool = False,
+    polite_sleep: float = 5.0,
 ) -> dict[str, Any]:
     """Top-level: fetch OHLCV + sectors + write metadata. Returns summary dict."""
     t0 = time.time()
     pd = _pd()
-    ohlcv = fetch_ohlcv(tickers, start, end)
+    ohlcv = fetch_ohlcv(tickers, start, end, polite_sleep=polite_sleep)
     n_rows = len(ohlcv) if ohlcv is not None else 0
     actual_tickers = (
         sorted(ohlcv.index.get_level_values("ticker").unique().tolist())
