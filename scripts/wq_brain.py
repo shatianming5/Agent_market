@@ -501,7 +501,13 @@ def cmd_pool_status(args: argparse.Namespace) -> None:
 
 def cmd_pool_sync_status(args: argparse.Namespace) -> None:
     """Query WQ for each pool entry's actual status + IS check failures,
-    write verified_status + rejection_reasons back to pool.json."""
+    write verified_status + rejection_reasons back to pool.json.
+
+    For UNSUBMITTED entries with empty rejection_reasons, also probe
+    POST /alphas/{id}/submit (which returns 403 + cached IS check failures
+    for previously-rejected alphas) to populate the rejection details.
+    GET /alphas/{id} does NOT include check results, only metrics.
+    """
     import time as _t
     from agent_market.wq_brain.client import session_from_env
     from agent_market.wq_brain.paths import alpha_pool_path
@@ -509,30 +515,53 @@ def cmd_pool_sync_status(args: argparse.Namespace) -> None:
     pool = AlphaPool(alpha_pool_path(args.tag))
     sess = session_from_env()
     by_status: dict[str, int] = {}
+    rej_probed = 0
     print(f"Syncing {len(pool)} pool alphas with WQ...", file=sys.stderr)
     for i, entry in enumerate(pool.entries):
         try:
+            # Step 1: GET status
             url = f"{sess._api_base}/alphas/{entry.alpha_id}"
             data = sess._request_with_retry("GET", url, timeout=20).json()
             actual_status = data.get("status") or "UNKNOWN"
-            checks = (data.get("is") or {}).get("checks") or []
-            failed = [{"name": c.get("name"), "result": c.get("result"),
-                       "limit": c.get("limit"), "value": c.get("value")}
-                      for c in checks if c.get("result") == "FAIL"]
             entry.verified_status = actual_status
             entry.verified_at = _t.time()
-            entry.rejection_reasons = failed
             by_status[actual_status] = by_status.get(actual_status, 0) + 1
+
+            # Step 2: For UNSUBMITTED with no recorded reasons, probe submit
+            existing_rj = entry.rejection_reasons or []
+            if (actual_status == "UNSUBMITTED"
+                and not existing_rj
+                and args.probe_rejections):
+                _t.sleep(args.polite_sleep)
+                try:
+                    submit_url = f"{sess._api_base}/alphas/{entry.alpha_id}/submit"
+                    with sess._global_sem:
+                        sub_resp = sess.post(submit_url, timeout=20)
+                    if sub_resp.status_code in (400, 403):
+                        try:
+                            body = sub_resp.json()
+                        except (ValueError, AttributeError):
+                            body = {}
+                        checks = (body.get("is") or {}).get("checks") or []
+                        failed = [{"name": c.get("name"), "result": c.get("result"),
+                                   "limit": c.get("limit"), "value": c.get("value")}
+                                  for c in checks if c.get("result") == "FAIL"]
+                        if failed:
+                            entry.rejection_reasons = failed
+                            rej_probed += 1
+                except Exception as exc:
+                    print(f"WARN: {entry.alpha_id} probe failed: {exc}", file=sys.stderr)
         except Exception as exc:
             print(f"WARN: {entry.alpha_id} sync failed: {exc}", file=sys.stderr)
         if (i + 1) % 5 == 0:
-            print(f"... {i+1}/{len(pool)}", file=sys.stderr)
+            print(f"... {i+1}/{len(pool)} ({rej_probed} rejections probed)", file=sys.stderr)
         _t.sleep(args.polite_sleep)
     pool._save()  # type: ignore[attr-defined]
     _emit({
         "ok": True, "tag": args.tag,
         "pool_size": len(pool),
         "summary_by_status": by_status,
+        "rejections_probed": rej_probed,
     })
 
 
@@ -1019,6 +1048,9 @@ def _build_parser() -> argparse.ArgumentParser:
                              help="query WQ for each entry's actual status + IS checks; write verified_status + rejection_reasons into pool.json")
     ss.add_argument("--tag", required=True)
     ss.add_argument("--polite-sleep", type=float, default=2.0)
+    ss.add_argument("--probe-rejections", action="store_true", default=True,
+                    help="for UNSUBMITTED entries, probe POST /submit to capture rejection check details")
+    ss.add_argument("--no-probe-rejections", dest="probe_rejections", action="store_false")
     ss.set_defaults(func=cmd_pool_sync_status)
 
     sp = sub.add_parser("corr", help="get correlations of alpha with WQ pool")
