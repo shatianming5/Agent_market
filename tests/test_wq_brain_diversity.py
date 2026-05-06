@@ -123,6 +123,7 @@ def test_next_target_family_returns_none_when_uniform():
         "hump(rank(close))",                           # humped
         "rank(close) + 0.5 * rank(volume)",            # multi_signal
         "group_zscore(close, sector)",                 # sector_relative
+        "rank(sales/assets)",                          # fundamental_ratio
     ]
     assert next_target_family(one_per_family) is None
 

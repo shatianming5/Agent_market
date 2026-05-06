@@ -24,7 +24,9 @@ class Segment:
 # ── Family inference (heuristic, used to diversify the surfaced segments) ──
 
 # Order matters — first match wins. More specific (or composite) patterns go first.
+# Fundamental fields take priority — they're orthogonal to all OHLCV families.
 _FAMILY_PATTERNS: dict[str, re.Pattern] = {
+    "fundamental_ratio":  re.compile(r"\b(sales|assets|equity|debt|revenue|earnings|ebit|ebitda|operating_income|net_income|cash|fcf|shares|cap)\b"),
     "multi_signal":       re.compile(r"rank\s*\(.*?\)\s*[+\-]\s*\d*\.?\d+\s*\*\s*\(?-?rank\s*\(", re.DOTALL),
     "sector_relative":    re.compile(r"group_(zscore|neutralize|rank|mean)\s*\(.*?\b(sector|industry|subindustry)\b", re.DOTALL),
     "ts_corr_pv":         re.compile(r"ts_corr\s*\(\s*(close|vwap|open|high|low)\s*,\s*(volume|adv\d+)"),

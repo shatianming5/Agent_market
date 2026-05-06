@@ -180,9 +180,10 @@ def test_family_diversity_hint_empty_pool_returns_empty():
 
 
 def test_family_diversity_hint_full_coverage_picks_lowest():
-    """When all 8 families present, hint asks for lowest-count next."""
+    """When all 9 canonical families present, hint asks for lowest-count next."""
     full = list({"ts_corr_pv", "intraday_range", "vwap_dev", "volume_rank",
-                 "open_gap", "humped", "multi_signal", "sector_relative"})
+                 "open_gap", "humped", "multi_signal", "sector_relative",
+                 "fundamental_ratio"})
     hint = _family_diversity_hint(full)
     assert "LOWEST count" in hint
 

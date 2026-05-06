@@ -136,6 +136,7 @@ def _resolve_cli(requested: str, *, env: Optional[dict[str, str]] = None) -> str
 _CANONICAL_FAMILIES: tuple[str, ...] = (
     "ts_corr_pv", "intraday_range", "vwap_dev", "volume_rank",
     "open_gap", "humped", "multi_signal", "sector_relative",
+    "fundamental_ratio",
 )
 
 
@@ -160,19 +161,20 @@ def _family_diversity_hint(active_families: list[str]) -> str:
 
 # Family-specific anti-recommendations — what to try when stuck
 _FAMILY_ANTI_EXAMPLES: dict[str, str] = {
-    "sector_relative":  "`hump(rank(vwap/close))`, `rank((high - low)/close)`, `rank(open - ts_delay(close, 1))`",
-    "ts_corr_pv":       "`rank((vwap - close)/close)`, `hump(rank(...))`, `group_zscore(_, subindustry)`",
-    "multi_signal":     "`ts_corr(close, volume, 20)`, `rank((high - low)/close)`, `humped(rank(...))`",
-    "ts_rank_close":    "`rank((vwap - close)/close)`, `rank((high - low)/close)`, `rank(open - ts_delay(close, 1))`",
-    "ts_delta_close":   "`ts_corr(_, _, _)`, `(high - low) / close`, `group_zscore(_, sector)`",
-    "decay_linear":     "swap to a different inner shape — `hump(rank(...))`, `(high - low) / close`, `vwap - close`",
-    "humped":           "`ts_corr(close, volume, 20)`, `(high - low)/close`, `group_zscore(_, sector)`",
-    "intraday_range":   "`rank(vwap/close)`, `ts_corr(close, volume, 20)`, `group_zscore(_, sector)`",
-    "open_gap":         "`rank(vwap/close)`, `(high - low)/close`, `group_zscore(_, sector)`",
-    "vwap_dev":         "`rank(ts_rank(volume, 20))`, `rank((high - low)/close)`, `ts_corr(close, volume, 20)`",
-    "volume_rank":      "`rank(vwap/close)`, `(high - low)/close`, `hump(rank(...))`",
-    "group_neutral":    "`hump(rank(...))`, `ts_corr(close, volume, 20)`, `(high - low)/close`",
-    "ts_corr_other":    "`group_zscore(_, sector)`, `(high - low)/close`, `hump(rank(...))`",
+    "sector_relative":  "`rank(sales/assets)`, `hump(rank(vwap/close))`, `rank((high - low)/close)`",
+    "ts_corr_pv":       "`rank(sales/assets)`, `rank((vwap - close)/close)`, `group_zscore(_, subindustry)`",
+    "multi_signal":     "`rank(sales/assets)`, `ts_corr(close, volume, 20)`, `rank((high - low)/close)`",
+    "ts_rank_close":    "`rank(sales/assets)`, `rank((vwap - close)/close)`, `rank((high - low)/close)`",
+    "ts_delta_close":   "`rank(sales/assets)`, `ts_corr(_, _, _)`, `(high - low) / close`",
+    "decay_linear":     "swap to a different inner shape — `rank(sales/assets)`, `hump(rank(...))`, `vwap - close`",
+    "humped":           "`rank(sales/assets)`, `ts_corr(close, volume, 20)`, `(high - low)/close`",
+    "intraday_range":   "`rank(sales/assets)`, `rank(vwap/close)`, `ts_corr(close, volume, 20)`",
+    "open_gap":         "`rank(sales/assets)`, `rank(vwap/close)`, `(high - low)/close`",
+    "vwap_dev":         "`rank(sales/assets)`, `rank(ts_rank(volume, 20))`, `ts_corr(close, volume, 20)`",
+    "volume_rank":      "`rank(sales/assets)`, `rank(vwap/close)`, `(high - low)/close`",
+    "group_neutral":    "`rank(sales/assets)`, `hump(rank(...))`, `ts_corr(close, volume, 20)`",
+    "ts_corr_other":    "`rank(sales/assets)`, `group_zscore(_, sector)`, `(high - low)/close`",
+    "fundamental_ratio": "`rank((vwap - close)/close)`, `ts_corr(close, volume, 20)`, `group_zscore(_, sector)`, `hump(rank(...))`",
 }
 
 

@@ -42,17 +42,28 @@ FIELDS_PRICE_VOLUME = [
     "returns",
 ]
 FIELDS_GROUP = ["sector", "industry", "subindustry"]
+# Fundamental fields confirmed accepted by WQ Bronze tier
+# (rank(sales/assets) runs successfully, sharpe=0.91 fi=0.70 to=0.018).
+# Turnover is naturally tiny on fundamentals so they're a fitness lever
+# that doesn't need hump/decay smoothing.
+FIELDS_FUNDAMENTAL = [
+    "sales", "assets", "equity", "debt",
+    "revenue", "earnings", "ebit", "ebitda",
+    "operating_income", "net_income",
+    "cash", "fcf",
+    "shares", "cap",
+]
 FIELDS_FUNDAMENTAL_UNAVAILABLE = [
     "book_to_price", "earnings_yield", "dividend_yield", "fcf_yield",
     "roe", "roa", "operating_margin", "gross_margin",
     "debt_to_equity", "current_ratio", "quick_ratio",
     "revenue_growth", "earnings_growth", "fcf_growth",
-    "market_cap", "cap", "shares_out", "float_shares",
+    "market_cap", "shares_out", "float_shares",
     "pe", "pb",
 ]
 
 ALL_OPERATORS = OPERATORS_TS + OPERATORS_CS + OPERATORS_MATH + OPERATORS_TRANSFORM
-ALL_FIELDS = FIELDS_PRICE_VOLUME + FIELDS_GROUP
+ALL_FIELDS = FIELDS_PRICE_VOLUME + FIELDS_GROUP + FIELDS_FUNDAMENTAL
 
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PYTHON_FORBIDDEN = ("import ", "def ", "class ", "lambda", "print(", "exec(", "eval(", "__")
@@ -130,9 +141,20 @@ AVAILABLE Fields:
   Price/Volume:  {", ".join(FIELDS_PRICE_VOLUME)}
   ADV variants:  adv20 (20-day), adv60 (60-day), adv120, adv180 — pick longer window for smoother liquidity normalization (lower turnover)
   Group:         {", ".join(FIELDS_GROUP)}
+  Fundamental:   {", ".join(FIELDS_FUNDAMENTAL)}
+                 ★ Fundamental data is ORTHOGONAL to OHLCV: ratios like
+                 `sales/assets`, `ebit/equity`, `debt/cap` have natural
+                 turnover ≤ 0.02 (rebalance only on quarterly fundamentals
+                 update). This makes them a FREE fitness booster:
+                   `rank(sales/assets)` alone → sh=0.91 fi=0.70 to=0.018
+                 on USA TOP3000 with SUBINDUSTRY neutralization.
+                 Combine with intraday OHLCV signals for both information
+                 sources at once — e.g. `rank(sales/assets) * rank(ts_corr(close, volume, 20))`.
 
-UNAVAILABLE Fields (fundamental) — DO NOT USE ({len(FIELDS_FUNDAMENTAL_UNAVAILABLE)}):
+UNAVAILABLE Fields — DO NOT USE ({len(FIELDS_FUNDAMENTAL_UNAVAILABLE)}):
   {", ".join(FIELDS_FUNDAMENTAL_UNAVAILABLE)}
+  (Pre-computed ratios like roe/roa/pe/pb aren't in WQ; build them yourself
+  from raw fundamentals: `earnings/equity`, `cap/earnings`, etc.)
 
 === Turnover Reduction (KEY for passing fitness gate) ===
 

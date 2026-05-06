@@ -32,6 +32,7 @@ from .crossover import infer_family
 CANONICAL_FAMILIES: tuple[str, ...] = (
     "ts_corr_pv", "intraday_range", "vwap_dev", "volume_rank",
     "open_gap", "humped", "multi_signal", "sector_relative",
+    "fundamental_ratio",
 )
 
 _OP_PATTERN = re.compile(r"([a-z_][a-z0-9_]*)\s*\(")
@@ -44,11 +45,17 @@ _GRAMMAR_TOKENS = frozenset({"if", "else", "and", "or", "true", "false", "not"})
 # this set + not an operator is treated as a free variable and ignored,
 # avoiding pollution from misspelled operators or non-data identifiers.
 KNOWN_FIELDS: frozenset[str] = frozenset({
-    "close", "open", "high", "low", "volume", "vwap", "returns", "cap",
+    # Price/volume
+    "close", "open", "high", "low", "volume", "vwap", "returns",
     "adv5", "adv10", "adv20", "adv30", "adv60", "adv90", "adv120", "adv180",
+    # Group
     "sector", "industry", "subindustry", "country", "exchange",
     "market", "industry_group", "subsector",
-    "earnings", "pe_ratio", "book_value", "shares_outstanding",
+    # Fundamental (confirmed available on WQ Bronze tier — see operators.FIELDS_FUNDAMENTAL)
+    "sales", "assets", "equity", "debt",
+    "revenue", "earnings", "ebit", "ebitda",
+    "operating_income", "net_income",
+    "cash", "fcf", "shares", "cap",
 })
 
 
