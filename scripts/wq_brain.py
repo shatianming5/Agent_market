@@ -282,7 +282,7 @@ def _check_local_jaccard_vs_active(
     expr: str,
     *,
     threshold: float = 0.7,
-    semantic_threshold: float = 0.65,
+    semantic_threshold: float = 0.85,
 ) -> dict[str, Any]:
     """Local pre-submit gate: token jaccard + semantic jaccard vs ACTIVE pool.
 
@@ -1252,8 +1252,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="WQ override rule: high-corr submission still allowed if our sharpe ≥ (1+margin) × theirs (default 0.10 = 10%%)")
     sp.add_argument("--jaccard-max", type=float, default=0.7,
                     help="local pre-check: reject if token-jaccard vs any ACTIVE pool alpha >= this (default 0.7)")
-    sp.add_argument("--semantic-max", type=float, default=0.65,
-                    help="local pre-check: reject if multiset semantic-jaccard (operators+fields) vs any ACTIVE alpha >= this (default 0.65)")
+    sp.add_argument("--semantic-max", type=float, default=0.85,
+                    help="local pre-check: reject if multiset semantic-jaccard (operators+fields) vs any ACTIVE alpha >= this (default 0.85). Tightened to 0.65 if you want more diversity.")
     sp.add_argument("--no-pre-check", action="store_true",
                     help="skip the correlation pre-check")
     sp.add_argument("--verify-after-sec", type=float, default=30.0,
@@ -1275,8 +1275,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--tag", required=True)
     sp.add_argument("--jaccard-max", type=float, default=0.7,
                     help="reject if token-jaccard vs any ACTIVE alpha >= this (default 0.7)")
-    sp.add_argument("--semantic-max", type=float, default=0.65,
-                    help="reject if multiset semantic-jaccard (operators+fields) >= this (default 0.65). Catches 'same skeleton, different fields' impostors that token jaccard misses.")
+    sp.add_argument("--semantic-max", type=float, default=0.85,
+                    help="reject if multiset semantic-jaccard (operators+fields) >= this (default 0.85). Catches 'same skeleton, different fields' impostors that token jaccard misses.")
     sp.set_defaults(func=cmd_pre_check_local)
 
     sp = sub.add_parser(

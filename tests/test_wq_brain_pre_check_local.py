@@ -62,21 +62,41 @@ def test_check_token_jaccard_blocks_literal_dup(isolated_artifacts, wqb_script):
     assert res["max_jaccard"] >= 0.7
 
 
-def test_check_semantic_jaccard_blocks_field_swap(isolated_artifacts, wqb_script):
-    """Field+window swap — operator skeleton identical but token jaccard low.
-    Token: shared {rank, ts_rank, ts_delta} → ~0.33 jaccard, below 0.7 gate.
-    Semantic: ops identical, fields disjoint → 0.75 weighted similarity, blocks.
-    """
+def test_check_semantic_jaccard_blocks_high_similarity(isolated_artifacts, wqb_script):
+    """Pure parameter (window) tweak — same fields/ops → sem=1.0.
+    Token jaccard low because numeric tokens differ; default 0.85 still blocks."""
     active = "rank(ts_rank(close, 252) * (-ts_delta(close, 3) / close))"
-    candidate = "rank(ts_rank(vwap, 144) * (-ts_delta(vwap, 7) / vwap))"
+    # Same skeleton, only the integer windows differ (252→144, 3→7)
+    candidate = "rank(ts_rank(close, 144) * (-ts_delta(close, 7) / close))"
     _seed_pool("semtest", [("a1", active)])
     res = wqb_script._check_local_jaccard_vs_active("semtest", candidate)
-    assert res["accept"] is False
+    assert res["accept"] is False, res
     assert "BLOCK semantic-jaccard" in res["reason"], res
-    # Token jaccard alone shouldn't have caught this
-    assert res["max_jaccard"] < 0.7, res
-    # But semantic should
-    assert res["max_semantic"] >= 0.65, res
+    assert res["max_semantic"] >= 0.85, res
+    assert res["max_jaccard"] < 0.7, res  # token gate alone wouldn't catch this
+
+
+def test_check_semantic_jaccard_passes_moderate_similarity_under_default(isolated_artifacts, wqb_script):
+    """Field+window swap — sem≈0.75 used to BLOCK at 0.65, now PASS at 0.85.
+    Reflects post-deadlock relaxation: prefer 'similar but high-fi' over stuck pool."""
+    active = "rank(ts_rank(close, 252) * (-ts_delta(close, 3) / close))"
+    candidate = "rank(ts_rank(vwap, 144) * (-ts_delta(vwap, 7) / vwap))"
+    _seed_pool("semtest2", [("a1", active)])
+    res = wqb_script._check_local_jaccard_vs_active("semtest2", candidate)
+    assert res["accept"] is True, res
+    assert 0.65 <= res["max_semantic"] < 0.85, res
+
+
+def test_check_semantic_jaccard_strict_threshold_still_blocks(isolated_artifacts, wqb_script):
+    """Caller can still ask for the old 0.65 strict threshold."""
+    active = "rank(ts_rank(close, 252) * (-ts_delta(close, 3) / close))"
+    candidate = "rank(ts_rank(vwap, 144) * (-ts_delta(vwap, 7) / vwap))"
+    _seed_pool("semstrict", [("a1", active)])
+    res = wqb_script._check_local_jaccard_vs_active(
+        "semstrict", candidate, semantic_threshold=0.65,
+    )
+    assert res["accept"] is False, res
+    assert "BLOCK semantic-jaccard" in res["reason"], res
 
 
 def test_check_accepts_when_genuinely_different(isolated_artifacts, wqb_script):
