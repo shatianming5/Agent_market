@@ -13,8 +13,10 @@ from agent_market.wq_brain.agent_runner import (
     _build_prior_knowledge_block,
     _build_system_prompt,
     _family_diversity_hint,
+    _operator_skeleton,
     _resolve_cli,
     _tried_family_concentration_hint,
+    _tried_skeleton_concentration_hint,
     run_agent,
 )
 from agent_market.wq_brain.dtypes import AlphaPoolEntry
@@ -245,6 +247,70 @@ def test_tried_family_concentration_hint_uses_recency():
     hint = _tried_family_concentration_hint(records, window=10)
     assert "ts_corr_pv" in hint
     assert "sector_relative" not in hint  # the recent 10 are all ts_corr_pv
+
+
+def test_operator_skeleton_drops_fields_and_numbers():
+    """Same operator multiset → same skeleton, regardless of fields/numbers."""
+    sk1 = _operator_skeleton("rank(sales/assets) * ts_decay_linear(rank(-ts_delta(close, 3)/close), 20)")
+    sk2 = _operator_skeleton("rank(debt/equity) * ts_decay_linear(rank(-ts_delta(close, 7)/close), 30)")
+    sk3 = _operator_skeleton("rank(revenue/assets) * ts_decay_linear(rank(-ts_delta(vwap, 5)/vwap), 10)")
+    assert sk1 == sk2 == sk3
+    assert "rank" in sk1 and "ts_decay_linear" in sk1 and "ts_delta" in sk1
+
+
+def test_operator_skeleton_distinguishes_different_stacks():
+    """Adding/dropping an operator → different skeleton."""
+    sk1 = _operator_skeleton("rank(sales/assets)")
+    sk2 = _operator_skeleton("rank(group_zscore(sales/assets, sector))")
+    assert sk1 != sk2
+
+
+def test_operator_skeleton_empty_input():
+    assert _operator_skeleton("") == ""
+    assert _operator_skeleton("close") == ""  # no operators, just a field
+
+
+def test_tried_skeleton_hint_fires_at_threshold():
+    """5/10 attempts share `rank+ts_decay_linear+ts_delta` skeleton → fires at 0.5."""
+    same_skel = [
+        {"ts": i, "expr": f"rank({fld}/assets) * ts_decay_linear(rank(-ts_delta(close, 3)/close), 20)"}
+        for i, fld in enumerate(["sales", "revenue", "ebit", "debt", "fcf"])
+    ]
+    diverse = [
+        {"ts": 100 + i, "expr": e} for i, e in enumerate([
+            "rank(close)",
+            "rank(group_zscore(volume, sector))",
+            "hump(rank(close))",
+            "rank((high - low)/close)",
+            "rank(open - ts_delay(close, 1))",
+        ])
+    ]
+    hint = _tried_skeleton_concentration_hint(same_skel + diverse)
+    assert "STUCK IN OPERATOR SKELETON" in hint
+    assert "5/10" in hint or "5" in hint  # show concentration ratio
+
+
+def test_tried_skeleton_hint_silent_when_diverse():
+    records = [
+        {"ts": i, "expr": e} for i, e in enumerate([
+            "rank(close)",
+            "rank(group_zscore(volume, sector))",
+            "hump(rank(close))",
+            "rank((high - low)/close)",
+            "rank(open - ts_delay(close, 1))",
+            "rank(sales/assets)",
+            "ts_decay_linear(rank(close), 5)",
+            "rank(ts_corr(close, volume, 20))",
+            "rank(vwap/close)",
+            "rank(ts_rank(close, 252))",
+        ])
+    ]
+    assert _tried_skeleton_concentration_hint(records) == ""
+
+
+def test_tried_skeleton_hint_too_few_records():
+    records = [{"ts": i, "expr": "rank(close)"} for i in range(5)]
+    assert _tried_skeleton_concentration_hint(records) == ""
 
 
 def test_tried_family_concentration_hint_includes_anti_examples():

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -174,8 +175,74 @@ _FAMILY_ANTI_EXAMPLES: dict[str, str] = {
     "volume_rank":      "`rank(sales/assets)`, `rank(vwap/close)`, `(high - low)/close`",
     "group_neutral":    "`rank(sales/assets)`, `hump(rank(...))`, `ts_corr(close, volume, 20)`",
     "ts_corr_other":    "`rank(sales/assets)`, `group_zscore(_, sector)`, `(high - low)/close`",
-    "fundamental_ratio": "`rank((vwap - close)/close)`, `ts_corr(close, volume, 20)`, `group_zscore(_, sector)`, `hump(rank(...))`",
+    "fundamental_ratio": "TRY DIFFERENT FUNDAMENTAL SKELETONS (not just `rank(F/G) * ts_decay_linear(...)`): "
+                         "(1) sector-neutral: `rank(group_zscore(sales/assets, sector))`; "
+                         "(2) time-trend: `rank(ts_zscore(sales/assets, 252))`; "
+                         "(3) regime-conditional: `if_else(ts_corr(close, volume, 20) > 0, rank(sales/assets), -rank(sales/assets))`; "
+                         "(4) cross-fundamental ratio: `rank(sales/assets) - rank(debt/equity)`. "
+                         "OR step out entirely: `rank((vwap - close)/close)`, `ts_corr(close, volume, 20)`, `hump(rank(...))`.",
 }
+
+
+_SKELETON_OP_PATTERN = re.compile(r"([a-z_][a-z0-9_]*)\s*\(")
+
+
+def _operator_skeleton(expr: str) -> str:
+    """Reduce an expression to its operator multiset signature.
+
+    Drops fields, numbers, and infix operators — keeps only the function
+    names. Two expressions collapse to the same skeleton if they call
+    exactly the same operators in the same multiplicities, even if fields
+    or constants differ. Catches the failure mode where mutation engine
+    swaps `rank(sales/assets) * ts_decay_linear(...)` →
+    `rank(debt/equity) * ts_decay_linear(...)` — token-jaccard might pass,
+    but WQ's self-correlation gate sees the same signal shape.
+    """
+    if not expr:
+        return ""
+    ops = _SKELETON_OP_PATTERN.findall(expr.lower())
+    if not ops:
+        return ""
+    from collections import Counter
+    counts = Counter(ops)
+    return "|".join(f"{op}x{n}" for op, n in sorted(counts.items()))
+
+
+def _tried_skeleton_concentration_hint(
+    tried_records: list[dict],
+    *,
+    window: int = 10,
+    threshold: float = 0.5,
+) -> str:
+    """Hint when ≥ ``threshold`` of recent attempts share one operator skeleton.
+
+    Catches the failure mode that the family-rotation hint misses:
+    same family, different fields, but **identical operator stack** —
+    those will all hit WQ self-correlation rejection on submit.
+    """
+    if len(tried_records) < window:
+        return ""
+    recent = sorted(tried_records, key=lambda r: r.get("ts", 0), reverse=True)[:window]
+    skeletons = [_operator_skeleton(r.get("expr") or "") for r in recent]
+    skeletons = [s for s in skeletons if s]
+    if not skeletons:
+        return ""
+    from collections import Counter
+    counts = Counter(skeletons)
+    top_sk, top_n = counts.most_common(1)[0]
+    if top_n / len(skeletons) < threshold:
+        return ""
+    # Render the skeleton in a more human-readable way
+    pretty = top_sk.replace("|", " + ")
+    return (
+        f"_🛑 STUCK IN OPERATOR SKELETON `{pretty}` ({top_n}/{len(skeletons)} "
+        f"of recent attempts share this exact multiset). Even with different "
+        f"fields, WQ's self-correlation will see the same signal. CHANGE THE "
+        f"OPERATOR STACK — drop / add an operator, swap multiplication to "
+        f"subtraction, wrap with `if_else(...)` for regime-conditional, or "
+        f"compose with `group_zscore(_, sector)` / `ts_zscore(_, 252)` for a "
+        f"completely different signal shape._"
+    )
 
 
 def _tried_family_concentration_hint(
@@ -302,6 +369,11 @@ def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int
         rotation_hint = _tried_family_concentration_hint(tried)
         if rotation_hint:
             parts.append(rotation_hint)
+        # Operator-skeleton concentration: catches "same family, same operator
+        # stack, different fields" (= same signal in WQ's eyes).
+        skeleton_hint = _tried_skeleton_concentration_hint(tried)
+        if skeleton_hint:
+            parts.append(skeleton_hint)
 
         parts.append("### Recently Attempted Expressions (latest result per expr)\n\n" + format_for_prompt(tried, max_rows=max_tried))
 
