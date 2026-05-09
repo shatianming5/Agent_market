@@ -1,32 +1,47 @@
 {
-  "round": 6,
-  "threadId": "019d52dc-725d-7781-9e68-92ffb4fe69fd",
+  "round": 4,
+  "scope": "帮我完整的去看看每个功能能不能 work, 然后完整的 loop 能不能跑通 (RUNTIME verification)",
+  "threadId": "019e0e01-d894-7a91-a770-286b0d307af9",
   "status": "completed",
-  "scope": "all",
-  "focus_path": null,
-  "last_score": 6.5,
-  "last_verdict": "not ready",
-  "dimension_scores": {
-    "code_quality": 6,
-    "architecture": 6,
-    "security": 4,
-    "testing": 7,
-    "error_handling": 8,
-    "performance": 7,
-    "type_safety": 6,
-    "domain_quality": 7,
-    "dependencies": 4,
-    "devops_ci": 4,
-    "api_design": 5
+  "stop_threshold_met": true,
+  "stop_reason": "score 8.5 >= 6 AND verdict explicitly 'READY for tested golden path'",
+  "final_score": 8.5,
+  "final_verdict": "READY for the tested golden path; ALMOST READY for all freqtrade surfaces — 完整 loop 能跑通 (verified end-to-end with real backtest result zip)",
+  "score_progression_this_loop": [4.0, 7.0, 8.0, 8.5],
+  "rounds_completed_this_loop": 4,
+  "loop_runs_end_to_end": true,
+  "verification_evidence": {
+    "e2e_smoke_flow_run_ids": ["49fd9739f78e", "7045363e4332", "71b618fdae05", "d223e53cea23"],
+    "all_4_runs_OK": true,
+    "trades_per_run": 220,
+    "wq_brain_tests": "487 passing throughout"
   },
-  "pending_fixes": [],
-  "deferred": [
-    "Sandbox containerization (Docker/nsjail)",
-    "phases.py split into submodules",
-    "Walk-forward as primary evaluation",
-    "Dependency lockfile",
-    "CI compile smoke",
-    "API error semantics"
+  "critical_finding_root_cause": "factor_lab features mtf|xs|... overwrites raw OHLCV feathers with 82-col augmented data; freqtrade's data loader expects 6-col raw and crashes mid-load with `Length mismatch: Expected axis has 82 elements, new values have 6 elements`",
+  "issues_fixed_this_loop": [
+    "R1: stripped 10 contaminated feathers to 6-col raw (.pre_strip.bak preserved)",
+    "R1: added preflight in scripts/freqtrade_cli.py (refuses contaminated runs)",
+    "R2: extracted shared helper src/agent_market/freqtrade_preflight.py",
+    "R2: wired preflight into factor_lab/backtest.py + walk_forward_pca.py direct callers",
+    "R3: /run/hyperopt server route preflights at request-time (HTTP 409 on contamination)",
+    "R3: helper regex covers spot AND futures patterns",
+    "R3: helper accepts extra_datadirs; freqtrade_cli parses --datadir",
+    "R4: helper uses rglob (covers nested data/okx/futures/* without explicit --datadir)"
   ],
-  "timestamp": "2026-04-03T16:00:00"
+  "deferred_capped_at_8_5": [
+    "factor_lab/features.py 7 write sites — migrate to features/ namespace (multi-day, every consumer)",
+    "/run/hyperopt: queue command via freqtrade_cli wrapper to close TOCTOU window",
+    "Config-file `datadir` parsing (currently only --datadir CLI arg)",
+    "R1 secondary smoke_test fixes (NO_PROXY, /jobs 400→404, /run/feature schema, missing-state)"
+  ],
+  "all_4_loops_combined": {
+    "loops_total": 4,
+    "rounds_total": 16,
+    "topics": [
+      "structure/docs first pass (4.0 → 7.8)",
+      "structure/docs polish (8.1 → 8.9)",
+      "feature completeness + DAG + remote (8.2 → 8.6)",
+      "runtime verification end-to-end (4.0 → 8.5)"
+    ]
+  },
+  "timestamp": "2026-05-10T03:05:00"
 }

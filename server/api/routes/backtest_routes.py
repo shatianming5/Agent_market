@@ -94,6 +94,16 @@ def run_backtest(req: BacktestReq = Body(...)):
 
 @router.post("/run/hyperopt")
 def run_hyperopt(req: HyperoptReq = Body(...)):
+    # Codex review (runtime loop): preflight raw OHLCV before queueing
+    # the hyperopt job so contamination fails fast at HTTP-request time
+    # instead of mid-run inside freqtrade's data loader.
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "src"))
+        from agent_market.freqtrade_preflight import assert_raw_ohlcv, OHLCVPreflightError
+        assert_raw_ohlcv(ROOT / "user_data")
+    except OHLCVPreflightError as exc:
+        return error("OHLCV_PREFLIGHT_FAILED", str(exc), status_code=409)
     cmd = [
         "freqtrade",
         "hyperopt",

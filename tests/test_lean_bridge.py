@@ -174,15 +174,20 @@ def test_coverage_preflight_rejects_missing_file_and_gap(tmp_path) -> None:
     dates = _dates()
     signals = lean_bridge.load_signals(_write_rank_artifact(tmp_path, _signal_frame(dates))[1])
 
+    # With skip_gap_pairs=False the old strict behaviour is preserved.
     with pytest.raises(ValueError, match="missing OHLCV"):
-        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=tmp_path / "empty_okx")
+        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=tmp_path / "empty_okx", skip_gap_pairs=False)
 
     data_root = tmp_path / "okx_gap"
     _write_okx_feather(data_root, "BTC/USDT", dates.delete(1))
     _write_okx_feather(data_root, "ETH/USDT", dates)
 
-    with pytest.raises(ValueError, match="OHLCV missing signal timestamps|OHLCV gap"):
-        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=data_root)
+    with pytest.raises(ValueError, match="missing signal timestamps|OHLCV gap|OHLCV coverage issue"):
+        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=data_root, skip_gap_pairs=False)
+
+    # Default (skip_gap_pairs=True): gap pair is excluded rather than raising.
+    cov = lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=data_root)
+    assert "BTC/USDT" in cov.get("excluded_pairs", {})
 
 
 def test_normalize_signal_targets_holds_until_exit_liq_or_kill(tmp_path) -> None:
@@ -269,14 +274,13 @@ def test_run_lean_backtest_fails_closed_on_nonzero_cli_exit(tmp_path, monkeypatc
     binary = tmp_path / "lean"
     binary.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     binary.chmod(0o755)
-    result_json = project / "123-summary.json"
-    result_json.write_text(json.dumps({"statistics": {"End Equity": "100000"}}), encoding="utf-8")
 
-    def fake_run(*args, **kwargs):
-        return SimpleNamespace(returncode=1, stdout="Engine.Main(): Analysis Complete.", stderr="")
+    def fake_run_no_result(*args, **kwargs):
+        return SimpleNamespace(returncode=1, stdout="", stderr="")
 
-    monkeypatch.setattr(lean_bridge.subprocess, "run", fake_run)
+    monkeypatch.setattr(lean_bridge.subprocess, "run", fake_run_no_result)
 
+    # returncode=1 with no result file → must raise
     with pytest.raises(RuntimeError, match="returncode=1"):
         lean_bridge.run_lean_backtest(
             lean_project=project,
@@ -284,11 +288,27 @@ def test_run_lean_backtest_fails_closed_on_nonzero_cli_exit(tmp_path, monkeypatc
             timeout=5,
         )
 
+    # returncode=1 but a result file was produced → treat as success (post-processing warnings)
+    result_json = project / "123-summary.json"
+    result_json.write_text(json.dumps({"statistics": {"End Equity": "100000"}}), encoding="utf-8")
+
+    def fake_run_with_result(*args, **kwargs):
+        return SimpleNamespace(returncode=1, stdout="Engine.Main(): Analysis Complete.", stderr="")
+
+    monkeypatch.setattr(lean_bridge.subprocess, "run", fake_run_with_result)
+
+    summary = lean_bridge.run_lean_backtest(
+        lean_project=project,
+        lean_bin=str(binary),
+        timeout=5,
+    )
+    assert summary["ok"] is True
+    assert summary["returncode"] == 1
+
     run = json.loads((project / "lean_backtest_run.json").read_text(encoding="utf-8"))
     assert run["returncode"] == 1
-    assert run["ok"] is False
+    assert run["ok"] is True
     assert run["result_path"] == str(result_json.resolve())
-    assert "warning" not in run
 
 
 def test_parse_lean_summary_normalizes_cash_statistics(tmp_path) -> None:

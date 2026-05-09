@@ -110,6 +110,17 @@ def _backtest(w: dict, model_dir: Path) -> dict | None:
     env = os.environ.copy()
     env["AGENT_MODEL_DIR"] = str(model_dir)
     data_dir = str(ROOT / "user_data" / "data" / "data_clean" / "kucoin")
+    # Codex review (runtime loop): preflight raw OHLCV before invoking
+    # freqtrade so contamination fails fast with the shared diagnostic
+    # instead of crashing freqtrade's data loader mid-run.
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "src"))
+        from agent_market.freqtrade_preflight import assert_raw_ohlcv
+        assert_raw_ohlcv(ROOT / "user_data")
+    except SystemExit as exc:
+        print(f"walk_forward_pca preflight: {exc}", file=__import__("sys").stderr)
+        return None
     proc = subprocess.run(
         ["freqtrade", "backtesting", "--config", FT_CONFIG,
          "--strategy", STRATEGY, "--timerange", tr, "--cache", "none",

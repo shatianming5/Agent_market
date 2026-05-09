@@ -39,16 +39,25 @@ def main() -> int:
     from agent_market.strategy_miner.runner import miner_run_dir, _save_checkpoint
     from agent_market.strategy_miner.phases import phase_backtest, phase_evaluation
 
-    # Load miner config (best-effort)
+    # Load miner config (Codex review R2 fix: fail-close on missing/bad
+    # config — silent fallback to MinerConfig() defaults masked remote
+    # configuration drift, where the run looked successful but used builtin
+    # defaults instead of the operator's intent).
     cfg_path = Path(args.config)
     if not cfg_path.is_absolute():
         cfg_path = _REPO / cfg_path
-    if cfg_path.exists():
+    if not cfg_path.exists():
+        raise SystemExit(
+            f"strategy_miner_backtest: --config {cfg_path} not found. "
+            f"Pass an explicit, existing miner config path."
+        )
+    try:
         cfg_raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-        config = MinerConfig.from_dict(cfg_raw)
-    else:
-        logging.getLogger(__name__).warning("Config not found: %s, using defaults", cfg_path)
-        config = MinerConfig()
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(
+            f"strategy_miner_backtest: failed to read/parse {cfg_path}: {exc}"
+        )
+    config = MinerConfig.from_dict(cfg_raw)
 
     run_id = str(args.run_id).strip().lower()
     miner_dir = miner_run_dir(run_id)

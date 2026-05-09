@@ -11,7 +11,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Hashable, Optional
 
 _APPEND_LOCK = threading.Lock()
 
@@ -52,6 +52,41 @@ def append_tried(
             os.fsync(f.fileno())
 
 
+def find_recent_revisits(
+    records: list[dict[str, Any]],
+    key_fn: Callable[[dict[str, Any]], Optional[Hashable]],
+    *,
+    window: int = 5,
+    min_revisits: int = 2,
+) -> dict[Hashable, list[dict[str, Any]]]:
+    """Group last ``window`` records by ``key_fn`` — return groups ≥ min_revisits.
+
+    Anti-flip / cool-down primitive used by :mod:`prompt_builder`'s slot-
+    cool-down hint. Records are sorted by ``ts`` ascending and the tail
+    sliced to ``window`` before grouping; visits within each group preserve
+    chronological order so callers can check fitness trends.
+
+    ``key_fn`` may return ``None`` to mean "skip this record" (e.g. for
+    rows with empty expressions). Records without ``ts`` sort to the front.
+
+    Returns ``{key: [record, ...]}`` where each value has length ≥
+    ``min_revisits``. Empty dict when no group meets the threshold.
+    """
+    if min_revisits < 1 or window < 1:
+        return {}
+    recent = sorted(records, key=lambda r: r.get("ts", 0))[-window:]
+    groups: dict[Hashable, list[dict[str, Any]]] = {}
+    for r in recent:
+        try:
+            key = key_fn(r)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if key is None:
+            continue
+        groups.setdefault(key, []).append(r)
+    return {k: v for k, v in groups.items() if len(v) >= min_revisits}
+
+
 def read_tried(path: Path, *, tail: int = 200) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -72,6 +107,54 @@ def read_tried(path: Path, *, tail: int = 200) -> list[dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return out
+
+
+# ── Checkpoint sidecar (for tmux resume) ────────────────────────────────
+
+
+def checkpoint_path(tried_path: Path) -> Path:
+    """Return the sidecar checkpoint file path for a tried_exprs.jsonl."""
+    return tried_path.with_name(tried_path.name + ".checkpoint.json")
+
+
+def write_checkpoint(
+    tried_path: Path,
+    *,
+    session_id: str,
+    last_iter: int,
+    extra: Optional[dict[str, Any]] = None,
+) -> Path:
+    """Atomically persist {session_id, last_iter, ts} next to tried_exprs.jsonl.
+
+    Used by ``agent_runner`` so that a tmux loop killed mid-iteration can
+    resume from the next iteration without re-running prior work. Atomic
+    via tmp + replace so a SIGKILL never leaves a half-written file.
+    """
+    p = checkpoint_path(tried_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "session_id": session_id,
+        "last_iter": int(last_iter),
+        "ts": time.time(),
+    }
+    if extra:
+        payload["extra"] = extra
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with _APPEND_LOCK:
+        tmp.replace(p)
+    return p
+
+
+def read_checkpoint(tried_path: Path) -> Optional[dict[str, Any]]:
+    """Return the last-written checkpoint or None when missing/corrupt."""
+    p = checkpoint_path(tried_path)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 def format_for_prompt(records: list[dict[str, Any]], *, max_rows: int = 60) -> str:

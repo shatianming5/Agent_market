@@ -155,6 +155,16 @@ def backtest_window(w: Dict, model_dir: Path, strategy: str = "ELExitATRLSCls",
            "--strategy", strategy, "--timerange", tr]
     if datadir:
         cmd += ["--datadir", datadir]
+    # Codex review (runtime loop): direct freqtrade call would bypass the
+    # OHLCV preflight in scripts/freqtrade_cli.py. Invoke the shared
+    # helper here so contamination fails fast with the same diagnostic.
+    try:
+        from agent_market.freqtrade_preflight import assert_raw_ohlcv
+        # ROOT is the repo root; freqtrade reads userdir relative to cwd
+        # (defaults to user_data/), so guard against that.
+        assert_raw_ohlcv(ROOT / "user_data")
+    except SystemExit as exc:
+        return {"trades": 0, "profit_pct": 0.0, "error": str(exc)}
     p = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, env=env, timeout=600)
     out = p.stdout + p.stderr
     t = re.search(r"Total/Daily Avg Trades[^\d]*(\d+)\s*/", out)

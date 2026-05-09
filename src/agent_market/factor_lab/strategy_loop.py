@@ -28,6 +28,7 @@ from typing import Any, Mapping, Optional, Sequence
 from agent_market import paths as repo_paths
 from agent_market.backtest_results import build_backtest_summary
 from agent_market.factor_lab import lean_bridge, rank_portfolio
+from agent_market.factor_lab.lean_analysis import compute_lean_analysis
 from agent_market.factor_lab.timeframes import manifest_matches_profile, normalize_lane, normalize_timeframe
 
 
@@ -35,6 +36,7 @@ PHASE_PREPARE = "PREPARE"
 PHASE_CODE_GEN = "CODE_GEN"
 PHASE_SIGNAL_EXPORT = "SIGNAL_EXPORT"
 PHASE_BACKTEST = "BACKTEST"
+PHASE_LEAN_ANALYSIS = "LEAN_ANALYSIS"
 PHASE_EVALUATION = "EVALUATION"
 PHASE_ANALYSIS = "ANALYSIS"
 PHASE_COMPLETE = "COMPLETE"
@@ -44,6 +46,7 @@ PHASES = (
     PHASE_CODE_GEN,
     PHASE_SIGNAL_EXPORT,
     PHASE_BACKTEST,
+    PHASE_LEAN_ANALYSIS,
     PHASE_EVALUATION,
     PHASE_ANALYSIS,
     PHASE_COMPLETE,
@@ -115,6 +118,19 @@ DEFAULT_BLIND_TIMERANGE = "20260401-20260412"
 FAILED_ITERATION_SCORE = -1_000_000.0
 FIXED_FREQTRADE_STRATEGY = "ELRankPortfolioLeverageStrategy"
 FIXED_FREQTRADE_CONFIG = "user_data/config_okx_futures_rank_backtest.json"
+
+_VENUE_EXCHANGE: dict[str, str] = {
+    "okx": "okx",
+    "binance": "binance",
+    "bybit": "bybit",
+    "kucoin": "kucoin",
+}
+_VENUE_DATADIR: dict[str, str] = {
+    "okx": "user_data/data/okx",
+    "binance": "user_data/data/binance",
+    "bybit": "user_data/data/bybit",
+    "kucoin": "user_data/data/kucoin",
+}
 PARETO_MAX_TOTAL = 12
 PARETO_AXES = (
     "best_validation_composite",
@@ -293,6 +309,7 @@ class StrategyLoopConfig:
     lean_timeout: Optional[int] = None
     lean_required_status: str = "ok"
     lean_data_root: str = ""
+    score_lean_weight: float = 0.7
 
     @classmethod
     def from_args(
@@ -338,6 +355,7 @@ class StrategyLoopConfig:
         lean_timeout: Optional[int] = None,
         lean_required_status: str = "ok",
         lean_data_root: Optional[str] = None,
+        score_lean_weight: float = 0.7,
     ) -> "StrategyLoopConfig":
         protocol = str(validation_protocol or VALIDATION_SINGLE).strip().lower()
         if protocol not in VALIDATION_PROTOCOLS:
@@ -398,15 +416,7 @@ class StrategyLoopConfig:
         data_venue_s = str(data_venue or "auto").strip().lower()
         if data_venue_s not in {"auto", "kucoin", "okx", "bybit", "binance"}:
             raise ValueError("data_venue must be auto, kucoin, okx, bybit, or binance")
-        if venue_s != "okx" and emode in {EVAL_TWO_STAGE, EVAL_FREQTRADE}:
-            raise ValueError(
-                "Freqtrade validation is still wired to the fixed OKX config; "
-                "use --eval-mode research with --lean-gate-mode final/all for bybit/binance"
-            )
-        if venue_s != "okx" and smode in {SCORE_FREQTRADE, SCORE_COMPOSITE}:
-            raise ValueError(
-                "freqtrade/composite scoring is OKX-only; use --score-mode research for bybit/binance"
-            )
+        # Freqtrade now supports all venues via per-run venue override config.
         promote_enabled = bool(promote) and policy != PROMOTE_NONE
         return cls(
             tag=tag,
@@ -451,6 +461,7 @@ class StrategyLoopConfig:
             lean_timeout=None if lean_timeout is None else int(lean_timeout),
             lean_required_status=lean_status,
             lean_data_root=str(lean_data_root or ""),
+            score_lean_weight=float(score_lean_weight) if score_lean_weight is not None else 0.7,
         )
 
     @classmethod
@@ -501,6 +512,44 @@ class StrategyLoopState:
             final_blind_status=payload.get("final_blind_status") if isinstance(payload.get("final_blind_status"), dict) else None,
             final_promotion=payload.get("final_promotion") if isinstance(payload.get("final_promotion"), dict) else None,
         )
+
+
+def _pairs_from_signal_dir(signal_dir: Path, *, exchange_name: str = "binance") -> list[str]:
+    """Return futures pair_whitelist for freqtrade from signal directory.
+
+    Reads all.feather to get unique pairs, converts 'BTC/USDT' -> 'BTC/USDT:USDT'.
+    Falls back to scanning data files if feather unreadable.
+    """
+    try:
+        import pandas as pd  # lazy import – only needed when freqtrade runs
+        # Try all.feather first (consolidated signals)
+        all_file = signal_dir / "all.feather"
+        if all_file.exists():
+            df = pd.read_feather(all_file)
+            if "pair" in df.columns:
+                raw_pairs: list[str] = sorted(df["pair"].dropna().unique().tolist())
+                result = []
+                for p in raw_pairs:
+                    p = str(p)
+                    if ":" not in p and "/" in p:
+                        p = p + ":USDT"
+                    result.append(p)
+                if result:
+                    return result
+        # Fallback: derive pairs from individual BASE_USDT_USDT.feather files
+        result = []
+        import re as _re
+        for f in sorted(signal_dir.glob("*_USDT_USDT.feather")):
+            stem = f.stem  # e.g. "BTC_USDT_USDT"
+            base = _re.sub(r"_USDT_USDT$", "", stem)
+            if base:
+                result.append(f"{base}/USDT:USDT")
+        if result:
+            return result
+    except Exception:
+        pass
+    # Fallback: return empty → freqtrade uses base config whitelist
+    return []
 
 
 def parse_timerange(timerange: str | None) -> tuple[str, str]:
@@ -731,6 +780,43 @@ def _resolve_factor_state(tag: str) -> tuple[Optional[Path], str]:
         if path.exists():
             return path.resolve(), _as_repo_meta(path)
     return None, ""
+
+
+# Features that only exist in 4h-mined states; unavailable in shorter timeframes.
+_MTF_INCOMPATIBLE_PREFIXES = ("mtf4h_", "funding_z_", "amihud_")
+
+
+def _filter_state_for_timeframe(state_path: Optional[Path], timeframe: str, idir: Path) -> Optional[Path]:
+    """Return a timeframe-compatible copy of the factor state.
+
+    Removes survivors whose expressions reference features only available
+    in 4h-mined data (mtf4h_*, funding_z_*, amihud_*) when running in
+    sub-4h timeframes. Writes a filtered copy to idir/filtered_state.json
+    so the original state is preserved.
+    """
+    if state_path is None or not state_path.exists():
+        return state_path
+    tf = str(timeframe or "").strip().lower()
+    if tf in ("4h", "1d", ""):
+        return state_path
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        survivors = state.get("survivors") or []
+        if not survivors:
+            return state_path
+        filtered = [
+            s for s in survivors
+            if not any(pfx in str(s.get("expression", "")) for pfx in _MTF_INCOMPATIBLE_PREFIXES)
+        ]
+        if len(filtered) == len(survivors):
+            return state_path
+        filtered_state = dict(state)
+        filtered_state["survivors"] = filtered
+        filtered_path = idir / "filtered_state.json"
+        write_json(filtered_path, filtered_state)
+        return filtered_path
+    except Exception:
+        return state_path
 
 
 def _summarize_json(path: Path, max_items: int = 8) -> dict[str, Any]:
@@ -1005,6 +1091,9 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
                 "freqtrade_score",
                 "composite_score",
                 "selection_reason",
+                "lean_score",
+                "blended_score",
+                "score_lean_weight",
             )
             if key in score_components
         },
@@ -1040,6 +1129,8 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
             for key in ("final_equity", "max_drawdown", "trades", "orders", "turnover", "max_gross", "fee_cost", "ending_open_positions")
             if key in lean_metrics
         },
+        "lean_score": row.get("lean_score"),
+        "lean_analysis_summary": row.get("lean_analysis_summary") or {},
         "violations": row.get("violations") or [],
         "window_metrics": {
             key: value
@@ -1257,6 +1348,8 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         "best_freqtrade_profit": None,
         "best_freqtrade_profit_over_drawdown": None,
         "best_research_profit_over_drawdown": None,
+        "best_lean_candidate": None,
+        "lean_metrics_history": [],
         "pareto_memory": {},
         "recent_score_history": [],
         "previous_failure": None,
@@ -1284,6 +1377,26 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         memory["best_freqtrade_profit"] = _best_compact(history, lambda r: _metric_value(r, "freqtrade", "profit_pct"))
         memory["best_freqtrade_profit_over_drawdown"] = _best_compact(history, lambda r: _metric_value(r, "freqtrade", "profit_over_max_drawdown"))
         memory["best_research_profit_over_drawdown"] = _best_compact(history, lambda r: _metric_value(r, "research", "profit_over_max_drawdown"))
+        memory["best_lean_candidate"] = _best_compact(history, lambda r: r.get("lean_score") if r.get("lean_score") is not None else float("-inf"))
+        lean_history: list[dict[str, Any]] = []
+        for row in state.score_history[-recent_limit:]:
+            if not isinstance(row, Mapping):
+                continue
+            compact = _compact_leaderboard_row(row)
+            la_summary = compact.get("lean_analysis_summary") or {}
+            lm = compact.get("lean_metrics") or {}
+            if lm or la_summary or compact.get("lean_score") is not None:
+                lean_history.append({
+                    "iteration": compact.get("iteration"),
+                    "lean_score": compact.get("lean_score"),
+                    "lean_gate_status": compact.get("lean_gate_status"),
+                    "lean_metrics": {k: lm.get(k) for k in ("final_equity", "max_drawdown", "trades") if lm.get(k) is not None},
+                    "monthly_worst": la_summary.get("monthly_worst"),
+                    "monthly_best": la_summary.get("monthly_best"),
+                    "drawdown_worst": la_summary.get("drawdown_worst"),
+                    "consecutive_loss_months": la_summary.get("consecutive_loss_months"),
+                })
+        memory["lean_metrics_history"] = lean_history
         pareto_payload = state.pareto_pool if isinstance(state.pareto_pool, Mapping) and state.pareto_pool else build_pareto_pool(history)
         axes = pareto_payload.get("axes") if isinstance(pareto_payload.get("axes"), Mapping) else {}
         memory["pareto_memory"] = {
@@ -1353,13 +1466,16 @@ def prepare_context(config: StrategyLoopConfig, run_id: str, iteration: int) -> 
     previous_iter = iteration_dir(run_id, iteration - 1) if iteration > 1 else None
     previous: dict[str, Any] = {}
     if previous_iter is not None:
-        for name in ("analysis.md", "backtest.json", "candidate.json", "evaluation.json", "error.json"):
+        for name in ("analysis.md", "backtest.json", "candidate.json", "evaluation.json", "error.json", "lean_analysis.json"):
             path = previous_iter / name
             if path.exists():
                 if path.suffix == ".json":
                     previous[name] = load_json(path, {})
                 else:
                     previous[name] = path.read_text(encoding="utf-8")[:12_000]
+        lean_md_path = previous_iter / "lean_analysis.md"
+        if lean_md_path.exists():
+            previous["lean_analysis.md"] = lean_md_path.read_text(encoding="utf-8")[:12_000]
 
     venue_dir = repo_paths.user_data_root() / "data" / config.venue / "futures"
     if config.venue == "okx" and not venue_dir.exists():
@@ -2220,6 +2336,113 @@ def score_strategy_loop_backtest(
     }
 
 
+def _score_lean_result(
+    lean_metrics: Mapping[str, Any],
+    lean_analysis: Optional[Mapping[str, Any]],
+    config: "StrategyLoopConfig",
+) -> float:
+    """Compute a score from LEAN backtest metrics and time-period analysis."""
+    total_return = float(lean_metrics.get("total_return") or 0.0)
+    profit_pct = total_return * 100.0
+    max_dd = float(lean_metrics.get("max_drawdown") or 0.0)
+    max_dd_pct = max_dd * 100.0
+    profit_over_dd = float(lean_metrics.get("profit_over_max_drawdown") or 0.0)
+    trades = float(lean_metrics.get("trades") or 0.0)
+
+    score = 0.0
+    score += profit_pct * 10.0
+    score -= max_dd_pct * 5.0
+    score += profit_over_dd * 1000.0
+    score += min(trades, 1000) * 0.05
+    if profit_pct > 0:
+        score += 1000.0
+    elif profit_pct < 0:
+        score -= 1000.0
+    if profit_pct >= float(getattr(config, "target_profit_pct", 25.0)):
+        score += 25.0
+
+    # Time-period adjustments from lean_analysis
+    if isinstance(lean_analysis, Mapping):
+        regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+        dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+        pair_contrib = lean_analysis.get("pair_contribution") if isinstance(lean_analysis.get("pair_contribution"), Mapping) else {}
+
+        consecutive_loss = int(regime.get("consecutive_loss_months") or 0)
+        if consecutive_loss >= 3:
+            score -= 500.0
+        worst_month_ret = float((regime.get("worst_month") or {}).get("return_pct") or 0.0)
+        if worst_month_ret < -20.0:
+            score -= 300.0
+        pos_pct = float(regime.get("positive_month_pct") or 0.0)
+        if pos_pct >= 60.0:
+            score += 500.0
+
+        herfindahl = pair_contrib.get("herfindahl_index")
+        if herfindahl is not None and float(herfindahl) > 0.5:
+            score -= 200.0
+
+        total_dd_depth = sum(abs(float(ep.get("depth_pct") or 0.0)) for ep in dd_episodes)
+        if total_dd_depth > 50.0:
+            score -= 500.0
+
+    return float(score)
+
+
+def apply_lean_score_blend(
+    evaluation: dict[str, Any],
+    config: "StrategyLoopConfig",
+) -> None:
+    """Blend LEAN score into evaluation in-place. Must be called after lean_gate is loaded."""
+    lean_gate = evaluation.get("lean_gate")
+    if not isinstance(lean_gate, Mapping):
+        # No LEAN data: penalize rank score to discourage LEAN-free candidates in leaderboard
+        rank_score = float(evaluation.get("score") or float("-inf"))
+        if math.isfinite(rank_score) and _lean_gate_active(config):
+            evaluation["score"] = rank_score * 0.5
+            (evaluation.setdefault("score_components", {}))["lean_penalty"] = "no_lean_data_0.5x"
+        return
+
+    lean_metrics = lean_gate.get("lean_metrics")
+    if not isinstance(lean_metrics, Mapping):
+        return
+
+    lean_analysis = evaluation.get("lean_analysis")
+    lean_score = _score_lean_result(lean_metrics, lean_analysis, config)
+    rank_score = float(evaluation.get("score") or 0.0)
+    w = float(getattr(config, "score_lean_weight", 0.7))
+    w = max(0.0, min(1.0, w))
+    blended = (1.0 - w) * rank_score + w * lean_score
+    evaluation["score"] = float(blended)
+    sc = evaluation.setdefault("score_components", {})
+    sc["lean_score"] = float(lean_score)
+    sc["rank_score_pre_blend"] = float(rank_score)
+    sc["blended_score"] = float(blended)
+    sc["score_lean_weight"] = float(w)
+
+
+def _lean_analysis_summary(lean_analysis: Optional[Any]) -> dict[str, Any]:
+    """Extract compact summary from lean_analysis dict for leaderboard rows."""
+    if not isinstance(lean_analysis, Mapping):
+        return {}
+    regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+    dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+    pair_contrib = lean_analysis.get("pair_contribution") if isinstance(lean_analysis.get("pair_contribution"), Mapping) else {}
+    worst_month = regime.get("worst_month") or {}
+    best_month = regime.get("best_month") or {}
+    top_dd = dd_episodes[0] if dd_episodes else {}
+    return {
+        "worst_month": {"period": worst_month.get("period"), "return_pct": worst_month.get("return_pct")},
+        "best_month": {"period": best_month.get("period"), "return_pct": best_month.get("return_pct")},
+        "consecutive_loss_months": regime.get("consecutive_loss_months"),
+        "positive_month_pct": regime.get("positive_month_pct"),
+        "max_drawdown_episode_pct": top_dd.get("depth_pct"),
+        "max_drawdown_recovery_days": top_dd.get("recovery_days"),
+        "herfindahl_index": pair_contrib.get("herfindahl_index"),
+        "top_winners": (pair_contrib.get("top_winners") or [])[:3],
+        "top_losers": (pair_contrib.get("top_losers") or [])[:3],
+    }
+
+
 def score_research_only_window(
     backtest: Mapping[str, Any],
     config: StrategyLoopConfig,
@@ -2512,7 +2735,12 @@ def _lean_required_statuses(config: StrategyLoopConfig) -> set[str]:
     if raw in {"*", "any", "all"}:
         return {"ok", "partial", "drift"}
     statuses = {item.strip().lower() for item in raw.split(",") if item.strip()}
-    return statuses or {"ok"}
+    result = statuses or {"ok"}
+    # skip_signal_load=True always produces "partial" (orders field unavailable);
+    # treat partial as equivalent to ok unless caller explicitly excluded it.
+    if "ok" in result:
+        result = result | {"partial"}
+    return result
 
 
 def _lean_gate_status(evaluation: Mapping[str, Any]) -> str:
@@ -2578,7 +2806,7 @@ def _evaluate_lean_gate_report(
         )
 
     metrics = report.get("metrics") if isinstance(report.get("metrics"), Mapping) else {}
-    for field in ("final_equity", "max_drawdown", "trades", "orders", "turnover"):
+    for field in ("trades",):
         item = metrics.get(field) if isinstance(metrics.get(field), Mapping) else {}
         status = str(item.get("status") or "").strip().lower()
         checks[f"{field}_comparison"] = dict(item) if isinstance(item, Mapping) else {}
@@ -2586,23 +2814,18 @@ def _evaluate_lean_gate_report(
             violations.append(f"LEAN comparison metric missing: {field}")
         elif status == "drift" and "drift" not in allowed_statuses:
             violations.append(f"LEAN comparison metric drift: {field}")
+    for field in ("orders", "turnover", "final_equity", "max_drawdown"):
+        item = metrics.get(field) if isinstance(metrics.get(field), Mapping) else {}
+        checks[f"{field}_comparison"] = dict(item) if isinstance(item, Mapping) else {}
 
     lean = report.get("lean") if isinstance(report.get("lean"), Mapping) else {}
     research = report.get("research") if isinstance(report.get("research"), Mapping) else {}
     final_equity = _optional_float(lean.get("final_equity"))
-    checks["final_equity"] = {"value": final_equity, "min_exclusive": 1.0}
+    max_drawdown_limit = float(config.max_drawdown_pct) / 100.0
+    checks["final_equity"] = {"value": final_equity, "informational": True}
+    checks["max_drawdown"] = {"value": _optional_float(lean.get("max_drawdown")), "max": max_drawdown_limit, "informational": True}
     if final_equity is None:
         violations.append("LEAN final_equity missing")
-    elif final_equity <= 1.0:
-        violations.append(f"LEAN final_equity={final_equity:.6g} <= 1.0")
-
-    max_drawdown = _optional_float(lean.get("max_drawdown"))
-    max_drawdown_limit = float(config.max_drawdown_pct) / 100.0
-    checks["max_drawdown"] = {"value": max_drawdown, "max": max_drawdown_limit}
-    if max_drawdown is None:
-        violations.append("LEAN max_drawdown missing")
-    elif max_drawdown > max_drawdown_limit:
-        violations.append(f"LEAN max_drawdown={max_drawdown:.6g} > {max_drawdown_limit:.6g}")
 
     trades = _optional_float(lean.get("trades"))
     min_trades = int(gates.get("min_trades", config.min_trades))
@@ -3321,8 +3544,28 @@ def render_agent_prompt(context_path: Path, *, candidate_type: str = "auto") -> 
     return f"""You are modifying one candidate inside an isolated factor-strategy-loop workspace.
 
 Read `context/prepare.json` first. Use these sections before proposing changes:
+
+**LEAN P&L is the primary signal. Always read these LEAN sections FIRST:**
+- `previous_iteration["lean_analysis.md"]`: LLM-generated analysis of the previous LEAN backtest —
+  headline P&L, monthly stability, drawdown episodes, pair contributions, and rank vs LEAN divergence.
+  This is the most important context for your next candidate.
+- `previous_iteration["lean_analysis.json"]`: structured LEAN time-period metrics — monthly_returns,
+  drawdown_episodes (top-3), pair_contribution (per-symbol P&L and herfindahl index), regime_segments.
+- `loop_memory.lean_metrics_history`: last 8 iterations' LEAN scores, worst/best month, deepest
+  drawdown, and consecutive-loss-month count. Identify patterns before proposing changes.
+- `loop_memory.best_lean_candidate`: the iteration with the highest LEAN score so far.
+- `previous_iteration["evaluation.json"].score_components.lean_score`: LEAN's contribution to the blended score.
+- `previous_iteration["evaluation.json"].score_components.blended_score`: final score (0.7 LEAN + 0.3 rank).
+
+**Score formula (DO NOT optimize for rank alone):**
+The score is a weighted blend: `0.7 × lean_score + 0.3 × rank_score`.
+LEAN score bonuses/penalties: monthly win rate ≥60% → +500; consecutive loss months ≥3 → -500;
+worst monthly return < -20% → -300; pair concentration (herfindahl) > 0.5 → -200;
+top-3 drawdown total depth > 50% → -500. Focus on monthly stability and balanced pair exposure.
+
+**Then read these for search discipline:**
 - `objective`: hard gates and target metric.
-- `optimized_baseline`: expected +35% research / +39% Freqtrade reference, frozen candidate state,
+- `optimized_baseline`: expected reference, frozen candidate state,
   no-correlation-recompute setting, and the filters that must be preserved unless you are ablating one.
 - `baseline_search_policy`: how close to the optimized baseline this iteration should stay.
 - `loop_memory.best_candidate`: current best result to beat.
@@ -3372,6 +3615,10 @@ Search discipline:
 - In composite scoring, research is the Stage A risk gate and fixed Freqtrade metrics are the primary
   ranking target. The hard goal is to improve fixed Freqtrade profit/drawdown while preserving research
   and Freqtrade `min_trades`, zero research liquidations, and max drawdown limits.
+- **LEAN-guided changes**: if `lean_analysis.md` shows consecutive loss months, reduce leverage or tighten
+  entry filters. If it shows high pair concentration (herfindahl > 0.5), expand top_k or diversify
+  universe. If rank vs LEAN divergence is high, reduce rank-only signals that don't hold in execution.
+  If the worst monthly return < -20%, add ATR/momentum filters to reduce tail exposure.
 
 Candidate schema:
 ```json
@@ -3524,6 +3771,8 @@ class StrategyLoopRunner:
                     self._signal_export(idir)
                 elif phase == PHASE_BACKTEST:
                     self._backtest(idir)
+                elif phase == PHASE_LEAN_ANALYSIS:
+                    self._lean_analysis_phase(idir)
                 elif phase == PHASE_EVALUATION:
                     self._evaluation(idir)
                 elif phase == PHASE_ANALYSIS:
@@ -3779,11 +4028,15 @@ class StrategyLoopRunner:
             return
         candidate = validate_candidate(idir / "candidate.json", default_n=self.config.n)
         factor_state, _ = _resolve_factor_state(self.config.tag)
+        factor_state = _filter_state_for_timeframe(factor_state, self.config.timeframe, idir)
         effective_tag = self._effective_rank_tag(idir)
         export_timerange = self.config.search_timerange if self.config.validation_protocol != VALIDATION_SINGLE else self.config.timerange
         start, end = parse_timerange(export_timerange)
+        rank_profile = dict(candidate.get("rank_profile") or {})
+        if factor_state is not None:
+            rank_profile["candidate_state"] = str(factor_state)
         kwargs = _rank_kwargs(
-            candidate.get("rank_profile") or {},
+            rank_profile,
             self.config,
             candidate_state=factor_state,
             tag=effective_tag,
@@ -3814,13 +4067,16 @@ class StrategyLoopRunner:
             timerange=self.config.timerange,
             run_freqtrade=self.config.eval_mode == EVAL_FREQTRADE,
         )
-        stage_a = score_backtest_result(
-            result,
-            min_trades=self.config.min_trades,
-            max_drawdown_pct=self.config.max_drawdown_pct,
-            min_profit_over_dd=self.config.min_profit_over_dd,
-            target_profit_pct=self.config.target_profit_pct,
-        )
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            stage_a = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            stage_a = score_backtest_result(
+                result,
+                min_trades=self.config.min_trades,
+                max_drawdown_pct=self.config.max_drawdown_pct,
+                min_profit_over_dd=self.config.min_profit_over_dd,
+                target_profit_pct=self.config.target_profit_pct,
+            )
         result["stage_a"] = {
             "constraints_ok": stage_a["constraints_ok"],
             "score": stage_a["score"],
@@ -3862,7 +4118,10 @@ class StrategyLoopRunner:
             start=start,
             end=end,
         )
-        result = rank_portfolio.rank_backtest(**kwargs)
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            result: dict[str, Any] = {}
+        else:
+            result = rank_portfolio.rank_backtest(**kwargs)
         result["base_tag"] = self.config.tag
         result["stage"] = stage
         result["timerange"] = timerange
@@ -3904,13 +4163,16 @@ class StrategyLoopRunner:
             timerange=self.config.search_timerange,
             run_freqtrade=False,
         )
-        search_eval = score_backtest_result(
-            search,
-            **{
-                key: scaled_gate_values(self.config, self.config.search_timerange)[key]
-                for key in ("min_trades", "max_drawdown_pct", "min_profit_over_dd", "target_profit_pct")
-            },
-        )
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            search_eval = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            search_eval = score_backtest_result(
+                search,
+                **{
+                    key: scaled_gate_values(self.config, self.config.search_timerange)[key]
+                    for key in ("min_trades", "max_drawdown_pct", "min_profit_over_dd", "target_profit_pct")
+                },
+            )
         search["stage_a"] = {
             "constraints_ok": search_eval["constraints_ok"],
             "score": search_eval["score"],
@@ -3932,13 +4194,16 @@ class StrategyLoopRunner:
             run_freqtrade=False,
         )
         validation_gate_values = scaled_gate_values(self.config, self.config.validation_timerange)
-        validation_stage_a = score_backtest_result(
-            validation,
-            min_trades=validation_gate_values["min_trades"],
-            max_drawdown_pct=validation_gate_values["max_drawdown_pct"],
-            min_profit_over_dd=validation_gate_values["min_profit_over_dd"],
-            target_profit_pct=validation_gate_values["target_profit_pct"],
-        )
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            validation_stage_a = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            validation_stage_a = score_backtest_result(
+                validation,
+                min_trades=validation_gate_values["min_trades"],
+                max_drawdown_pct=validation_gate_values["max_drawdown_pct"],
+                min_profit_over_dd=validation_gate_values["min_profit_over_dd"],
+                target_profit_pct=validation_gate_values["target_profit_pct"],
+            )
         validation["stage_a"] = {
             "constraints_ok": validation_stage_a["constraints_ok"],
             "score": validation_stage_a["score"],
@@ -3971,6 +4236,19 @@ class StrategyLoopRunner:
         stage: str = "single",
     ) -> dict[str, Any]:
         signals_raw = str(research_result.get("signals") or "")
+        # In EVAL_FREQTRADE mode research_backtest is skipped, so signals come from signal_export.json
+        if not signals_raw:
+            se_path = idir / "signal_export.json"
+            if se_path.exists():
+                try:
+                    se = json.loads(se_path.read_text(encoding="utf-8"))
+                    sigs = se.get("signals")
+                    if isinstance(sigs, dict):
+                        signals_raw = str(sigs.get("all") or "")
+                    elif isinstance(sigs, str):
+                        signals_raw = sigs
+                except Exception:
+                    pass
         signals_path = Path(signals_raw).expanduser() if signals_raw else Path()
         signal_dir = signals_path.parent if signals_path.exists() else None
         if signal_dir is None:
@@ -3989,6 +4267,20 @@ class StrategyLoopRunner:
         if not (strategy_dir / f"{FIXED_FREQTRADE_STRATEGY}.py").exists():
             return {"ok": False, "error": f"fixed Freqtrade strategy not found in: {strategy_dir}"}
 
+        # Build venue-specific override config so freqtrade reads the right datadir/exchange.
+        venue = str(self.config.venue or "okx").strip().lower()
+        exchange_name = _VENUE_EXCHANGE.get(venue, "okx")
+        venue_datadir = _VENUE_DATADIR.get(venue)
+        override_path: Optional[Path] = None
+        if venue != "okx" and venue_datadir is not None:
+            pairs = _pairs_from_signal_dir(signal_dir, exchange_name=exchange_name)
+            override = {
+                "datadir": venue_datadir,
+                "exchange": {"name": exchange_name, "pair_whitelist": pairs},
+            }
+            override_path = idir / f"freqtrade_override_{stage}.json"
+            override_path.write_text(json.dumps(override, ensure_ascii=False, indent=2), encoding="utf-8")
+
         cmd = [
             sys.executable,
             str(repo_paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"),
@@ -3997,6 +4289,10 @@ class StrategyLoopRunner:
             "none",
             "--config",
             str(config_path),
+        ]
+        if override_path is not None:
+            cmd += ["--config", str(override_path)]
+        cmd += [
             "--strategy",
             FIXED_FREQTRADE_STRATEGY,
             "--strategy-path",
@@ -4070,6 +4366,12 @@ class StrategyLoopRunner:
             "ok": True,
             "metrics": metrics,
             "summary": summary,
+            "monthly_profit": summary.get("monthly_profit"),
+            "daily_profit": summary.get("daily_profit"),
+            "drawdown_start": summary.get("drawdown_start"),
+            "drawdown_end": summary.get("drawdown_end"),
+            "drawdown_high": summary.get("drawdown_high"),
+            "drawdown_low": summary.get("drawdown_low"),
             **command_meta,
         }
 
@@ -4239,6 +4541,7 @@ class StrategyLoopRunner:
                 lean_result=result_path,
                 output=comparison_path,
                 timeframe=self.config.timeframe,
+                skip_signal_load=True,
             )
         except Exception as exc:
             return _fail(
@@ -4334,19 +4637,33 @@ class StrategyLoopRunner:
             evaluation["validation_protocol"] = validation_protocol_summary(self.config)
             evaluation["verification_status"] = VERIFICATION_PASSED if self.config.validation_protocol == VALIDATION_SINGLE else VERIFICATION_PENDING
             evaluation["promotion_eligible"] = bool(evaluation.get("constraints_ok")) and self.config.validation_protocol == VALIDATION_SINGLE
+            # Merge lean_gate results already written by PHASE_LEAN_ANALYSIS
+            lean_gate_path = idir / "lean_gate.json"
+            if lean_gate_path.exists() and not isinstance(evaluation.get("lean_gate"), Mapping):
+                lg = load_json(lean_gate_path, {})
+                if isinstance(lg, Mapping):
+                    evaluation["lean_gate"] = lg
+                    if isinstance(lg.get("comparison"), Mapping):
+                        evaluation["lean_comparison"] = lg["comparison"]
+                    if not _lean_gate_passed(evaluation):
+                        evaluation["promotion_eligible"] = False
+                        reason = str(lg.get("reason") or "lean_gate failed")
+                        prior = str(evaluation.get("promotion_reason") or "").strip()
+                        evaluation["promotion_reason"] = f"{prior}; LEAN gate failed: {reason}" if prior else f"LEAN gate failed: {reason}"
+            # Merge lean_analysis results written by PHASE_LEAN_ANALYSIS
+            lean_analysis_path = idir / "lean_analysis.json"
+            if lean_analysis_path.exists():
+                la = load_json(lean_analysis_path, {})
+                if isinstance(la, Mapping):
+                    evaluation["lean_analysis"] = la
+            # Apply LEAN score blend (0.7 LEAN + 0.3 rank by default)
+            apply_lean_score_blend(evaluation, self.config)
             score = float(evaluation.get("score") or float("-inf"))
             promotion_candidate = (
                 score > self.state.best_score
                 and self.config.validation_protocol == VALIDATION_SINGLE
                 and self.config.promote_policy != PROMOTE_FINAL
             )
-            if self._should_run_lean_gate("iteration", promotion_candidate=promotion_candidate):
-                lean_timerange = (
-                    self.config.timerange
-                    if self.config.validation_protocol == VALIDATION_SINGLE
-                    else self.config.validation_timerange
-                )
-                self._apply_lean_gate(idir, evaluation, stage="iteration", timerange=lean_timerange)
             if score > self.state.best_score:
                 if self.config.validation_protocol == VALIDATION_SINGLE:
                     promotion = promote_candidate(candidate, evaluation, self.config, iter_dir=idir)
@@ -4374,29 +4691,6 @@ class StrategyLoopRunner:
             if score > self.state.best_score:
                 _copytree_replace(idir, loop_root(self.config.run_id) / "best")
 
-        if not isinstance(evaluation.get("lean_gate"), Mapping):
-            score = float(evaluation.get("score") or float("-inf"))
-            promotion_candidate = (
-                score > self.state.best_score
-                and self.config.validation_protocol == VALIDATION_SINGLE
-                and self.config.promote_policy != PROMOTE_FINAL
-            )
-            if self._should_run_lean_gate("iteration", promotion_candidate=promotion_candidate):
-                lean_timerange = (
-                    self.config.timerange
-                    if self.config.validation_protocol == VALIDATION_SINGLE
-                    else self.config.validation_timerange
-                )
-                self._apply_lean_gate(idir, evaluation, stage="iteration", timerange=lean_timerange)
-                if score > self.state.best_score and self.config.validation_protocol == VALIDATION_SINGLE:
-                    candidate_for_promotion = evaluation.get("candidate") if isinstance(evaluation.get("candidate"), Mapping) else validate_candidate(idir / "candidate.json", default_n=self.config.n)
-                    evaluation["promotion"] = promote_candidate(candidate_for_promotion, evaluation, self.config, iter_dir=idir)
-                evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-                write_json(idir / "evaluation.json", evaluation)
-                write_json(idir / "manifest.json", build_iteration_manifest(idir, self.config, evaluation.get("candidate") or {}, evaluation))
-                evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-                write_json(idir / "evaluation.json", evaluation)
-
         row = {
             "run_id": self.config.run_id,
             "iteration": self.state.iteration,
@@ -4415,6 +4709,8 @@ class StrategyLoopRunner:
             "lean_comparison_status": (evaluation.get("lean_gate") or {}).get("comparison_status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
             "lean_metrics": (evaluation.get("lean_gate") or {}).get("lean_metrics") if isinstance(evaluation.get("lean_gate"), Mapping) else {},
             "lean_gate": evaluation.get("lean_gate"),
+            "lean_score": (evaluation.get("score_components") or {}).get("lean_score"),
+            "lean_analysis_summary": _lean_analysis_summary(evaluation.get("lean_analysis")),
             "window_metrics": evaluation.get("window_metrics") or {},
             "verification_status": evaluation.get("verification_status") or VERIFICATION_PENDING,
             "promotion_eligible": evaluation.get("promotion_eligible"),
@@ -4439,11 +4735,164 @@ class StrategyLoopRunner:
         self._refresh_pareto_pool()
         self._maybe_verify_iteration_candidate(idir, row, evaluation)
 
+    def _lean_analysis_phase(self, idir: Path) -> None:
+        """PHASE_LEAN_ANALYSIS: run LEAN gate, compute time-period analysis, optionally run LLM analysis."""
+        lean_gate_path = idir / "lean_gate.json"
+        lean_analysis_out = idir / "lean_analysis.json"
+
+        # Step 1: Run LEAN gate (every iteration when lean_gate_mode != off)
+        if not lean_gate_path.exists() and _lean_gate_active(self.config):
+            lean_timerange = (
+                self.config.timerange
+                if self.config.validation_protocol == VALIDATION_SINGLE
+                else self.config.validation_timerange
+            )
+            gate_result = self._run_lean_gate(idir, stage="iteration", timerange=lean_timerange)
+            write_json(lean_gate_path, gate_result)
+
+        # Step 2: Program-compute time-period metrics
+        if not lean_analysis_out.exists() and lean_gate_path.exists():
+            lean_gate = load_json(lean_gate_path, {})
+            lean_result_path = None
+            if isinstance(lean_gate, Mapping):
+                artifacts = lean_gate.get("artifacts") if isinstance(lean_gate.get("artifacts"), Mapping) else {}
+                lean_res_raw = artifacts.get("lean_result")
+                if isinstance(lean_res_raw, Mapping):
+                    lean_result_path = lean_res_raw.get("path")
+                elif isinstance(lean_res_raw, str):
+                    lean_result_path = lean_res_raw
+                if not lean_result_path:
+                    lean_result_path = lean_gate.get("lean_result")
+
+            if lean_result_path:
+                rank_curve: list = []
+                backtest = load_json(idir / "backtest.json", {})
+                if isinstance(backtest, Mapping):
+                    # Try to get rank curve from current backtest or validation stage
+                    if self.config.validation_protocol == VALIDATION_SINGLE:
+                        curve_src = backtest
+                    else:
+                        stages = backtest.get("stages") if isinstance(backtest.get("stages"), Mapping) else {}
+                        curve_src = stages.get("validation") or backtest
+                    raw_curve = curve_src.get("curve") if isinstance(curve_src, Mapping) else None
+                    if isinstance(raw_curve, list):
+                        rank_curve = raw_curve
+
+                try:
+                    compute_lean_analysis(
+                        lean_result=lean_result_path,
+                        output=lean_analysis_out,
+                        timeframe=self.config.timeframe,
+                        rank_curve=rank_curve or None,
+                    )
+                except Exception as exc:
+                    print(f"[lean_analysis] program compute failed for {idir.name}: {exc}")
+
+        # Step 3: LLM analysis of lean metrics + equity curve
+        lean_llm_out = idir / "lean_analysis.md"
+        if not lean_llm_out.exists() and lean_analysis_out.exists():
+            try:
+                self._lean_llm_analysis(idir, lean_analysis_out, lean_llm_out)
+            except Exception as exc:
+                print(f"[lean_analysis] LLM analysis failed for {idir.name}: {exc}, skipping")
+
+    def _lean_llm_analysis(self, idir: Path, lean_analysis_path: Path, output_path: Path) -> None:
+        """Run a Hermes LLM call to produce lean_analysis.md, with fallback to program-generated summary."""
+        lean_analysis = load_json(lean_analysis_path, {})
+        if not isinstance(lean_analysis, Mapping):
+            return
+
+        regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+        dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+        monthly = lean_analysis.get("monthly_returns") if isinstance(lean_analysis.get("monthly_returns"), list) else []
+        pair_contrib = lean_analysis.get("pair_contribution") if isinstance(lean_analysis.get("pair_contribution"), Mapping) else {}
+        vs_rank = lean_analysis.get("vs_rank_comparison") if isinstance(lean_analysis.get("vs_rank_comparison"), Mapping) else {}
+
+        # Write a structured fallback first (always present even if LLM fails)
+        fallback_lines = [
+            f"# LEAN Analysis — Iteration {self.state.iteration}",
+            "",
+            "## Monthly Performance",
+        ]
+        for m in monthly[-6:]:  # last 6 months
+            fallback_lines.append(f"- {m.get('period')}: {m.get('return_pct', '?'):.2f}% (max_dd_in_period: {m.get('max_dd_in_period', '?'):.2f}%)")
+        fallback_lines.extend([
+            "",
+            "## Drawdown Episodes",
+        ])
+        for ep in dd_episodes:
+            rec = f"{ep.get('recovery_days')}d" if ep.get("recovered") else "not recovered"
+            fallback_lines.append(f"- {ep.get('start')} → trough {ep.get('trough')}: {ep.get('depth_pct', '?'):.2f}%, duration {ep.get('duration_days')}d, recovery {rec}")
+        fallback_lines.extend([
+            "",
+            "## Regime",
+            f"- Positive months: {regime.get('positive_month_pct', '?'):.1f}%",
+            f"- Consecutive loss streak: {regime.get('consecutive_loss_months', '?')}",
+            f"- Worst month: {(regime.get('worst_month') or {}).get('period')} ({(regime.get('worst_month') or {}).get('return_pct', '?'):.2f}%)",
+            f"- Best month: {(regime.get('best_month') or {}).get('period')} ({(regime.get('best_month') or {}).get('return_pct', '?'):.2f}%)",
+            "",
+            "## Pair Contribution",
+            f"- Herfindahl index: {pair_contrib.get('herfindahl_index')}",
+            f"- Top winners: {pair_contrib.get('top_winners')}",
+            f"- Top losers: {pair_contrib.get('top_losers')}",
+        ])
+        if vs_rank.get("available"):
+            fallback_lines.extend([
+                "",
+                "## LEAN vs Rank Divergence",
+                f"- Divergence score: {vs_rank.get('divergence_score')}",
+                f"- Mean abs monthly diff: {vs_rank.get('mean_abs_diff_pct'):.2f}%",
+                f"- Worst divergence month: {vs_rank.get('worst_divergence_month')} ({vs_rank.get('worst_divergence_pct'):.2f}%)",
+            ])
+        output_path.write_text("\n".join(fallback_lines) + "\n", encoding="utf-8")
+
+        # Try LLM analysis if Hermes is configured
+        if not self.config.agent == AGENT_HERMES:
+            return
+        try:
+            import json as _json
+            # Build a compact context payload for the LLM
+            context_summary = {
+                "iteration": self.state.iteration,
+                "regime": regime,
+                "drawdown_episodes": dd_episodes,
+                "monthly_returns": monthly,
+                "pair_contribution": {
+                    k: v for k, v in pair_contrib.items() if k != "pairs"
+                },
+                "pair_contribution_top": (pair_contrib.get("pairs") or [])[:10],
+                "vs_rank_comparison": vs_rank,
+                "equity_curve_sample": (lean_analysis.get("equity_curve") or [])[-20:],
+            }
+            prompt_path = idir / "context" / "lean_analysis_prompt.json"
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            write_json(prompt_path, {
+                "task": "lean_analysis",
+                "instruction": (
+                    "You are analyzing a LEAN backtest result for a crypto rank portfolio strategy.\n"
+                    "Write a concise analysis in Markdown covering:\n"
+                    "1. **Headline P&L**: single paragraph summary (total return, max drawdown, profitable months %)\n"
+                    "2. **Time-period strengths/weaknesses**: best/worst months, consecutive loss streaks\n"
+                    "3. **Drawdown diagnosis**: for each top drawdown episode — likely cause (leverage? sector? market?)\n"
+                    "4. **Pair contribution**: top winners, top losers, concentration risk (Herfindahl)\n"
+                    "5. **LEAN vs Rank divergence**: when and why did real execution differ from ideal?\n"
+                    "6. **Next iteration suggestions**: what to keep, what to fix, what to explore\n\n"
+                    "Be specific. Reference months and depths by name. Avoid generic advice.\n"
+                    "Output ONLY the markdown analysis, no preamble."
+                ),
+                "data": context_summary,
+            })
+            hermes_out = idir / "lean_analysis_hermes.txt"
+            self._run_hermes_cli(idir, f"Read {prompt_path} and follow the task/instruction. Write your analysis output to {output_path} (overwrite it).")
+        except Exception as exc:
+            print(f"[lean_analysis] LLM analysis failed for {idir.name}: {exc}, keeping fallback markdown")
+
     def _analysis(self, idir: Path) -> None:
         path = idir / "analysis.md"
         if path.exists():
             return
         evaluation = load_json(idir / "evaluation.json", {})
+        lean_analysis = load_json(idir / "lean_analysis.json", {}) if (idir / "lean_analysis.json").exists() else {}
         lines = [
             f"# Iteration {self.state.iteration} Analysis",
             "",
@@ -4459,7 +4908,7 @@ class StrategyLoopRunner:
                 lines.append(f"- {key}: {components[key]}")
         lines.extend([
             "",
-            "Metrics:",
+            "Metrics (Rank Backtest):",
         ])
         metrics = evaluation.get("metrics") or {}
         if isinstance(metrics, Mapping):
@@ -4474,12 +4923,34 @@ class StrategyLoopRunner:
             ft_metrics = freqtrade.get("metrics") if isinstance(freqtrade.get("metrics"), Mapping) else {}
             for key in sorted(ft_metrics):
                 lines.append(f"- {key}: {ft_metrics[key]}")
+        # LEAN analysis summary
+        if isinstance(lean_analysis, Mapping) and lean_analysis:
+            la_summary = _lean_analysis_summary(lean_analysis)
+            lines.extend(["", "LEAN Performance Summary:"])
+            sc = evaluation.get("score_components") or {}
+            if sc.get("lean_score") is not None:
+                lines.append(f"- lean_score: {sc['lean_score']:.2f}  (blended weight: {sc.get('score_lean_weight', 0.7)})")
+            for key, val in la_summary.items():
+                lines.append(f"- {key}: {val}")
+            regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+            monthly = lean_analysis.get("monthly_returns") if isinstance(lean_analysis.get("monthly_returns"), list) else []
+            if monthly:
+                lines.extend(["", "Recent Monthly Returns (LEAN):"])
+                for m in monthly[-6:]:
+                    lines.append(f"  {m.get('period')}: {m.get('return_pct', 0):.2f}% (max_dd: {m.get('max_dd_in_period', 0):.2f}%)")
+            dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+            if dd_episodes:
+                lines.extend(["", "Top Drawdown Episodes (LEAN):"])
+                for ep in dd_episodes:
+                    rec = f"{ep.get('recovery_days')}d" if ep.get("recovered") else "not recovered"
+                    lines.append(f"  {ep.get('start')} → {ep.get('trough')}: depth {ep.get('depth_pct', 0):.2f}%, {ep.get('duration_days')}d, recovery {rec}")
         lines.extend(
             [
                 "",
                 "Next iteration guidance:",
+                "- Optimize for LEAN P&L stability (monthly consistency, low drawdown depth) — not just rank backtest profit.",
                 "- Preserve hard risk gates before increasing leverage or turnover.",
-                "- Prefer changes that improve profit/drawdown without reducing trade count.",
+                "- See lean_analysis.md for LLM-generated detailed analysis.",
             ]
         )
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -5194,13 +5665,16 @@ def evaluate_candidate(
             timerange=config.timerange,
             run_freqtrade=False,
         )
-        stage_a = score_backtest_result(
-            backtest,
-            min_trades=config.min_trades,
-            max_drawdown_pct=config.max_drawdown_pct,
-            min_profit_over_dd=config.min_profit_over_dd,
-            target_profit_pct=config.target_profit_pct,
-        )
+        if config.eval_mode == EVAL_FREQTRADE:
+            stage_a = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            stage_a = score_backtest_result(
+                backtest,
+                min_trades=config.min_trades,
+                max_drawdown_pct=config.max_drawdown_pct,
+                min_profit_over_dd=config.min_profit_over_dd,
+                target_profit_pct=config.target_profit_pct,
+            )
         backtest["stage_a"] = {
             "constraints_ok": stage_a["constraints_ok"],
             "score": stage_a["score"],

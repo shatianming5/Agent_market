@@ -70,10 +70,40 @@ def test_scan_full_with_mock_session_passes_quality_filter(tmp_path, isolated_ar
     assert summary["submitted"] == 0  # auto_submit=False
 
 
-def test_scan_with_auto_submit_calls_submit(tmp_path, isolated_artifacts):
+def test_scan_auto_submit_refused_without_legacy_unsafe(tmp_path, isolated_artifacts):
+    """Codex R2: --auto-submit alone must be refused (it bypasses
+    pool submit-worker's quota/gate/persistence stack). Operator must
+    explicitly opt in via legacy_unsafe_auto_submit=True (CLI: --legacy-unsafe)."""
     seeds = _make_seeds_file(tmp_path)
-    config = ScanConfig(tag="t1", seed_file=seeds, max_candidates=20, auto_submit=True)
+    config = ScanConfig(tag="t1", seed_file=seeds, max_candidates=20,
+                          auto_submit=True, legacy_unsafe_auto_submit=False)
+    mock_session = MagicMock()
 
+    def fake_batch_simulate(candidates, **kw):
+        for c in candidates:
+            c.sim_result = SimulationResult(
+                sharpe=1.5, fitness=1.2, returns=0.15, turnover=0.18,
+                alpha_id="A_pass", status="COMPLETE",
+            )
+        return candidates
+
+    mock_session.batch_simulate.side_effect = fake_batch_simulate
+    mock_session.submit_alpha.return_value = {"ok": True}
+
+    summary = run_scan(config, session=mock_session)
+    # Refused: submit_alpha NOT called even though auto_submit=True.
+    assert mock_session.submit_alpha.call_count == 0
+    # Candidates still simulated + pooled — only the submit step is gated.
+    assert summary["passed"] == summary["candidates"]
+    assert summary["pool_size"] == 1
+    assert summary["submitted"] == 0
+
+
+def test_scan_auto_submit_with_legacy_unsafe_calls_submit(tmp_path, isolated_artifacts):
+    """Codex R2: with explicit legacy_unsafe_auto_submit=True the bypass IS allowed."""
+    seeds = _make_seeds_file(tmp_path)
+    config = ScanConfig(tag="t1u", seed_file=seeds, max_candidates=20,
+                          auto_submit=True, legacy_unsafe_auto_submit=True)
     mock_session = MagicMock()
 
     def fake_batch_simulate(candidates, **kw):
@@ -89,9 +119,7 @@ def test_scan_with_auto_submit_calls_submit(tmp_path, isolated_artifacts):
 
     summary = run_scan(config, session=mock_session)
     assert summary["passed"] == summary["candidates"]
-    # submit_alpha called for all (but pool dedupes by alpha_id)
     assert mock_session.submit_alpha.call_count >= 1
-    # Pool only retains one (same alpha_id A_pass)
     assert summary["pool_size"] == 1
 
 

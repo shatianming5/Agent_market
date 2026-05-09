@@ -27,6 +27,13 @@ def main() -> None:
     parser.add_argument("--max-iterations", type=int, default=None, help="Override max iterations")
     parser.add_argument("--model", type=str, default=None, help="Override LLM model")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--allow-defaults", action="store_true",
+        help="opt into MinerConfig() builtin defaults when no --config and "
+             "configs/strategy_miner_default.json is missing. Without this "
+             "flag, the run fail-closes (Codex review R1-#2 — silent default "
+             "fallback was a remote-deployment foot-gun)."
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -40,24 +47,52 @@ def main() -> None:
     resume_path = Path(args.resume) if args.resume else None
     config = None
 
-    def _load_config_from_path(path_like: str | Path | None) -> MinerConfig | None:
+    def _load_config_from_path(path_like: str | Path | None, *, strict: bool = False) -> MinerConfig | None:
+        """Load MinerConfig from JSON. When ``strict`` (explicit ``--config``),
+        any failure raises ``SystemExit`` instead of returning None. Codex
+        review R2 — silent fallback on bad explicit config was a remote
+        foot-gun (run looked OK but ran with builtin defaults).
+        """
         if not path_like:
             return None
         config_path = Path(path_like)
         if not config_path.is_absolute():
             config_path = _REPO / config_path
         if not config_path.exists():
-            logging.warning("Config not found: %s", config_path)
+            msg = f"Config not found: {config_path}"
+            if strict:
+                raise SystemExit(f"strategy_miner: {msg}")
+            logging.warning(msg)
             return None
-        raw = json.loads(config_path.read_text(encoding="utf-8"))
+        try:
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            msg = f"Failed to read/parse config {config_path}: {exc}"
+            if strict:
+                raise SystemExit(f"strategy_miner: {msg}")
+            logging.warning(msg)
+            return None
         logging.info("Loaded config from %s", config_path)
         return MinerConfig.from_dict(raw)
 
     if args.config:
-        config = _load_config_from_path(args.config)
+        # Explicit --config: any load failure must fail-close (R2 fix)
+        config = _load_config_from_path(args.config, strict=True)
 
     if config is None and resume_path is not None:
         proposal = resume_path.parent / "proposal.json"
+        # Codex review R3 fix: --resume without --config MUST locate the
+        # original config from proposal.json, never fall back to defaults
+        # (which would silently continue an old checkpoint with the wrong
+        # config — extremely hard to detect from metrics alone).
+        if not proposal.exists():
+            raise SystemExit(
+                f"strategy_miner: --resume {resume_path} requires either "
+                f"explicit --config <path> OR a sibling proposal.json. "
+                f"Neither was provided/found. Re-running an old checkpoint "
+                f"with project default config silently changes experimental "
+                f"truth — refusing fail-closed."
+            )
         if proposal.exists():
             try:
                 payload = json.loads(proposal.read_text(encoding="utf-8"))
@@ -65,14 +100,38 @@ def main() -> None:
                 if isinstance(proposal_cfg, dict):
                     config = MinerConfig.from_dict(proposal_cfg)
                     logging.info("Loaded config from proposal: %s", proposal)
-            except Exception:
-                logging.exception("Failed to load config from proposal: %s", proposal)
+                else:
+                    raise SystemExit(
+                        f"strategy_miner: --resume {resume_path} but its "
+                        f"proposal.json has no `config` block. Re-run with "
+                        f"explicit --config <path>."
+                    )
+            except (OSError, json.JSONDecodeError) as exc:
+                # R2 fix: bad proposal under --resume must fail-close, not
+                # silently fall through to default config.
+                raise SystemExit(
+                    f"strategy_miner: --resume {resume_path} but proposal.json "
+                    f"failed to parse: {exc}. Re-run with explicit --config "
+                    f"<path> or fix the proposal."
+                )
 
     if config is None:
         config = _load_config_from_path("configs/strategy_miner_default.json")
 
     if config is None:
-        logging.warning("No valid config found, using MinerConfig defaults")
+        # Codex review R1-#2 (remote readiness): refusing to silently fall
+        # back to MinerConfig() defaults. On remote, that path used to look
+        # like "the run worked", but actually used neither the user's
+        # config nor the project default — extremely confusing. Caller must
+        # opt into defaults explicitly via --allow-defaults.
+        if not getattr(args, "allow_defaults", False):
+            raise SystemExit(
+                "strategy_miner: --config not provided and "
+                "configs/strategy_miner_default.json missing. "
+                "Pass --config <path> or --allow-defaults to opt into "
+                "MinerConfig() builtin defaults explicitly."
+            )
+        logging.warning("No valid config found; --allow-defaults active, using MinerConfig builtin defaults")
         config = MinerConfig()
 
     # CLI overrides

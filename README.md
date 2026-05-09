@@ -7,17 +7,39 @@ Agent Market 是一个将 LLM 表达式生成、特征工程、机器学习/强�
 - 机器学习/强化学习训练（LightGBM/XGBoost/CatBoost/PyTorch/SB3）
 - FastAPI + Web 前端（静态目录 /web），可部署为一体化服务
 
-## 目录
+## 导航
+
+| 你是谁 | 先读这个 |
+|---|---|
+| AI 协作 agent（Claude / Codex / opencode 等） | [`AGENTS.md`](AGENTS.md) — agent 入口契约（30 秒读完） |
+| 开发者 / 第一次接触 | 本文件 + [`docs/repo_inventory.md`](docs/repo_inventory.md) |
+| 想看每篇文档的状态 / 是否仍 current | [`docs/INDEX.md`](docs/INDEX.md) |
+| 想看系统分层 / 模块归属心智模型 | [`docs/architecture.md`](docs/architecture.md) |
+| 想找 CLI 入口 | [`scripts/README.md`](scripts/README.md) |
+| 想看主驱动子系统 wq_brain | [`src/agent_market/wq_brain/`](src/agent_market/wq_brain/) |
+| 想了解 review loop 评分历史 | [`AUTO_REVIEW.md`](AUTO_REVIEW.md) |
+
+## 目录（顶层；详细 tour 见 [`docs/repo_inventory.md`](docs/repo_inventory.md)）
 
 ```
+artifacts/                 # 运行时产物（runs / 模型 / factor_lab 输出，不要手动改）
 configs/                   # 配置（Flow/训练/回测 JSON + 数据抓取 YAML）
-data/                      # 原始/加工数据（可选）
-docs/                      # 文档
-scripts/                   # 各类脚本（Flow、训练、清理等）
+docs/                      # 文档（24+ 篇；先看 docs/INDEX.md 找当前 vs 历史）
+freqtrade/                 # vendored Freqtrade snapshot（只读）
+runtime_*/                 # 运行时快照（log / config / manifest，运行时生成）
+scripts/                   # 70+ CLI 脚本（先看 scripts/README.md 分类）
 server/                    # FastAPI 后端
-src/agent_market/          # 业务核心（LLM/特征/训练/Flow）
-tests/                     # Pytest
+src/agent_market/          # 业务核心；主子系统 wq_brain（详见其内部 docstring）
+src/runner_fsm/            # 通用 runner FSM
+tests/                     # Pytest 套件
+user_data/                 # Freqtrade 工作区（OHLCV / 配置 / 回测产物）
 web/                       # 前端静态资源（/web/index.html）
+ws_production/             # 独立 production-workspace 实验区
+AGENTS.md                  # AI agent 入口契约
+README.md                  # 你正在读的这个
+plan.md                    # 根兼容性指针（指向下面两份）
+docs/proposals/agent_market_proposal.md   # Proposal（大计划，部分 PARTIAL）
+docs/plan.md                              # MVP 落地计划（已闭环）
 ```
 
 ## 快速开始

@@ -1,72 +1,52 @@
-"""Allow running as: python -m agent_market.strategy_miner"""
+"""Allow running as: python -m agent_market.strategy_miner
+
+Codex review R3-R4 (project-quality loop): this entrypoint previously
+duplicated `scripts/strategy_miner.py`'s argparse + config resolver, but
+with a silent ``MinerConfig.from_dict({})`` default fallback when no
+``--config`` was passed. That bypassed the fail-close logic enforced by
+the script entry. To prevent dual-entry drift, this module now **delegates
+to the script entrypoint's main()** so config resolution is single-sourced.
+"""
 from __future__ import annotations
 
-import argparse
-import json
-import logging
 import sys
 from pathlib import Path
 
-from .dtypes import MinerConfig
-from .runner import run_strategy_miner
-
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Strategy miner: automated trading strategy generation & evaluation",
-    )
-    parser.add_argument(
-        "--config", type=Path, default=None,
-        help="Path to JSON config file (MinerConfig fields)",
-    )
-    parser.add_argument(
-        "--resume", type=Path, default=None,
-        help="Path to checkpoint.json for resuming a previous run",
-    )
-    parser.add_argument(
-        "--run-id", default=None,
-        help="Override run_id (hex)",
-    )
-    parser.add_argument(
-        "--model", default=None,
-        help="Override LLM model name",
-    )
-    parser.add_argument(
-        "--max-iterations", type=int, default=None,
-        help="Override max iteration count",
-    )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true",
-        help="Enable DEBUG logging",
-    )
-    args = parser.parse_args()
+    """Delegate to ``scripts/strategy_miner.py::main()`` so the
+    ``--config`` / ``--resume`` / ``--allow-defaults`` fail-close logic is
+    applied uniformly regardless of whether the user runs
+    ``python scripts/strategy_miner.py`` or
+    ``python -m agent_market.strategy_miner``.
+    """
+    # Locate the script entrypoint
+    repo = Path(__file__).resolve().parents[3]
+    script_dir = repo / "scripts"
+    if str(script_dir) not in sys.path:
+        sys.path.insert(0, str(script_dir))
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    # The script imports as a module named ``strategy_miner`` (its filename),
+    # which collides with our package name. Use importlib to load it
+    # explicitly from the file path.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_strategy_miner_script_main", script_dir / "strategy_miner.py",
     )
-
-    cfg_dict: dict = {}
-    if args.config is not None:
-        cfg_dict = json.loads(args.config.read_text(encoding="utf-8"))
-    if args.model is not None:
-        cfg_dict["model"] = args.model
-    if args.max_iterations is not None:
-        cfg_dict["max_iterations"] = args.max_iterations
-
-    config = MinerConfig.from_dict(cfg_dict)
-
-    try:
-        state = run_strategy_miner(config, run_id=args.run_id, resume=args.resume)
-    except KeyboardInterrupt:
-        logging.getLogger(__name__).info("Interrupted by user")
-        return 130
-    except Exception:
-        logging.getLogger(__name__).exception("Strategy miner failed")
-        return 1
-
-    print(f"Run {state.run_id} finished: best_sharpe={state.best_score:.4f}")
-    return 0
+    if spec is None or spec.loader is None:
+        raise RuntimeError(
+            f"strategy_miner __main__: failed to locate scripts/strategy_miner.py "
+            f"under {script_dir}"
+        )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not hasattr(module, "main"):
+        raise RuntimeError(
+            "scripts/strategy_miner.py has no main() — cannot delegate from "
+            "module entrypoint."
+        )
+    rc = module.main()
+    return int(rc) if rc is not None else 0
 
 
 if __name__ == "__main__":

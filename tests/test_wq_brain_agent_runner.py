@@ -1,6 +1,7 @@
 """agent_runner tests with mocked subprocess."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -165,6 +166,199 @@ def test_run_agent_handles_timeout(isolated_artifacts):
         mock_run.side_effect = subprocess.TimeoutExpired("opencode", 1.0)
         summary = run_agent(config)
     assert summary["agent_returncode"] == -1
+
+
+def test_llm_cli_env_accepts_openai_api_base_alias(monkeypatch):
+    """README §195/209 documents OPENAI_API_BASE — agent_runner must
+    honor it (was previously only OPENAI_BASE_URL / LLM_BASE_URL)."""
+    from agent_market.wq_brain import agent_runner as ar
+    monkeypatch.setattr(ar, "_load_dotenv_into", lambda *a, **kw: None)
+    for k in ("OPENAI_BASE_URL", "OPENAI_API_BASE", "LLM_BASE_URL",
+              "OPENAI_API_KEY", "LLM_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_API_BASE", "http://my-llm-host:38889")
+    env = ar._llm_cli_env()
+    assert env["OPENAI_BASE_URL"].endswith("/v1")
+    assert env["OPENAI_API_BASE"].endswith("/v1")
+    assert env["LLM_BASE_URL"].endswith("/v1")
+
+
+def test_llm_cli_env_idempotent_when_already_v1(monkeypatch):
+    from agent_market.wq_brain import agent_runner as ar
+    monkeypatch.setattr(ar, "_load_dotenv_into", lambda *a, **kw: None)
+    for k in ("OPENAI_BASE_URL", "OPENAI_API_BASE", "LLM_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    env = ar._llm_cli_env()
+    assert env["OPENAI_BASE_URL"] == "https://api.openai.com/v1"
+    assert not env["OPENAI_BASE_URL"].endswith("/v1/v1")
+
+
+def test_run_agent_resolves_openai_model_alias(isolated_artifacts, monkeypatch):
+    """OPENAI_MODEL (README §48) should be honored when config.model empty."""
+    from agent_market.wq_brain import agent_runner as ar
+    monkeypatch.setattr(ar, "_load_dotenv_into", lambda *a, **kw: None)
+    for k in ("LLM_MODEL", "OPENAI_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_MODEL", "custom/gpt-5.2")
+
+    config = AgentConfig(tag="modeltag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="")
+
+    class _OK:
+        returncode = 0
+    captured = {}
+    def _fake(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _OK()
+    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+               side_effect=_fake):
+        run_agent(config)
+    assert "custom/gpt-5.2" in captured["cmd"]
+
+
+def test_run_agent_resolves_opencode_model_alias(isolated_artifacts, monkeypatch):
+    """OPENCODE_MODEL — referenced in _build_opencode_cmd error message —
+    must actually be honored by the resolution path."""
+    from agent_market.wq_brain import agent_runner as ar
+    monkeypatch.setattr(ar, "_load_dotenv_into", lambda *a, **kw: None)
+    for k in ("LLM_MODEL", "OPENAI_MODEL", "OPENCODE_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENCODE_MODEL", "custom/oc-model")
+
+    config = AgentConfig(tag="octag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="")
+
+    class _OK:
+        returncode = 0
+    captured = {}
+    def _fake(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return _OK()
+    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+               side_effect=_fake):
+        run_agent(config)
+    assert "custom/oc-model" in captured["cmd"]
+
+
+def test_run_agent_persists_resolved_model_in_config_json(
+    isolated_artifacts, monkeypatch,
+):
+    """config.json should reflect the model that ACTUALLY ran, not the
+    pre-resolution empty-string default."""
+    from agent_market.wq_brain import agent_runner as ar
+    monkeypatch.setattr(ar, "_load_dotenv_into", lambda *a, **kw: None)
+    for k in ("LLM_MODEL", "OPENAI_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("OPENAI_MODEL", "custom/gpt-5.2")
+
+    config = AgentConfig(tag="cfgtag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="")
+
+    class _OK:
+        returncode = 0
+    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+               return_value=_OK()):
+        summary = run_agent(config)
+    cfg_path = Path(summary["run_dir"]) / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    assert cfg["model"] == "custom/gpt-5.2"
+
+
+def test_classify_agent_failure_recognises_llm_quota(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "starting agent…\nERROR: 用户额度不足, 剩余额度: $0.0000\n",
+        encoding="utf-8",
+    )
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "llm_quota"
+    assert "credit" in cls["hint"].lower() or "quota" in cls["hint"].lower()
+
+
+def test_classify_agent_failure_recognises_wq_auth(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text("HTTP 401 Unauthorized\n", encoding="utf-8")
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "wq_auth"
+
+
+def test_classify_agent_failure_recognises_network(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text("urllib3: connection refused (err 111)\n", encoding="utf-8")
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "network"
+
+
+def test_classify_agent_failure_unknown_when_no_pattern(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text("everything completed normally — exit 1 anyway\n",
+                   encoding="utf-8")
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "unknown"
+
+
+def test_classify_agent_failure_missing_log(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    cls = _classify_agent_failure(tmp_path / "no_such_log.log")
+    assert cls["kind"] == "unknown"
+    assert "no log" in cls["hint"]
+
+
+def test_run_agent_writes_checkpoint_sidecar(isolated_artifacts):
+    import subprocess
+
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import read_checkpoint
+
+    config = AgentConfig(tag="ckpt_tag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="m1")
+
+    class _OK:
+        returncode = 0
+
+    with patch("agent_market.wq_brain.agent_runner.subprocess.run", return_value=_OK()):
+        run_agent(config)
+
+    ck = read_checkpoint(tried_exprs_path("ckpt_tag"))
+    assert ck is not None
+    assert ck["session_id"].startswith("wqbrain_agent_ckpt_tag_")
+    assert ck["extra"]["tag"] == "ckpt_tag"
+    assert ck["extra"]["rc"] == 0
+    assert ck["extra"]["failure_kind"] is None
+
+
+def test_run_agent_failure_kind_recorded_on_nonzero_exit(isolated_artifacts):
+    """Non-zero rc + log containing a quota pattern should land in summary['failure']."""
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import read_checkpoint
+
+    config = AgentConfig(tag="fail_tag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="m1")
+
+    class _Bad:
+        returncode = 5
+
+    def _fake_run(*args, **kwargs):
+        # Write the agent.log that subprocess.run would have produced
+        stdout = kwargs.get("stdout")
+        if stdout is not None and hasattr(stdout, "write"):
+            stdout.write("FATAL: 用户额度不足\n")
+            stdout.flush()
+        return _Bad()
+
+    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+               side_effect=_fake_run):
+        summary = run_agent(config)
+
+    assert summary["agent_returncode"] == 5
+    assert summary["failure"]["kind"] == "llm_quota"
+    ck = read_checkpoint(tried_exprs_path("fail_tag"))
+    assert ck["extra"]["failure_kind"] == "llm_quota"
 
 
 def test_family_diversity_hint_calls_out_missing_families():

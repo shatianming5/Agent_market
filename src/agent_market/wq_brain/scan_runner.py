@@ -31,6 +31,7 @@ class ScanConfig:
     truncation: float = 0.08
     max_candidates: int = 200
     auto_submit: bool = False
+    legacy_unsafe_auto_submit: bool = False  # Codex R2: gate the bypass
     quality_sharpe_min: float = 1.25
     quality_fitness_min: float = 1.0
     dry_run: bool = False
@@ -144,8 +145,30 @@ def run_scan(config: ScanConfig, session: Optional[WQSession] = None) -> dict:
 
     pool = AlphaPool(alpha_pool_path(config.tag))
     submitted_count = 0
+    # Codex review R2 (remote readiness): `auto_submit` here bypasses
+    # `pool submit-worker`'s quota-reserve / local-jaccard / self-corr /
+    # outcome-persistence stack. Refuse unless caller explicitly opted in
+    # with `legacy_unsafe_auto_submit=True`. The CLI exposes this via
+    # `--auto-submit --legacy-unsafe`. Production users should run
+    # `pool submit-worker` after `scan` instead.
+    auto_submit_refused = (
+        config.auto_submit
+        and not getattr(config, "legacy_unsafe_auto_submit", False)
+    )
+    if auto_submit_refused:
+        logger.warning(
+            "scan auto-submit refused: legacy unsafe path. Re-run with "
+            "`--auto-submit --legacy-unsafe` to opt in, or "
+            "preferred: drop --auto-submit, then `pool submit-worker --tag %s`",
+            config.tag,
+        )
     for c in passed:
-        if config.auto_submit and c.sim_result and c.sim_result.alpha_id:
+        do_submit = (
+            config.auto_submit
+            and getattr(config, "legacy_unsafe_auto_submit", False)
+            and c.sim_result and c.sim_result.alpha_id
+        )
+        if do_submit:
             try:
                 sess.submit_alpha(c.sim_result.alpha_id)
                 c.submitted = True
@@ -162,6 +185,16 @@ def run_scan(config: ScanConfig, session: Optional[WQSession] = None) -> dict:
         "passed": len(passed),
         "submitted": submitted_count,
         "pool_size": len(pool),
+        # Codex review R3: surface the auto-submit gate state in the JSON
+        # summary so operators can distinguish "no candidates passed" from
+        # "submit step gated by --legacy-unsafe missing".
+        "auto_submit": bool(config.auto_submit),
+        "legacy_unsafe_auto_submit": bool(getattr(config, "legacy_unsafe_auto_submit", False)),
+        "auto_submit_refused": bool(auto_submit_refused),
+        "next_command": (
+            f"pool submit-worker --tag {config.tag} --max 20 --one-per-cluster"
+            if auto_submit_refused else None
+        ),
     }
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary

@@ -122,6 +122,37 @@ def _patch_offline_markets() -> None:
     Exchange.markets = property(_patched_markets)  # type: ignore[assignment]
 
 
+def _preflight_raw_ohlcv(args: list[str]) -> None:
+    """Thin shim: route to ``agent_market.freqtrade_preflight.assert_raw_ohlcv``.
+
+    The shared helper is importable from any code path that invokes
+    freqtrade (factor_lab/backtest.py, strategy_miner/_evaluation.py, etc.)
+    so the preflight cannot be bypassed by going around this CLI wrapper.
+
+    Codex review R3: also parses ``--datadir`` overrides so ``freqtrade
+    backtesting --datadir <X>`` checks ``<X>`` rather than only the
+    default ``user_data/data/``.
+    """
+    cmds = {"backtesting", "hyperopt", "trade", "edge", "lookahead-analysis"}
+    if not any(a in cmds for a in args):
+        return
+    userdir: Optional[Path] = None
+    datadirs: list[Path] = []
+    for i, a in enumerate(args):
+        if a == "--userdir" and i + 1 < len(args):
+            userdir = Path(args[i + 1])
+        elif a == "--datadir" and i + 1 < len(args):
+            datadirs.append(Path(args[i + 1]))
+    if userdir is None:
+        repo_root = Path(__file__).resolve().parents[1]
+        userdir = repo_root / "user_data"
+    # Lazy import — keeps cold-start cheap when preflight is skipped.
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root / "src"))
+    from agent_market.freqtrade_preflight import assert_raw_ohlcv
+    assert_raw_ohlcv(userdir, extra_datadirs=datadirs or None)
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     _bootstrap_freqtrade_sys_path()
     args = list(sys.argv[1:] if argv is None else argv)
@@ -129,8 +160,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args and args[0] == "--no-offline-markets":
         disable = True
         args = args[1:]
+    skip_preflight = False
+    if "--no-ohlcv-preflight" in args:
+        skip_preflight = True
+        args = [a for a in args if a != "--no-ohlcv-preflight"]
     if not disable:
         _patch_offline_markets()
+    if not skip_preflight:
+        _preflight_raw_ohlcv(args)
 
     try:
         from freqtrade.main import main as freqtrade_main  # type: ignore

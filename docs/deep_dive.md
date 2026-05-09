@@ -219,6 +219,6 @@ Flow step 的映射在：`src/agent_market/flow_ext/step_dispatch.py`
 
 ## 7. 当前仓库里值得先修/先注意的点
 
-- `README.md`/`Makefile`/docs 多处引用 `scripts/smoke_test.py`，但当前仓库没有这个文件；建议以 `pytest -q` 和 `python scripts/e2e_smoke_flow.py ...` 为准。
-- `create_workspace.py` 依赖 `workspace/` 模板目录，但目前缺失；仓库里的 `ws_production/` 更像是“现成 workspace 样例”，脚本不会自动使用它。
+- `scripts/smoke_test.py`（轻量冒烟）与 `scripts/e2e_smoke_flow.py`（端到端）都存在；本地验收顺序通常是 `pytest -q → smoke_test.py → e2e_smoke_flow.py`。
+- `create_workspace.py` 把 `workspace/` 当**模板源**（拷贝 `backtest_api.py` / `evaluator.py` / `tracker.py` 等到新生成的 `ws_<id>/`）。`ws_production/` 是另一个**独立 Python 包**（`adaptive_params` / `auto_improver` / 等），与 `create_workspace.py` 不互通。两者不要混用。
 

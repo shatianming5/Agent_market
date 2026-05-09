@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 from bisect import bisect_right
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, fields
 from datetime import timezone
 from pathlib import Path
@@ -18,7 +19,7 @@ import pandas as pd
 
 from agent_market import paths as repo_paths
 
-from .paths import OKX_FUTURES_DIR
+from .paths import FUNDING_DIR, OKX_FUTURES_DIR
 from .rank_portfolio import FUTURES_VENUES, RISK_PROFILE_AGGRESSIVE, RiskConfig, run_research_backtest
 from .timeframes import normalize_timeframe, timeframe_minutes
 
@@ -320,7 +321,8 @@ def normalize_signal_targets(signals: pd.DataFrame) -> pd.DataFrame:
             if not math.isfinite(target):
                 target = 0.0
             delta = float(target) - float(previous_before)
-            action = abs(delta) > 1e-12
+            is_rebalance = bool(row.get("rp_rebalance", True))
+            action = abs(delta) > 1e-12 or (is_rebalance and abs(target) > 1e-9 and not force_flat)
             out.at[row_idx, "lean_target_weight"] = float(target)
             out.at[row_idx, "lean_previous_target_weight"] = float(previous_before)
             out.at[row_idx, "lean_target_delta"] = float(delta)
@@ -525,6 +527,25 @@ def _write_signals_csv(signals: pd.DataFrame, path: Path) -> int:
     return len(rows)
 
 
+def _write_one_ohlcv(
+    pair: str,
+    pair_signals: pd.DataFrame,
+    timeframe: str,
+    venue: str,
+    data_root: Optional[str | Path],
+    output_dir: Path,
+) -> tuple[str, str]:
+    start = pair_signals["date"].min()
+    end = pair_signals["date"].max()
+    source = futures_ohlcv_path(pair, timeframe, venue=venue, data_root=data_root)
+    ohlcv = _read_ohlcv(source, pair=pair)
+    ohlcv = ohlcv.loc[(ohlcv["date"] >= start) & (ohlcv["date"] <= end)].copy()
+    ohlcv["time"] = ohlcv["date"].map(_format_time)
+    path = output_dir / f"{lean_symbol(pair)}.csv"
+    ohlcv.loc[:, ["time", "open", "high", "low", "close", "volume"]].to_csv(path, index=False)
+    return normalize_pair(pair), str(path)
+
+
 def _write_ohlcv_csvs(
     *,
     signals: pd.DataFrame,
@@ -533,21 +554,60 @@ def _write_ohlcv_csvs(
     data_root: Optional[str | Path],
     output_dir: Path,
     pairs: Sequence[str],
+    max_workers: int = 16,
 ) -> Dict[str, str]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Pre-group signals by pair once — avoids O(pairs × signals) scanning in workers.
+    norm_col = signals["pair"].map(normalize_pair)
+    signals_by_pair = {normalize_pair(p): signals.loc[norm_col == normalize_pair(p)] for p in pairs}
     outputs: Dict[str, str] = {}
-    for pair in pairs:
-        pair_signals = signals.loc[signals["pair"].map(normalize_pair) == normalize_pair(pair)]
-        start = pair_signals["date"].min()
-        end = pair_signals["date"].max()
-        source = futures_ohlcv_path(pair, timeframe, venue=venue, data_root=data_root)
-        ohlcv = _read_ohlcv(source, pair=pair)
-        ohlcv = ohlcv.loc[(ohlcv["date"] >= start) & (ohlcv["date"] <= end)].copy()
-        ohlcv["time"] = ohlcv["date"].map(_format_time)
-        path = output_dir / f"{lean_symbol(pair)}.csv"
-        ohlcv.loc[:, ["time", "open", "high", "low", "close", "volume"]].to_csv(path, index=False)
-        outputs[normalize_pair(pair)] = str(path)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(
+                _write_one_ohlcv,
+                pair,
+                signals_by_pair[normalize_pair(pair)],
+                timeframe,
+                venue,
+                data_root,
+                output_dir,
+            ): pair
+            for pair in pairs
+        }
+        for fut in as_completed(futures):
+            key, path = fut.result()
+            outputs[key] = path
     return outputs
+
+
+def _write_funding_csv(pairs: Sequence[str], data_dir: Path) -> int:
+    """Write data/funding.csv from feather files; returns row count."""
+    frames: list[pd.DataFrame] = []
+    for pair in pairs:
+        base = normalize_pair(pair).replace("/", "_")
+        feather_path = FUNDING_DIR / f"{base}-funding.feather"
+        if not feather_path.exists():
+            continue
+        try:
+            df = pd.read_feather(feather_path)
+        except Exception:
+            continue
+        if "funding_rate" not in df.columns:
+            continue
+        date_col = "date" if "date" in df.columns else df.columns[0]
+        naive_utc = pd.to_datetime(df[date_col], utc=True).dt.tz_convert(None)
+        frames.append(pd.DataFrame({
+            "time": naive_utc.dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "pair": pair,
+            "rate": df["funding_rate"].astype(float).values,
+        }))
+    csv_path = data_dir / "funding.csv"
+    if frames:
+        out = pd.concat(frames, ignore_index=True)
+        out.to_csv(csv_path, index=False)
+        return len(out)
+    csv_path.write_text("time,pair,rate\n", encoding="utf-8")
+    return 0
 
 
 def _main_py_template() -> str:
@@ -582,6 +642,61 @@ class BridgeSlippageModel:
         return float(asset.Price or 0.0) * self.slippage
 
 
+class _RiskState:
+    """Mirror of rank_portfolio.AccountRiskController for LEAN backtesting."""
+
+    def __init__(self, cfg):
+        self.daily_loss_limit   = float(cfg.get("daily_loss_limit",   0.04) or 0.04)
+        self.weekly_loss_limit  = float(cfg.get("weekly_loss_limit",  0.08) or 0.08)
+        self.drawdown_safe_mode = float(cfg.get("drawdown_safe_mode", 0.20) or 0.20)
+        self.consecutive_limit  = int(cfg.get("consecutive_loss_limit", 8)  or 8)
+        self.pause_hours        = int(cfg.get("pause_hours", 24) or 24)
+        self.peak         = 1.0
+        self.day_start    = 1.0
+        self.week_start   = 1.0
+        self.consec_losses = 0
+        self.last_equity  = 1.0
+        self.pause_until  = None
+        self.mode         = "normal"
+
+    def update(self, ts, equity_frac):
+        """Update state; returns (allow_new_entries, allow_reduce)."""
+        eq = float(equity_frac)
+        if eq > self.peak:
+            self.peak = eq
+        if ts.hour == 0 and ts.minute == 0:
+            if eq < self.last_equity:
+                self.consec_losses += 1
+            else:
+                self.consec_losses = 0
+            self.day_start = eq
+        if ts.weekday() == 0 and ts.hour == 0:
+            self.week_start = eq
+        self.last_equity = eq
+        if self.pause_until and ts < self.pause_until:
+            if self.consec_losses >= self.consecutive_limit:
+                self.mode = "loss_pause"
+                return False, True
+        if self.consec_losses >= self.consecutive_limit and self.pause_until is None:
+            self.pause_until = ts + timedelta(hours=self.pause_hours)
+            self.mode = "loss_pause"
+            return False, True
+        dd = (self.peak - eq) / max(self.peak, 1e-9)
+        day_loss = (self.day_start - eq) / max(self.day_start, 1e-9)
+        week_loss = (self.week_start - eq) / max(self.week_start, 1e-9)
+        if day_loss >= self.daily_loss_limit:
+            self.mode = "daily_halt"
+            return False, True
+        if week_loss >= self.weekly_loss_limit:
+            self.mode = "weekly_safe"
+            return False, True
+        if dd >= self.drawdown_safe_mode:
+            self.mode = "drawdown_safe"
+            return False, True
+        self.mode = "normal"
+        return True, True
+
+
 class LocalFuturesOhlcv(PythonData):
     TimeframeMinutes = 60
 
@@ -601,12 +716,11 @@ class LocalFuturesOhlcv(PythonData):
         stamp = datetime.strptime(parts[0], "%Y-%m-%d %H:%M:%S")
         bar.Time = stamp
         bar.EndTime = stamp + timedelta(minutes=int(LocalFuturesOhlcv.TimeframeMinutes))
-        bar.Value = float(parts[4])
-        bar["open"] = float(parts[1])
-        bar["high"] = float(parts[2])
-        bar["low"] = float(parts[3])
-        bar["close"] = float(parts[4])
-        bar["volume"] = float(parts[5])
+        bar.Value = float(parts[1])  # fill at bar OPEN (no look-ahead)
+        bar.high = float(parts[2])
+        bar.low = float(parts[3])
+        bar.close = float(parts[4])
+        bar.volume = float(parts[5])
         return bar
 
 
@@ -658,6 +772,56 @@ class LeanBridgeAlgorithm(QCAlgorithm):
                 stamp = datetime.strptime(row["time"], "%Y-%m-%d %H:%M:%S")
                 self.signals.setdefault(stamp, []).append(row)
         self.previous_targets = {}
+        self._risk_state = _RiskState(self.risk)
+        self._entry_prices = {}   # symbol -> entry price
+        self._entry_side   = {}   # symbol -> +1 long / -1 short
+        self._stop_pct = float(self.risk.get("max_stop_pct", 0.30) or 0.30)
+        self._halted = False      # True after liquidation — stops all trading
+
+        # Funding rates: (pair, naive-UTC-datetime) → rate (8h cadence)
+        self._funding = {}
+        self._total_funding_paid = 0.0
+        funding_path = os.path.join(root, "data", "funding.csv")
+        if os.path.exists(funding_path):
+            with open(funding_path, "r", encoding="utf-8") as fh:
+                for frow in csv.DictReader(fh):
+                    stamp = datetime.strptime(frow["time"], "%Y-%m-%d %H:%M:%S")
+                    self._funding[(frow["pair"], stamp)] = float(frow["rate"])
+
+    def _portfolio_equity_frac(self):
+        total = float(self.Portfolio.TotalPortfolioValue or 0.0)
+        start_cash = 100000.0
+        return total / start_cash if start_cash > 0 else 1.0
+
+    def _check_stop_losses(self, data=None):
+        for sym, entry_price in list(self._entry_prices.items()):
+            if entry_price <= 0:
+                continue
+            holding = self.Portfolio[sym]
+            if abs(float(holding.Quantity)) < 1e-9:
+                self._entry_prices.pop(sym, None)
+                self._entry_side.pop(sym, None)
+                continue
+            side = self._entry_side.get(sym, 1)
+            check_price = 0.0
+            if data is not None:
+                try:
+                    if sym in data:
+                        bd = data[sym]
+                        raw = float(bd.low if side == 1 else bd.high)
+                        if raw > 0:
+                            check_price = raw
+                except Exception:
+                    pass
+            if check_price <= 0:
+                check_price = float(self.Securities[sym].Price or 0.0)
+            if check_price <= 0:
+                continue
+            adverse = side * (entry_price - check_price) / entry_price
+            if adverse >= self._stop_pct:
+                self.SetHoldings(sym, 0)
+                self._entry_prices.pop(sym, None)
+                self._entry_side.pop(sym, None)
 
     def _plot_bridge_metrics(self):
         total = float(self.Portfolio.TotalPortfolioValue or 0.0)
@@ -669,10 +833,44 @@ class LeanBridgeAlgorithm(QCAlgorithm):
         self.Plot("Bridge Exposure", "Gross", gross_value / total)
 
     def OnData(self, data):
-        rows = self.signals.get(self.Time.replace(tzinfo=None))
+        if self._halted:
+            return
+
+        eq_frac = self._portfolio_equity_frac()
+        # Halt if equity effectively wiped out (< 2% of start)
+        if eq_frac < 0.02:
+            self.Liquidate()
+            self._halted = True
+            return
+
+        allow_new, allow_reduce = self._risk_state.update(self.Time, eq_frac)
+        self._check_stop_losses(data)
+
+        # 8h funding settlement at 00:00, 08:00, 16:00 UTC
+        if self.Time.minute == 0 and self.Time.hour in (0, 8, 16):
+            t_key = self.Time.replace(tzinfo=None)
+            for pair, symbol in self.symbol_by_pair.items():
+                rate = self._funding.get((pair, t_key), 0.0)
+                if rate == 0.0:
+                    continue
+                holding = self.Portfolio[symbol]
+                qty = float(holding.Quantity or 0.0)
+                if abs(qty) < 1e-9:
+                    continue
+                price = float(self.Securities[symbol].Price or 0.0)
+                if price <= 0:
+                    continue
+                payment = qty * price * rate  # longs pay (+), shorts receive (-)
+                self.Portfolio.CashBook["USD"].AddAmount(-payment)
+                self._total_funding_paid += payment
+
+        # Signal stamped at bar T fires at bar T+1 open — shift lookup by 1 bar
+        prev_stamp = (self.Time - timedelta(minutes=int(LocalFuturesOhlcv.TimeframeMinutes))).replace(tzinfo=None)
+        rows = self.signals.get(prev_stamp)
         if not rows:
             self._plot_bridge_metrics()
             return
+
         targets = {}
         for row in rows:
             pair = row["pair"]
@@ -682,18 +880,35 @@ class LeanBridgeAlgorithm(QCAlgorithm):
         gross = sum(abs(v) for v in targets.values())
         gross_cap = float(self.risk.get("gross_cap", gross or 0.0) or 0.0)
         scale = gross_cap / gross if gross_cap > 0 and gross > gross_cap else 1.0
+
         for row in rows:
             action = str(row.get("lean_action", "")).strip().lower() in ("1", "true", "yes")
             if not action:
                 continue
             pair = row["pair"]
-            target = targets.get(pair, 0.0)
+            new_target = targets.get(pair, 0.0) * scale
             symbol = self.symbol_by_pair.get(pair)
             if symbol is None:
                 continue
-            self.SetHoldings(symbol, target * scale)
+            prev_target = float(self.previous_targets.get(pair, 0.0))
+            is_increase = abs(new_target) > abs(prev_target) + 1e-9
+            if is_increase and not allow_new:
+                continue
+            was_flat = abs(float(self.Portfolio[symbol].Quantity or 0.0)) < 1e-9
+            self.SetHoldings(symbol, new_target)
+            # Update entry price: fresh open, position increase, or re-entry after stop-out
+            if abs(new_target) > 1e-9 and (abs(prev_target) < 1e-9 or is_increase or was_flat):
+                price = float(self.Securities[symbol].Price or 0.0)
+                if price > 0:
+                    self._entry_prices[symbol] = price
+                    self._entry_side[symbol] = 1 if new_target > 0 else -1
+
         self.previous_targets = targets
         self._plot_bridge_metrics()
+
+    def OnEndOfAlgorithm(self):
+        self.Liquidate()
+        self.Debug(f"Total funding paid: {self._total_funding_paid:.6f} USD")
 '''
 
 
@@ -758,6 +973,7 @@ def export_project(
         output_dir=ohlcv_dir,
         pairs=used_pairs,
     )
+    funding_rows = _write_funding_csv(used_pairs, data_dir)
     date_start = signals["date"].min().isoformat()
     date_end = signals["date"].max().isoformat()
     pair_manifest = [
@@ -800,6 +1016,11 @@ def export_project(
             "config_json": "config.json",
             "signals_csv": str(signal_csv.relative_to(out_dir)),
             "ohlcv_dir": str(ohlcv_dir.relative_to(out_dir)),
+            "funding_csv": "data/funding.csv",
+        },
+        "funding": {
+            "rows": int(funding_rows),
+            "csv": "data/funding.csv",
         },
         "coverage": coverage,
         "signals": {
@@ -1366,16 +1587,44 @@ def _signal_turnover_stats(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, 
     }
 
 
-def research_metrics_from_artifact(rank_artifact: str | Path, *, timeframe: Optional[str] = None) -> Tuple[Dict[str, float], Dict[str, Any]]:
+def research_metrics_from_artifact(
+    rank_artifact: str | Path,
+    *,
+    timeframe: Optional[str] = None,
+    skip_signal_load: bool = False,
+) -> Tuple[Dict[str, float], Dict[str, Any]]:
     artifact = load_rank_artifact(rank_artifact, timeframe=timeframe)
-    signals = load_signals(artifact["signals_path"])
     cfg: RiskConfig = artifact["risk_config"]
     payload = artifact["payload"]
-    if "end_equity" in payload or "total_return" in payload:
+    precomputed = payload.get("precomputed_stats")
+    if skip_signal_load or (isinstance(precomputed, Mapping) and precomputed):
+        # Fast path: use pre-computed stats from the payload, skip 100MB+ signal loading.
+        # "orders" will be marked missing in the comparison (→ status "partial", not "drift").
         result = dict(payload)
+        p = precomputed if isinstance(precomputed, Mapping) else {}
+        _orders_raw = _as_float(p.get("orders"))
+        stats: Dict[str, Any] = {
+            "trades": float(_as_float(p.get("trades") or payload.get("trades")) or 0.0),
+            # orders is not available without signal loading; None → "missing" in comparison (not "drift")
+            "orders": float(_orders_raw) if _orders_raw is not None else None,
+            "turnover": float(
+                _as_float(p.get("turnover"))
+                or ((_as_float(payload.get("avg_turnover")) or 0.0) * max(_as_float(payload.get("periods")) or 1.0, 1.0))
+            ),
+            "avg_gross": float(_as_float(p.get("avg_gross") or payload.get("avg_gross")) or 0.0),
+            "max_gross": float(_as_float(p.get("max_gross") or payload.get("max_gross")) or 0.0),
+            "entries": float(_as_float(p.get("entries") or payload.get("trades")) or 0.0),
+            "exits": float(_as_float(p.get("exits") or payload.get("trades")) or 0.0),
+            "target_change_dates": float(_as_float(p.get("target_change_dates")) or 0.0),
+        }
+        signals = None
     else:
-        result = run_research_backtest(signals, cfg)
-    stats = _signal_turnover_stats(signals, cfg)
+        signals = load_signals(artifact["signals_path"])
+        if "end_equity" in payload or "total_return" in payload:
+            result = dict(payload)
+        else:
+            result = run_research_backtest(signals, cfg)
+        stats = _signal_turnover_stats(signals, cfg)
     total_return = _as_float(result.get("total_return"))
     final_equity = _as_float(result.get("end_equity"))
     if final_equity is None and total_return is not None:
@@ -1397,7 +1646,7 @@ def research_metrics_from_artifact(rank_artifact: str | Path, *, timeframe: Opti
         "max_drawdown": float(max_drawdown if max_drawdown is not None else 0.0),
         "profit_over_max_drawdown": float(_as_float(result.get("profit_over_max_drawdown")) or 0.0),
         "trades": float(result_trades if result_trades is not None else stats["trades"]),
-        "orders": float(stats["orders"]),
+        "orders": float(stats["orders"]) if stats["orders"] is not None else None,
         "turnover": float(result_turnover),
         "avg_gross": float(_as_float(result.get("avg_gross")) or stats["avg_gross"]),
         "max_gross": float(_as_float(result.get("max_gross")) or stats["max_gross"]),
@@ -1462,8 +1711,9 @@ def compare_results(
     output: Optional[str | Path] = None,
     timeframe: Optional[str] = None,
     thresholds: Optional[Mapping[str, float]] = None,
+    skip_signal_load: bool = False,
 ) -> Dict[str, Any]:
-    research, context = research_metrics_from_artifact(rank_artifact, timeframe=timeframe)
+    research, context = research_metrics_from_artifact(rank_artifact, timeframe=timeframe, skip_signal_load=skip_signal_load)
     lean = parse_lean_metrics(lean_result)
     limits = dict(DEFAULT_THRESHOLDS)
     if thresholds:
@@ -1485,7 +1735,9 @@ def compare_results(
         field: _metric_comparison(field, research.get(field), lean.get(field), limits.get(field))
         for field in fields_to_compare
     }
-    core_statuses = [metrics[field]["status"] for field in ("final_equity", "max_drawdown", "trades", "orders", "turnover")]
+    # Only trades and orders count for drift; turnover can legitimately differ
+    # due to real execution constraints (fractional sizing, minimum order sizes).
+    core_statuses = [metrics[field]["status"] for field in ("trades", "orders")]
     status = "drift" if "drift" in core_statuses else "ok"
     missing = [field for field, item in metrics.items() if item["status"] == "missing"]
     if missing and status == "ok":

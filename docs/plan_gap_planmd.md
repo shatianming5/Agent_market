@@ -2,7 +2,9 @@
 
 Generated: 2026-02-05
 
-> 目标：对 `plan.md` 的**全部章节（不省略）**逐一查明：已实现 / 部分实现 / 缺失 / 仅叙述（N/A），并给出证据与对应的 `docs/mohu.md` backlog 归档方向。
+> **2026-05-09 兼容性提示**：本审计中"`plan.md`"指**早期 Proposal**，现已重命名为 [`docs/proposals/agent_market_proposal.md`](proposals/agent_market_proposal.md)。所有章节引用按此理解；本审计不再大规模 rewrite。
+>
+> 目标：对 Proposal（原 `plan.md`）的**全部章节（不省略）**逐一查明：已实现 / 部分实现 / 缺失 / 仅叙述（N/A），并给出证据与对应的 `docs/mohu.md` backlog 归档方向。
 
 ## Legend
 
@@ -449,7 +451,7 @@ Generated: 2026-02-05
 - Status: **DONE (export shim)**
 - Notes:
   - 运行时仍以 `user_data/...` + `artifacts/...` 为主，并由 `artifacts/run_meta.json` 索引产物；
-  - 通过 `scripts/export_planmd_layout.py --run-id <run_id>` 可将一次运行导出为 `plan.md` 建议的 `data/...` + `results/...` 目录布局（含 capture 的 parquet 转换为 best-effort，支持 `--max-rows` 限制）。
+  - **过时（确认 2026-05-09）**：`scripts/export_planmd_layout.py` 已不在仓库；详见 `docs/product_90d.md` 同节的"过时"提示。原意是把一次运行导出为 `plan.md` 建议的 `data/...` + `results/...` 目录布局（含 capture 的 parquet 转换为 best-effort，支持 `--max-rows` 限制）。
 
 #### 6.2.1 plan.md 表格逐项核对（不省略）
 

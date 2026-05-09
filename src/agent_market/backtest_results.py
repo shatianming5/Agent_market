@@ -5,12 +5,41 @@ import logging
 import math
 import statistics
 import zipfile
+from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from agent_market.utils import as_float
 
 logger = logging.getLogger(__name__)
+
+
+def _build_monthly_from_daily(daily_profit: list) -> list:
+    """Aggregate daily_profit entries into per-month buckets.
+
+    Accepts two formats:
+      - [[ts_ms, profit_abs], ...]  (timestamp in milliseconds)
+      - [['YYYY-MM-DD', profit_abs], ...]  (date string from freqtrade)
+    """
+    monthly: dict[str, float] = defaultdict(float)
+    for entry in (daily_profit or []):
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        key = entry[0]
+        profit = as_float(entry[1])
+        if key is None or profit is None:
+            continue
+        try:
+            if isinstance(key, str) and len(key) >= 7 and "-" in key:
+                month = key[:7]  # 'YYYY-MM-DD' → 'YYYY-MM'
+            else:
+                dt = datetime.fromtimestamp(float(key) / 1000.0, tz=timezone.utc)
+                month = dt.strftime("%Y-%m")
+        except (OSError, ValueError, OverflowError):
+            continue
+        monthly[month] += profit
+    return [{"month": k, "profit_abs": round(v, 8)} for k, v in sorted(monthly.items())]
 
 
 def _as_int(value: Any) -> Optional[int]:
@@ -398,7 +427,14 @@ def build_backtest_summary(zip_path: Path) -> Dict[str, Any]:
         "backtest_timerange": f"{strategy_metrics.get('backtest_start')} -> {strategy_metrics.get('backtest_end')}",
         "strategy_comparison": comparison,
         "results_per_pair": strategy_metrics.get("results_per_pair", []),
+        "results_per_enter_tag": strategy_metrics.get("results_per_enter_tag", []),
+        "exit_reason_summary": strategy_metrics.get("exit_reason_summary", []),
         "daily_profit": strategy_metrics.get("daily_profit", []),
+        "monthly_profit": _build_monthly_from_daily(strategy_metrics.get("daily_profit", [])),
+        "drawdown_start": strategy_metrics.get("drawdown_start"),
+        "drawdown_end": strategy_metrics.get("drawdown_end"),
+        "drawdown_high": strategy_metrics.get("drawdown_high"),
+        "drawdown_low": strategy_metrics.get("drawdown_low"),
         "starting_balance": derived.get("starting_balance"),
         "final_balance": derived.get("final_balance"),
         "period_days": derived.get("period_days"),

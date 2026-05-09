@@ -19,17 +19,12 @@ python scripts/closed_loop_demo.py
 python scripts/agent_flow.py --config configs/agent_flow_closed_loop_demo_fixture.json --steps capture lob_rebuild micro_feature factor_compile factor_eval ml backtest tca report
 ```
 
-## 导出为 plan.md 建议目录布局（`data/` + `results/`）
+## 导出为 Proposal 建议目录布局（`data/` + `results/`，原称 "plan.md 建议布局"）
 
-```bash
-python scripts/export_planmd_layout.py --run-id <run_id>
-```
-
-如需限制 capture 原始数据转换规模（避免大文件内存压力），可加：
-
-```bash
-python scripts/export_planmd_layout.py --run-id <run_id> --max-rows 200000
-```
+> ⚠️ **过时**：`scripts/export_planmd_layout.py` 已不存在于本仓库（确认时间：2026-05-09）。
+> 如需 plan.md 风格的目录导出，目前请直接复制 `artifacts/runs/<run_id>/` 下相关产物，或参考
+> `scripts/report_backtest.py` / `scripts/dq_report.py` 自行组装 `data/` + `results/` 视图。
+> 这部分待恢复后会重新填回命令；详见 [`docs/INDEX.md`](INDEX.md)。
 
 ## 前端查看
 

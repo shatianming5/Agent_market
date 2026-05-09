@@ -716,6 +716,43 @@ def cmd_lean_compare(args):
 def cmd_strategy_loop(args):
     if args.resume and not args.run_id:
         raise SystemExit("--run-id is required with --resume")
+    # Codex review R1-#1 + R2 refinement: preflight the chosen agent CLI
+    # BEFORE allocating run artifacts. The check branches on `opencode_mode`:
+    #   * cli    — require local `opencode` / `hermes` binary
+    #   * server — require `OPENCODE_URL` env (no local binary needed)
+    #   * auto   — either is acceptable
+    # Otherwise the failure surfaces deep inside _run_hermes_cli / opencode
+    # invocation, leaving partial state and confusing log output on remote
+    # 138 / minimal-CLI environments.
+    import os as _os
+    import shutil as _shutil
+    agent_cli = (args.agent or "").strip().lower()
+    opencode_mode = (getattr(args, "opencode_mode", "cli") or "cli").strip().lower()
+    if agent_cli == "hermes":
+        if _shutil.which("hermes") is None:
+            raise SystemExit(
+                "strategy-loop preflight: --agent hermes requires `hermes` on PATH. "
+                "Install it or pick a different --agent."
+            )
+    elif agent_cli == "opencode":
+        has_bin = _shutil.which("opencode") is not None
+        has_url = bool(_os.environ.get("OPENCODE_URL"))
+        if opencode_mode == "cli" and not has_bin:
+            raise SystemExit(
+                "strategy-loop preflight: --agent opencode --opencode-mode cli "
+                "requires `opencode` on PATH. Install it or use --opencode-mode "
+                "{server,auto} with OPENCODE_URL set."
+            )
+        if opencode_mode == "server" and not has_url:
+            raise SystemExit(
+                "strategy-loop preflight: --agent opencode --opencode-mode server "
+                "requires the OPENCODE_URL environment variable."
+            )
+        if opencode_mode == "auto" and not (has_bin or has_url):
+            raise SystemExit(
+                "strategy-loop preflight: --agent opencode --opencode-mode auto "
+                "requires EITHER `opencode` on PATH OR OPENCODE_URL env var."
+            )
     result = strategy_loop.run_strategy_loop(
         tag=args.tag,
         venue=args.venue,
@@ -757,6 +794,7 @@ def cmd_strategy_loop(args):
         lean_timeout=args.lean_timeout,
         lean_required_status=args.lean_required_status,
         lean_data_root=args.lean_data_root,
+        score_lean_weight=args.score_lean_weight,
     )
     print(json.dumps(result, indent=2, default=str))
 
@@ -1637,6 +1675,8 @@ def build_parser():
                     help="required lean-compare status, or comma-separated statuses such as ok,partial")
     sl.add_argument("--lean-data-root", default=None,
                     help="override futures feather root for LEAN export")
+    sl.add_argument("--score-lean-weight", type=float, default=0.7,
+                    help="weight of LEAN score in blended score (0.0=rank-only, 1.0=lean-only, default 0.7)")
     sl.add_argument("--no-promote", action="store_true",
                     help="score candidates but do not write optimized_profile.json or strategy files")
     sl.set_defaults(func=cmd_strategy_loop)

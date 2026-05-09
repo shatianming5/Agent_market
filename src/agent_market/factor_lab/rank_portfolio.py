@@ -19,7 +19,16 @@ from agent_market.freqai.features import apply_configured_features
 
 from . import mining
 from .cache import DEFAULT_CACHE_DIR
-from .paths import DEFAULT_PAIRS, FEATURE_FILE, KUCOIN_DIR, OKX_FUTURES_DIR, USER_DATA, feather_for_pair
+from .paths import (
+    DEFAULT_FUNDING_DAILY,
+    DEFAULT_PAIRS,
+    FEATURE_FILE,
+    FUNDING_DIR,
+    KUCOIN_DIR,
+    OKX_FUTURES_DIR,
+    USER_DATA,
+    feather_for_pair,
+)
 from .timeframes import bars_for_hours, bars_for_minutes, manifest_matches_profile, normalize_timeframe
 
 
@@ -36,14 +45,14 @@ class RiskConfig:
     net_cap: float = 2.5
     single_pair_cap: float = 2.0
     risk_per_trade: float = 0.008
-    daily_loss_limit: float = 0.04
+    daily_loss_limit: float = 0.06
     weekly_loss_limit: float = 0.08
-    drawdown_safe_mode: float = 0.12
-    consecutive_loss_limit: int = 5
+    drawdown_safe_mode: float = 0.20
+    consecutive_loss_limit: int = 8
     pause_hours: int = 24
     maintenance_margin: float = 0.005
     fee_buffer: float = 0.003
-    fee_rate: float = 0.0005
+    fee_rate: float = 0.0004
     slippage: float = 0.0003
     min_stop_pct: float = 0.01
     max_stop_pct: float = 0.06
@@ -1677,26 +1686,64 @@ def _max_drawdown(equity: pd.Series) -> float:
     return float(dd.max() or 0.0)
 
 
+def _load_funding_panel(pairs: Iterable[str]) -> Dict[Tuple[str, pd.Timestamp], float]:
+    """Load per-8h funding rates for known pairs.
+
+    Returns dict keyed by (normalised_pair, utc_timestamp).
+    Pairs whose feather is absent are silently skipped; callers use DEFAULT_FUNDING_8H as fallback.
+    """
+    panel: Dict[Tuple[str, pd.Timestamp], float] = {}
+    for raw_pair in pairs:
+        sym = raw_pair.split("/")[0].upper()
+        pf = FUNDING_DIR / f"{sym}_USDT-funding.feather"
+        if not pf.exists():
+            continue
+        try:
+            df = pd.read_feather(pf)
+            df["date"] = pd.to_datetime(df["date"], utc=True)
+            norm = raw_pair.upper().replace(" ", "")
+            for ts, rate in zip(df["date"], df["funding_rate"]):
+                panel[(norm, ts)] = float(rate)
+        except Exception:
+            pass
+    return panel
+
+
+DEFAULT_FUNDING_8H: float = DEFAULT_FUNDING_DAILY / 3  # per-8h fallback when feather absent
+
+
 def run_research_backtest(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, Any]:
     df = signals.copy().sort_values(["pair", "date"]).reset_index(drop=True)
     df["date"] = pd.to_datetime(df["date"], utc=True)
     pieces: List[pd.DataFrame] = []
     for _, sub in df.groupby("pair", sort=False):
         sub = sub.copy()
+        sub["next_open"] = sub["open"].shift(-1)
         sub["next_close"] = sub["close"].shift(-1)
         sub["next_high"] = sub["high"].shift(-1)
         sub["next_low"] = sub["low"].shift(-1)
-        sub["ret_next"] = (sub["next_close"] / sub["close"]) - 1.0
+        # Full-bar return: entry at open[T+1], exit at open[T+2] (next-open-to-next-next-open).
+        # This captures overnight gaps while preserving per-bar early-exit semantics.
+        sub["next_next_open"] = sub["open"].shift(-2)
+        sub["ret_next"] = (sub["next_next_open"] / sub["next_open"].clip(lower=1e-12)) - 1.0
         pieces.append(sub)
     df = pd.concat(pieces, ignore_index=True)
+
+    # Load funding rates (8h cadence). Missing pairs fall back to DEFAULT_FUNDING_8H.
+    unique_pairs = list(df["pair"].unique())
+    funding_panel = _load_funding_panel(unique_pairs)
+    total_funding_paid: float = 0.0
 
     controller = AccountRiskController(cfg)
     prev_weights: Dict[str, float] = {}
     equity = 1.0
     rows: List[Dict[str, Any]] = []
     simulated_liquidations = 0
+    liquidation_terminated_at: Any = None
     trades = 0
     for date, group in df.groupby("date", sort=True):
+        if liquidation_terminated_at is not None:
+            break
         status = controller.update(date, equity)
         g = group.copy()
         if not status.allow_new_entries:
@@ -1720,19 +1767,35 @@ def run_research_backtest(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, A
                 continue
             side = 1.0 if weight > 0 else -1.0
             stop = float(row.get("rp_stop_pct", 0.02) or 0.02)
-            close = float(row["close"])
+            # Use next_open as fill/reference price (avoids look-ahead vs current close)
+            entry = float(row.get("next_open") or row["close"])
+            if entry <= 0:
+                entry = float(row["close"])
             if side > 0:
-                adverse = (close - float(row.get("next_low", close))) / max(close, 1e-12)
+                adverse = (entry - float(row.get("next_low", entry))) / max(entry, 1e-12)
                 side_ret = float(row["ret_next"])
             else:
-                adverse = (float(row.get("next_high", close)) - close) / max(close, 1e-12)
+                adverse = (float(row.get("next_high", entry)) - entry) / max(entry, 1e-12)
                 side_ret = -float(row["ret_next"])
             if adverse >= float(row.get("rp_liq_distance", 999.0) or 999.0):
                 simulated_liquidations += 1
                 side_ret = -float(row.get("rp_liq_distance", stop))
+                liquidation_terminated_at = date
             elif adverse >= stop:
                 side_ret = -stop
             pnl += abs(weight) * side_ret
+
+        # Funding cost at 8h settlement periods (00:00 / 08:00 / 16:00 UTC)
+        if hasattr(date, "hour") and date.hour in (0, 8, 16):
+            for pair, w in prev_weights.items():
+                if abs(w) < 1e-9:
+                    continue
+                norm = pair.upper().replace(" ", "")
+                fr = funding_panel.get((norm, date), DEFAULT_FUNDING_8H)
+                # Positive funding: longs pay, shorts receive (w encodes sign)
+                funding_adj = -w * fr
+                pnl += funding_adj
+                total_funding_paid -= funding_adj  # track total paid by portfolio
 
         all_pairs = set(prev_weights) | set(weights_now)
         turnover = sum(abs(weights_now.get(pair, 0.0) - prev_weights.get(pair, 0.0)) for pair in all_pairs)
@@ -1777,13 +1840,23 @@ def run_research_backtest(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, A
         "profit_over_max_drawdown": float(total_return / max(max_dd, 1e-12)),
         "trades": int(trades),
         "simulated_liquidations": int(simulated_liquidations),
+        "liquidation_terminated_at": str(liquidation_terminated_at) if liquidation_terminated_at is not None else None,
         "liquidation_rejects": int(signals.get("rp_liq_reject", pd.Series(dtype=bool)).sum()),
         "leverage_distribution": {str(k): int(v) for k, v in leverage_dist.items()},
         "risk_mode_counts": {str(k): int(v) for k, v in risk_mode_counts.items()},
         "avg_gross": float(curve["gross"].mean() if not curve.empty else 0.0),
         "max_gross": float(curve["gross"].max() if not curve.empty else 0.0),
         "avg_turnover": float(curve["turnover"].mean() if not curve.empty else 0.0),
+        "total_funding_cost": float(total_funding_paid),
         "periods": int(len(curve)),
+        "curve": (
+            [
+                {"date": str(row["date"]), "equity": float(row["equity"])}
+                for _, row in curve[["date", "equity"]].iterrows()
+            ]
+            if not curve.empty
+            else []
+        ),
     }
 
 

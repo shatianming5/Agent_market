@@ -13,9 +13,12 @@
   "dataformat_ohlcv": "feather",
   "futures_funding_rate": 0,
   "dry_run_wallet": 1000,
-  "fee": 0.0005,
+  "fee": 0.0004,
   "cancel_open_orders_on_exit": true,
-  "unfilledtimeout": {"entry": 15, "exit": 15},
+  "unfilledtimeout": {
+    "entry": 15,
+    "exit": 15
+  },
   "exchange": {
     "name": "okx",
     "key": "",
@@ -34,12 +37,30 @@
       "BNB/USDT:USDT"
     ],
     "pair_blacklist": [],
-    "ccxt_config": {"timeout": 60000, "enableRateLimit": true},
-    "ccxt_async_config": {"timeout": 60000, "enableRateLimit": true}
+    "ccxt_config": {
+      "timeout": 60000,
+      "enableRateLimit": true
+    },
+    "ccxt_async_config": {
+      "timeout": 60000,
+      "enableRateLimit": true
+    }
   },
-  "pairlists": [{"method": "StaticPairList"}],
-  "entry_pricing": {"price_side": "same", "use_order_book": false, "order_book_top": 1},
-  "exit_pricing": {"price_side": "same", "use_order_book": false, "order_book_top": 1},
+  "pairlists": [
+    {
+      "method": "StaticPairList"
+    }
+  ],
+  "entry_pricing": {
+    "price_side": "same",
+    "use_order_book": false,
+    "order_book_top": 1
+  },
+  "exit_pricing": {
+    "price_side": "same",
+    "use_order_book": false,
+    "order_book_top": 1
+  },
   "user_data_dir": "user_data",
   "strategy": "ELRankPortfolioLeverageStrategy"
 }

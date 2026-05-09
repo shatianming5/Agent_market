@@ -76,7 +76,7 @@ def _install_fake_lean_gate(
         _write_json(Path(lean_project) / "lean_backtest_run.json", {"command": [lean_bin, "backtest", str(lean_project)], "timeout": timeout})
         return {"command": [lean_bin, "backtest", str(lean_project)], "returncode": 0, "result_path": str(result)}
 
-    def fake_compare_results(*, rank_artifact, lean_result, output=None, timeframe=None):
+    def fake_compare_results(*, rank_artifact, lean_result, output=None, timeframe=None, skip_signal_load=False):
         lean = {
             "final_equity": 1.12,
             "max_drawdown": 0.08,

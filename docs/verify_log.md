@@ -1,5 +1,7 @@
 # Verify Log
 
+> **2026-05-09 兼容性提示**：下文凡是写 "`plan.md`" 的地方，都指**早期 Proposal**，现已重命名为 [`docs/proposals/agent_market_proposal.md`](proposals/agent_market_proposal.md)。本日志不再 rewrite 历史条目，但所有 "plan.md X.Y 章节"的引用按这条映射理解即可。
+
 ## Missing-001
 - 2026-01-31: `pytest -q`
   - Result: PASS

@@ -1,28 +1,44 @@
 # Repo Inventory
 
+> 与 `AGENTS.md` / `docs/INDEX.md` / `scripts/README.md` 联动维护。如有冲突以本仓库当前代码为准。
+
 ## Tree
 
 ```text
 .
-  artifacts/               # Runs, model outputs, factor_lab/rank_portfolio artifacts, control-plane state
+  AGENTS.md                # AI agent 入口契约（30 秒读完）
+  README.md                # 用户视角快速开始 + 导航表
+  AUTO_REVIEW.md           # 9+ 轮 review loop 评分历史（持续追加）
+  REVIEW_STATE.json        # review-loop-codex skill 状态文件
+  Makefile                 # install/run/flow/test 包装
+  plan.md                  # 兼容性指针（指向下面两份）
+  docs/proposals/agent_market_proposal.md   # 早期 Proposal（含 PARTIAL 项）
+  docs/plan.md             # MVP 落地计划（已闭环）；见 docs/project_status.md 解释口径
+  requirements*.txt / constraints.txt   # 4 份；推荐 requirements-full.txt
+  docs/legacy/HARNESS_*.md / RALPH_PROMPT.md   # 历史 harness 规格 / 旧 agent prompt（已归档到 docs/legacy/）
+  artifacts/               # Runs, model outputs, factor_lab/rank_portfolio artifacts, control-plane state（不要手动改）
   benchmark_pack/          # Benchmark/challenge pack inputs
   configs/                 # Agent Flow, strategy miner, feed/symbol/rule configs
-  docs/                    # Project plans, experiments, evidence mapping, inventories
-  freqtrade/               # Vendored Freqtrade snapshot; pip freqtrade may also be used
-  logs/                    # Mining/backtest/data logs
-  runtime_configs/         # Runtime config snapshots from server/jobs
-  runtime_logs/            # Runtime logs from server/jobs
-  runtime_manifests/       # Job manifests and metadata
-  scripts/                 # CLI entrypoints for flow, Factor Lab, mining, training, data, maintenance
+  docs/                    # 24 篇文档（先读 docs/INDEX.md 分类） + docs/plans/
+  freqtrade/               # Vendored Freqtrade snapshot；只读
+  logs/                    # Mining/backtest/data logs（运行时生成）
+  runtime_configs/         # Runtime config snapshots from server/jobs（运行时）
+  runtime_logs/            # Runtime logs from server/jobs（运行时）
+  runtime_manifests/       # Job manifests and metadata（运行时）
+  scripts/                 # 70+ CLI entrypoints；先看 scripts/README.md 分类
   server/                  # FastAPI app, API routes, auth, job manager
-  src/                     # Python packages: agent_market, runner_fsm
-  strategies/              # Legacy/template strategy files
-  tests/                   # Pytest suite
+  src/agent_market/        # 业务核心；详见其 __init__.py 导览
+  src/runner_fsm/          # 通用 OpenCode-FSM runner core
+  tests/                   # Pytest suite（487+ wq_brain tests）
   user_data/               # Freqtrade configs, OHLCV data, strategies, reports, backtest outputs
   web/                     # Static frontend served at /web
-  ws_production/           # Standalone production-workspace style helpers and paper-loop tools
-  README.md / Makefile / plan.md / requirements*.txt / constraints.txt
+  workspace/               # 模板源 + 旧研究工具集合：被 create_workspace.py 拷贝进新生成的 ws_<id>/ 中
+                           # （提供 backtest_api / evaluator / tracker / orchestrator / model_loader / ... 模块）
+  ws_production/           # 独立 Python 包：production-workspace 实验区（adaptive_params / auto_improver / ...）；
+                           # 与主 flow 基本独立，不共享 artifacts 路径假设；入门看 ws_production/GUIDE.md
 ```
+
+> 注：旧版本的 `strategies/` 目录已不存在；策略文件统一在 `user_data/strategies/`。
 
 ## Entry Points
 
@@ -171,7 +187,7 @@ python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.js
 ## Risks / Unknowns
 
 - The worktree is currently very dirty: many tracked files are modified/deleted and many research files are untracked. Treat `git status` as required context before any cleanup, commit or refactor.
-- `README.md` and `Makefile` still reference `scripts/smoke_test.py`, but that file is currently deleted in the worktree. Use `pytest -q` and `scripts/e2e_smoke_flow.py` unless the smoke script is restored.
+- `scripts/smoke_test.py` and `scripts/e2e_smoke_flow.py` both exist; recommended verification order is `pytest -q → smoke_test.py → e2e_smoke_flow.py`.
 - The repository contains both vendored `freqtrade/` and likely environment-installed `freqtrade`; choose one execution path consistently when debugging backtests.
 - Many configs referenced in older docs are deleted in the current worktree; validate paths before running historical commands.
 - Rank portfolio defaults in code have evolved from the original aggressive plan: current `RiskConfig.from_profile("aggressive")` defaults to a short-biased, rolling-IC filtered profile with lower gross/leverage caps unless CLI/env overrides are passed.

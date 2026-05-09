@@ -147,18 +147,22 @@ def find_best_threshold(
     *,
     target_label: str = "passes_remote",
     score_field: str = "local_fitness",
+    min_samples: int = 5,
 ) -> dict[str, Any]:
     """Sweep candidate thresholds on local_fitness, pick the F1-maximising one.
 
     Each sample needs ``local_fitness`` and a boolean ``passes_remote``
     (remote fitness ≥ 1.0 by convention). Returns dict with chosen
     threshold + precision / recall / F1 at it.
+
+    ``min_samples`` (default 5) is the floor below which the F1 sweep is
+    skipped and a 0.5 fallback is returned with ``method='fallback (...)'``.
     """
     valid = [s for s in samples if s.get(score_field) is not None]
-    if len(valid) < 5:
+    if len(valid) < min_samples:
         return {
             "threshold": 0.5,
-            "method": "fallback (insufficient samples)",
+            "method": f"fallback (need >= {min_samples} samples, got {len(valid)})",
             "n_samples": len(valid),
             "precision": None,
             "recall": None,
@@ -278,17 +282,20 @@ def calibrate_local_threshold(
     save: bool = True,
     pass_remote_fitness: float = 1.0,
     progress_cb: Optional[Any] = None,
+    min_samples: int = 5,
 ) -> CalibrationResult:
     """End-to-end: select samples → re-simulate locally → pick threshold.
 
     ``progress_cb(i, total, sample)`` is called between simulations so the
     CLI can stream progress (~1-2 min/sample on Russell 2070).
+    ``min_samples`` (default 5) is the minimum tried_log COMPLETE rows
+    required; lower it to 3 to bootstrap calibration on a fresh tag.
     """
     rows = select_calibration_samples(tag, top_n=top_n)
-    if len(rows) < 5:
+    if len(rows) < min_samples:
         raise RuntimeError(
-            f"calibration needs at least 5 COMPLETE samples in tried_exprs; "
-            f"only {len(rows)} found for tag={tag!r}"
+            f"calibration needs at least {min_samples} COMPLETE samples in "
+            f"tried_exprs; only {len(rows)} found for tag={tag!r}"
         )
     samples_p = samples_path(tag)
     samples_p.parent.mkdir(parents=True, exist_ok=True)
@@ -329,9 +336,9 @@ def calibrate_local_threshold(
     pearson = _pearson(remote_fi, local_fi)
     spearman = _spearman(remote_fi, local_fi)
     rmse = _rmse(remote_fi, local_fi)
-    thr = find_best_threshold(samples)
+    thr = find_best_threshold(samples, min_samples=min_samples)
 
-    if save and len(samples) >= 5:
+    if save and len(samples) >= min_samples:
         save_calibrated_threshold(
             tag, thr["threshold"],
             metadata={
@@ -351,6 +358,84 @@ def calibrate_local_threshold(
         tag=tag, samples=samples,
         pearson_fitness=pearson, spearman_fitness=spearman, rmse_fitness=rmse,
         threshold=thr, elapsed_sec=elapsed,
+    )
+
+
+def seed_calibration_from_samples(
+    tag: str,
+    samples: list[dict[str, Any]],
+    *,
+    save: bool = True,
+    min_samples: int = 5,
+) -> CalibrationResult:
+    """Bypass the slow local-simulate loop and pick a threshold from
+    pre-computed ``samples``.
+
+    Each sample dict must contain ``local_fitness`` (float) and
+    ``passes_remote`` (bool). The keys ``remote_fitness`` /
+    ``remote_sharpe`` / ``remote_turnover`` are recommended so correlation
+    statistics + the markdown report stay informative; missing values are
+    treated as ``None``.
+
+    Useful when the user has 30+ remote results in a spreadsheet/CSV and
+    just wants the F1-maximising threshold without re-running local_sim
+    (which costs 1-2 min per sample on Russell 2070).
+    """
+    cleaned: list[dict[str, Any]] = []
+    for s in samples:
+        if s.get("local_fitness") is None or s.get("passes_remote") is None:
+            continue
+        cleaned.append({
+            "expr": s.get("expr", ""),
+            "alpha_id": s.get("alpha_id"),
+            "remote_sharpe": float(s["remote_sharpe"]) if s.get("remote_sharpe") is not None else None,
+            "remote_fitness": float(s["remote_fitness"]) if s.get("remote_fitness") is not None else None,
+            "remote_turnover": float(s["remote_turnover"]) if s.get("remote_turnover") is not None else None,
+            "local_sharpe": float(s["local_sharpe"]) if s.get("local_sharpe") is not None else None,
+            "local_fitness": float(s["local_fitness"]),
+            "local_turnover": float(s["local_turnover"]) if s.get("local_turnover") is not None else None,
+            "passes_remote": bool(s["passes_remote"]),
+        })
+    if len(cleaned) < min_samples:
+        raise RuntimeError(
+            f"seed_calibration_from_samples needs >= {min_samples} valid rows "
+            f"with local_fitness + passes_remote; got {len(cleaned)}"
+        )
+
+    samples_p = samples_path(tag)
+    samples_p.parent.mkdir(parents=True, exist_ok=True)
+    with samples_p.open("w", encoding="utf-8") as f:
+        for s in cleaned:
+            f.write(json.dumps(s) + "\n")
+
+    remote_fi = [s["remote_fitness"] for s in cleaned if s.get("remote_fitness") is not None]
+    local_fi = [s["local_fitness"] for s in cleaned if s.get("remote_fitness") is not None]
+    pearson = _pearson(remote_fi, local_fi) if remote_fi else None
+    spearman = _spearman(remote_fi, local_fi) if remote_fi else None
+    rmse = _rmse(remote_fi, local_fi) if remote_fi else None
+    thr = find_best_threshold(cleaned, min_samples=min_samples)
+
+    if save:
+        save_calibrated_threshold(
+            tag, thr["threshold"],
+            metadata={
+                "n_samples": len(cleaned),
+                "pearson_fitness": pearson,
+                "spearman_fitness": spearman,
+                "rmse_fitness": rmse,
+                "f1": thr.get("f1"),
+                "precision": thr.get("precision"),
+                "recall": thr.get("recall"),
+                "method": thr.get("method"),
+                "source": "seed_from_samples",
+            },
+        )
+        _write_report(tag, cleaned, pearson, spearman, rmse, thr, 0.0)
+
+    return CalibrationResult(
+        tag=tag, samples=cleaned,
+        pearson_fitness=pearson, spearman_fitness=spearman, rmse_fitness=rmse,
+        threshold=thr, elapsed_sec=0.0,
     )
 
 
@@ -390,8 +475,12 @@ def _write_report(
     ]
     for i, s in enumerate(samples[:30], 1):
         expr = (s.get("expr") or "")[:80].replace("|", "/")
+        rfi = s.get("remote_fitness")
+        lfi = s.get("local_fitness")
+        rfi_s = f"{rfi:.2f}" if isinstance(rfi, (int, float)) else "-"
+        lfi_s = f"{lfi:.2f}" if isinstance(lfi, (int, float)) else "-"
         lines.append(
-            f"| {i} | {s['remote_fitness']:.2f} | {s['local_fitness']:.2f} | "
-            f"{'✓' if s['passes_remote'] else '✗'} | `{expr}` |"
+            f"| {i} | {rfi_s} | {lfi_s} | "
+            f"{'✓' if s.get('passes_remote') else '✗'} | `{expr}` |"
         )
     report_path(tag).write_text("\n".join(lines), encoding="utf-8")
