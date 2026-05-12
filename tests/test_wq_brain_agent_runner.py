@@ -182,7 +182,7 @@ def test_run_agent_sets_compact_local_sim_limits(isolated_artifacts):
         run_agent(config)
 
     env = mock_run.call_args.kwargs["env"]
-    assert env["WQB_AGENT_LOCAL_SIM_LIMIT"] == "2"
+    assert env["WQB_AGENT_LOCAL_SIM_LIMIT"] == "1"
     assert env["WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT"] == "1"
     assert env["WQB_AGENT_LOCAL_SIM_TIMEOUT_SEC"] == "360"
     assert env["WQB_AGENT_REQUIRE_LOCAL_SIM"] == "1"

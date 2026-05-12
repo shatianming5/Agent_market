@@ -430,7 +430,7 @@ def run_agent(config: AgentConfig) -> dict:
         # Compact autonomous loops should finish and hand off quickly. The
         # agent prompt asks for 1-2 local screens, but LLM CLIs can launch
         # tool calls concurrently; enforce the same budget in the child CLI.
-        extra_env["WQB_AGENT_LOCAL_SIM_LIMIT"] = "2"
+        extra_env["WQB_AGENT_LOCAL_SIM_LIMIT"] = "1"
         extra_env["WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT"] = "1"
         extra_env["WQB_AGENT_LOCAL_SIM_TIMEOUT_SEC"] = "360"
         extra_env["WQB_AGENT_REQUIRE_LOCAL_SIM"] = "1"

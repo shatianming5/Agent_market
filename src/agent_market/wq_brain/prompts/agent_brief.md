@@ -151,9 +151,9 @@ finish one complete research loop instead of expanding indefinitely:
 2. Write a short `notes.md` hypothesis with `[skill:]`, `[arxiv:]` or
    `[s2:]` / `[openalex:]`, and `[math:]` citations.
 3. Design 3 OHLCV-compatible candidates from distinct families.
-4. `validate` all 3; run `local-simulate` on the best 1-2 only.
+4. `validate` all 3; run `local-simulate` on the single best candidate only.
    Run local-simulates sequentially, never in parallel. Compact-loop
-   runner enforces max 2 local-simulates total and max 1 active at a time;
+   runner enforces max 1 local-simulate total and max 1 active at a time;
    each local-simulate also has a 360s compact timeout. If you see a
    budget/concurrency/timeout JSON error, stop launching more local-simulates
    and write `summary.md`.
