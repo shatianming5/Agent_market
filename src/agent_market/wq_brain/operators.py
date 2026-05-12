@@ -151,6 +151,10 @@ AVAILABLE Fields:
                  on USA TOP3000 with SUBINDUSTRY neutralization.
                  Combine with intraday OHLCV signals for both information
                  sources at once — e.g. `rank(sales/assets) * rank(ts_corr(close, volume, 20))`.
+                 NOTE: current `local-simulate` is OHLCV-only. In agent
+                 loops that mandate local-simulate before remote simulate,
+                 use only Price/Volume + Group fields until the local
+                 simulator has a fundamental-data backend.
 
 UNAVAILABLE Fields — DO NOT USE ({len(FIELDS_UNAVAILABLE)}):
   {", ".join(FIELDS_UNAVAILABLE)}

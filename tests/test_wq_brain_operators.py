@@ -119,6 +119,12 @@ def test_operators_prompt_block_advertises_adv_variants():
     assert "unknown variable" in block
 
 
+def test_operators_prompt_block_mentions_local_sim_field_boundary():
+    block = operators_prompt_block()
+    assert "`local-simulate` is OHLCV-only" in block
+    assert "Price/Volume + Group fields" in block
+
+
 def test_operators_prompt_block_advertises_multiline_binding():
     block = operators_prompt_block()
     assert "Multi-Line Binding" in block

@@ -165,9 +165,12 @@ You **MUST** complete ALL of the following before any simulate call:
    generic, or missing working-paper coverage:
    - `search-papers "order flow imbalance alpha market microstructure" --max 3`
    - `search-papers "analyst revision cross sectional return predictability" --max 3`
-5. **Use `math` for any formula-derived idea** before coding it as FASTEXPR:
-   - simplify / diff / solve the core relationship
-   - write the sign convention and resulting proxy in `notes.md`
+5. **At least 1 `math` command is mandatory before any simulate call.**
+   Use it to sanity-check the sign / monotonicity / smoothing transform for
+   your best paper- or playbook-derived idea, then write the sign convention
+   and resulting proxy in `notes.md`:
+   - `math simplify "log(S_t / S_0) - log(S_t) + log(S_0)"`
+   - `math diff "log(S) - gamma*sigma^2*T/2" --var S`
 6. **Optionally 1 `web-search`** for SeekingAlpha/Bloomberg/Reddit angle:
    `web-search "WorldQuant BRAIN consultant tips 2024" --max 5`
 7. **Read the cross-loop knowledge in this prompt** (## ACTIVE Submitted
@@ -232,12 +235,20 @@ Generate 5-10 distinct candidate expressions covering ≥3 different families.
 
 5. **MANDATORY local-simulate before every remote simulate.** WQ has a
    60-100/day quota; the OHLCV cache (12.99M rows / 2070 tickers) is
-   already loaded. Run `local-simulate` first and set the Bash/tool
-   timeout to at least 420000 ms because the remote cache takes ~3-4
-   minutes per expression. If `wq_sharpe < 0` flip sign and re-run; if
-   `wq_fitness < 0.5` after sign-flip, **DROP — do not call remote
-   `simulate`.** See Phase 3 for the full decision tree. Bypassing this
-   gate burns the daily quota on candidates that already look bad locally.
+   already loaded. For this mandatory gate, candidates must use only
+   local-simulate-supported fields:
+   `open`, `high`, `low`, `close`, `vwap`, `volume`, `returns`, `adv20`,
+   plus `sector` / `industry` / `subindustry` grouping labels. Do NOT use
+   fundamentals (`sales`, `assets`, `equity`, `debt`, `net_income`, etc.)
+   in a candidate you intend to local-simulate; the current local OHLCV
+   cache cannot evaluate them and will return
+   `identifier '<field>' not available locally`. Run `local-simulate`
+   first and set the Bash/tool timeout to at least 420000 ms because the
+   remote cache takes ~3-4 minutes per expression. If `wq_sharpe < 0` flip
+   sign and re-run; if `wq_fitness < 0.5` after sign-flip, **DROP — do not
+   call remote `simulate`.** See Phase 3 for the full decision tree.
+   Bypassing this gate burns the daily quota on candidates that already
+   look bad locally.
 
 ### Design principles (when not constrained above)
 
@@ -261,6 +272,14 @@ zero budget and rejects ~70% of weak candidates. On the remote server this
 can take ~3-4 minutes per expression; when using the Bash tool set
 `timeout` to at least `420000` ms. Do not treat the default 120s/180s Bash
 timeout as a local-simulate failure.
+
+Local-simulate field boundary: it evaluates OHLCV-derived expressions only:
+`open`, `high`, `low`, `close`, `vwap`, `volume`, `returns`, `adv20`, plus
+`sector`, `industry`, and `subindustry` as grouping labels. If an expression
+contains fundamentals such as `sales/assets`, `debt/equity`,
+`net_income/equity`, `shares`, `cap`, `fcf`, or `operating_income`, redesign
+it into an OHLCV-compatible proxy for this loop instead of remote-simulating
+without the gate.
 
 ```bash
 python {WQ_TOOLS} local-simulate "<expr>" --rebalance-freq 5 --tag {TAG}

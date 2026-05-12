@@ -55,6 +55,9 @@ def test_build_system_prompt_substitutes_all_placeholders(isolated_artifacts, tm
     assert "TOP3000" in prompt
     assert "42" in prompt
     assert "yes" in prompt
+    assert "At least 1 `math` command is mandatory" in prompt
+    assert "local-simulate-supported fields" in prompt
+    assert "identifier '<field>' not available locally" in prompt
 
 
 def test_resolve_cli_explicit_returns_input():
@@ -306,6 +309,17 @@ def test_classify_agent_failure_recognises_network(tmp_path):
     log.write_text("urllib3: connection refused (err 111)\n", encoding="utf-8")
     cls = _classify_agent_failure(log)
     assert cls["kind"] == "network"
+
+
+def test_classify_agent_failure_recognises_runner_timeout(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "[agent_runner] timeout after 1800s; terminating process group\n",
+        encoding="utf-8",
+    )
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "timeout"
 
 
 def test_classify_agent_failure_unknown_when_no_pattern(tmp_path):

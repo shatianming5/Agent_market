@@ -219,6 +219,12 @@ def _build_opencode_cmd(config: AgentConfig, prompt: str) -> list[str]:
 # Patterns the agent CLI / LLM provider emit on common failure modes. Each
 # tuple: (regex, kind, hint). First match wins; "unknown" is the fallback.
 _FAILURE_PATTERNS: tuple[tuple[re.Pattern, str, str], ...] = (
+    (re.compile(r"\[agent_runner\] timeout after|process group ignored SIGTERM",
+                re.IGNORECASE),
+     "timeout",
+     "Agent session reached timeout_sec and the runner terminated its process "
+     "group. Reduce per-iteration scope or increase --timeout-sec if a full "
+     "agent cycle needs more wall time."),
     (re.compile(r"(剩余额度|用户.{0,4}额度|账号.*额度|额度不足|"
                 r"insufficient balance|out of credit|quota[_ ]exhaust|"
                 r"rate.?limit|usage limit)", re.IGNORECASE),
