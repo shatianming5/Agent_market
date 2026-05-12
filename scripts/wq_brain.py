@@ -10,6 +10,7 @@ All agent-facing commands emit JSON to stdout (for parseable output).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import os
@@ -1500,6 +1501,112 @@ def cmd_update_data(args: argparse.Namespace) -> None:
     print(json.dumps(summary, indent=2, default=str))
 
 
+def _env_int(name: str, default: int = 0) -> int:
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _read_local_sim_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"claims": [], "active": []}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"claims": [], "active": []}
+    return {
+        "claims": list(raw.get("claims") or []),
+        "active": list(raw.get("active") or []),
+    }
+
+
+def _write_local_sim_state(path: Path, state: dict[str, Any]) -> None:
+    path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+
+
+@contextlib.contextmanager
+def _agent_local_sim_slot(expr: str):
+    """Bound local-simulate fan-out inside compact autonomous agent runs."""
+    run_dir_raw = os.environ.get("WQB_RUN_DIR", "")
+    limit = _env_int("WQB_AGENT_LOCAL_SIM_LIMIT")
+    max_concurrent = _env_int("WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT")
+    if not run_dir_raw or (limit <= 0 and max_concurrent <= 0):
+        yield
+        return
+
+    run_dir = Path(run_dir_raw)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = run_dir / ".local_sim_budget.lock"
+    state_path = run_dir / "local_sim_budget.json"
+    pid = os.getpid()
+
+    def _locked_update(fn):
+        lock_path.touch(exist_ok=True)
+        with lock_path.open("r+", encoding="utf-8") as lockf:
+            try:
+                import fcntl
+                fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)
+            except (ImportError, OSError):
+                pass
+            state = _read_local_sim_state(state_path)
+            state["active"] = [
+                row for row in state.get("active", [])
+                if _pid_alive(int(row.get("pid") or 0))
+            ]
+            result = fn(state)
+            _write_local_sim_state(state_path, state)
+            try:
+                import fcntl
+                fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)
+            except (ImportError, OSError):
+                pass
+            return result
+
+    def _claim(state: dict[str, Any]) -> None:
+        active = state.get("active", [])
+        if max_concurrent > 0 and len(active) >= max_concurrent:
+            raise RuntimeError(
+                "agent local-simulate concurrency limit reached; wait for the "
+                "running local-simulate to finish instead of launching another"
+            )
+        claims = state.get("claims", [])
+        claimed_exprs = {str(row.get("expr") or "") for row in claims}
+        if limit > 0 and expr not in claimed_exprs and len(claims) >= limit:
+            raise RuntimeError(
+                f"agent local-simulate budget exhausted for this compact loop "
+                f"(limit={limit}); write summary.md or proceed with prior results"
+            )
+        if expr not in claimed_exprs:
+            claims.append({"expr": expr, "pid": pid, "ts": time.time()})
+        active.append({"expr": expr, "pid": pid, "ts": time.time()})
+        state["claims"] = claims
+        state["active"] = active
+
+    def _release(state: dict[str, Any]) -> None:
+        state["active"] = [
+            row for row in state.get("active", [])
+            if int(row.get("pid") or 0) != pid
+        ]
+
+    _locked_update(_claim)
+    try:
+        yield
+    finally:
+        _locked_update(_release)
+
+
 def cmd_local_simulate(args: argparse.Namespace) -> None:
     """Run wq_simulate against cached OHLCV — no WQ API call, pure local.
 
@@ -1508,12 +1615,13 @@ def cmd_local_simulate(args: argparse.Namespace) -> None:
     """
     from agent_market.wq_brain.local_sim import simulate_expression_locally
     try:
-        result = simulate_expression_locally(
-            args.expr,
-            rebalance_freq=args.rebalance_freq,
-            tag=args.tag or None,
-            fitness_gate=args.fitness_gate,
-        )
+        with _agent_local_sim_slot(args.expr):
+            result = simulate_expression_locally(
+                args.expr,
+                rebalance_freq=args.rebalance_freq,
+                tag=args.tag or None,
+                fitness_gate=args.fitness_gate,
+            )
         _emit({
             "ok": True,
             "expr": result.expr,

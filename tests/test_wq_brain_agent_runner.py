@@ -57,6 +57,7 @@ def test_build_system_prompt_substitutes_all_placeholders(isolated_artifacts, tm
     assert "yes" in prompt
     assert "Compact Loop Mode" in prompt
     assert "Remote `simulate` at most 2 candidates" in prompt
+    assert "never in parallel" in prompt
     assert "At least 1 `math` command is mandatory" in prompt
     assert "local-simulate-supported fields" in prompt
     assert "identifier '<field>' not available locally" in prompt
@@ -169,6 +170,20 @@ def test_run_agent_passes_correct_hermes_flags(isolated_artifacts):
     assert "-m" in cmd and "MiniMax" in cmd
     assert "--provider" in cmd and "openrouter" in cmd
     assert "--yolo" in cmd
+
+
+def test_run_agent_sets_compact_local_sim_limits(isolated_artifacts):
+    config = AgentConfig(
+        tag="t1", max_turns=12, model="MiniMax", cli="opencode",
+        timeout_sec=10.0,
+    )
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout") as mock_run:
+        mock_run.return_value = 0
+        run_agent(config)
+
+    env = mock_run.call_args.kwargs["env"]
+    assert env["WQB_AGENT_LOCAL_SIM_LIMIT"] == "2"
+    assert env["WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT"] == "1"
 
 
 def test_run_agent_handles_timeout(isolated_artifacts):

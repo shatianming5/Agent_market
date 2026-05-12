@@ -425,7 +425,14 @@ def run_agent(config: AgentConfig) -> dict:
     run_dir = wq_brain_run_dir(run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    env = _llm_cli_env({"WQB_TAG": config.tag, "WQB_RUN_DIR": str(run_dir)})
+    extra_env = {"WQB_TAG": config.tag, "WQB_RUN_DIR": str(run_dir)}
+    if config.max_turns <= 20:
+        # Compact autonomous loops should finish and hand off quickly. The
+        # agent prompt asks for 1-2 local screens, but LLM CLIs can launch
+        # tool calls concurrently; enforce the same budget in the child CLI.
+        extra_env["WQB_AGENT_LOCAL_SIM_LIMIT"] = "2"
+        extra_env["WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT"] = "1"
+    env = _llm_cli_env(extra_env)
     cli = _resolve_cli(config.cli, env=env)
     prompt = _build_system_prompt(config, run_dir)
     (run_dir / "system_prompt.md").write_text(prompt, encoding="utf-8")
