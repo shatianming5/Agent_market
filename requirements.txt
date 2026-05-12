@@ -15,6 +15,7 @@ aiohttp
 httpx
 feedparser
 trafilatura
+sympy
 aiolimiter
 tldextract
 simhash

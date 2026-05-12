@@ -3,7 +3,8 @@
 
 Human commands: auth, agent, scan, report.
 Hermes-agent commands (called from inside agent session via terminal):
-    auth, validate, simulate, submit, pool list, corr, search-arxiv, docs.
+    auth, validate, simulate, submit, pool list, corr, search-arxiv,
+    search-papers, math, docs.
 All agent-facing commands emit JSON to stdout (for parseable output).
 """
 from __future__ import annotations
@@ -1556,36 +1557,53 @@ def cmd_score(args: argparse.Namespace) -> None:
 
 
 def cmd_search_arxiv(args: argparse.Namespace) -> None:
-    import urllib.parse
-    import urllib.request
-    import xml.etree.ElementTree as ET
-    q = urllib.parse.quote(args.query)
-    url = (
-        f"http://export.arxiv.org/api/query?search_query=all:{q}"
-        f"&start=0&max_results={args.max}"
-        "&sortBy=submittedDate&sortOrder=descending"
-    )
+    from agent_market.wq_brain.research_tools import search_arxiv
     try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            xml_data = resp.read()
+        out = search_arxiv(
+            args.query,
+            max_results=args.max,
+            categories=args.category,
+            sort_by=args.sort,
+            sort_order=args.sort_order,
+            raw_query=args.raw_query,
+        )
     except Exception as exc:
-        _emit({"ok": False, "error": f"arxiv fetch failed: {exc}"}, code=1)
-        return
-    ns = {"atom": "http://www.w3.org/2005/Atom"}
+        _emit({"ok": False, "error": f"arxiv search failed: {exc}"}, code=1)
+    _emit(out)
+
+
+def cmd_search_papers(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.research_tools import search_papers
     try:
-        root = ET.fromstring(xml_data)
-    except ET.ParseError as exc:
-        _emit({"ok": False, "error": f"arxiv parse failed: {exc}"}, code=1)
-        return
-    papers = []
-    for entry in root.findall("atom:entry", ns):
-        papers.append({
-            "title": (entry.findtext("atom:title", default="", namespaces=ns) or "").strip(),
-            "id": (entry.findtext("atom:id", default="", namespaces=ns) or "").strip(),
-            "abstract": (entry.findtext("atom:summary", default="", namespaces=ns) or "").strip()[:1500],
-            "published": (entry.findtext("atom:published", default="", namespaces=ns) or "").strip(),
-        })
-    _emit({"ok": True, "query": args.query, "count": len(papers), "papers": papers})
+        out = search_papers(
+            args.query,
+            max_results=args.max,
+            sources=args.source,
+            arxiv_categories=args.category,
+            arxiv_sort_by=args.arxiv_sort,
+            year=args.year,
+            fields_of_study=args.fields_of_study,
+            min_citation_count=args.min_citations,
+        )
+    except Exception as exc:
+        _emit({"ok": False, "error": f"paper search failed: {exc}"}, code=1)
+    _emit(out, code=0 if out.get("ok") else 1)
+
+
+def cmd_math(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.symbolic_math import symbolic_math
+    try:
+        out = symbolic_math(
+            args.operation,
+            args.expr,
+            var=args.var,
+            solve_for=args.solve_for,
+            point=args.point,
+            order=args.order,
+        )
+    except Exception as exc:
+        _emit({"ok": False, "error": str(exc)}, code=1)
+    _emit(out)
 
 
 def cmd_docs(args: argparse.Namespace) -> None:
@@ -2111,10 +2129,47 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("alpha_id")
     sp.set_defaults(func=cmd_corr)
 
-    sp = sub.add_parser("search-arxiv", help="search arxiv abstracts")
+    sp = sub.add_parser("search-arxiv", help="search arxiv abstracts with quant-finance category anchors")
     sp.add_argument("query")
     sp.add_argument("--max", type=int, default=5)
+    sp.add_argument("--category", default="q-fin.*,stat.ML,cs.CE",
+                    help="comma-separated arXiv categories/aliases; default q-fin.*,stat.ML,cs.CE")
+    sp.add_argument("--sort", choices=("relevance", "submittedDate", "lastUpdatedDate"),
+                    default="relevance")
+    sp.add_argument("--sort-order", choices=("ascending", "descending"), default="descending")
+    sp.add_argument("--raw-query", action="store_true",
+                    help="treat query as a raw arXiv search_query fragment")
     sp.set_defaults(func=cmd_search_arxiv)
+
+    sp = sub.add_parser("search-papers", help="multi-source paper search (arXiv/S2/OpenAlex/SSRN web)")
+    sp.add_argument("query")
+    sp.add_argument("--max", type=int, default=5,
+                    help="maximum results per source")
+    sp.add_argument("--source", default="arxiv,semantic_scholar,openalex,ssrn",
+                    help="comma-separated: arxiv, semantic_scholar, openalex, ssrn")
+    sp.add_argument("--category", default="q-fin.*,stat.ML,cs.CE",
+                    help="arXiv category filter used for the arxiv source")
+    sp.add_argument("--arxiv-sort", choices=("relevance", "submittedDate", "lastUpdatedDate"),
+                    default="relevance")
+    sp.add_argument("--year", default=None,
+                    help="Semantic Scholar year/range filter, e.g. 2024 or 2023-")
+    sp.add_argument("--fields-of-study", default="Computer Science,Economics,Business",
+                    help="Semantic Scholar fieldsOfStudy filter")
+    sp.add_argument("--min-citations", type=int, default=None)
+    sp.set_defaults(func=cmd_search_papers)
+
+    sp = sub.add_parser("math", help="symbolic math via SymPy")
+    sp.add_argument("operation", choices=("simplify", "expand", "factor", "diff", "integrate", "solve", "series", "latex"))
+    sp.add_argument("expr")
+    sp.add_argument("--var", default=None,
+                    help="variable for diff/integrate/series; defaults to first free symbol")
+    sp.add_argument("--solve-for", default=None,
+                    help="symbol to solve for; defaults to --var or first free symbol")
+    sp.add_argument("--point", default="0",
+                    help="series expansion point")
+    sp.add_argument("--order", type=int, default=6,
+                    help="series order")
+    sp.set_defaults(func=cmd_math)
 
     sp = sub.add_parser("docs", help="show local FASTEXPR docs")
     sp.add_argument("topic", choices=["operators"])

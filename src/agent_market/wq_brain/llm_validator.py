@@ -96,7 +96,7 @@ KNOWN_SUBCOMMANDS: frozenset[str] = frozenset({
     "fetch-data", "update-data", "local-simulate",
     "anti-overfit", "score",
     "pool", "corr",
-    "search-arxiv", "docs", "web-search", "fetch-url",
+    "search-arxiv", "search-papers", "math", "docs", "web-search", "fetch-url",
     "skill-search", "skill-list",
     "scan", "agent", "report", "review",
     "audit-data", "calibrate-local", "seed-calibration",

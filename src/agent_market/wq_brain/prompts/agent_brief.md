@@ -77,8 +77,21 @@ python {WQ_TOOLS} pool list --tag {TAG}
 # Check correlation of an alpha with existing pool (need <0.7 to submit)
 python {WQ_TOOLS} corr ALPHA_ID
 
-# Search arxiv abstracts for ideas
-python {WQ_TOOLS} search-arxiv "cross-sectional momentum reversal" --max 5
+# Search arxiv abstracts for ideas.
+# Default category filter is q-fin.*,stat.ML,cs.CE; keep it unless you have
+# a specific reason to broaden. Use --sort submittedDate only after relevance
+# has produced domain-matched papers.
+python {WQ_TOOLS} search-arxiv "cross-sectional momentum reversal" --max 5 --sort relevance
+
+# Multi-source literature search: arXiv + Semantic Scholar + OpenAlex + SSRN
+# site-search fallback. Use this when arXiv is sparse or you need citations,
+# venues, SSRN working papers, or broader quant-finance coverage.
+python {WQ_TOOLS} search-papers "order flow imbalance alpha market microstructure" --max 3
+
+# Symbolic math scratchpad. Use before translating a paper formula or
+# economic model into FASTEXPR so algebraic signs / derivatives are explicit.
+python {WQ_TOOLS} math simplify "log(S_t / S_0) - log(S_t) + log(S_0)"
+python {WQ_TOOLS} math diff "log(S) - gamma*sigma^2*T/2" --var S
 
 # General web search (Brave API if BRAVE_API_KEY env, else Wikipedia → GitHub fallback)
 python {WQ_TOOLS} web-search "intraday volatility spillover effect" --max 5
@@ -143,16 +156,25 @@ You **MUST** complete ALL of the following before any simulate call:
    from `worldquant-skill` repo) with concrete operator/window combos
    that have worked in production. Skipping this step has historically
    led to local-optimum tunneling.
-3. **At least 1 `search-arxiv` query** for academic novelty:
-   - `search-arxiv "cross-sectional alpha factor 2024" --max 5`
-   - `search-arxiv "VWAP volume rank momentum" --max 5`
-   - `search-arxiv "intraday range volatility prediction" --max 5`
-4. **Optionally 1 `web-search`** for SeekingAlpha/Bloomberg/Reddit angle:
+3. **At least 1 `search-arxiv` query** for academic novelty. Keep the default
+   quant-finance category filter unless intentionally broadening:
+   - `search-arxiv "cross-sectional alpha factor 2024" --max 5 --sort relevance`
+   - `search-arxiv "VWAP volume rank momentum" --max 5 --sort relevance`
+   - `search-arxiv "intraday range volatility prediction" --max 5 --sort relevance`
+4. **At least 1 `search-papers` query** when the arXiv result set is thin,
+   generic, or missing working-paper coverage:
+   - `search-papers "order flow imbalance alpha market microstructure" --max 3`
+   - `search-papers "analyst revision cross sectional return predictability" --max 3`
+5. **Use `math` for any formula-derived idea** before coding it as FASTEXPR:
+   - simplify / diff / solve the core relationship
+   - write the sign convention and resulting proxy in `notes.md`
+6. **Optionally 1 `web-search`** for SeekingAlpha/Bloomberg/Reddit angle:
    `web-search "WorldQuant BRAIN consultant tips 2024" --max 5`
-5. **Read the cross-loop knowledge in this prompt** (## ACTIVE Submitted
+7. **Read the cross-loop knowledge in this prompt** (## ACTIVE Submitted
    Alphas, ## SUBMIT FAILURES, ## Cross-Over Candidates, ## Mutation Hints).
-6. Write your starting hypothesis to `notes.md` with citations:
-   `[skill: 降低 turnover §3]`, `[arxiv: 2403.12345 abstract]`, etc.
+8. Write your starting hypothesis to `notes.md` with citations:
+   `[skill: 降低 turnover §3]`, `[arxiv: 2403.12345 abstract]`,
+   `[s2: semantic_scholar paperId]`, `[openalex: W...]`, `[math: simplify]`, etc.
 
 After Phase 0:
 - **If Mutation Hints present** → Phase 2 directly with suggested strategy.
@@ -161,9 +183,11 @@ After Phase 0:
 
 ### Phase 1 — Deeper Research (5-10 turns; OPTIONAL — Phase 0 covers basics)
 
-Use `search-arxiv` / `web-search` / `fetch-url` to dig deeper into the
-specific gap your iteration is trying to close (e.g., if mutation hints
-say `reduce_turnover`, search for "alpha smoothing decay-weighted methods").
+Use `search-arxiv` / `search-papers` / `web-search` / `fetch-url` / `math`
+to dig deeper into the specific gap your iteration is trying to close
+(e.g., if mutation hints say `reduce_turnover`, search for
+"alpha smoothing decay-weighted methods" and symbolically check whether
+the smoothing transform preserves the intended sign).
 Read 3-5 abstracts. Look for:
 - intraday range / VWAP / sector-relative / volume-rank / decay-weighted patterns
 - Order flow imbalance proxies, microstructure asymmetries
