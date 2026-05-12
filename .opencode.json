@@ -9,9 +9,9 @@
         "apiKey": "{env:OPENAI_API_KEY}"
       },
       "models": {
-        "gpt-5.2": {
-          "name": "GPT-5.2"
-        }
+        "gpt-5.2": {"name": "GPT-5.2"},
+        "gpt-5.5": {"name": "GPT-5.5"},
+        "MiniMax-M2.7-highspeed": {"name": "MiniMax M2.7 highspeed"}
       }
     }
   },

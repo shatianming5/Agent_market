@@ -77,6 +77,25 @@ class AlphaPool:
         self._save()
         return True
 
+    def upsert(self, entry: AlphaPoolEntry) -> str:
+        """Insert or update by alpha_id.
+
+        Returns one of: ``"inserted"`` (new), ``"updated"`` (replaced
+        existing), ``"unchanged"`` (existing entry already matches).
+        Used by the submit-worker so per-alpha outcomes (ACTIVE / REJECTED
+        / UNSUBMITTED + reasons) overwrite previously-stored stale state.
+        """
+        for i, e in enumerate(self._entries):
+            if e.alpha_id == entry.alpha_id:
+                if e.to_dict() == entry.to_dict():
+                    return "unchanged"
+                self._entries[i] = entry
+                self._save()
+                return "updated"
+        self._entries.append(entry)
+        self._save()
+        return "inserted"
+
     def add_from_candidate(self, c: AlphaCandidate, *, tag: str) -> Optional[AlphaPoolEntry]:
         if not c.sim_result or not c.sim_result.alpha_id:
             return None

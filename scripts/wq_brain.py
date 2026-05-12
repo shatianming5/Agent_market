@@ -13,10 +13,11 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 
-import time
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = REPO_ROOT / "src"
@@ -90,15 +91,32 @@ def cmd_mutate(args: argparse.Namespace) -> None:
 
 def cmd_simulate(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.client import session_from_env
-    from agent_market.wq_brain.dtypes import AlphaSettings
-    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.dtypes import AlphaPoolEntry, AlphaSettings
+    from agent_market.wq_brain.paths import alpha_pool_path, tried_exprs_path
+    from agent_market.wq_brain.pool import AlphaPool
+    from agent_market.wq_brain.quota_monitor import release_action, reserve_action
     from agent_market.wq_brain.tried_log import append_tried
     settings = AlphaSettings(
         region=args.region, universe=args.universe, decay=args.decay,
         neutralization=args.neutralization, truncation=args.truncation,
     )
+    # Atomic reserve+commit closes the TOCTOU window between
+    # "is there capacity?" and "record the call". The reservation is rolled
+    # back via release_action below if the simulate call never reaches WQ.
+    quota = reserve_action("simulate")
+    if quota["status"] == "block":
+        _emit({"ok": False, "expr": args.expr, "rejected_by": "quota",
+               **quota}, code=2)
+        return
+    # Pin the reservation to its UTC day so a refund crossing midnight
+    # decrements the SAME bucket we incremented, not "today".
+    reserved_day = quota["day"]
+    network_called = False
     try:
         sess = session_from_env()
+        # session_from_env is a local cred read — no network yet. Mark the
+        # network as "called" only when we hand off to WQ.
+        network_called = True
         result = sess.simulate_and_parse(args.expr, settings, timeout=args.timeout)
         if args.tag:
             append_tried(
@@ -114,8 +132,59 @@ def cmd_simulate(args: argparse.Namespace) -> None:
                 universe=args.universe,
                 decay=args.decay,
             )
-        _emit({"ok": True, "expr": args.expr, **result.to_dict()})
+        out: dict[str, Any] = {"ok": True, "expr": args.expr, **result.to_dict()}
+        if quota["status"] == "throttle":
+            out["quota_advisory"] = quota
+
+        # Auto-persist passing candidates as UNSUBMITTED in the pool so a
+        # later salvage / submit pass can reach them. Pre-fix, 70% of
+        # high-fi candidates (fi≥1.0) computed by the agent were lost
+        # because the LLM session abandoned them or the agent ran out of
+        # turns before submitting. This guarantees we keep them.
+        sh_min = float(getattr(args, "auto_persist_sharpe", 1.25) or 1.25)
+        fi_min = float(getattr(args, "auto_persist_fitness", 1.0) or 1.0)
+        if (args.tag and result.status == "COMPLETE"
+                and result.alpha_id
+                and result.sharpe is not None and result.fitness is not None
+                and float(result.sharpe) >= sh_min
+                and float(result.fitness) >= fi_min):
+            try:
+                pool = AlphaPool(alpha_pool_path(args.tag))
+                already = any(e.alpha_id == result.alpha_id for e in pool.entries)
+                if not already:
+                    entry = AlphaPoolEntry(
+                        alpha_id=result.alpha_id,
+                        expr=args.expr,
+                        settings_dict={
+                            "region": args.region,
+                            "universe": args.universe,
+                            "decay": args.decay,
+                            "neutralization": args.neutralization,
+                            "truncation": args.truncation,
+                        },
+                        sharpe=float(result.sharpe),
+                        fitness=float(result.fitness),
+                        returns=float(result.returns or 0.0),
+                        turnover=float(result.turnover or 0.0),
+                        tag=args.tag,
+                        source="auto_persist",
+                        verified_status="UNSUBMITTED",
+                        verified_at=0.0,
+                        rejection_reasons=[],
+                    )
+                    if pool.add(entry):
+                        out["auto_persisted"] = True
+            except OSError as exc:
+                out["auto_persist_error"] = str(exc)
+        _emit(out)
     except Exception as exc:
+        # If the call never reached WQ, refund the reserved slot so the
+        # daily quota reflects actual usage, not failed local setup.
+        if not network_called:
+            try:
+                release_action("simulate", day=reserved_day)
+            except OSError:
+                pass
         if args.tag:
             try:
                 append_tried(
@@ -124,7 +193,7 @@ def cmd_simulate(args: argparse.Namespace) -> None:
                     status="ERROR", error=str(exc),
                     region=args.region, universe=args.universe, decay=args.decay,
                 )
-            except Exception:
+            except OSError:
                 pass
         _emit({"ok": False, "expr": args.expr, "error": str(exc)}, code=1)
 
@@ -134,12 +203,13 @@ def cmd_submit(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.dtypes import AlphaPoolEntry
     from agent_market.wq_brain.paths import alpha_pool_path
     from agent_market.wq_brain.pool import AlphaPool
+    from agent_market.wq_brain.quota_monitor import release_action, reserve_action
 
     sess = session_from_env()
 
     # Pre-check 1 (LOCAL): jaccard token similarity vs ACTIVE pool — fast,
-    # no API calls, catches >90% of self-correlation rejections before
-    # spending WQ quota.
+    # no API calls, no quota cost. Run BEFORE reserving the submit slot so
+    # a candidate that fails this gate doesn't temporarily occupy quota.
     if not args.no_pre_check and args.tag:
         expr_for_check = args.expr or _auto_fill_expr(args.tag, args.alpha_id)
         if expr_for_check:
@@ -158,8 +228,19 @@ def cmd_submit(args: argparse.Namespace) -> None:
                 }, code=2)
                 return
 
+    # Now that the free local gate is past, reserve a submit slot. Refunds
+    # below all pin to ``reserved_day`` so a UTC-midnight crossing decrements
+    # the SAME bucket we incremented.
+    submit_quota = reserve_action("submit")
+    if submit_quota["status"] == "block":
+        _emit({"ok": False, "alpha_id": args.alpha_id,
+               "rejected_by": "quota", **submit_quota}, code=2)
+        return
+    reserved_day = submit_quota["day"]
+
     # Pre-check 2 (REMOTE): WQ-aligned self-correlation + sharpe-margin rule
     if not args.no_pre_check:
+        from agent_market.wq_brain.submit_gates import GateInfraError
         try:
             check = _check_self_correlation(
                 sess, args.alpha_id,
@@ -168,6 +249,8 @@ def cmd_submit(args: argparse.Namespace) -> None:
                 tag=args.tag,
             )
             if not check["accept"]:
+                try: release_action("submit", day=reserved_day)
+                except OSError: pass
                 _emit({
                     "ok": False,
                     "rejected_by": "wq_pre_check",
@@ -176,12 +259,38 @@ def cmd_submit(args: argparse.Namespace) -> None:
                     "hint": "Use --no-pre-check to override (will likely be rejected by WQ submit step).",
                 }, code=2)
                 return
-        except Exception as exc:
-            print(f"WARN: pre_check failed ({exc}); proceeding to submit", file=sys.stderr)
+        except GateInfraError as exc:
+            # Fail-CLOSED on infra failure: the gate itself is broken, so
+            # we can't tell whether this would pass policy. Continuing to
+            # submit would burn the daily quota on a maybe-rejected alpha.
+            # The agent can opt out with `--force-submit-on-precheck-error`.
+            if not getattr(args, "force_submit_on_precheck_error", False):
+                try: release_action("submit", day=reserved_day)
+                except OSError: pass
+                _emit({
+                    "ok": False,
+                    "rejected_by": "wq_pre_check_infra",
+                    "alpha_id": args.alpha_id,
+                    "error": str(exc),
+                    "hint": (
+                        "Pre-check infrastructure failure (network/auth/5xx). "
+                        "Default is fail-closed to avoid wasting submit quota. "
+                        "Pass --force-submit-on-precheck-error to override."
+                    ),
+                }, code=2)
+                return
+            print(
+                f"WARN: pre_check infra error ({exc}); --force-submit-on-precheck-error "
+                "set, proceeding anyway",
+                file=sys.stderr,
+            )
 
     try:
         wq_resp = sess.submit_alpha(args.alpha_id, verify_after_sec=args.verify_after_sec)
     except Exception as exc:
+        # submit never reached WQ — refund the reservation pinned to its day
+        try: release_action("submit", day=reserved_day)
+        except OSError: pass
         _emit({"ok": False, "error": str(exc)}, code=1)
         return
 
@@ -277,6 +386,10 @@ def cmd_corr(args: argparse.Namespace) -> None:
         _emit({"ok": False, "error": str(exc)}, code=1)
 
 
+# Thin shims — the real implementations live in
+# agent_market.wq_brain.submit_gates so notebooks/integration-tests can
+# call the same gate chain without depending on the CLI.
+
 def _check_local_jaccard_vs_active(
     tag: str,
     expr: str,
@@ -284,120 +397,22 @@ def _check_local_jaccard_vs_active(
     threshold: float = 0.7,
     semantic_threshold: float = 0.85,
 ) -> dict[str, Any]:
-    """Local pre-submit gate: token jaccard + semantic jaccard vs ACTIVE pool.
-
-    WQ self-correlation gate (server-side) measures *signal* correlation.
-    We use two cheap proxies:
-      * **token jaccard** — catches literal duplicates
-      * **semantic jaccard** — multiset over (operators, fields) so
-        ``rank(ts_rank(close,N))`` ≈ ``rank(ts_rank(vwap,N))`` correctly
-
-    Either one over its threshold → BLOCK. Rejecting locally saves the WQ
-    submit quota AND the 30s async-verify wait.
-    """
-    import re
-    from agent_market.wq_brain.diversity import semantic_jaccard
-    from agent_market.wq_brain.paths import alpha_pool_path
-    from agent_market.wq_brain.pool import AlphaPool
-    if not tag or not expr:
-        return {"accept": True, "reason": "no tag/expr — skipped"}
-
-    pool = AlphaPool(alpha_pool_path(tag))
-    active = [e for e in pool.entries
-              if getattr(e, "verified_status", "") == "ACTIVE"]
-    if not active:
-        return {"accept": True, "reason": "no ACTIVE alphas in pool yet"}
-
-    def _toks(s: str) -> frozenset:
-        return frozenset(re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+", s.lower()))
-
-    new_t = _toks(expr)
-    if not new_t:
-        return {"accept": True, "reason": "empty token set"}
-
-    max_jac = 0.0
-    max_sem = 0.0
-    block_jac_id = ""
-    block_sem_id = ""
-    block_jac_fi = 0.0
-    block_sem_fi = 0.0
-    block_jac_expr = ""
-    block_sem_expr = ""
-    for a in active:
-        a_expr = a.expr or ""
-        a_t = _toks(a_expr)
-        if a_t:
-            union = len(new_t | a_t)
-            jac = (len(new_t & a_t) / union) if union else 0.0
-            if jac > max_jac:
-                max_jac = jac
-                block_jac_id = a.alpha_id
-                block_jac_fi = a.fitness
-                block_jac_expr = a_expr
-        sem = semantic_jaccard(expr, a_expr) if a_expr else 0.0
-        if sem > max_sem:
-            max_sem = sem
-            block_sem_id = a.alpha_id
-            block_sem_fi = a.fitness
-            block_sem_expr = a_expr
-
-    jac_block = max_jac >= threshold
-    sem_block = max_sem >= semantic_threshold
-    accept = not (jac_block or sem_block)
-
-    if jac_block:
-        reason = (
-            f"BLOCK token-jaccard={max_jac:.3f} ≥ {threshold:.3f} vs ACTIVE "
-            f"{block_jac_id} (fi={block_jac_fi:.2f})"
-        )
-    elif sem_block:
-        reason = (
-            f"BLOCK semantic-jaccard={max_sem:.3f} ≥ {semantic_threshold:.3f} vs ACTIVE "
-            f"{block_sem_id} (fi={block_sem_fi:.2f}) — operator skeleton near-identical "
-            f"even after field swap"
-        )
-    else:
-        reason = (
-            f"jaccard={max_jac:.3f} < {threshold:.3f}, "
-            f"semantic={max_sem:.3f} < {semantic_threshold:.3f}"
-        )
-    return {
-        "accept": accept,
-        "max_jaccard": round(max_jac, 3),
-        "max_semantic": round(max_sem, 3),
-        "jaccard_threshold": threshold,
-        "semantic_threshold": semantic_threshold,
-        "vs_alpha_id": block_jac_id if jac_block else block_sem_id,
-        "vs_alpha_fitness": block_jac_fi if jac_block else block_sem_fi,
-        "vs_alpha_expr": (block_jac_expr if jac_block else block_sem_expr)[:120],
-        "reason": reason,
-    }
+    from agent_market.wq_brain.submit_gates import local_jaccard_gate
+    return local_jaccard_gate(
+        tag, expr,
+        threshold=threshold,
+        semantic_threshold=semantic_threshold,
+    )
 
 
 def _summarize_rejection(reasons: list) -> str:
-    """One-line human summary of failed IS checks."""
-    if not reasons:
-        return "no specific check failures captured"
-    parts = []
-    for r in reasons[:5]:
-        n = r.get("name", "?")
-        v = r.get("value", "?")
-        lim = r.get("limit", "?")
-        parts.append(f"{n}={v} (limit={lim})")
-    return "; ".join(parts)
+    from agent_market.wq_brain.submit_gates import summarize_rejection
+    return summarize_rejection(reasons)
 
 
 def _auto_fill_expr(tag: str, alpha_id: str) -> str:
-    """Look up the most-recent tried_exprs.jsonl row for alpha_id."""
-    if not tag or not alpha_id:
-        return ""
-    from agent_market.wq_brain.paths import tried_exprs_path
-    from agent_market.wq_brain.tried_log import read_tried
-    rows = read_tried(tried_exprs_path(tag), tail=2000)
-    for r in reversed(rows):
-        if r.get("alpha_id") == alpha_id and r.get("expr"):
-            return r["expr"]
-    return ""
+    from agent_market.wq_brain.submit_gates import auto_fill_expr
+    return auto_fill_expr(tag, alpha_id)
 
 
 def _check_self_correlation(
@@ -408,99 +423,11 @@ def _check_self_correlation(
     sharpe_margin: float = 0.10,
     tag: str = "",
 ) -> dict[str, Any]:
-    """WQ-aligned self-correlation gate.
-
-    WQ rejects a submission if any pool alpha has correlation ≥ corr_max AND
-    the new alpha's sharpe is NOT ≥ (1+sharpe_margin) × correlated.sharpe.
-
-    Returns a dict with 'accept' bool + diagnostic fields.
-    """
-    from agent_market.wq_brain.paths import alpha_pool_path
-    from agent_market.wq_brain.pool import AlphaPool
-
-    corrs = sess.get_alpha_correlations(alpha_id)
-    if not corrs:
-        return {"accept": True, "reason": "no correlation data — accepting",
-                "max_correlation": 0.0, "high_corr_count": 0}
-
-    abs_max = max((abs(float(c.get("correlation", 0))) for c in corrs), default=0.0)
-    high_corr = [c for c in corrs if abs(float(c.get("correlation", 0))) >= corr_max]
-    if not high_corr:
-        return {"accept": True, "reason": f"max_corr={abs_max:.3f} < {corr_max:.3f}",
-                "max_correlation": abs_max, "high_corr_count": 0}
-
-    # Need new alpha's sharpe — fetch if not already known
-    new_sharpe = None
-    try:
-        m = sess.fetch_alpha_metrics(alpha_id)
-        new_sharpe = m.sharpe
-    except Exception as exc:
-        return {"accept": False,
-                "reason": f"high_corr count={len(high_corr)} but sharpe unknown: {exc}",
-                "max_correlation": abs_max, "high_corr_count": len(high_corr)}
-
-    if new_sharpe is None:
-        return {"accept": False,
-                "reason": f"high_corr count={len(high_corr)} but our sharpe missing",
-                "max_correlation": abs_max, "high_corr_count": len(high_corr)}
-
-    # Look up correlated alphas' sharpes (local pool first, WQ fallback)
-    pool_by_id: dict[str, Any] = {}
-    if tag:
-        try:
-            pool = AlphaPool(alpha_pool_path(tag))
-            pool_by_id = {e.alpha_id: e for e in pool.entries}
-        except Exception:
-            pass
-
-    blocking: list[dict[str, Any]] = []
-    overrides: list[dict[str, Any]] = []
-    for c in high_corr:
-        corr_id = c.get("alpha") or c.get("id") or c.get("alphaId") or ""
-        corr_value = float(c.get("correlation", 0))
-        other_sharpe: Optional[float] = None
-        if corr_id and corr_id in pool_by_id:
-            other_sharpe = pool_by_id[corr_id].sharpe
-        elif corr_id:
-            try:
-                om = sess.fetch_alpha_metrics(corr_id)
-                other_sharpe = om.sharpe
-            except Exception:
-                other_sharpe = None
-
-        entry: dict[str, Any] = {
-            "id": corr_id, "correlation": round(corr_value, 4),
-        }
-        if other_sharpe is None:
-            entry["reason"] = "unknown sharpe — assumed blocking"
-            blocking.append(entry)
-            continue
-        required = (1.0 + sharpe_margin) * other_sharpe
-        entry["other_sharpe"] = round(other_sharpe, 3)
-        entry["required_sharpe"] = round(required, 3)
-        entry["our_sharpe"] = round(new_sharpe, 3)
-        if new_sharpe >= required:
-            entry["status"] = "override (sharpe ≥ 110% of correlated)"
-            overrides.append(entry)
-        else:
-            entry["status"] = f"BLOCK: short by {required - new_sharpe:.3f}"
-            blocking.append(entry)
-
-    accept = not blocking
-    reason = (
-        f"all {len(overrides)} high_corr alphas overridden by sharpe-margin"
-        if accept else
-        f"BLOCK: {len(blocking)} high_corr alphas with insufficient sharpe-margin"
+    from agent_market.wq_brain.submit_gates import self_correlation_gate
+    return self_correlation_gate(
+        sess, alpha_id,
+        corr_max=corr_max, sharpe_margin=sharpe_margin, tag=tag,
     )
-    return {
-        "accept": accept,
-        "reason": reason,
-        "max_correlation": abs_max,
-        "high_corr_count": len(high_corr),
-        "new_sharpe": round(new_sharpe, 3),
-        "blocking": blocking[:10],
-        "overrides": overrides[:5],
-    }
 
 
 def cmd_pre_check(args: argparse.Namespace) -> None:
@@ -799,6 +726,265 @@ def cmd_pool_backfill(args: argparse.Namespace) -> None:
     })
 
 
+def cmd_pool_salvage(args: argparse.Namespace) -> None:
+    """Backfill the pool with high-fitness candidates from tried_exprs.jsonl
+    that were never submitted (or never recorded as ACTIVE/REJECTED).
+
+    Defaults: sharpe ≥ 1.25 AND fitness ≥ 1.0 (the WQ ACTIVE quality gate).
+
+    The agent's LLM session can drop high-fi candidates if it runs out of
+    turns / quits early / abandons after a pre-check warning. Production
+    data showed 70% loss rate of fi≥1.0 candidates. This CLI reads the
+    tried_log, finds alpha_ids that meet quality but aren't in the pool,
+    and writes them as UNSUBMITTED so a later submit pass can attempt them.
+    """
+    from agent_market.wq_brain.dtypes import AlphaPoolEntry
+    from agent_market.wq_brain.paths import alpha_pool_path, tried_exprs_path
+    from agent_market.wq_brain.pool import AlphaPool
+    from agent_market.wq_brain.tried_log import read_tried
+
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    pool_ids = {e.alpha_id for e in pool.entries}
+    tried = read_tried(tried_exprs_path(args.tag), tail=20000)
+
+    candidates: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for r in tried:
+        if r.get("status") != "COMPLETE":
+            continue
+        aid = r.get("alpha_id") or ""
+        if not aid or aid in pool_ids or aid in seen_ids:
+            continue
+        sh = r.get("sharpe")
+        fi = r.get("fitness")
+        if sh is None or fi is None:
+            continue
+        if float(sh) < args.sharpe_min or float(fi) < args.fitness_min:
+            continue
+        seen_ids.add(aid)
+        candidates.append(r)
+
+    candidates.sort(key=lambda r: -float(r["fitness"]))
+    if args.top_n > 0:
+        candidates = candidates[: args.top_n]
+
+    if args.dry_run:
+        _emit({
+            "ok": True, "tag": args.tag, "dry_run": True,
+            "pool_before": len(pool),
+            "would_add": len(candidates),
+            "thresholds": {"sharpe_min": args.sharpe_min,
+                            "fitness_min": args.fitness_min},
+            "top_5_preview": [
+                {"alpha_id": r["alpha_id"], "sh": r["sharpe"],
+                 "fi": r["fitness"], "to": r.get("turnover"),
+                 "expr": (r.get("expr") or "")[:90]}
+                for r in candidates[:5]
+            ],
+        })
+        return
+
+    added = 0
+    for r in candidates:
+        try:
+            entry = AlphaPoolEntry(
+                alpha_id=r["alpha_id"],
+                expr=r.get("expr") or "",
+                settings_dict={
+                    "region": r.get("region", "USA"),
+                    "universe": r.get("universe", "TOP3000"),
+                    "decay": r.get("decay", 6),
+                },
+                sharpe=float(r["sharpe"]),
+                fitness=float(r["fitness"]),
+                returns=float(r.get("returns") or 0.0),
+                turnover=float(r.get("turnover") or 0.0),
+                tag=args.tag,
+                source="salvage",
+                verified_status="UNSUBMITTED",
+                verified_at=0.0,
+                rejection_reasons=[],
+            )
+            if pool.add(entry):
+                added += 1
+        except (KeyError, ValueError, TypeError) as exc:
+            logger.warning("salvage skip %s: %s", r.get("alpha_id"), exc)
+            continue
+
+    _emit({
+        "ok": True, "tag": args.tag,
+        "pool_before": len(pool) - added,
+        "pool_after": len(pool),
+        "salvaged": added,
+        "skipped_already_in_pool": len(seen_ids) - added,
+        "thresholds": {"sharpe_min": args.sharpe_min,
+                        "fitness_min": args.fitness_min},
+        "hint": (
+            f"Now run `wq_brain pool resubmit-all --tag {args.tag} "
+            f"--status UNSUBMITTED --max N` (or rely on the agent loop) to "
+            "attempt actual WQ submission of the salvaged candidates."
+        ),
+    })
+
+
+def cmd_pool_submit_worker(args: argparse.Namespace) -> None:
+    """Sharpe-clustered submit worker for UNSUBMITTED pool entries.
+
+    Design (per Codex Round 3 review):
+
+      1. Filter pool by ``--status`` (default UNSUBMITTED).
+      2. Optionally cluster candidates by operator skeleton; keep the
+         highest-fitness representative per cluster (avoids burning quota
+         on N near-duplicates of the same structural template).
+      3. For each pick: run self-correlation pre-check (fail-CLOSED on
+         infra error), then submit if accepted.
+      4. Upsert pool with the verified outcome (ACTIVE / REJECTED /
+         UNSUBMITTED + rejection_reasons).
+
+    Each successful submit consumes 1 submit-quota slot via reserve_action.
+    Reservation is refunded on infra error / pre-check policy reject.
+    """
+    from agent_market.wq_brain.client import session_from_env
+    from agent_market.wq_brain.dtypes import AlphaPoolEntry
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.pool import AlphaPool
+    from agent_market.wq_brain.prompt_builder import _operator_skeleton
+    from agent_market.wq_brain.quota_monitor import release_action, reserve_action
+    from agent_market.wq_brain.submit_gates import GateInfraError
+
+    pool = AlphaPool(alpha_pool_path(args.tag))
+    targets = [e for e in pool.entries
+               if getattr(e, "verified_status", "") == args.status]
+    if not targets:
+        _emit({
+            "ok": True, "tag": args.tag, "status": args.status,
+            "n_targets": 0, "submitted": 0, "active": 0, "rejected": 0,
+            "infra_blocked": 0, "policy_blocked": 0,
+            "hint": f"No pool entries with verified_status={args.status!r}",
+        })
+        return
+
+    # Sort by fitness desc; this is the natural priority for "best chance
+    # of ACTIVE first" — and matches the cluster-rep tie-breaker below.
+    targets.sort(key=lambda e: -float(e.fitness))
+
+    # Cluster by skeleton; pick top-fitness rep per cluster
+    if args.one_per_cluster:
+        seen_skel: set[str] = set()
+        clustered: list[AlphaPoolEntry] = []
+        for e in targets:
+            skel = _operator_skeleton(e.expr or "") or f"_unique_{e.alpha_id}"
+            if skel in seen_skel:
+                continue
+            seen_skel.add(skel)
+            clustered.append(e)
+        targets = clustered
+
+    if args.max > 0:
+        targets = targets[: args.max]
+
+    if args.dry_run:
+        _emit({
+            "ok": True, "tag": args.tag, "dry_run": True,
+            "status_filter": args.status, "one_per_cluster": args.one_per_cluster,
+            "n_targets": len(targets),
+            "preview": [
+                {"alpha_id": e.alpha_id, "fi": e.fitness, "sh": e.sharpe,
+                 "to": e.turnover,
+                 "skeleton": _operator_skeleton(e.expr or ""),
+                 "expr": (e.expr or "")[:90]}
+                for e in targets[:10]
+            ],
+        })
+        return
+
+    sess = session_from_env()
+    submitted = 0
+    active = 0
+    rejected = 0
+    infra_blocked = 0
+    policy_blocked = 0
+    outcomes: list[dict[str, Any]] = []
+
+    for e in targets:
+        # Reserve quota up-front; refund on early-out
+        q = reserve_action("submit")
+        if q["status"] == "block":
+            outcomes.append({"alpha_id": e.alpha_id, "result": "quota_block",
+                              "remaining": q.get("remaining")})
+            break
+        reserved_day = q["day"]
+
+        # Pre-check: WQ self-correlation gate (with sharpe-margin override)
+        try:
+            check = _check_self_correlation(
+                sess, e.alpha_id,
+                corr_max=args.corr_max,
+                sharpe_margin=args.sharpe_margin,
+                tag=args.tag,
+            )
+            if not check["accept"]:
+                # POLICY reject — refund slot + persist new state
+                try: release_action("submit", day=reserved_day)
+                except OSError: pass
+                e.verified_status = "UNSUBMITTED"
+                e.rejection_reasons = [{"name": "self_correlation",
+                                        "value": check.get("max_correlation"),
+                                        "limit": args.corr_max,
+                                        "reason": check.get("reason", "")}]
+                e.verified_at = time.time()
+                pool.upsert(e)
+                policy_blocked += 1
+                outcomes.append({"alpha_id": e.alpha_id, "result": "policy_block",
+                                  "reason": check.get("reason", "")})
+                continue
+        except GateInfraError as exc:
+            try: release_action("submit", day=reserved_day)
+            except OSError: pass
+            infra_blocked += 1
+            outcomes.append({"alpha_id": e.alpha_id, "result": "infra_block",
+                              "error": str(exc)})
+            if not args.continue_on_infra:
+                break
+            continue
+
+        # Actual submit
+        try:
+            wq_resp = sess.submit_alpha(e.alpha_id,
+                                          verify_after_sec=args.verify_after_sec)
+            submitted += 1
+        except Exception as exc:
+            try: release_action("submit", day=reserved_day)
+            except OSError: pass
+            outcomes.append({"alpha_id": e.alpha_id, "result": "submit_error",
+                              "error": str(exc)})
+            continue
+
+        # Persist outcome via upsert
+        new_status = wq_resp.get("verified_status") or "UNSUBMITTED"
+        e.verified_status = new_status
+        e.verified_at = time.time()
+        e.rejection_reasons = wq_resp.get("rejection_reasons") or []
+        pool.upsert(e)
+
+        if new_status == "ACTIVE":
+            active += 1
+        else:
+            rejected += 1
+        outcomes.append({"alpha_id": e.alpha_id, "result": new_status,
+                          "fi": e.fitness, "sh": e.sharpe})
+
+    _emit({
+        "ok": True, "tag": args.tag,
+        "status_filter": args.status,
+        "one_per_cluster": args.one_per_cluster,
+        "n_targets": len(targets),
+        "submitted": submitted, "active": active, "rejected": rejected,
+        "infra_blocked": infra_blocked, "policy_blocked": policy_blocked,
+        "outcomes_sample": outcomes[:20],
+    })
+
+
 def cmd_fetch_data(args: argparse.Namespace) -> None:
     """Bulk-fetch US stock OHLCV + sectors into local parquet cache.
 
@@ -870,6 +1056,51 @@ def cmd_calibrate_local(args: argparse.Namespace) -> None:
             max_time_sec=args.max_time_sec,
             save=not args.no_save,
             progress_cb=_progress,
+            min_samples=args.min_samples,
+        )
+    except Exception as exc:
+        _emit({"ok": False, "tag": args.tag, "error": str(exc)}, code=1)
+        return
+
+    out = result.to_dict()
+    out["ok"] = True
+    out["threshold_path"] = str(threshold_path(args.tag))
+    out["report_path"] = str(report_path(args.tag))
+    _emit(out)
+
+
+def cmd_seed_calibration(args: argparse.Namespace) -> None:
+    """Seed calibration/{tag}/threshold.json from a JSONL of pre-computed samples.
+
+    Bypasses the slow local-simulate loop — useful when the caller has 30+
+    remote alphas with both local_fitness (e.g. from a previous local run)
+    and passes_remote (remote fitness ≥ 1.0) already collected, and just
+    wants the F1-maximising threshold.
+    """
+    from agent_market.wq_brain.calibration import (
+        report_path, seed_calibration_from_samples, threshold_path,
+    )
+
+    src = Path(args.from_samples)
+    if not src.exists():
+        _emit({"ok": False, "error": f"file not found: {src}"}, code=2)
+        return
+    samples: list[dict[str, Any]] = []
+    for line in src.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            samples.append(json.loads(line))
+        except ValueError as exc:
+            _emit({"ok": False, "error": f"bad JSONL row: {exc}"}, code=2)
+            return
+
+    try:
+        result = seed_calibration_from_samples(
+            args.tag, samples,
+            save=not args.no_save,
+            min_samples=args.min_samples,
         )
     except Exception as exc:
         _emit({"ok": False, "tag": args.tag, "error": str(exc)}, code=1)
@@ -945,6 +1176,7 @@ def cmd_kaggle_import(args: argparse.Namespace) -> None:
             ticker_from_filename=args.ticker_from_filename,
             column_map=column_map,
             split_adjust_from_col=args.split_adjust_from or None,
+            audit=not getattr(args, "no_audit", False),
         )
     except (FileNotFoundError, RuntimeError) as exc:
         _emit({"ok": False, "error": str(exc)}, code=1)
@@ -1240,6 +1472,13 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--truncation", type=float, default=0.08)
     sp.add_argument("--timeout", type=float, default=600.0)
     sp.add_argument("--tag", default="", help="when set, append result to tried_exprs.jsonl")
+    sp.add_argument("--auto-persist-sharpe", type=float, default=1.25,
+                    help="when set with --tag, candidates with sharpe ≥ X AND fitness ≥ "
+                         "--auto-persist-fitness are written to the pool as UNSUBMITTED. "
+                         "Prevents the agent's LLM session from losing high-fi candidates. "
+                         "Set to 999 to disable auto-persist.")
+    sp.add_argument("--auto-persist-fitness", type=float, default=1.0,
+                    help="see --auto-persist-sharpe")
     sp.set_defaults(func=cmd_simulate)
 
     sp = sub.add_parser("submit", help="submit alpha to WQ PROD pool")
@@ -1256,6 +1495,10 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="local pre-check: reject if multiset semantic-jaccard (operators+fields) vs any ACTIVE alpha >= this (default 0.85). Tightened to 0.65 if you want more diversity.")
     sp.add_argument("--no-pre-check", action="store_true",
                     help="skip the correlation pre-check")
+    sp.add_argument("--force-submit-on-precheck-error", action="store_true",
+                    help="on pre-check INFRASTRUCTURE failure (network / 5xx / auth), "
+                         "submit anyway. Default is fail-CLOSED to avoid burning submit "
+                         "quota on a candidate the gate could not actually evaluate.")
     sp.add_argument("--verify-after-sec", type=float, default=30.0,
                     help="seconds to wait before re-fetching alpha to verify ACTIVE/REJECTED (default 30, 0 to skip)")
     sp.set_defaults(func=cmd_submit)
@@ -1300,7 +1543,23 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="hard time budget; stop early if exceeded (default unbounded)")
     sp.add_argument("--no-save", action="store_true",
                     help="compute report only; don't write threshold.json")
+    sp.add_argument("--min-samples", type=int, default=5,
+                    help="minimum tried_log COMPLETE rows required (default 5; "
+                         "lower to 3 to bootstrap calibration on a fresh tag)")
     sp.set_defaults(func=cmd_calibrate_local)
+
+    sp = sub.add_parser(
+        "seed-calibration",
+        help="seed calibration/{tag}/threshold.json from a JSONL of pre-computed samples",
+    )
+    sp.add_argument("--tag", required=True)
+    sp.add_argument("--from-samples", required=True,
+                    help='JSONL file; each row needs local_fitness + passes_remote (bool). '
+                         'Optional: remote_fitness/remote_sharpe/remote_turnover for the report.')
+    sp.add_argument("--min-samples", type=int, default=5)
+    sp.add_argument("--no-save", action="store_true",
+                    help="compute report only; don't write threshold.json")
+    sp.set_defaults(func=cmd_seed_calibration)
 
     sp = sub.add_parser("fetch-data", help="bulk-fetch US stock OHLCV + sectors into local cache")
     sp.add_argument("--tickers-file", default=None,
@@ -1361,6 +1620,8 @@ def _build_parser() -> argparse.ArgumentParser:
                          'a split factor and apply it to open/high/low. Use this when the dataset '
                          'has separate raw + adjusted close (e.g. close + adjusted) and you want '
                          'a fully split-consistent OHLC bar.')
+    sp.add_argument("--no-audit", action="store_true",
+                    help="skip the post-import data_audit hook (default: run + write _audit.json/_audit.md)")
     sp.set_defaults(func=cmd_kaggle_import)
 
     sp = sub.add_parser("local-simulate", help="local WQ-aligned simulation against cached OHLCV (no WQ API)")
@@ -1422,6 +1683,49 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="for UNSUBMITTED entries, probe POST /submit to capture rejection check details")
     ss.add_argument("--no-probe-rejections", dest="probe_rejections", action="store_false")
     ss.set_defaults(func=cmd_pool_sync_status)
+    sv = pool_sub.add_parser(
+        "salvage",
+        help="backfill pool with high-fi candidates from tried_exprs.jsonl that "
+             "the agent's LLM session forgot to submit (production showed 70%% loss rate)",
+    )
+    sv.add_argument("--tag", required=True)
+    sv.add_argument("--sharpe-min", type=float, default=1.25,
+                    help="only salvage candidates with sharpe ≥ this (default 1.25 = WQ ACTIVE bar)")
+    sv.add_argument("--fitness-min", type=float, default=1.0,
+                    help="only salvage candidates with fitness ≥ this (default 1.0)")
+    sv.add_argument("--top-n", type=int, default=0,
+                    help="if > 0, only salvage the top-N highest-fitness misses; 0 = all matches")
+    sv.add_argument("--dry-run", action="store_true",
+                    help="preview what would be salvaged without writing pool")
+    sv.set_defaults(func=cmd_pool_salvage)
+
+    sw = pool_sub.add_parser(
+        "submit-worker",
+        help="cluster + submit worker for UNSUBMITTED entries; runs WQ self-corr "
+             "precheck, submits accepted, upserts pool with outcome",
+    )
+    sw.add_argument("--tag", required=True)
+    sw.add_argument("--status", default="UNSUBMITTED",
+                    help="filter pool by verified_status (default UNSUBMITTED)")
+    sw.add_argument("--max", type=int, default=20,
+                    help="max submissions in this run (default 20). "
+                         "Set 0 for unbounded — will hit daily quota.")
+    sw.add_argument("--one-per-cluster", action="store_true",
+                    help="cluster by operator skeleton; submit only the highest-"
+                         "fitness candidate per cluster (avoids burning quota on "
+                         "structural near-duplicates)")
+    sw.add_argument("--corr-max", type=float, default=0.7,
+                    help="self-correlation threshold for WQ pre-check (default 0.7)")
+    sw.add_argument("--sharpe-margin", type=float, default=0.10,
+                    help="WQ-aligned sharpe override: high-corr alphas allowed "
+                         "if our sharpe ≥ (1+margin) × correlated.sharpe")
+    sw.add_argument("--verify-after-sec", type=float, default=30.0)
+    sw.add_argument("--continue-on-infra", action="store_true",
+                    help="keep going even if pre-check infra error fires "
+                         "(default: stop the worker on first infra error)")
+    sw.add_argument("--dry-run", action="store_true",
+                    help="preview clustered targets without submitting")
+    sw.set_defaults(func=cmd_pool_submit_worker)
 
     sp = sub.add_parser("corr", help="get correlations of alpha with WQ pool")
     sp.add_argument("alpha_id")

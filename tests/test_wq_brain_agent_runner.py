@@ -167,6 +167,102 @@ def test_run_agent_handles_timeout(isolated_artifacts):
     assert summary["agent_returncode"] == -1
 
 
+def test_classify_agent_failure_recognises_llm_quota(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text(
+        "starting agent…\nERROR: 用户额度不足, 剩余额度: $0.0000\n",
+        encoding="utf-8",
+    )
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "llm_quota"
+    assert "credit" in cls["hint"].lower() or "quota" in cls["hint"].lower()
+
+
+def test_classify_agent_failure_recognises_wq_auth(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text("HTTP 401 Unauthorized\n", encoding="utf-8")
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "wq_auth"
+
+
+def test_classify_agent_failure_recognises_network(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text("urllib3: connection refused (err 111)\n", encoding="utf-8")
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "network"
+
+
+def test_classify_agent_failure_unknown_when_no_pattern(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text("everything completed normally — exit 1 anyway\n",
+                   encoding="utf-8")
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "unknown"
+
+
+def test_classify_agent_failure_missing_log(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    cls = _classify_agent_failure(tmp_path / "no_such_log.log")
+    assert cls["kind"] == "unknown"
+    assert "no log" in cls["hint"]
+
+
+def test_run_agent_writes_checkpoint_sidecar(isolated_artifacts):
+    import subprocess
+
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import read_checkpoint
+
+    config = AgentConfig(tag="ckpt_tag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="m1")
+
+    class _OK:
+        returncode = 0
+
+    with patch("agent_market.wq_brain.agent_runner.subprocess.run", return_value=_OK()):
+        run_agent(config)
+
+    ck = read_checkpoint(tried_exprs_path("ckpt_tag"))
+    assert ck is not None
+    assert ck["session_id"].startswith("wqbrain_agent_ckpt_tag_")
+    assert ck["extra"]["tag"] == "ckpt_tag"
+    assert ck["extra"]["rc"] == 0
+    assert ck["extra"]["failure_kind"] is None
+
+
+def test_run_agent_failure_kind_recorded_on_nonzero_exit(isolated_artifacts):
+    """Non-zero rc + log containing a quota pattern should land in summary['failure']."""
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import read_checkpoint
+
+    config = AgentConfig(tag="fail_tag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="m1")
+
+    class _Bad:
+        returncode = 5
+
+    def _fake_run(*args, **kwargs):
+        # Write the agent.log that subprocess.run would have produced
+        stdout = kwargs.get("stdout")
+        if stdout is not None and hasattr(stdout, "write"):
+            stdout.write("FATAL: 用户额度不足\n")
+            stdout.flush()
+        return _Bad()
+
+    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+               side_effect=_fake_run):
+        summary = run_agent(config)
+
+    assert summary["agent_returncode"] == 5
+    assert summary["failure"]["kind"] == "llm_quota"
+    ck = read_checkpoint(tried_exprs_path("fail_tag"))
+    assert ck["extra"]["failure_kind"] == "llm_quota"
+
+
 def test_family_diversity_hint_calls_out_missing_families():
     # Two ACTIVE alphas, both decay_linear → hint must list 8 missing families
     hint = _family_diversity_hint(["decay_linear", "decay_linear"])

@@ -409,3 +409,63 @@ def test_split_adjust_skipped_when_raw_col_absent(tmp_path: Path):
         split_adjust_from_col="close_raw",  # not in source
     )
     assert summary["files_imported"] == 1
+
+
+# ── Post-import audit hook ──────────────────────────────────────────────
+
+
+def test_import_runs_audit_by_default_and_writes_artifacts(tmp_path: Path):
+    """audit=True (default) runs run_audit() and writes _audit.json/.md."""
+    pytest.importorskip("pandas")
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    (extract_dir / "world.csv").write_bytes(_world_stock_csv())
+    cache = tmp_path / "ohlcv.parquet"
+    summary = import_kaggle_to_cache(
+        extract_dir, cache_path=cache, files_glob="*.csv",
+        ticker_col="Ticker", date_col="Date",
+    )
+    # Summary should carry audit results
+    assert "audit_summary" in summary
+    assert "audit_artifacts" in summary
+    # The 5 canonical checks are present
+    expected_checks = {
+        "ohlc_invariant", "split_sanity", "ticker_reuse",
+        "survivor_bias", "outliers",
+    }
+    assert expected_checks.issubset(summary["audit_summary"].keys())
+    # Files actually written
+    assert (cache.parent / "_audit.json").exists()
+    assert (cache.parent / "_audit.md").exists()
+
+
+def test_import_audit_can_be_disabled(tmp_path: Path):
+    """audit=False suppresses the hook (no audit_summary, no _audit.json)."""
+    pytest.importorskip("pandas")
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    (extract_dir / "world.csv").write_bytes(_world_stock_csv())
+    cache = tmp_path / "ohlcv.parquet"
+    summary = import_kaggle_to_cache(
+        extract_dir, cache_path=cache, files_glob="*.csv",
+        ticker_col="Ticker", date_col="Date",
+        audit=False,
+    )
+    assert "audit_summary" not in summary
+    assert not (cache.parent / "_audit.json").exists()
+
+
+def test_import_audit_does_not_mask_bad_data(tmp_path: Path):
+    """When the input has known OHLC violations the audit reports them."""
+    pytest.importorskip("pandas")
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    (extract_dir / "bad.csv").write_bytes(_bad_quality_csv())
+    cache = tmp_path / "ohlcv.parquet"
+    summary = import_kaggle_to_cache(
+        extract_dir, cache_path=cache, files_glob="*.csv",
+        ticker_col="Ticker", date_col="Date",
+    )
+    audit_sum = summary.get("audit_summary", {})
+    # Inverted high/low row should surface as ohlc_invariant violation
+    assert audit_sum.get("ohlc_invariant", {}).get("count", 0) >= 1

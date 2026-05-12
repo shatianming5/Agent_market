@@ -98,7 +98,8 @@ def test_find_best_threshold_no_positives():
 def test_find_best_threshold_too_few_samples():
     samples = [{"local_fitness": 0.5, "passes_remote": True}]
     result = find_best_threshold(samples)
-    assert "insufficient" in result["method"]
+    assert result["method"].startswith("fallback")
+    assert "got 1" in result["method"]
 
 
 # ── Threshold persistence ──────────────────────────────────────────────
@@ -246,6 +247,97 @@ def test_load_calibrated_threshold_used_by_simulate(isolated_artifacts, monkeypa
     )
     assert captured["fitness_gate"] == 0.85
     assert result.raw["fitness_gate"] == 0.85
+
+
+# ── seed_calibration_from_samples ───────────────────────────────────────
+
+
+def test_seed_calibration_writes_threshold_json(isolated_artifacts):
+    from agent_market.wq_brain.calibration import (
+        load_calibrated_threshold, samples_path,
+        seed_calibration_from_samples, threshold_path,
+    )
+
+    samples = [
+        {"local_fitness": 0.10, "passes_remote": False, "remote_fitness": 0.4},
+        {"local_fitness": 0.25, "passes_remote": False, "remote_fitness": 0.6},
+        {"local_fitness": 0.30, "passes_remote": False, "remote_fitness": 0.8},
+        {"local_fitness": 0.65, "passes_remote": True,  "remote_fitness": 1.1},
+        {"local_fitness": 0.80, "passes_remote": True,  "remote_fitness": 1.3},
+        {"local_fitness": 0.95, "passes_remote": True,  "remote_fitness": 1.7},
+    ]
+    result = seed_calibration_from_samples("seed_tag", samples)
+    assert result.threshold["f1"] == pytest.approx(1.0)
+    assert 0.30 < result.threshold["threshold"] <= 0.65
+    # threshold.json was written and is readable
+    assert threshold_path("seed_tag").exists()
+    assert load_calibrated_threshold("seed_tag") == result.threshold["threshold"]
+    # samples.jsonl persists raw rows
+    assert samples_path("seed_tag").exists()
+
+
+def test_seed_calibration_respects_min_samples(isolated_artifacts):
+    from agent_market.wq_brain.calibration import seed_calibration_from_samples
+
+    samples = [
+        {"local_fitness": 0.2, "passes_remote": False},
+        {"local_fitness": 0.7, "passes_remote": True},
+        {"local_fitness": 0.9, "passes_remote": True},
+    ]
+    # Default min_samples=5 → too few
+    with pytest.raises(RuntimeError, match=r"need[s]? >= 5"):
+        seed_calibration_from_samples("low_tag", samples)
+    # Explicit min_samples=3 → succeeds
+    result = seed_calibration_from_samples("low_tag", samples, min_samples=3)
+    assert result.threshold is not None
+
+
+def test_seed_calibration_no_save_skips_file(isolated_artifacts):
+    from agent_market.wq_brain.calibration import (
+        seed_calibration_from_samples, threshold_path,
+    )
+
+    samples = [
+        {"local_fitness": float(i) * 0.1, "passes_remote": i >= 5}
+        for i in range(8)
+    ]
+    seed_calibration_from_samples("nosave_tag", samples, save=False)
+    assert not threshold_path("nosave_tag").exists()
+
+
+def test_calibrate_local_threshold_min_samples_param_respected(
+    isolated_artifacts, monkeypatch,
+):
+    """Configurable min_samples relaxes the strict default-5 floor."""
+    from agent_market.wq_brain import calibration as cal_mod
+
+    # Seed tried_log with only 3 COMPLETE rows
+    p = tried_exprs_path("min3_tag")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    for expr, sh, fi in [("e1", 1.5, 1.1), ("e2", 1.4, 0.9), ("e3", 1.2, 0.6)]:
+        append_tried(
+            p, expr=expr, sharpe=sh, fitness=fi, turnover=0.3,
+            alpha_id=expr, status="COMPLETE",
+            region="USA", universe="TOP3000", decay=6,
+        )
+
+    # Stub out simulate_expression_locally so calibrate_local_threshold doesn't
+    # actually try to load real OHLCV
+    def fake_local(expr, **_kw):
+        from agent_market.wq_brain.local_sim import LocalSimResult
+        return LocalSimResult(
+            expr=expr, wq_sharpe=1.0, wq_fitness=0.7, wq_turnover=0.3,
+            wq_returns=0.5, submittable=True, rating="Average", raw={},
+        )
+
+    monkeypatch.setattr(cal_mod, "simulate_expression_locally", fake_local)
+
+    # Default min_samples=5 → raise
+    with pytest.raises(RuntimeError, match="needs at least 5"):
+        cal_mod.calibrate_local_threshold("min3_tag")
+    # Explicit min_samples=3 → succeeds
+    result = cal_mod.calibrate_local_threshold("min3_tag", min_samples=3)
+    assert len(result.samples) == 3
 
 
 def test_simulate_falls_back_to_05_when_no_calibration(isolated_artifacts, monkeypatch):

@@ -19,13 +19,21 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
-from .crossover import extract_top_segments, format_crossover_block, infer_family
-from .mutation import render_top_failures_block
 from .operators import operators_prompt_block
 from .paths import alpha_pool_path, repo_root, tried_exprs_path, wq_brain_run_dir
 from .pool import AlphaPool
+from .prompt_builder import (
+    _CANONICAL_FAMILIES,
+    _FAMILY_ANTI_EXAMPLES,
+    _SKELETON_OP_PATTERN,
+    _build_prior_knowledge_block,
+    _family_diversity_hint,
+    _operator_skeleton,
+    _tried_family_concentration_hint,
+    _tried_skeleton_concentration_hint,
+)
 from .scoring import score_record
-from .tried_log import format_for_prompt, read_tried
+from .tried_log import read_checkpoint, read_tried, write_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -131,268 +139,6 @@ def _resolve_cli(requested: str, *, env: Optional[dict[str, str]] = None) -> str
     raise RuntimeError("No agentic CLI found on PATH; install opencode or hermes")
 
 
-# Full canonical family roster — agent_brief lists these 8 as acceptable;
-# crossover.infer_family adds finer subdivisions but the prompt-level
-# rotation policy uses this top-level list.
-_CANONICAL_FAMILIES: tuple[str, ...] = (
-    "ts_corr_pv", "intraday_range", "vwap_dev", "volume_rank",
-    "open_gap", "humped", "multi_signal", "sector_relative",
-    "fundamental_ratio",
-)
-
-
-def _family_diversity_hint(active_families: list[str]) -> str:
-    """Render the 'next candidate must come from family X' hint based on
-    what's already in ACTIVE pool. Returns empty string when pool is fresh."""
-    if not active_families:
-        return ""
-    from collections import Counter
-    counts = Counter(active_families)
-    seen = set(counts)
-    missing = [f for f in _CANONICAL_FAMILIES if f not in seen]
-    dominant = ", ".join(f"`{name}` (×{n})" for name, n in counts.most_common())
-    if missing:
-        miss_str = ", ".join(f"`{f}`" for f in missing)
-        return (
-            f"_⚠️ Pool currently dominated by {dominant}. Your NEXT candidate MUST "
-            f"come from a family NOT yet present: {miss_str}._"
-        )
-    return f"_⚠️ Pool covers {dominant}. Pick the family with the LOWEST count next._"
-
-
-# Family-specific anti-recommendations — what to try when stuck
-_FAMILY_ANTI_EXAMPLES: dict[str, str] = {
-    "sector_relative":  "`rank(sales/assets)`, `hump(rank(vwap/close))`, `rank((high - low)/close)`",
-    "ts_corr_pv":       "`rank(sales/assets)`, `rank((vwap - close)/close)`, `group_zscore(_, subindustry)`",
-    "multi_signal":     "`rank(sales/assets)`, `ts_corr(close, volume, 20)`, `rank((high - low)/close)`",
-    "ts_rank_close":    "`rank(sales/assets)`, `rank((vwap - close)/close)`, `rank((high - low)/close)`",
-    "ts_delta_close":   "`rank(sales/assets)`, `ts_corr(_, _, _)`, `(high - low) / close`",
-    "decay_linear":     "swap to a different inner shape — `rank(sales/assets)`, `hump(rank(...))`, `vwap - close`",
-    "humped":           "`rank(sales/assets)`, `ts_corr(close, volume, 20)`, `(high - low)/close`",
-    "intraday_range":   "`rank(sales/assets)`, `rank(vwap/close)`, `ts_corr(close, volume, 20)`",
-    "open_gap":         "`rank(sales/assets)`, `rank(vwap/close)`, `(high - low)/close`",
-    "vwap_dev":         "`rank(sales/assets)`, `rank(ts_rank(volume, 20))`, `ts_corr(close, volume, 20)`",
-    "volume_rank":      "`rank(sales/assets)`, `rank(vwap/close)`, `(high - low)/close`",
-    "group_neutral":    "`rank(sales/assets)`, `hump(rank(...))`, `ts_corr(close, volume, 20)`",
-    "ts_corr_other":    "`rank(sales/assets)`, `group_zscore(_, sector)`, `(high - low)/close`",
-    "fundamental_ratio": "TRY DIFFERENT FUNDAMENTAL SKELETONS (not just `rank(F/G) * ts_decay_linear(...)`): "
-                         "(1) sector-neutral: `rank(group_zscore(sales/assets, sector))`; "
-                         "(2) time-trend: `rank(ts_zscore(sales/assets, 252))`; "
-                         "(3) regime-conditional: `if_else(ts_corr(close, volume, 20) > 0, rank(sales/assets), -rank(sales/assets))`; "
-                         "(4) cross-fundamental ratio: `rank(sales/assets) - rank(debt/equity)`. "
-                         "OR step out entirely: `rank((vwap - close)/close)`, `ts_corr(close, volume, 20)`, `hump(rank(...))`.",
-}
-
-
-_SKELETON_OP_PATTERN = re.compile(r"([a-z_][a-z0-9_]*)\s*\(")
-
-
-def _operator_skeleton(expr: str) -> str:
-    """Reduce an expression to its operator multiset signature.
-
-    Drops fields, numbers, and infix operators — keeps only the function
-    names. Two expressions collapse to the same skeleton if they call
-    exactly the same operators in the same multiplicities, even if fields
-    or constants differ. Catches the failure mode where mutation engine
-    swaps `rank(sales/assets) * ts_decay_linear(...)` →
-    `rank(debt/equity) * ts_decay_linear(...)` — token-jaccard might pass,
-    but WQ's self-correlation gate sees the same signal shape.
-    """
-    if not expr:
-        return ""
-    ops = _SKELETON_OP_PATTERN.findall(expr.lower())
-    if not ops:
-        return ""
-    from collections import Counter
-    counts = Counter(ops)
-    return "|".join(f"{op}x{n}" for op, n in sorted(counts.items()))
-
-
-def _tried_skeleton_concentration_hint(
-    tried_records: list[dict],
-    *,
-    window: int = 10,
-    threshold: float = 0.5,
-) -> str:
-    """Hint when ≥ ``threshold`` of recent attempts share one operator skeleton.
-
-    Catches the failure mode that the family-rotation hint misses:
-    same family, different fields, but **identical operator stack** —
-    those will all hit WQ self-correlation rejection on submit.
-    """
-    if len(tried_records) < window:
-        return ""
-    recent = sorted(tried_records, key=lambda r: r.get("ts", 0), reverse=True)[:window]
-    skeletons = [_operator_skeleton(r.get("expr") or "") for r in recent]
-    skeletons = [s for s in skeletons if s]
-    if not skeletons:
-        return ""
-    from collections import Counter
-    counts = Counter(skeletons)
-    top_sk, top_n = counts.most_common(1)[0]
-    if top_n / len(skeletons) < threshold:
-        return ""
-    # Render the skeleton in a more human-readable way
-    pretty = top_sk.replace("|", " + ")
-    return (
-        f"_🛑 STUCK IN OPERATOR SKELETON `{pretty}` ({top_n}/{len(skeletons)} "
-        f"of recent attempts share this exact multiset). Even with different "
-        f"fields, WQ's self-correlation will see the same signal. CHANGE THE "
-        f"OPERATOR STACK — drop / add an operator, swap multiplication to "
-        f"subtraction, wrap with `if_else(...)` for regime-conditional, or "
-        f"compose with `group_zscore(_, sector)` / `ts_zscore(_, 252)` for a "
-        f"completely different signal shape._"
-    )
-
-
-def _tried_family_concentration_hint(
-    tried_records: list[dict],
-    *,
-    window: int = 10,
-    threshold: float = 0.6,
-) -> str:
-    """Hard rotation hint: if recent attempts are dominated by one family,
-    forbid that family for the next handful of candidates.
-
-    Triggered when ≥ ``threshold`` of the last ``window`` attempts share a
-    family. Catches the failure mode where mutation engine endlessly twiddles
-    parameters within a single family even after that family is already ACTIVE
-    (so the ACTIVE-only diversity hint doesn't fire).
-    """
-    if len(tried_records) < window:
-        return ""
-    from collections import Counter
-    recent = sorted(tried_records, key=lambda r: r.get("ts", 0), reverse=True)[:window]
-    families = [infer_family(r.get("expr") or "") for r in recent if r.get("expr")]
-    if not families:
-        return ""
-    counts = Counter(families)
-    top_fam, top_count = counts.most_common(1)[0]
-    if top_count / window < threshold:
-        return ""
-    examples = _FAMILY_ANTI_EXAMPLES.get(
-        top_fam, "any of the 8 canonical families OTHER than this one"
-    )
-    return (
-        f"_🛑 STUCK IN `{top_fam}` ({top_count}/{window} of recent attempts). The "
-        f"mutation engine is over-twiddling parameters inside this family. "
-        f"YOUR NEXT 5 simulate calls MUST come from a DIFFERENT family. "
-        f"Try: {examples}. Re-entering `{top_fam}` before 5 cross-family "
-        f"simulations will be flagged as a session-rule violation._"
-    )
-
-
-def _build_prior_knowledge_block(tag: str, *, max_pool: int = 20, max_tried: int = 60) -> str:
-    """Render cross-loop knowledge: passing pool + recent tried_exprs +
-    cross-over candidates + mutation hints + submit rejections."""
-    parts: list[str] = []
-
-    pool = AlphaPool(alpha_pool_path(tag))
-    if len(pool):
-        # Split pool by verified_status: ACTIVE (real submissions) vs REJECTED/UNSUBMITTED
-        active = [e for e in pool.entries
-                  if getattr(e, "verified_status", "QUEUED") == "ACTIVE"]
-        rejected = [e for e in pool.entries
-                    if getattr(e, "verified_status", "QUEUED") in ("REJECTED", "UNSUBMITTED")
-                    and getattr(e, "rejection_reasons", [])]
-        queued = [e for e in pool.entries
-                  if e not in active and e not in rejected]
-
-        if active:
-            top_active = sorted(active, key=lambda e: -e.fitness)[:max_pool]
-            active_families = [infer_family(e.expr or "") for e in top_active]
-            hint = _family_diversity_hint(active_families)
-            lines = [
-                "### ✅ ACTIVE Submitted Alphas (TAG=" + tag + ")",
-                "",
-                f"_{len(active)} alpha(s) verified ACTIVE on WQ. These earn rewards. Avoid"
-                f" submitting near-duplicates — WQ self-correlation will reject._",
-            ]
-            if hint:
-                lines.extend(["", hint])
-            lines.extend([
-                "",
-                "| alpha_id | family | expr | sh | fi | to |",
-                "|---|---|---|---|---|---|",
-            ])
-            for e, fam in zip(top_active, active_families):
-                expr = (e.expr or "")[:75].replace("|", "/")
-                lines.append(
-                    f"| {e.alpha_id} | `{fam}` | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |"
-                )
-            parts.append("\n".join(lines))
-
-        if rejected:
-            recent_rejected = sorted(rejected, key=lambda e: -getattr(e, "verified_at", 0))[:max_pool]
-            lines = [
-                "### 🚫 SUBMIT FAILURES — DO NOT REPEAT THESE STRUCTURES",
-                "",
-                f"_{len(rejected)} alpha(s) passed local quality gate (sh≥1.25 fi≥1.0)_"
-                f" _BUT WERE REJECTED BY WQ. The most common reason is_"
-                f" _SELF_CORRELATION ≥ 0.7 against an ACTIVE alpha. If your new_"
-                f" _candidate is similar to any of these, IT WILL ALSO BE REJECTED._",
-                "",
-                "| alpha_id | family | expr | sh | fi | to | failed_check |",
-                "|---|---|---|---|---|---|---|",
-            ]
-            for e in recent_rejected:
-                expr = (e.expr or "")[:65].replace("|", "/")
-                fam = infer_family(e.expr or "")
-                fails = getattr(e, "rejection_reasons", []) or []
-                fail_str = ", ".join(
-                    f"{r.get('name')}={r.get('value')}" if isinstance(r, dict) else str(r)
-                    for r in fails[:2]
-                ) or "?"
-                lines.append(
-                    f"| {e.alpha_id} | `{fam}` | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} | {fail_str} |"
-                )
-            parts.append("\n".join(lines))
-
-        if queued:
-            top_queued = sorted(queued, key=lambda e: -e.fitness)[:max_pool]
-            lines = [
-                "### ⏳ Submission Pending (verification not yet run)",
-                "",
-                "| alpha_id | expr | sh | fi | to |",
-                "|---|---|---|---|---|",
-            ]
-            for e in top_queued:
-                expr = (e.expr or "")[:80].replace("|", "/")
-                lines.append(f"| {e.alpha_id} | `{expr}` | {e.sharpe:.2f} | {e.fitness:.2f} | {e.turnover:.2f} |")
-            parts.append("\n".join(lines))
-
-    tried = read_tried(tried_exprs_path(tag), tail=max_tried * 4)
-    if tried:
-        # Hard rotation: if recent attempts are dominated by one family,
-        # forbid it for the next 5 candidates. Goes BEFORE the tried table
-        # so the agent reads the rule before scanning the (tempting) history.
-        rotation_hint = _tried_family_concentration_hint(tried)
-        if rotation_hint:
-            parts.append(rotation_hint)
-        # Operator-skeleton concentration: catches "same family, same operator
-        # stack, different fields" (= same signal in WQ's eyes).
-        skeleton_hint = _tried_skeleton_concentration_hint(tried)
-        if skeleton_hint:
-            parts.append(skeleton_hint)
-
-        parts.append("### Recently Attempted Expressions (latest result per expr)\n\n" + format_for_prompt(tried, max_rows=max_tried))
-
-        # Cross-over: top fragments by quick-score, diversified by family
-        segments = extract_top_segments(tried, min_score=30, top_n=5, diversify_by_family=True)
-        cross_block = format_crossover_block(segments)
-        if cross_block:
-            parts.append(cross_block)
-
-        # Mutation hints: top near-misses with diagnoses
-        mutation_block = render_top_failures_block(tried, top_n=3)
-        if mutation_block:
-            parts.append(mutation_block)
-
-    if not parts:
-        return "_(no prior loop data — fresh start)_"
-    return "\n\n".join(parts)
-
-
 def _build_system_prompt(config: AgentConfig, run_dir: Path) -> str:
     brief_path = repo_root() / "src" / "agent_market" / "wq_brain" / "prompts" / "agent_brief.md"
     if not brief_path.exists():
@@ -451,6 +197,63 @@ def _build_opencode_cmd(config: AgentConfig, prompt: str) -> list[str]:
     return ["opencode", "run", "-m", model, prompt]
 
 
+# Patterns the agent CLI / LLM provider emit on common failure modes. Each
+# tuple: (regex, kind, hint). First match wins; "unknown" is the fallback.
+_FAILURE_PATTERNS: tuple[tuple[re.Pattern, str, str], ...] = (
+    (re.compile(r"(剩余额度|用户.{0,4}额度|账号.*额度|额度不足|"
+                r"insufficient balance|out of credit|quota[_ ]exhaust|"
+                r"rate.?limit|usage limit)", re.IGNORECASE),
+     "llm_quota",
+     "LLM provider returned a quota/credit-exhausted error. Top up the account "
+     "or switch to a different OPENAI_BASE_URL before re-running."),
+    (re.compile(r"(401|403|unauthorized|forbidden|session.*expir|"
+                r"login required|wq.*auth|invalid.*token)", re.IGNORECASE),
+     "wq_auth",
+     "WQ session expired or credentials were rejected (401/403). Re-run "
+     "`wq_brain auth` and confirm the .env BRAIN_USER / BRAIN_PASS values."),
+    (re.compile(r"(connection refused|connection reset|timed out|"
+                r"name resolution|dns lookup failed|network is unreachable)",
+                re.IGNORECASE),
+     "network",
+     "Network failure (connection refused / DNS / timeout). Check the "
+     "machine's outbound to api.worldquantbrain.com + the LLM endpoint."),
+    (re.compile(r"(killed|signal 9|sigkill|terminated by signal)", re.IGNORECASE),
+     "killed",
+     "Agent CLI was killed by the OS (likely OOM or tmux pane close). The "
+     "loop can resume from the next iteration; check dmesg for OOM."),
+    (re.compile(r"(model not found|invalid api[ _]key|api[ _]key)", re.IGNORECASE),
+     "llm_config",
+     "LLM CLI received an invalid API key / unknown model. Verify "
+     "OPENAI_API_KEY + the .opencode.json model registry."),
+)
+
+
+def _classify_agent_failure(log_path: Path, *, tail_bytes: int = 4000) -> dict:
+    """Read the last few KB of the agent log and tag a failure kind.
+
+    Returns ``{"kind": "...", "hint": "...", "tail": "<truncated log>"}``.
+    """
+    if not log_path.exists():
+        return {"kind": "unknown", "hint": "no log file written", "tail": ""}
+    try:
+        size = log_path.stat().st_size
+        with log_path.open("rb") as f:
+            if size > tail_bytes:
+                f.seek(size - tail_bytes)
+            tail = f.read().decode("utf-8", errors="replace")
+    except OSError as exc:
+        return {"kind": "unknown", "hint": f"could not read log: {exc}", "tail": ""}
+    for pat, kind, hint in _FAILURE_PATTERNS:
+        if pat.search(tail):
+            return {"kind": kind, "hint": hint, "tail": tail[-1500:]}
+    return {
+        "kind": "unknown",
+        "hint": "Agent exited non-zero with no recognised failure pattern; "
+                "inspect the full log_path for clues.",
+        "tail": tail[-1500:],
+    }
+
+
 def _build_iter_review(
     *, tag: str, start_ts: float, end_ts: float,
     sharpe_min: float, fitness_min: float,
@@ -490,7 +293,8 @@ def _build_iter_review(
                 "grade": s.grade,
                 "recommendation": s.recommendation,
             })
-        except Exception:
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning("score_record failed for top-3 entry: %s", exc)
             scored_top3.append({
                 "expr": t.get("expr"), "sh": t.get("sharpe"),
                 "fi": t.get("fitness"), "to": t.get("turnover"),
@@ -503,7 +307,7 @@ def _build_iter_review(
         try:
             s = score_record(t)
             grades[s.grade] = grades.get(s.grade, 0) + 1
-        except Exception:
+        except (KeyError, TypeError, ValueError):
             pass
 
     pool = AlphaPool(alpha_pool_path(tag))
@@ -612,9 +416,36 @@ def run_agent(config: AgentConfig) -> dict:
         "log_path": str(log_path),
         "review": review,
     }
+    if rc != 0:
+        summary["failure"] = _classify_agent_failure(log_path)
+        logger.warning(
+            "Agent exited rc=%d kind=%s — %s",
+            rc,
+            summary["failure"].get("kind"),
+            summary["failure"].get("hint"),
+        )
     for fname in ("notes.md", "summary.md", "pool.json"):
         if (run_dir / fname).exists():
             summary[f"agent_{fname}"] = True
 
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+    # Persist a checkpoint sidecar next to tried_exprs.jsonl. Lets an
+    # outer tmux loop, a watchdog, or a future resume tool know which
+    # iteration finished successfully.
+    try:
+        write_checkpoint(
+            tried_exprs_path(config.tag),
+            session_id=run_id,
+            last_iter=int(review.get("iter_simulated") or 0),
+            extra={
+                "run_dir": str(run_dir),
+                "rc": rc,
+                "elapsed_sec": round(elapsed, 1),
+                "tag": config.tag,
+                "failure_kind": summary.get("failure", {}).get("kind") if rc != 0 else None,
+            },
+        )
+    except OSError as exc:
+        logger.warning("failed to write checkpoint sidecar: %s", exc)
     return summary

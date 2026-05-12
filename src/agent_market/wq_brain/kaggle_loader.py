@@ -206,11 +206,20 @@ def _apply_split_adjustment(df: Any, raw_close_col: str) -> Any:
 
     factor = close / raw_close  (≈ 1 / cumulative_split_ratio after the split)
     Apply to OHL only; volume is left as raw (we don't backtest on it).
+
+    Logs how many rows had a non-trivial adjustment factor (|f - 1| > 0.01)
+    so noisy datasets self-flag in the import output.
     """
     if raw_close_col not in df.columns or "close" not in df.columns:
         return df
     raw = df[raw_close_col]
     factor = df["close"] / raw.where(raw != 0)
+    n_nontrivial = int(((factor - 1.0).abs() > 0.01).sum())
+    if n_nontrivial:
+        logger.info(
+            "split-adjust: %d rows had factor != 1 (≈ pre-split), OHL rolled back",
+            n_nontrivial,
+        )
     for col in ("open", "high", "low"):
         if col in df.columns:
             df[col] = df[col] * factor
@@ -276,11 +285,17 @@ def import_kaggle_to_cache(
     column_map: Optional[dict[str, str]] = None,
     ticker_from_filename: bool = False,
     split_adjust_from_col: Optional[str] = None,
+    audit: bool = True,
 ) -> dict[str, Any]:
     """Walk extracted dataset, parse each matching CSV, merge into ohlcv.parquet.
 
     Returns a summary dict with file/row counts. Raises if no usable CSV is
     found (typo in glob, layered subdirs, etc.) so the caller can fix the args.
+
+    When ``audit=True`` (the default), runs :func:`data_audit.run_audit` on the
+    final merged frame and writes ``_audit.json`` + ``_audit.md`` next to the
+    cache. The summary then includes ``audit_summary`` (per-check severity +
+    count) so noisy imports self-flag without an extra CLI step.
     """
     pd = _pd()
     from .data_loader import ohlcv_cache_path
@@ -339,7 +354,7 @@ def import_kaggle_to_cache(
         merged = merged[~merged.index.duplicated(keep="last")].sort_index()
     merged.to_parquet(cache_path)
 
-    return {
+    summary: dict[str, Any] = {
         "ok": True,
         "files_total": len(files),
         "files_imported": n_files_ok,
@@ -348,3 +363,27 @@ def import_kaggle_to_cache(
         "tickers_total": int(merged.index.get_level_values("ticker").nunique()),
         "cache_path": str(cache_path),
     }
+
+    if audit:
+        try:
+            from .data_audit import run_audit, write_audit_artifacts
+            report = run_audit(merged)
+            paths = write_audit_artifacts(report, out_dir=cache_path.parent)
+            summary["audit_summary"] = report.to_dict().get("summary", {})
+            summary["audit_artifacts"] = paths
+            err_count = sum(
+                1 for f in report.findings if f.severity == "error"
+            )
+            warn_count = sum(
+                1 for f in report.findings if f.severity == "warn"
+            )
+            if err_count or warn_count:
+                logger.warning(
+                    "audit on import: %d errors, %d warnings — see %s",
+                    err_count, warn_count, paths.get("md", "_audit.md"),
+                )
+        except Exception as exc:
+            logger.warning("post-import audit failed (non-fatal): %s", exc)
+            summary["audit_error"] = str(exc)
+
+    return summary
