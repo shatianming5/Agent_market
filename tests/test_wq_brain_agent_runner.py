@@ -55,6 +55,8 @@ def test_build_system_prompt_substitutes_all_placeholders(isolated_artifacts, tm
     assert "TOP3000" in prompt
     assert "42" in prompt
     assert "yes" in prompt
+    assert "Compact Loop Mode" in prompt
+    assert "Remote `simulate` at most 2 candidates" in prompt
     assert "At least 1 `math` command is mandatory" in prompt
     assert "local-simulate-supported fields" in prompt
     assert "identifier '<field>' not available locally" in prompt

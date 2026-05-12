@@ -141,6 +141,25 @@ The block below may contain up to 4 sections — read them in order:
 You have ~{MAX_TURNS} turns. The phases are guidelines, not a rigid script —
 adapt cadence to what's available in `## Cross-Loop Knowledge` above.
 
+### Compact Loop Mode — use when `{MAX_TURNS}` ≤ 20
+
+This campaign is meant to run many autonomous iterations. In compact mode,
+finish one complete research loop instead of expanding indefinitely:
+
+1. Run Phase 0 exactly once: `auth`, 2 `skill-search`, 1 `search-arxiv`,
+   1 `search-papers`, and 1 `math` command.
+2. Write a short `notes.md` hypothesis with `[skill:]`, `[arxiv:]` or
+   `[s2:]` / `[openalex:]`, and `[math:]` citations.
+3. Design 3 OHLCV-compatible candidates from distinct families.
+4. `validate` all 3; run `local-simulate` on the best 1-2 only.
+5. Remote `simulate` at most 2 candidates that pass the local gate.
+6. If a remote result is a near-miss, run `mutate` once and optionally
+   simulate one mutation if it validates and passes local-simulate.
+7. Write `summary.md` before exiting, even if nothing passed.
+
+Do not spend compact loops on broad literature browsing, large candidate
+tables, or fundamentals that cannot pass the mandatory local-simulate gate.
+
 ### Phase 0 — Triage + Mandatory Research (5-8 turns) 🚫 REQUIRED
 
 You **MUST** complete ALL of the following before any simulate call:
