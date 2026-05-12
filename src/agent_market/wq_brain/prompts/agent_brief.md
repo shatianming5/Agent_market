@@ -232,11 +232,12 @@ Generate 5-10 distinct candidate expressions covering ≥3 different families.
 
 5. **MANDATORY local-simulate before every remote simulate.** WQ has a
    60-100/day quota; the OHLCV cache (12.99M rows / 2070 tickers) is
-   already loaded. Run `local-simulate` first; if `wq_sharpe < 0` flip
-   sign and re-run; if `wq_fitness < 0.5` after sign-flip, **DROP — do
-   not call remote `simulate`.** See Phase 3 for the full decision tree.
-   Bypassing this gate burns the daily quota on candidates that already
-   look bad locally.
+   already loaded. Run `local-simulate` first and set the Bash/tool
+   timeout to at least 420000 ms because the remote cache takes ~3-4
+   minutes per expression. If `wq_sharpe < 0` flip sign and re-run; if
+   `wq_fitness < 0.5` after sign-flip, **DROP — do not call remote
+   `simulate`.** See Phase 3 for the full decision tree. Bypassing this
+   gate burns the daily quota on candidates that already look bad locally.
 
 ### Design principles (when not constrained above)
 
@@ -256,10 +257,13 @@ The strict parser catches arity mismatches and unknown ops BEFORE you burn WQ bu
 The OHLCV cache is loaded (Russell 3000 / 12.99M rows / 2070 tickers). You
 **MUST** run `local-simulate` on every candidate **before** any `simulate`
 call. WQ daily quota is the binding constraint — local pre-screen costs
-zero budget and rejects ~70% of weak candidates in seconds.
+zero budget and rejects ~70% of weak candidates. On the remote server this
+can take ~3-4 minutes per expression; when using the Bash tool set
+`timeout` to at least `420000` ms. Do not treat the default 120s/180s Bash
+timeout as a local-simulate failure.
 
 ```bash
-python {WQ_TOOLS} local-simulate "<expr>" --rebalance-freq 5
+python {WQ_TOOLS} local-simulate "<expr>" --rebalance-freq 5 --tag {TAG}
 ```
 
 Returns `wq_sharpe / wq_fitness / wq_turnover / wq_returns / submittable / rating`.
