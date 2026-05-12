@@ -144,7 +144,7 @@ class MutationEngine:
                 {"turnover": turnover, "fitness": fitness,
                  "candidates": ["hump(_)  # 1-arg only on free tier",
                                 "ts_decay_linear(_, 10)", "ts_decay_linear(_, 20)",
-                                "switch adv20 → adv60/120 in liquidity terms",
+                                "keep adv20; current WQ endpoint rejects adv60/120",
                                 "wrap inner ts_delta(close,N) → use larger N (10→20)"]},
             )
 
@@ -292,7 +292,7 @@ _STRATEGY_GUIDANCE: dict[MutationStrategy, list[str]] = {
         "- Turnover capping fitness — apply a turnover-reduction layer:",
         "    - Outer: `hump(rank(<alpha>))`  — 1-arg ONLY on free tier (no threshold)",
         "    - Inner smooth: `ts_decay_linear(<alpha>, 10)` or 20",
-        "    - Liquidity: replace `adv20` with `adv60` / `adv120`",
+        "    - Liquidity: keep `adv20`; current WQ endpoint rejects `adv60` / `adv120`",
         "    - Larger windows: `ts_delta(close, 10)` instead of `ts_delta(close, 3)`",
         "- WARNING: `hump(<alpha>, 0.01)` triggers 'Invalid number of inputs: 2'",
         "  on free tier — costs budget on rejection. Use 1-arg form only.",

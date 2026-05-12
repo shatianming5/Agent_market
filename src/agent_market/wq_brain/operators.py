@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-# AVAILABLE on free tier
+# AVAILABLE on the current remote WQ account / USA TOP500 run profile.
 OPERATORS_TS = [
     "ts_mean", "ts_rank", "ts_zscore", "ts_sum", "ts_max",
     "ts_delta", "ts_delay", "ts_decay_linear", "ts_corr",
@@ -38,9 +38,9 @@ OPERATORS_TS_UNAVAILABLE = [
 
 FIELDS_PRICE_VOLUME = [
     "open", "close", "high", "low", "volume", "vwap",
-    "adv20", "adv60", "adv120", "adv180",
-    "returns",
+    "adv20", "returns",
 ]
+FIELDS_PRICE_VOLUME_UNAVAILABLE = ["adv60", "adv120", "adv180"]
 FIELDS_GROUP = ["sector", "industry", "subindustry"]
 # Fundamental fields confirmed accepted by WQ Bronze tier
 # (rank(sales/assets) runs successfully, sharpe=0.91 fi=0.70 to=0.018).
@@ -61,6 +61,7 @@ FIELDS_FUNDAMENTAL_UNAVAILABLE = [
     "market_cap", "shares_out", "float_shares",
     "pe", "pb",
 ]
+FIELDS_UNAVAILABLE = FIELDS_PRICE_VOLUME_UNAVAILABLE + FIELDS_FUNDAMENTAL_UNAVAILABLE
 
 ALL_OPERATORS = OPERATORS_TS + OPERATORS_CS + OPERATORS_MATH + OPERATORS_TRANSFORM
 ALL_FIELDS = FIELDS_PRICE_VOLUME + FIELDS_GROUP + FIELDS_FUNDAMENTAL
@@ -93,7 +94,7 @@ def _validate_expression_v1(expr: str) -> list[str]:
     for tok in tokens:
         if tok in OPERATORS_TS_UNAVAILABLE:
             errors.append(f"unavailable operator: {tok}")
-        if tok in FIELDS_FUNDAMENTAL_UNAVAILABLE:
+        if tok in FIELDS_UNAVAILABLE:
             errors.append(f"unavailable field: {tok}")
 
     return errors
@@ -139,7 +140,7 @@ UNAVAILABLE Time-Series — DO NOT USE ({len(OPERATORS_TS_UNAVAILABLE)}):
 
 AVAILABLE Fields:
   Price/Volume:  {", ".join(FIELDS_PRICE_VOLUME)}
-  ADV variants:  adv20 (20-day), adv60 (60-day), adv120, adv180 — pick longer window for smoother liquidity normalization (lower turnover)
+  ADV variants:  adv20 only. Do NOT use adv60/adv120/adv180; the current WQ endpoint rejects them as unknown variables.
   Group:         {", ".join(FIELDS_GROUP)}
   Fundamental:   {", ".join(FIELDS_FUNDAMENTAL)}
                  ★ Fundamental data is ORTHOGONAL to OHLCV: ratios like
@@ -151,8 +152,8 @@ AVAILABLE Fields:
                  Combine with intraday OHLCV signals for both information
                  sources at once — e.g. `rank(sales/assets) * rank(ts_corr(close, volume, 20))`.
 
-UNAVAILABLE Fields — DO NOT USE ({len(FIELDS_FUNDAMENTAL_UNAVAILABLE)}):
-  {", ".join(FIELDS_FUNDAMENTAL_UNAVAILABLE)}
+UNAVAILABLE Fields — DO NOT USE ({len(FIELDS_UNAVAILABLE)}):
+  {", ".join(FIELDS_UNAVAILABLE)}
   (Pre-computed ratios like roe/roa/pe/pb aren't in WQ; build them yourself
   from raw fundamentals: `earnings/equity`, `cap/earnings`, etc.)
 
@@ -170,8 +171,8 @@ Two main levers to slash turnover (and thus boost fitness):
     Example: rank(ts_rank(close,252) * (-ts_delta(close,3)/close))  # to=0.46
              hump(rank(ts_rank(close,252) * (-ts_delta(close,3)/close)))  # to≈0.10-0.15
 
-(b) Use longer ADV/window: replace `adv20` with `adv60`/`adv120`, replace
-    `ts_*(field, 5)` with `ts_*(field, 20)` etc. — same shape, less churn.
+(b) Use longer time windows: replace `ts_*(field, 5)` with
+    `ts_*(field, 20)` / `60` etc. — same shape, less churn.
 
 (c) Wrap with `ts_decay_linear(<alpha>, N)` for N=10-20 — smooths weights.
 
@@ -195,6 +196,6 @@ statement is the alpha output:
 - All ts_* operators take (field, window). Window typically in [3, 240].
 - rank() should usually be the OUTERMOST layer (or wrap with hump → rank).
 - Quality gates: sharpe >= 1.25 AND fitness >= 1.0.
-- ADV variants: adv60 / adv120 / adv180 give smoother liquidity than adv20
-  but exist only on free tier — confirmed.
+- ADV variants: only adv20 is accepted by the current WQ endpoint.
+  adv60 / adv120 / adv180 return "unknown variable" and waste simulation budget.
 """.strip()

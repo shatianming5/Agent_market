@@ -107,7 +107,7 @@ _OP_EXAMPLES: dict[str, str] = {
     "ts_corr":          "ts_corr(close, volume, 20)",
     # CS ops
     "rank":             "rank(close)",
-    "group_rank":       "group_rank(rank(volume / adv60), industry)",
+    "group_rank":       "group_rank(rank(volume / adv20), industry)",
     "group_mean":       "rank(close - group_mean(close, sector))",
     "group_sum":        "rank(group_sum(volume, sector))",
     "group_std":        "rank(returns / group_std(returns, sector))",
@@ -129,7 +129,7 @@ _OP_EXAMPLES: dict[str, str] = {
     # NOT a 2-arg combiner. Use `+` for explicit 2-signal combination.
     "sum":              "rank(sum(rank(close)))",
     "mean":             "rank(mean(rank(close)))",
-    "if_else":          "if_else(volume > adv60, rank(returns), -rank(returns))",
+    "if_else":          "if_else(volume > adv20, rank(returns), -rank(returns))",
     "clamp":            "clamp(rank(returns), -2, 2)",
     # `correlation` / `covariance` are 3-arg with explicit window — they're
     # cross-sectional stats over a rolling time window, NOT 2-arg pairs.
@@ -150,9 +150,6 @@ _FIELD_EXAMPLES: dict[str, str] = {
     "vwap":     "rank((vwap - close) / close)",
     "returns":  "rank(ts_zscore(returns, 60))",
     "adv20":    "rank(volume / adv20)",
-    "adv60":    "rank(volume / adv60)",
-    "adv120":   "rank(volume / adv120)",
-    "adv180":   "rank(volume / adv180)",
     # Group
     "sector":       "group_zscore(close - vwap, sector)",
     "industry":     "group_neutralize(rank(volume), industry)",
@@ -192,7 +189,7 @@ _OP_FAMILY: dict[str, str] = {
 _FIELD_KIND: dict[str, str] = {
     **{f: "P/V" for f in (
         "open", "high", "low", "close", "volume", "vwap", "returns",
-        "adv20", "adv60", "adv120", "adv180")},
+        "adv20")},
     **{f: "GRP" for f in ("sector", "industry", "subindustry")},
     **{f: "FUND" for f in (
         "sales", "assets", "equity", "debt", "revenue", "earnings",

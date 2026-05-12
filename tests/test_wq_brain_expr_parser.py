@@ -105,9 +105,7 @@ def test_parse_comparison_and_if_else():
     "rank((high - low) / close)",
     "hump(rank(close))",
     "hump(rank(ts_rank(close, 252) * (-ts_delta(close, 3) / close)))",
-    "rank(volume / adv60)",
-    "rank(returns * volume / adv120)",
-    "rank(ts_mean(volume / adv180, 20))",
+    "rank(volume / adv20)",
     "x = ts_mean(close, 20); rank(close - x)",
     "rank(if_else(volume > adv20, close, open))",
     "rank(-ts_corr(close, volume, 20))",
@@ -122,6 +120,16 @@ def test_strict_validator_accepts_known_good(expr):
 def test_rejects_empty():
     assert "empty" in str(validate_expression_strict(""))
     assert "empty" in str(validate_expression_strict("   "))
+
+
+@pytest.mark.parametrize("expr, field", [
+    ("rank(volume / adv60)", "adv60"),
+    ("rank(returns * volume / adv120)", "adv120"),
+    ("rank(ts_mean(volume / adv180, 20))", "adv180"),
+])
+def test_rejects_unavailable_adv_variants(expr, field):
+    errors = validate_expression_strict(expr)
+    assert any(field in e and "unavailable field" in e for e in errors)
 
 
 def test_rejects_overlong_expression():

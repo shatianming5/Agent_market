@@ -6,6 +6,8 @@ from agent_market.wq_brain.operators import (
     ALL_OPERATORS,
     FIELDS_FUNDAMENTAL_UNAVAILABLE,
     FIELDS_PRICE_VOLUME,
+    FIELDS_PRICE_VOLUME_UNAVAILABLE,
+    FIELDS_UNAVAILABLE,
     OPERATORS_CS,
     OPERATORS_MATH,
     OPERATORS_TRANSFORM,
@@ -27,10 +29,7 @@ def test_basic_valid_expressions_pass():
         # New: hump for turnover reduction (1-arg ONLY on WQ free tier)
         "hump(rank(close))",
         "hump(rank(ts_rank(close,252) * (-ts_delta(close,3)/close)))",
-        # New: longer ADV variants
-        "rank(volume / adv60)",
-        "rank(returns * volume / adv120)",
-        "rank(ts_mean(volume / adv180, 20))",
+        "rank(volume / adv20)",
         # New: multi-line binding (semicolon-separated)
         "x = ts_mean(close, 20); rank(close - x)",
     ]:
@@ -73,12 +72,18 @@ def test_unavailable_fundamental_fields_rejected():
         assert any(fld in e for e in errors), f"{fld} not caught"
 
 
+def test_unavailable_adv_variants_rejected():
+    for fld in FIELDS_PRICE_VOLUME_UNAVAILABLE:
+        errors = validate_expression(f"rank(volume / {fld})")
+        assert any(fld in e for e in errors), f"{fld} not caught"
+
+
 def test_whitelist_disjoint_from_unavailable():
     available_ts = set(OPERATORS_TS)
     unavailable_ts = set(OPERATORS_TS_UNAVAILABLE)
     assert not (available_ts & unavailable_ts)
     available_fields = set(FIELDS_PRICE_VOLUME)
-    unavailable_fields = set(FIELDS_FUNDAMENTAL_UNAVAILABLE)
+    unavailable_fields = set(FIELDS_UNAVAILABLE)
     assert not (available_fields & unavailable_fields)
 
 
@@ -94,7 +99,7 @@ def test_operators_prompt_block_contains_all_categories():
         assert op in block, f"missing transform {op}"
     for op in OPERATORS_TS_UNAVAILABLE:
         assert op in block
-    for fld in FIELDS_FUNDAMENTAL_UNAVAILABLE:
+    for fld in FIELDS_UNAVAILABLE:
         assert fld in block
 
 
@@ -108,8 +113,10 @@ def test_operators_prompt_block_advertises_hump_with_examples():
 
 def test_operators_prompt_block_advertises_adv_variants():
     block = operators_prompt_block()
-    for adv in ("adv20", "adv60", "adv120", "adv180"):
+    assert "adv20" in block
+    for adv in ("adv60", "adv120", "adv180"):
         assert adv in block, f"missing {adv} in prompt block"
+    assert "unknown variable" in block
 
 
 def test_operators_prompt_block_advertises_multiline_binding():
@@ -134,8 +141,10 @@ def test_all_operators_count():
 
 
 def test_adv_variants_in_price_volume_fields():
-    for adv in ("adv20", "adv60", "adv120", "adv180"):
-        assert adv in FIELDS_PRICE_VOLUME, f"{adv} missing"
+    assert "adv20" in FIELDS_PRICE_VOLUME
+    for adv in ("adv60", "adv120", "adv180"):
+        assert adv not in FIELDS_PRICE_VOLUME
+        assert adv in FIELDS_PRICE_VOLUME_UNAVAILABLE
 
 
 def test_hump_in_transform():

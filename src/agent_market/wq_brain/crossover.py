@@ -162,5 +162,5 @@ def format_crossover_block(segments: list[Segment]) -> str:
     lines.append("- Window-graft: take family A's window length and apply to family B's operator stack")
     lines.append("- Normalization swap: replace family A's outer `rank()` with family B's `group_zscore(_, sector)`")
     lines.append("- Sign mix: subtract two families: `rank(family_A) - 0.5 * rank(family_B)`")
-    lines.append("- Liquidity overlay: multiply a directional family by `volume / adv60` from a humped family")
+    lines.append("- Liquidity overlay: multiply a directional family by `volume / adv20` from a humped family")
     return "\n".join(lines)
