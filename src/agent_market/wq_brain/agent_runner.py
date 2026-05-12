@@ -432,6 +432,7 @@ def run_agent(config: AgentConfig) -> dict:
         # tool calls concurrently; enforce the same budget in the child CLI.
         extra_env["WQB_AGENT_LOCAL_SIM_LIMIT"] = "2"
         extra_env["WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT"] = "1"
+        extra_env["WQB_AGENT_LOCAL_SIM_TIMEOUT_SEC"] = "360"
     env = _llm_cli_env(extra_env)
     cli = _resolve_cli(config.cli, env=env)
     prompt = _build_system_prompt(config, run_dir)

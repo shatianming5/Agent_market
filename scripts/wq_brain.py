@@ -1511,6 +1511,16 @@ def _env_int(name: str, default: int = 0) -> int:
         return default
 
 
+def _env_float(name: str, default: float = 0.0) -> float:
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -1607,6 +1617,36 @@ def _agent_local_sim_slot(expr: str):
         _locked_update(_release)
 
 
+@contextlib.contextmanager
+def _agent_local_sim_time_limit():
+    seconds = _env_float("WQB_AGENT_LOCAL_SIM_TIMEOUT_SEC")
+    if seconds <= 0:
+        yield
+        return
+    try:
+        import signal
+    except ImportError:
+        yield
+        return
+    if not hasattr(signal, "SIGALRM"):
+        yield
+        return
+
+    def _raise_timeout(signum, frame):
+        raise TimeoutError(f"agent local-simulate timed out after {seconds:g}s")
+
+    old_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _raise_timeout)
+    old_timer = signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
+        if old_timer[0] > 0:
+            signal.setitimer(signal.ITIMER_REAL, old_timer[0], old_timer[1])
+
+
 def cmd_local_simulate(args: argparse.Namespace) -> None:
     """Run wq_simulate against cached OHLCV — no WQ API call, pure local.
 
@@ -1616,12 +1656,13 @@ def cmd_local_simulate(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.local_sim import simulate_expression_locally
     try:
         with _agent_local_sim_slot(args.expr):
-            result = simulate_expression_locally(
-                args.expr,
-                rebalance_freq=args.rebalance_freq,
-                tag=args.tag or None,
-                fitness_gate=args.fitness_gate,
-            )
+            with _agent_local_sim_time_limit():
+                result = simulate_expression_locally(
+                    args.expr,
+                    rebalance_freq=args.rebalance_freq,
+                    tag=args.tag or None,
+                    fitness_gate=args.fitness_gate,
+                )
         _emit({
             "ok": True,
             "expr": result.expr,

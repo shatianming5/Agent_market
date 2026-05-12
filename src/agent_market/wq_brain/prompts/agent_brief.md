@@ -154,8 +154,9 @@ finish one complete research loop instead of expanding indefinitely:
 4. `validate` all 3; run `local-simulate` on the best 1-2 only.
    Run local-simulates sequentially, never in parallel. Compact-loop
    runner enforces max 2 local-simulates total and max 1 active at a time;
-   if you see a budget/concurrency JSON error, stop launching more
-   local-simulates and write `summary.md`.
+   each local-simulate also has a 360s compact timeout. If you see a
+   budget/concurrency/timeout JSON error, stop launching more local-simulates
+   and write `summary.md`.
 5. Remote `simulate` at most 2 candidates that pass the local gate.
 6. If a remote result is a near-miss, run `mutate` once and optionally
    simulate one mutation if it validates and passes local-simulate.

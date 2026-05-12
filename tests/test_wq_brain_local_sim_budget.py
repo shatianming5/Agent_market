@@ -1,6 +1,8 @@
 """Tests for compact-agent local-simulate budgeting."""
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from scripts import wq_brain
@@ -22,3 +24,10 @@ def test_agent_local_sim_slot_enforces_concurrency_and_budget(tmp_path, monkeypa
 
     with wq_brain._agent_local_sim_slot("rank(close)"):
         pass
+
+
+def test_agent_local_sim_time_limit_raises(monkeypatch):
+    monkeypatch.setenv("WQB_AGENT_LOCAL_SIM_TIMEOUT_SEC", "0.01")
+    with pytest.raises(TimeoutError, match="timed out"):
+        with wq_brain._agent_local_sim_time_limit():
+            time.sleep(1)
