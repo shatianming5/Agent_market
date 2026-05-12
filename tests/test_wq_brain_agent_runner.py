@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -113,9 +114,7 @@ def test_build_hermes_cmd_assembles_full_command(tmp_path):
         yolo=True, toolsets="terminal,file",
     )
     env: dict[str, str] = {}
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
-        cmd = _build_hermes_cmd(config, "prompt-text", tmp_path, env)
+    cmd = _build_hermes_cmd(config, "prompt-text", tmp_path, env)
     assert cmd[:3] == ["hermes", "chat", "-Q"]
     assert "--toolsets" in cmd and "terminal,file" in cmd
     assert "--max-turns" in cmd and "20" in cmd
@@ -133,8 +132,8 @@ def test_run_agent_creates_run_dir_and_writes_artifacts(isolated_artifacts, tmp_
     config = AgentConfig(tag="t1", max_turns=5, timeout_sec=10.0,
                          cli="opencode", model="m1")
 
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout") as mock_run:
+        mock_run.return_value = 0
         summary = run_agent(config)
 
     run_dir = Path(summary["run_dir"])
@@ -152,12 +151,11 @@ def test_run_agent_passes_correct_hermes_flags(isolated_artifacts):
         provider="openrouter", yolo=True, toolsets="terminal,file",
         timeout_sec=10.0,
     )
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0)
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout") as mock_run:
+        mock_run.return_value = 0
         run_agent(config)
 
-    # Inspect the LAST subprocess.run call (the actual chat invocation;
-    # there's no reasoning_effort config call when reasoning_effort is empty)
+    # Inspect the CLI invocation passed to the group-timeout runner.
     cmd = mock_run.call_args_list[-1][0][0]
     assert cmd[0] == "hermes"
     assert cmd[1] == "chat"
@@ -169,13 +167,26 @@ def test_run_agent_passes_correct_hermes_flags(isolated_artifacts):
 
 
 def test_run_agent_handles_timeout(isolated_artifacts):
-    import subprocess
     config = AgentConfig(tag="t1", max_turns=5, timeout_sec=1.0,
                          cli="opencode", model="m1")
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run") as mock_run:
-        mock_run.side_effect = subprocess.TimeoutExpired("opencode", 1.0)
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout") as mock_run:
+        mock_run.return_value = -1
         summary = run_agent(config)
     assert summary["agent_returncode"] == -1
+
+
+def test_run_cli_timeout_writes_marker(tmp_path):
+    from agent_market.wq_brain.agent_runner import _run_cli_with_group_timeout
+    log_path = tmp_path / "agent.log"
+    rc = _run_cli_with_group_timeout(
+        [sys.executable, "-c", "import time; time.sleep(5)"],
+        cwd=tmp_path,
+        env={},
+        log_path=log_path,
+        timeout_sec=0.1,
+    )
+    assert rc == -1
+    assert "terminating process group" in log_path.read_text(encoding="utf-8")
 
 
 def test_llm_cli_env_accepts_openai_api_base_alias(monkeypatch):
@@ -215,13 +226,11 @@ def test_run_agent_resolves_openai_model_alias(isolated_artifacts, monkeypatch):
     config = AgentConfig(tag="modeltag", max_turns=2, timeout_sec=5.0,
                          cli="opencode", model="")
 
-    class _OK:
-        returncode = 0
     captured = {}
     def _fake(cmd, **kwargs):
         captured["cmd"] = cmd
-        return _OK()
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+        return 0
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout",
                side_effect=_fake):
         run_agent(config)
     assert "custom/gpt-5.2" in captured["cmd"]
@@ -239,13 +248,11 @@ def test_run_agent_resolves_opencode_model_alias(isolated_artifacts, monkeypatch
     config = AgentConfig(tag="octag", max_turns=2, timeout_sec=5.0,
                          cli="opencode", model="")
 
-    class _OK:
-        returncode = 0
     captured = {}
     def _fake(cmd, **kwargs):
         captured["cmd"] = cmd
-        return _OK()
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+        return 0
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout",
                side_effect=_fake):
         run_agent(config)
     assert "custom/oc-model" in captured["cmd"]
@@ -265,10 +272,8 @@ def test_run_agent_persists_resolved_model_in_config_json(
     config = AgentConfig(tag="cfgtag", max_turns=2, timeout_sec=5.0,
                          cli="opencode", model="")
 
-    class _OK:
-        returncode = 0
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
-               return_value=_OK()):
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout",
+               return_value=0):
         summary = run_agent(config)
     cfg_path = Path(summary["run_dir"]) / "config.json"
     cfg = json.loads(cfg_path.read_text())
@@ -320,18 +325,13 @@ def test_classify_agent_failure_missing_log(tmp_path):
 
 
 def test_run_agent_writes_checkpoint_sidecar(isolated_artifacts):
-    import subprocess
-
     from agent_market.wq_brain.paths import tried_exprs_path
     from agent_market.wq_brain.tried_log import read_checkpoint
 
     config = AgentConfig(tag="ckpt_tag", max_turns=2, timeout_sec=5.0,
                          cli="opencode", model="m1")
 
-    class _OK:
-        returncode = 0
-
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run", return_value=_OK()):
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout", return_value=0):
         run_agent(config)
 
     ck = read_checkpoint(tried_exprs_path("ckpt_tag"))
@@ -350,18 +350,13 @@ def test_run_agent_failure_kind_recorded_on_nonzero_exit(isolated_artifacts):
     config = AgentConfig(tag="fail_tag", max_turns=2, timeout_sec=5.0,
                          cli="opencode", model="m1")
 
-    class _Bad:
-        returncode = 5
-
     def _fake_run(*args, **kwargs):
-        # Write the agent.log that subprocess.run would have produced
-        stdout = kwargs.get("stdout")
-        if stdout is not None and hasattr(stdout, "write"):
-            stdout.write("FATAL: 用户额度不足\n")
-            stdout.flush()
-        return _Bad()
+        log_path = kwargs.get("log_path")
+        if log_path is not None:
+            Path(log_path).write_text("FATAL: 用户额度不足\n", encoding="utf-8")
+        return 5
 
-    with patch("agent_market.wq_brain.agent_runner.subprocess.run",
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout",
                side_effect=_fake_run):
         summary = run_agent(config)
 

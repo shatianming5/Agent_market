@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import time
 import uuid
@@ -274,6 +275,51 @@ def _classify_agent_failure(log_path: Path, *, tail_bytes: int = 4000) -> dict:
     }
 
 
+def _run_cli_with_group_timeout(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    log_path: Path,
+    timeout_sec: float,
+) -> int:
+    """Run an agent CLI and kill its whole process group on timeout.
+
+    Agent CLIs spawn shell tools; killing only the direct opencode/hermes
+    process can leave orphan WQ simulations burning quota in the background.
+    """
+    with open(log_path, "w", encoding="utf-8") as logf:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            env=env,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            return proc.wait(timeout=timeout_sec)
+        except subprocess.TimeoutExpired:
+            logf.write(f"\n[agent_runner] timeout after {timeout_sec:.0f}s; terminating process group\n")
+            logf.flush()
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.wait(timeout=15.0)
+            except subprocess.TimeoutExpired:
+                logf.write("[agent_runner] process group ignored SIGTERM; sending SIGKILL\n")
+                logf.flush()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait(timeout=15.0)
+            return -1
+
+
 def _build_iter_review(
     *, tag: str, start_ts: float, end_ts: float,
     sharpe_min: float, fitness_min: float,
@@ -407,20 +453,14 @@ def run_agent(config: AgentConfig) -> dict:
                 cli, run_dir, config.max_turns, config.timeout_sec)
     start = time.time()
     rc: int
-    try:
-        with open(log_path, "w", encoding="utf-8") as logf:
-            proc = subprocess.run(
-                cmd,
-                cwd=str(run_dir),
-                env=env,
-                stdout=logf,
-                stderr=subprocess.STDOUT,
-                timeout=config.timeout_sec,
-                check=False,
-            )
-        rc = proc.returncode
-    except subprocess.TimeoutExpired:
-        rc = -1
+    rc = _run_cli_with_group_timeout(
+        cmd,
+        cwd=run_dir,
+        env=env,
+        log_path=log_path,
+        timeout_sec=config.timeout_sec,
+    )
+    if rc == -1:
         logger.warning("Agent session timed out after %.0fs", config.timeout_sec)
 
     end = time.time()
