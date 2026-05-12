@@ -185,6 +185,7 @@ def test_run_agent_sets_compact_local_sim_limits(isolated_artifacts):
     assert env["WQB_AGENT_LOCAL_SIM_LIMIT"] == "2"
     assert env["WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT"] == "1"
     assert env["WQB_AGENT_LOCAL_SIM_TIMEOUT_SEC"] == "360"
+    assert env["WQB_AGENT_REQUIRE_LOCAL_SIM"] == "1"
 
 
 def test_run_agent_handles_timeout(isolated_artifacts):

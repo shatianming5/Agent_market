@@ -102,6 +102,15 @@ def cmd_simulate(args: argparse.Namespace) -> None:
         region=args.region, universe=args.universe, decay=args.decay,
         neutralization=args.neutralization, truncation=args.truncation,
     )
+    local_gate_error = _agent_local_sim_gate_error(args.expr)
+    if local_gate_error:
+        _emit({
+            "ok": False,
+            "expr": args.expr,
+            "rejected_by": "agent_local_sim_gate",
+            "error": local_gate_error,
+        }, code=2)
+        return
     # Atomic reserve+commit closes the TOCTOU window between
     # "is there capacity?" and "record the call". The reservation is rolled
     # back via release_action below if the simulate call never reaches WQ.
@@ -1546,6 +1555,86 @@ def _write_local_sim_state(path: Path, state: dict[str, Any]) -> None:
     path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _locked_local_sim_state_update(run_dir: Path, fn):
+    lock_path = run_dir / ".local_sim_budget.lock"
+    state_path = run_dir / "local_sim_budget.json"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    lock_path.touch(exist_ok=True)
+    with lock_path.open("r+", encoding="utf-8") as lockf:
+        try:
+            import fcntl
+            fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            pass
+        state = _read_local_sim_state(state_path)
+        state["active"] = [
+            row for row in state.get("active", [])
+            if _pid_alive(int(row.get("pid") or 0))
+        ]
+        result = fn(state)
+        _write_local_sim_state(state_path, state)
+        try:
+            import fcntl
+            fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)
+        except (ImportError, OSError):
+            pass
+        return result
+
+
+def _mark_agent_local_sim_status(
+    expr: str,
+    status: str,
+    *,
+    error: str = "",
+    extra: Optional[dict[str, Any]] = None,
+) -> None:
+    run_dir_raw = os.environ.get("WQB_RUN_DIR", "")
+    if not run_dir_raw:
+        return
+    pid = os.getpid()
+
+    def _mark(state: dict[str, Any]) -> None:
+        claims = state.get("claims", [])
+        for row in reversed(claims):
+            if str(row.get("expr") or "") == expr and int(row.get("pid") or 0) == pid:
+                row["status"] = status
+                row["finished_ts"] = time.time()
+                if error:
+                    row["error"] = error
+                if extra:
+                    row.update(extra)
+                break
+        state["claims"] = claims
+
+    _locked_local_sim_state_update(Path(run_dir_raw), _mark)
+
+
+def _agent_local_sim_gate_error(expr: str) -> str:
+    if os.environ.get("WQB_AGENT_REQUIRE_LOCAL_SIM", "").lower() not in {"1", "true", "yes"}:
+        return ""
+    run_dir_raw = os.environ.get("WQB_RUN_DIR", "")
+    if not run_dir_raw:
+        return ""
+
+    def _check(state: dict[str, Any]) -> str:
+        for row in reversed(state.get("claims", [])):
+            if str(row.get("expr") or "") == expr:
+                status = str(row.get("status") or "")
+                if status == "passed":
+                    return ""
+                return (
+                    "agent local-simulate gate not passed for this expression "
+                    f"(status={status or 'running'}); do not call remote simulate"
+                )
+        return (
+            "agent local-simulate gate missing for this expression; run "
+            "`local-simulate` first and only simulate the exact expression "
+            "that passes the local gate"
+        )
+
+    return _locked_local_sim_state_update(Path(run_dir_raw), _check)
+
+
 @contextlib.contextmanager
 def _agent_local_sim_slot(expr: str):
     """Bound local-simulate fan-out inside compact autonomous agent runs."""
@@ -1557,32 +1646,7 @@ def _agent_local_sim_slot(expr: str):
         return
 
     run_dir = Path(run_dir_raw)
-    run_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = run_dir / ".local_sim_budget.lock"
-    state_path = run_dir / "local_sim_budget.json"
     pid = os.getpid()
-
-    def _locked_update(fn):
-        lock_path.touch(exist_ok=True)
-        with lock_path.open("r+", encoding="utf-8") as lockf:
-            try:
-                import fcntl
-                fcntl.flock(lockf.fileno(), fcntl.LOCK_EX)
-            except (ImportError, OSError):
-                pass
-            state = _read_local_sim_state(state_path)
-            state["active"] = [
-                row for row in state.get("active", [])
-                if _pid_alive(int(row.get("pid") or 0))
-            ]
-            result = fn(state)
-            _write_local_sim_state(state_path, state)
-            try:
-                import fcntl
-                fcntl.flock(lockf.fileno(), fcntl.LOCK_UN)
-            except (ImportError, OSError):
-                pass
-            return result
 
     def _claim(state: dict[str, Any]) -> None:
         active = state.get("active", [])
@@ -1599,7 +1663,7 @@ def _agent_local_sim_slot(expr: str):
                 f"(limit={limit}); write summary.md or proceed with prior results"
             )
         if expr not in claimed_exprs:
-            claims.append({"expr": expr, "pid": pid, "ts": time.time()})
+            claims.append({"expr": expr, "pid": pid, "ts": time.time(), "status": "running"})
         active.append({"expr": expr, "pid": pid, "ts": time.time()})
         state["claims"] = claims
         state["active"] = active
@@ -1610,11 +1674,11 @@ def _agent_local_sim_slot(expr: str):
             if int(row.get("pid") or 0) != pid
         ]
 
-    _locked_update(_claim)
+    _locked_local_sim_state_update(run_dir, _claim)
     try:
         yield
     finally:
-        _locked_update(_release)
+        _locked_local_sim_state_update(run_dir, _release)
 
 
 @contextlib.contextmanager
@@ -1663,6 +1727,17 @@ def cmd_local_simulate(args: argparse.Namespace) -> None:
                     tag=args.tag or None,
                     fitness_gate=args.fitness_gate,
                 )
+        passes_local_gate = bool(result.raw.get("passes_local_gate"))
+        _mark_agent_local_sim_status(
+            args.expr,
+            "passed" if passes_local_gate else "failed_gate",
+            extra={
+                "passes_local_gate": passes_local_gate,
+                "wq_sharpe": result.wq_sharpe,
+                "wq_fitness": result.wq_fitness,
+                "wq_turnover": result.wq_turnover,
+            },
+        )
         _emit({
             "ok": True,
             "expr": result.expr,
@@ -1677,6 +1752,7 @@ def cmd_local_simulate(args: argparse.Namespace) -> None:
             "raw": result.raw,
         })
     except Exception as exc:
+        _mark_agent_local_sim_status(args.expr, "error", error=str(exc))
         _emit({"ok": False, "expr": args.expr, "error": str(exc)}, code=1)
 
 

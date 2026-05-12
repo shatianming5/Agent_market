@@ -157,7 +157,10 @@ finish one complete research loop instead of expanding indefinitely:
    each local-simulate also has a 360s compact timeout. If you see a
    budget/concurrency/timeout JSON error, stop launching more local-simulates
    and write `summary.md`.
-5. Remote `simulate` at most 2 candidates that pass the local gate.
+5. Remote `simulate` at most 2 candidates that pass the local gate. The CLI
+   enforces this in compact mode: a remote `simulate` for an expression that
+   did not pass local-simulate in the same run_dir is rejected before WQ quota
+   is reserved.
 6. If a remote result is a near-miss, run `mutate` once and optionally
    simulate one mutation if it validates and passes local-simulate.
 7. Write `summary.md` before exiting, even if nothing passed.

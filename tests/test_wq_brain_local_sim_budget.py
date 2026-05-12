@@ -26,6 +26,27 @@ def test_agent_local_sim_slot_enforces_concurrency_and_budget(tmp_path, monkeypa
         pass
 
 
+def test_agent_local_sim_gate_requires_passed_claim(tmp_path, monkeypatch):
+    monkeypatch.setenv("WQB_RUN_DIR", str(tmp_path))
+    monkeypatch.setenv("WQB_AGENT_REQUIRE_LOCAL_SIM", "1")
+
+    missing = wq_brain._agent_local_sim_gate_error("rank(close)")
+    assert "gate missing" in missing
+
+    monkeypatch.setenv("WQB_AGENT_LOCAL_SIM_LIMIT", "1")
+    monkeypatch.setenv("WQB_AGENT_LOCAL_SIM_MAX_CONCURRENT", "1")
+    with wq_brain._agent_local_sim_slot("rank(close)"):
+        pass
+    running = wq_brain._agent_local_sim_gate_error("rank(close)")
+    assert "not passed" in running
+
+    with wq_brain._agent_local_sim_slot("rank(close)"):
+        wq_brain._mark_agent_local_sim_status(
+            "rank(close)", "passed", extra={"passes_local_gate": True}
+        )
+    assert wq_brain._agent_local_sim_gate_error("rank(close)") == ""
+
+
 def test_agent_local_sim_time_limit_raises(monkeypatch):
     monkeypatch.setenv("WQB_AGENT_LOCAL_SIM_TIMEOUT_SEC", "0.01")
     with pytest.raises(TimeoutError, match="timed out"):
