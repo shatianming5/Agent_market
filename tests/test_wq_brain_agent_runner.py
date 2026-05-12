@@ -82,13 +82,23 @@ def test_resolve_cli_auto_raises_when_none_available():
 def test_build_opencode_cmd_auto_prefixes_custom_provider():
     config = AgentConfig(tag="t1", model="my-model")
     cmd = _build_opencode_cmd(config, "do the thing")
-    assert cmd == ["opencode", "run", "-m", "custom/my-model", "do the thing"]
+    assert cmd == [
+        "opencode", "run",
+        "--print-logs", "--log-level", "ERROR",
+        "-m", "custom/my-model",
+        "do the thing",
+    ]
 
 
 def test_build_opencode_cmd_keeps_explicit_provider():
     config = AgentConfig(tag="t1", model="anthropic/claude-sonnet-4")
     cmd = _build_opencode_cmd(config, "x")
-    assert cmd == ["opencode", "run", "-m", "anthropic/claude-sonnet-4", "x"]
+    assert cmd == [
+        "opencode", "run",
+        "--print-logs", "--log-level", "ERROR",
+        "-m", "anthropic/claude-sonnet-4",
+        "x",
+    ]
 
 
 def test_build_opencode_cmd_requires_model():

@@ -206,7 +206,13 @@ def _build_opencode_cmd(config: AgentConfig, prompt: str) -> list[str]:
     if not config.model:
         raise RuntimeError("opencode requires --model (or OPENCODE_MODEL env)")
     model = config.model if "/" in config.model else f"custom/{config.model}"
-    return ["opencode", "run", "-m", model, prompt]
+    return [
+        "opencode", "run",
+        "--print-logs",
+        "--log-level", "ERROR",
+        "-m", model,
+        prompt,
+    ]
 
 
 # Patterns the agent CLI / LLM provider emit on common failure modes. Each
@@ -233,10 +239,12 @@ _FAILURE_PATTERNS: tuple[tuple[re.Pattern, str, str], ...] = (
      "killed",
      "Agent CLI was killed by the OS (likely OOM or tmux pane close). The "
      "loop can resume from the next iteration; check dmesg for OOM."),
-    (re.compile(r"(model not found|invalid api[ _]key|api[ _]key)", re.IGNORECASE),
+    (re.compile(r"(model not found|model_not_found|no available channel|"
+                r"providermodelnotfound|invalid api[ _]key|api[ _]key)",
+                re.IGNORECASE),
      "llm_config",
-     "LLM CLI received an invalid API key / unknown model. Verify "
-     "OPENAI_API_KEY + the .opencode.json model registry."),
+     "LLM CLI received an invalid API key / unavailable model. Verify "
+     "OPENAI_API_KEY, OPENAI_MODEL, and the .opencode.json model registry."),
 )
 
 
