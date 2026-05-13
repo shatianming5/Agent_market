@@ -1236,13 +1236,13 @@ def test_freqtrade_window_backtest_exports_stage_signals(tmp_path: Path, monkeyp
         captured["rank_kwargs"] = kwargs
         return {"signals": {"all": str(tmp_path / "validation.feather")}, "exported": True}
 
+    def fake_freqtrade(self, idir, research_result, timerange=None, stage="single") -> dict:
+        captured["freqtrade_research_result"] = research_result
+        return {"ok": True, "signal_dir": str(tmp_path)}
+
     monkeypatch.setattr(strategy_loop_mod, "_resolve_factor_state", lambda tag: (None, None))
     monkeypatch.setattr(strategy_loop_mod.rank_portfolio, "rank_export", fake_rank_export)
-    monkeypatch.setattr(
-        StrategyLoopRunner,
-        "_run_fixed_freqtrade_backtest",
-        lambda self, idir, research_result, timerange=None, stage="single": {"ok": True, "signal_dir": str(tmp_path)},
-    )
+    monkeypatch.setattr(StrategyLoopRunner, "_run_fixed_freqtrade_backtest", fake_freqtrade)
 
     result = runner._run_window_backtest(
         tmp_path,
@@ -1253,8 +1253,46 @@ def test_freqtrade_window_backtest_exports_stage_signals(tmp_path: Path, monkeyp
     )
 
     assert result["signals"]["all"].endswith("validation.feather")
+    assert captured["freqtrade_research_result"]["signals"]["all"].endswith("validation.feather")
     assert result["freqtrade_backtest"] == {"ok": True, "signal_dir": str(tmp_path)}
     assert captured["rank_kwargs"]["tag"].endswith("_validation")
+
+
+def test_fixed_freqtrade_backtest_accepts_signal_mapping(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    signal_dir = tmp_path / "signals"
+    signal_dir.mkdir()
+    signal_file = signal_dir / "all.feather"
+    signal_file.write_bytes(b"unit")
+    cfg = StrategyLoopConfig.from_args(tag="unit_signal_mapping", run_id="unit_signal_mapping_run")
+    runner = StrategyLoopRunner(cfg)
+
+    monkeypatch.setattr(strategy_loop_mod.repo_paths, "resolve_repo_path", lambda raw: tmp_path / "config.json")
+    monkeypatch.setattr(strategy_loop_mod.repo_paths, "user_data_root", lambda: tmp_path / "user_data")
+
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    strategy_dir = tmp_path / "user_data" / "strategies"
+    strategy_dir.mkdir(parents=True)
+    (strategy_dir / f"{strategy_loop_mod.FIXED_FREQTRADE_STRATEGY}.py").write_text("# unit\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"strategy": {}}))
+
+    monkeypatch.setattr(strategy_loop_mod.subprocess, "run", fake_run)
+
+    result = runner._run_fixed_freqtrade_backtest(
+        tmp_path,
+        {"signals": {"all": str(signal_file)}},
+        timerange="20260301-20260331",
+        stage="validation",
+    )
+
+    assert result["ok"] is False
+    assert str(result["error"]).startswith("no Freqtrade backtest result zip")
+    assert result["signal_dir"].endswith("signals")
+    assert "--timerange" in captured["cmd"]
 
 
 def test_promote_policy_final_defers_global_optimized_profile(tmp_path: Path) -> None:

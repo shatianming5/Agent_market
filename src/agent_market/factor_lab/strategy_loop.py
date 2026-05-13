@@ -4367,7 +4367,11 @@ class StrategyLoopRunner:
         timerange: Optional[str] = None,
         stage: str = "single",
     ) -> dict[str, Any]:
-        signals_raw = str(research_result.get("signals") or "")
+        signals_value = research_result.get("signals")
+        if isinstance(signals_value, Mapping):
+            signals_raw = str(signals_value.get("all") or "")
+        else:
+            signals_raw = str(signals_value or "")
         # In EVAL_FREQTRADE mode research_backtest is skipped, so signals come from signal_export.json
         if not signals_raw:
             se_path = idir / "signal_export.json"
