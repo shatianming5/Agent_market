@@ -800,6 +800,61 @@ def test_runner_uses_openai_compatible_agent_for_codegen(monkeypatch: pytest.Mon
     assert captured["closed"] is True
 
 
+def test_openai_compatible_agent_repairs_invalid_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_openai_repair",
+        run_id="unit_openai_repair_run",
+        agent="openai",
+        model="gpt-5.5",
+        max_retries=1,
+    )
+    runner = StrategyLoopRunner(cfg)
+    runner.state.iteration = 2
+    prompts: list[str] = []
+
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-key")
+
+    import agent_market.strategy_miner.agent_adapter as adapter
+
+    class FakeStrategyAgent:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def run_result(self, prompt: str) -> types.SimpleNamespace:
+            prompts.append(prompt)
+            if len(prompts) == 1:
+                return types.SimpleNamespace(
+                    assistant_text='```json\n{"candidate_type":"rank_profile","name":"truncated"',
+                    usage={"total_tokens": 11},
+                )
+            return types.SimpleNamespace(
+                assistant_text=json.dumps(
+                    {
+                        "candidate_type": "rank_profile",
+                        "name": "repaired_candidate",
+                        "rank_profile": {"top_k": 2, "rebalance_hours": 8},
+                    }
+                ),
+                usage={"total_tokens": 13},
+            )
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(adapter, "StrategyAgent", FakeStrategyAgent)
+    (tmp_path / "context").mkdir()
+    _write_json(tmp_path / "context" / "prepare.json", {"unit_context": True})
+
+    runner._code_gen(tmp_path)
+
+    assert len(prompts) == 2
+    assert "not valid complete JSON" in prompts[1]
+    assert validate_candidate(tmp_path / "candidate.json")["name"] == "repaired_candidate"
+    response = (tmp_path / "agent_response.txt").read_text(encoding="utf-8")
+    assert "JSON repair attempt" in response
+    assert runner.state.token_cost["2"]["repair"] == {"total_tokens": 13}
+
+
 def test_runner_applies_hermes_reasoning_effort(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_hermes_effort",

@@ -4159,7 +4159,8 @@ class StrategyLoopRunner:
             "mentions reading files.\n\n"
             f"Original instruction:\n{prompt}\n\n"
             f"Inline prepare context JSON:\n```json\n{context_text}\n```\n\n"
-            "Return exactly one JSON object that can be saved as candidate.json. "
+            "Return exactly one compact JSON object that can be saved as candidate.json. "
+            "Keep description and metadata strings concise, under 160 characters each. "
             "Do not include markdown fences or commentary."
         )
         with _temporary_environ(env):
@@ -4174,15 +4175,31 @@ class StrategyLoopRunner:
             )
             try:
                 result = agent.run_result(direct_prompt)
+                assistant_text = getattr(result, "assistant_text", "") or ""
+                usage = getattr(result, "usage", None) or {}
+                payload = _json_object_from_text(assistant_text)
+                if payload is None and self.config.max_retries > 0:
+                    repair_prompt = (
+                        "Your previous answer was not valid complete JSON for candidate.json. "
+                        "Return one minified JSON object only. No markdown fences, no commentary, "
+                        "no trailing text. Required top-level keys: candidate_type, name, "
+                        "description, metadata, rank_profile. Keep every string short.\n\n"
+                        f"Previous invalid answer:\n{assistant_text[:4000]}"
+                    )
+                    repair_result = agent.run_result(repair_prompt)
+                    repair_text = getattr(repair_result, "assistant_text", "") or ""
+                    repair_usage = getattr(repair_result, "usage", None) or {}
+                    assistant_text = f"{assistant_text}\n\n--- JSON repair attempt ---\n{repair_text}"
+                    if repair_usage:
+                        usage = dict(usage)
+                        usage["repair"] = repair_usage
+                    payload = _json_object_from_text(repair_text)
             finally:
                 agent.close()
 
-        assistant_text = getattr(result, "assistant_text", "") or ""
-        usage = getattr(result, "usage", None) or {}
         if usage:
             self.state.token_cost[str(self.state.iteration)] = usage
         (idir / "agent_response.txt").write_text(assistant_text, encoding="utf-8")
-        payload = _json_object_from_text(assistant_text)
         if payload is None:
             raise RuntimeError("OpenAI-compatible agent did not return a JSON candidate")
         if "candidate_type" not in payload and isinstance(payload.get("candidate"), Mapping):
