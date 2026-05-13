@@ -2747,6 +2747,10 @@ def parse_recursive_output(path: str | Path) -> dict[str, Any]:
     else:
         if re.search(r"(not enough|insufficient|too few|sample)", text, flags=re.I):
             return {"status": VERIFICATION_INCONCLUSIVE, "violations": ["recursive log reports insufficient sample"], "rows": []}
+        no_recursive = re.search(r"no variance on indicator\(s\) found due to recursive formula", text, flags=re.I)
+        no_lookahead = re.search(r"no lookahead bias on indicators found", text, flags=re.I)
+        if no_recursive and no_lookahead:
+            return {"status": VERIFICATION_PASSED, "violations": [], "rows": []}
         if re.search(r"(recursive|indicator).{0,80}(bias|difference|diff|drift)", text, flags=re.I):
             if re.search(r"(?<![A-Za-z])([1-9]\d*|0\.\d*[1-9]\d*)(?![A-Za-z])", text):
                 return {"status": VERIFICATION_FAILED, "violations": ["recursive log reports non-zero differences"], "rows": []}

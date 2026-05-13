@@ -1535,11 +1535,20 @@ def test_lookahead_and_recursive_parsers_block_bias(tmp_path: Path) -> None:
     recursive_ok.write_text("indicator,diff\nrsi,0\n", encoding="utf-8")
     recursive_bad = tmp_path / "recursive_bad.csv"
     recursive_bad.write_text("indicator,diff\nrsi,0.001\n", encoding="utf-8")
+    recursive_ok_log = tmp_path / "recursive_ok.log"
+    recursive_ok_log.write_text(
+        "2026-05-14 05:31:56,112 - freqtrade.optimize.analysis.recursive - INFO - Start checking for recursive bias\n"
+        "2026-05-14 05:31:56,114 - freqtrade.optimize.analysis.recursive - INFO - No variance on indicator(s) found due to recursive formula.\n"
+        "2026-05-14 05:31:56,114 - freqtrade.optimize.analysis.recursive - INFO - Start checking for lookahead bias on indicators only\n"
+        "2026-05-14 05:31:56,116 - freqtrade.optimize.analysis.recursive - INFO - No lookahead bias on indicators found.\n",
+        encoding="utf-8",
+    )
 
     assert parse_lookahead_csv(ok_csv, min_trades=5)["status"] == VERIFICATION_PASSED
     assert parse_lookahead_csv(bad_csv, min_trades=5)["status"] == VERIFICATION_FAILED
     assert parse_lookahead_csv(ok_csv, min_trades=50)["status"] == VERIFICATION_FAILED
     assert parse_recursive_output(recursive_ok)["status"] == VERIFICATION_PASSED
+    assert parse_recursive_output(recursive_ok_log)["status"] == VERIFICATION_PASSED
     assert parse_recursive_output(recursive_bad)["status"] == VERIFICATION_FAILED
     assert parse_recursive_output(tmp_path / "missing.csv")["status"] == VERIFICATION_INCONCLUSIVE
 
