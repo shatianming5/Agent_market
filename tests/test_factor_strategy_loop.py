@@ -1710,6 +1710,62 @@ def test_rank_profile_repair_queue_anchors_near_pdd_misses(tmp_path: Path) -> No
     assert queue[0]["rank_profile"]["min_abs_score_z"] > anchor["min_abs_score_z"]
 
 
+def test_rank_profile_repair_queue_self_anchors_when_baseline_missing(tmp_path: Path) -> None:
+    anchor = {
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 3,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.47,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.013,
+        "leverage_cap": 4.0,
+        "short_max_mom_24h": 0.038,
+        "max_entry_atr_pct": 0.05,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_missing_baseline_near_pdd",
+        run_id="unit_missing_baseline_near_pdd_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 10,
+            "candidate": {"candidate_type": "rank_profile", "name": "near_pdd", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "research_metrics": {
+                "profit_pct": 13.4,
+                "max_drawdown_pct": 11.5,
+                "profit_over_max_drawdown": 1.17,
+                "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] + 20,
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+    runner = StrategyLoopRunner(cfg)
+    runner.state.iteration = 11
+    runner.state.score_history = rows
+    idir = tmp_path / "iter_11"
+    idir.mkdir()
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_near_pdd_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_10"
+    assert queue[0]["rank_profile"]["candidate_state"] == anchor["candidate_state"]
+    assert runner._seed_rank_profile_repair_candidate(idir, idir / "candidate.json") is True
+    candidate = validate_candidate(idir / "candidate.json")
+    assert candidate["metadata"]["source"] == "controller_rank_profile_near_pdd_repair"
+    assert candidate["metadata"]["parent_anchor"] == "iteration_10"
+    assert candidate["rank_profile"]["min_abs_score_z"] > anchor["min_abs_score_z"]
+    assert "Parent: iteration_10" in (idir / "analysis.md").read_text(encoding="utf-8")
+
+
 def test_triple_holdout_promotion_requires_blind_and_passed_verification(tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_triple_promote",

@@ -1999,9 +1999,8 @@ def build_rank_profile_repair_queue(
     structured: bool = False,
 ) -> list[dict[str, Any]]:
     """Build deterministic rank-profile repairs for common near-gate failures."""
-    if not baseline_profile:
-        return []
-    base = normalize_rank_profile(baseline_profile, default_n=config.n)
+    has_baseline = bool(baseline_profile)
+    base = normalize_rank_profile(baseline_profile, default_n=config.n) if has_baseline else {}
     z = _coerce_finite_float(base.get("min_abs_score_z"), 1.5)
     top_k = _coerce_int(base.get("top_k"), 2)
     rebalance = _coerce_int(base.get("rebalance_hours"), 8)
@@ -2011,24 +2010,26 @@ def build_rank_profile_repair_queue(
     exit_market_24h = _coerce_finite_float(base.get("short_exit_market_mom_24h"), 0.04)
 
     search_mode = "structured_explore" if structured else "local_exploit"
-    queue_specs: list[tuple[str, str, dict[str, Any], str]] = [
-        ("z150_micro_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.01}, "tiny participation increase near the baseline threshold"),
-        ("z149_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.02}, "small participation increase intended to clear a 1-5 trade deficit"),
-        ("z148_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.03}, "moderate z-threshold repair before changing cadence or leverage"),
-        ("z147_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.04}, "stronger z-threshold repair while preserving all other baseline filters"),
-        ("top3_z149_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.02}, "add one rank slot while keeping entry quality close to baseline"),
-        ("top3_z148_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.03}, "combine mild diversification with a modest z repair"),
-        ("rebalance5_z149_balanced_repair", "cadence_threshold_balance", {"rebalance_hours": max(1, rebalance - 1), "min_abs_score_z": z - 0.02}, "use a slight cadence increase plus conservative z repair instead of a 4h turnover jump"),
-        ("top3_rebalance5_trade_repair", "topk_cadence_balance", {"top_k": top_k + 1, "rebalance_hours": max(1, rebalance - 1)}, "combine the safer top_k and 5h cadence variants"),
-        ("short_mom040_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.002}, "loosen pair momentum entry filter minimally to add borderline shorts"),
-        ("short_mom042_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.004}, "loosen pair momentum entry filter while preserving ATR and z controls"),
-        ("market_mom055_entry_repair", "market_momentum_filter_repair", {"short_max_market_mom_24h": short_market_24h + 0.005}, "allow slightly more market momentum when pair-level score is strong"),
-        ("exit_mom035_market035_repair", "exit_filter_tightening", {"short_exit_mom_24h": exit_mom_24h - 0.005, "short_exit_market_mom_24h": exit_market_24h - 0.005}, "close adverse short exposure sooner to create trades without loosening entry quality"),
-    ]
+    queue_specs: list[tuple[str, str, dict[str, Any], str]] = []
+    if has_baseline:
+        queue_specs = [
+            ("z150_micro_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.01}, "tiny participation increase near the baseline threshold"),
+            ("z149_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.02}, "small participation increase intended to clear a 1-5 trade deficit"),
+            ("z148_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.03}, "moderate z-threshold repair before changing cadence or leverage"),
+            ("z147_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.04}, "stronger z-threshold repair while preserving all other baseline filters"),
+            ("top3_z149_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.02}, "add one rank slot while keeping entry quality close to baseline"),
+            ("top3_z148_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.03}, "combine mild diversification with a modest z repair"),
+            ("rebalance5_z149_balanced_repair", "cadence_threshold_balance", {"rebalance_hours": max(1, rebalance - 1), "min_abs_score_z": z - 0.02}, "use a slight cadence increase plus conservative z repair instead of a 4h turnover jump"),
+            ("top3_rebalance5_trade_repair", "topk_cadence_balance", {"top_k": top_k + 1, "rebalance_hours": max(1, rebalance - 1)}, "combine the safer top_k and 5h cadence variants"),
+            ("short_mom040_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.002}, "loosen pair momentum entry filter minimally to add borderline shorts"),
+            ("short_mom042_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.004}, "loosen pair momentum entry filter while preserving ATR and z controls"),
+            ("market_mom055_entry_repair", "market_momentum_filter_repair", {"short_max_market_mom_24h": short_market_24h + 0.005}, "allow slightly more market momentum when pair-level score is strong"),
+            ("exit_mom035_market035_repair", "exit_filter_tightening", {"short_exit_mom_24h": exit_mom_24h - 0.005, "short_exit_market_mom_24h": exit_market_24h - 0.005}, "close adverse short exposure sooner to create trades without loosening entry quality"),
+        ]
 
     hints = _search_gate_repair_hints(rows, config) if rows else {}
     high_trade_low_quality = hints.get("high_trade_low_quality") if isinstance(hints, Mapping) else []
-    if high_trade_low_quality:
+    if has_baseline and high_trade_low_quality:
         queue_specs.extend(
             [
                 ("quality_z152_after_churn", "quality_repair_after_churn", {"min_abs_score_z": z + 0.01, "top_k": top_k + 1}, "restore quality after high-trade low-P/DD attempts"),
@@ -4153,8 +4154,6 @@ class StrategyLoopRunner:
         if not self.state.score_history:
             return False
         baseline = _baseline_rank_profile(self.config)
-        if not baseline:
-            return False
         candidates = build_rank_profile_repair_queue(
             baseline,
             self.config,
@@ -4169,12 +4168,13 @@ class StrategyLoopRunner:
             write_json(candidate_path, candidate)
             profile = candidate.get("rank_profile") if isinstance(candidate.get("rank_profile"), Mapping) else {}
             changes = (candidate.get("metadata") or {}).get("changed_keys") if isinstance(candidate.get("metadata"), Mapping) else []
+            parent = (candidate.get("metadata") or {}).get("parent_anchor") if isinstance(candidate.get("metadata"), Mapping) else ""
             analysis = [
                 f"# {candidate.get('name')}",
                 "",
                 "Controller-generated rank-profile repair candidate.",
                 "",
-                f"- Parent: optimized_baseline",
+                f"- Parent: {parent or 'history'}",
                 f"- Changed keys: {changes}",
                 f"- Expected tradeoff: {(candidate.get('metadata') or {}).get('expected_tradeoff') if isinstance(candidate.get('metadata'), Mapping) else ''}",
                 f"- Signature: {rank_profile_signature(profile, default_n=self.config.n) if profile else ''}",
