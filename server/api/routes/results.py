@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error
+from ..errors import error, not_found
 from ...runtime import ROOT, SRC
 
 router = APIRouter()
@@ -43,7 +43,7 @@ def results_list(results_dir: str = "user_data/backtest_results", limit: int = 2
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not rd.exists():
-        return error("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
+        return not_found("RESULTS_DIR_NOT_FOUND", f"Results dir not found: {rd}")
     items = []
     for p in rd.glob("backtest-result-*.zip"):
         items.append({"name": p.name, "mtime": p.stat().st_mtime, "size": p.stat().st_size})
@@ -61,7 +61,7 @@ def results_summary(name: str, results_dir: str = "user_data/backtest_results"):
         return error("INVALID_PATH", str(exc))
     zp = rd / name
     if not zp.exists():
-        return error("NOT_FOUND", f"Not found: {zp}")
+        return not_found("NOT_FOUND", f"Not found: {zp}")
     summary = build_backtest_summary(zp)
     trades = read_backtest_trades(zp)
     if trades is not None:
@@ -76,7 +76,7 @@ def results_latest_training(models_dir: str = "artifacts/models"):
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not base.exists():
-        return error("MODELS_DIR_NOT_FOUND", f"Models dir not found: {base}")
+        return not_found("MODELS_DIR_NOT_FOUND", f"Models dir not found: {base}")
     candidates = list(base.rglob("training_summary.json"))
     if not candidates:
         return {"error": f"No training_summary.json under {base}"}

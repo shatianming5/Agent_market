@@ -16,7 +16,7 @@ from starlette.responses import StreamingResponse
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error, error_dict
+from ..errors import error, error_dict, not_found
 from ..models import FlowReq
 from ...runtime import ROOT, jobs
 from ...job_manager import JobQueueFullError
@@ -483,7 +483,7 @@ def flow_progress(job_id: str, steps: Optional[str] = None):
     """
     res = jobs.logs(job_id, 0)
     if isinstance(res, dict) and res.get("error"):
-        return error("JOB_NOT_FOUND", str(res.get("error")))
+        return not_found("JOB_NOT_FOUND", str(res.get("error")))
     running = bool(res.get("running"))
     code = res.get("code")
     returncode = res.get("returncode")

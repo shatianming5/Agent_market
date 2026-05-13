@@ -9,7 +9,10 @@ python-dateutil
 requests
 filelock
 vectorbt
-pandas_ta
+# pandas_ta is intentionally not part of the baseline install because many
+# mirrors no longer publish a compatible distribution. Runtime code treats it
+# as optional and falls back where possible; Freqtrade installs ft-pandas-ta in
+# environments that need generated strategy indicators.
 pyyaml
 aiohttp
 httpx

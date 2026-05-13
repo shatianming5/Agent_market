@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error
+from ..errors import error, not_found
 from ..models import RLTrainReq, TrainReq
 from ..validators import validate_timeframe
 from ...runtime import ROOT, jobs
@@ -44,7 +44,7 @@ def run_train(req: TrainReq = Body(...)):
         except ValueError as exc:
             return error("INVALID_PATH", str(exc))
         if not cfg_path.exists():
-            return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
+            return not_found("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
     elif req.config_obj:
         tmp_dir = (paths.user_data_root() / "tmp").resolve()
         tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -76,7 +76,7 @@ def run_train(req: TrainReq = Body(...)):
         try:
             ff = paths.safe_resolve(data.get("feature_file"), allow_absolute=True)
             if not ff.exists():
-                return error("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {ff}")
+                return not_found("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {ff}")
         except ValueError as exc:
             return error("INVALID_PATH", str(exc))
         except Exception:

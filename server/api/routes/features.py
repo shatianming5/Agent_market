@@ -7,7 +7,7 @@ from fastapi import APIRouter
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error
+from ..errors import error, not_found
 from ...runtime import ROOT
 
 router = APIRouter()
@@ -21,7 +21,7 @@ def features_top(file: str = "user_data/freqai_features.json", limit: int = 20):
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not path.exists():
-        return error("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {path}")
+        return not_found("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {path}")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
@@ -61,4 +61,3 @@ def features_top(file: str = "user_data/freqai_features.json", limit: int = 20):
         "total": len(rows),
         "items": rows[: max(1, int(limit))],
     }
-

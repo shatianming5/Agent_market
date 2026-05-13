@@ -23,6 +23,9 @@ def main() -> None:
 
     app = srv.app
     client = TestClient(app)
+    api_key = os.environ.get("AGENT_MARKET_API_KEY", "").strip()
+    if api_key:
+        client.headers.update({"X-API-Key": api_key})
 
     results: list[tuple[str, bool, str]] = []
 
@@ -206,6 +209,8 @@ def main() -> None:
         ok_count += 1 if ok else 0
         print(f"[{'OK' if ok else 'FAIL'}] {name:<{width}}  {'' if ok else msg}")
     print(f"passed {ok_count}/{len(results)} checks")
+    if ok_count != len(results):
+        sys.exit(1)
 
 
 # helpers

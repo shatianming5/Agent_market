@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error
+from ..errors import error, not_found
 from ..models import CaptureReq, LobRebuildReq, MicroFeatureReq
 from ..validators import validate_timeframe
 from ...runtime import ROOT, SRC, jobs
@@ -222,7 +222,7 @@ def run_micro_feature(req: MicroFeatureReq = Body(...)):
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not cfg_path.exists():
-        return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
+        return not_found("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
 
     if req.timeframe and not validate_timeframe(str(req.timeframe)):
         return error("INVALID_TIMEFRAME", f"Invalid timeframe: {req.timeframe}")

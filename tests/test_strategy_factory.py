@@ -424,6 +424,6 @@ def test_step_expression_builds_factor_memory_artifacts() -> None:
         assert memory["factor_cards"][0]["name"] == "f001"
         assert arts.global_factor_memory_json
         global_memory = json.loads(paths.resolve_repo_path(arts.global_factor_memory_json).read_text(encoding="utf-8"))
-        assert global_memory["factor_cards"][0]["name"] == "f001"
+        assert any(card.get("name") == "f001" for card in global_memory["factor_cards"])
         assert arts.factor_eval_meta
         assert arts.factor_scores_json

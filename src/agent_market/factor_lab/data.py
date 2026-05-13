@@ -4,8 +4,9 @@ from __future__ import annotations
 import time
 import os
 import io
+import html
+import re
 import zipfile
-import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -307,12 +308,13 @@ def _binance_vision_zip_frame(session: requests.Session, url: str) -> pd.DataFra
 
 
 def _binance_archive_symbols_from_listing(xml_text: str) -> list[str]:
-    root = ET.fromstring(xml_text)
     symbols: set[str] = set()
-    for elem in root.iter():
-        if str(elem.tag).rsplit("}", 1)[-1] != "Prefix":
-            continue
-        prefix = str(elem.text or "").strip("/")
+    for raw_prefix in re.findall(
+        r"<(?:[A-Za-z_][\w.-]*:)?Prefix\b[^>]*>(.*?)</(?:[A-Za-z_][\w.-]*:)?Prefix>",
+        str(xml_text or ""),
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        prefix = html.unescape(str(raw_prefix or "")).strip().strip("/")
         if not prefix:
             continue
         symbol = prefix.rsplit("/", 1)[-1].strip().upper()
