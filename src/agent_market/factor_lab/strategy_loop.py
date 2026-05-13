@@ -3253,8 +3253,8 @@ def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
     return {"files": files, "hashed": hashed, "missing_hash": missing_hash}
 
 
-def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict[str, Any]:
-    """Read-only audit for a factor strategy-loop run."""
+def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: bool = True) -> dict[str, Any]:
+    """Audit a factor strategy-loop run and optionally persist doctor_latest.json."""
     root = loop_root(str(run_id))
     findings: list[dict[str, Any]] = []
     if not root.exists():
@@ -3365,7 +3365,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
 
     severity_rank = {"BLOCKER": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
     worst = max((severity_rank.get(str(item.get("severity")), 0) for item in findings), default=0)
-    return {
+    doctor_path = root / "doctor_latest.json"
+    result = {
         "version": "factor-strategy-loop-doctor-v1",
         "run_id": str(run_id),
         "run_dir": _as_repo_meta(root),
@@ -3378,7 +3379,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
             "lean_gate_mode": lean_gate_mode,
         },
         "windows": windows_detail,
-        "artifacts": root_artifacts,
+        "artifacts": {**root_artifacts, "doctor_latest.json": _as_repo_meta(doctor_path)},
         "summary": {
             "leaderboard_rows": len(rows),
             "iteration_manifests": len(iteration_manifests),
@@ -3393,6 +3394,9 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
         },
         "findings": findings,
     }
+    if write:
+        write_json(doctor_path, result)
+    return result
 
 
 def promote_candidate(

@@ -849,8 +849,11 @@ def cmd_strategy_loop_doctor(args):
     result = strategy_loop.doctor_strategy_loop_run(
         args.run_id,
         strict_formal=not args.no_strict_formal,
+        write=not args.no_write,
     )
     print(json.dumps(result, indent=2, default=str))
+    if not args.no_fail and not result.get("ok"):
+        raise SystemExit(1)
 
 
 def cmd_rank_sweep(args):
@@ -1733,6 +1736,10 @@ def build_parser():
     sld.add_argument("--run-id", required=True, help="factor_strategy_loop run id")
     sld.add_argument("--no-strict-formal", action="store_true",
                      help="do not require triple_holdout + verify_policy=pareto + promote_policy=final")
+    sld.add_argument("--no-write", action="store_true",
+                     help="do not write doctor_latest.json into the run directory")
+    sld.add_argument("--no-fail", action="store_true",
+                     help="always exit 0 even when the doctor finds blockers")
     sld.set_defaults(func=cmd_strategy_loop_doctor)
 
     rs = sub.add_parser("rank-sweep", help="sweep rank-portfolio top-k and gross-cap settings")

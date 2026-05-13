@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import types
 from pathlib import Path
 
 import pytest
@@ -319,6 +320,33 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert result["ok"] is True
     assert result["summary"]["verification_counts"][VERIFICATION_PASSED] == 1
     assert result["findings"] == []
+    persisted = json.loads((root / "doctor_latest.json").read_text(encoding="utf-8"))
+    assert persisted["ok"] is True
+    assert persisted["artifacts"]["doctor_latest.json"].endswith("/doctor_latest.json")
+
+
+def test_strategy_loop_doctor_persists_and_cli_fails_on_blockers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_blocked"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(tag="unit", run_id=run_id, promote_policy="final")
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id}})
+    _write_json(root / "leaderboard.json", {"rows": []})
+
+    result = doctor_strategy_loop_run(run_id)
+    assert result["ok"] is False
+    assert (root / "doctor_latest.json").exists()
+    persisted = json.loads((root / "doctor_latest.json").read_text(encoding="utf-8"))
+    assert persisted["ok"] is False
+    assert any(item["severity"] == "BLOCKER" for item in persisted["findings"])
+
+    from scripts.factor_lab import cmd_strategy_loop_doctor
+
+    args = types.SimpleNamespace(run_id=run_id, no_strict_formal=False, no_write=False, no_fail=False)
+    with pytest.raises(SystemExit) as exc:
+        cmd_strategy_loop_doctor(args)
+    assert exc.value.code == 1
 
 
 def test_triple_holdout_without_finalists_writes_final_promotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
