@@ -1544,6 +1544,41 @@ def test_lookahead_and_recursive_parsers_block_bias(tmp_path: Path) -> None:
     assert parse_recursive_output(tmp_path / "missing.csv")["status"] == VERIFICATION_INCONCLUSIVE
 
 
+def test_validation_gates_bound_recursive_startup_candles(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit_validation_gates", run_id="unit_validation_gates_run")
+    runner = StrategyLoopRunner(cfg)
+    signal_dir = tmp_path / "signals"
+    config_path = tmp_path / "config.json"
+    strategy_dir = tmp_path / "strategies"
+    signal_dir.mkdir()
+    strategy_dir.mkdir()
+    config_path.write_text("{}", encoding="utf-8")
+    (strategy_dir / f"{strategy_loop_mod.FIXED_FREQTRADE_STRATEGY}.py").write_text("# unit\n", encoding="utf-8")
+    monkeypatch.setattr(runner, "_freqtrade_validation_base", lambda _stage_result: (signal_dir, config_path, strategy_dir))
+    commands: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(cmd)
+        if "lookahead-analysis" in cmd:
+            export_path = Path(cmd[cmd.index("--lookahead-analysis-exportfilename") + 1])
+            export_path.write_text(
+                "strategy,has_bias,biased_entry_signals,biased_exit_signals,biased_indicators,total_signals\n"
+                "ELRankPortfolioLeverageStrategy,false,0,0,,200\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(cmd, 0, stdout="lookahead ok\n")
+        return subprocess.CompletedProcess(cmd, 0, stdout="indicator,diff\nrsi,0\n")
+
+    monkeypatch.setattr("agent_market.factor_lab.strategy_loop.subprocess.run", fake_run)
+
+    result = runner._run_validation_gates(tmp_path, {"tag": "unit"}, timerange="20260301-20260331", gate_label="validation")
+
+    recursive_cmd = next(cmd for cmd in commands if "recursive-analysis" in cmd)
+    idx = recursive_cmd.index("--startup-candle")
+    assert recursive_cmd[idx + 1:idx + 4] == list(strategy_loop_mod.RECURSIVE_ANALYSIS_STARTUP_CANDLES)
+    assert result["status"] == VERIFICATION_PASSED
+
+
 def test_pareto_pool_six_axes_dedup_and_caps() -> None:
     rows = []
     for idx in range(18):

@@ -120,6 +120,7 @@ DEFAULT_BLIND_TIMERANGE = "20260401-20260412"
 FAILED_ITERATION_SCORE = -1_000_000.0
 FIXED_FREQTRADE_STRATEGY = "ELRankPortfolioLeverageStrategy"
 FIXED_FREQTRADE_CONFIG = "user_data/config_okx_futures_rank_backtest.json"
+RECURSIVE_ANALYSIS_STARTUP_CANDLES = ("199", "499", "999")
 
 _VENUE_EXCHANGE: dict[str, str] = {
     "okx": "okx",
@@ -5305,6 +5306,8 @@ class StrategyLoopRunner:
             str(strategy_dir),
             "--timerange",
             timerange,
+            "--startup-candle",
+            *RECURSIVE_ANALYSIS_STARTUP_CANDLES,
         ]
 
         try:
