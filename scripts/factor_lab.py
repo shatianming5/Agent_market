@@ -713,7 +713,24 @@ def cmd_lean_compare(args):
     print(json.dumps(report, indent=2, default=str))
 
 
+def _apply_strategy_loop_formal_preset(args) -> None:
+    if not getattr(args, "formal", False):
+        return
+    args.eval_mode = strategy_loop.EVAL_FREQTRADE
+    args.score_mode = strategy_loop.SCORE_COMPOSITE
+    args.promote_policy = strategy_loop.PROMOTE_FINAL
+    args.validation_protocol = strategy_loop.VALIDATION_TRIPLE_HOLDOUT
+    if getattr(args, "verify_policy", strategy_loop.VERIFY_NONE) != strategy_loop.VERIFY_ALL:
+        args.verify_policy = strategy_loop.VERIFY_PARETO
+    if getattr(args, "lean_gate_mode", strategy_loop.LEAN_GATE_OFF) not in {
+        strategy_loop.LEAN_GATE_PARETO,
+        strategy_loop.LEAN_GATE_ALL,
+    }:
+        args.lean_gate_mode = strategy_loop.LEAN_GATE_FINAL
+
+
 def cmd_strategy_loop(args):
+    _apply_strategy_loop_formal_preset(args)
     if args.resume and not args.run_id:
         raise SystemExit("--run-id is required with --resume")
     # Codex review R1-#1 + R2 refinement: preflight the chosen agent CLI
@@ -1650,6 +1667,8 @@ def build_parser():
                     help="skip rank-series recomputation; default inherits optimized_profile.json when available")
     sl.add_argument("--baseline-profile", default=None,
                     help="optimized_profile.json to use as the baseline/default rank profile")
+    sl.add_argument("--formal", action="store_true",
+                    help="private-fund-grade preset: freqtrade eval, composite score, final promotion, triple holdout, at least Pareto verification, at least LEAN final gate")
     sl.add_argument("--eval-mode", default="two_stage", choices=["research", "two_stage", "freqtrade"],
                     help="research only, two-stage research->fixed Freqtrade validation, or force Freqtrade stage")
     sl.add_argument("--score-mode", default="composite", choices=["research", "freqtrade", "composite"],

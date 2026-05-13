@@ -349,6 +349,72 @@ def test_strategy_loop_doctor_persists_and_cli_fails_on_blockers(tmp_path: Path,
     assert exc.value.code == 1
 
 
+def test_strategy_loop_formal_cli_preset_forces_strict_promotion_gates() -> None:
+    from scripts.factor_lab import _apply_strategy_loop_formal_preset
+
+    args = types.SimpleNamespace(
+        formal=True,
+        eval_mode="two_stage",
+        score_mode="research",
+        promote_policy="immediate",
+        validation_protocol="single",
+        verify_policy="none",
+        lean_gate_mode="off",
+    )
+
+    _apply_strategy_loop_formal_preset(args)
+
+    assert args.eval_mode == "freqtrade"
+    assert args.score_mode == "composite"
+    assert args.promote_policy == "final"
+    assert args.validation_protocol == "triple_holdout"
+    assert args.verify_policy == "pareto"
+    assert args.lean_gate_mode == "final"
+
+
+def test_strategy_loop_formal_cli_preset_preserves_stricter_gates() -> None:
+    from scripts.factor_lab import _apply_strategy_loop_formal_preset
+
+    args = types.SimpleNamespace(
+        formal=True,
+        eval_mode="two_stage",
+        score_mode="research",
+        promote_policy="immediate",
+        validation_protocol="single",
+        verify_policy="all",
+        lean_gate_mode="all",
+    )
+
+    _apply_strategy_loop_formal_preset(args)
+
+    assert args.validation_protocol == "triple_holdout"
+    assert args.verify_policy == "all"
+    assert args.lean_gate_mode == "all"
+
+
+def test_strategy_loop_formal_cli_preset_leaves_manual_mode_unchanged() -> None:
+    from scripts.factor_lab import _apply_strategy_loop_formal_preset
+
+    args = types.SimpleNamespace(
+        formal=False,
+        eval_mode="two_stage",
+        score_mode="research",
+        promote_policy="immediate",
+        validation_protocol="single",
+        verify_policy="none",
+        lean_gate_mode="off",
+    )
+
+    _apply_strategy_loop_formal_preset(args)
+
+    assert args.eval_mode == "two_stage"
+    assert args.score_mode == "research"
+    assert args.promote_policy == "immediate"
+    assert args.validation_protocol == "single"
+    assert args.verify_policy == "none"
+    assert args.lean_gate_mode == "off"
+
+
 def test_triple_holdout_without_finalists_writes_final_promotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "unit_empty_finalists"
