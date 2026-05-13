@@ -242,6 +242,7 @@ def test_prompt_can_force_freqtrade_candidate_type(tmp_path: Path) -> None:
     assert "RP_SIGNAL_DIR" in prompt
     assert "loop_memory.best_candidate" in prompt
     assert "avoid_repeating_rank_profiles" in prompt
+    assert "final_blind_feedback" in prompt
     assert "rp_target_weight` used in stake/position sizing logic" in prompt
 
 
@@ -1139,6 +1140,58 @@ def test_prepare_context_includes_pareto_memory() -> None:
     assert pareto["best_freqtrade_profit"]["name"] == "best_ft_profit"
     assert pareto["best_freqtrade_profit_over_drawdown"]["name"] == "best_research_pdd"
     assert pareto["best_research_profit_over_drawdown"]["name"] == "best_research_pdd"
+
+
+def test_prepare_context_includes_final_blind_feedback() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit_blind_memory", run_id="unit_blind_memory_run", max_iterations=4)
+    final_blind_status = {
+        "selected": None,
+        "promotion": {"promoted": False, "reason": "no finalist passed"},
+        "finalists": [
+            {
+                "finalist": {
+                    "iteration": 7,
+                    "candidate_path": "artifacts/factor_strategy_loop/unit/iter_07/candidate.json",
+                },
+                "score": -2003001.0,
+                "constraints_ok": False,
+                "verification_status": "inconclusive",
+                "lean_gate_status": VERIFICATION_FAILED,
+                "lean_comparison_status": "partial",
+                "promotion_eligible": False,
+                "evaluation": {
+                    "candidate": {
+                        "candidate_type": "rank_profile",
+                        "rank_profile": {"top_k": 3, "side_mode": "both"},
+                    },
+                    "metrics": {
+                        "profit_pct": -0.55,
+                        "max_drawdown_pct": 1.67,
+                        "trades": 6,
+                        "profit_over_max_drawdown": -0.33,
+                    },
+                    "lean_metrics": {
+                        "total_return": 0.04,
+                        "max_drawdown": 0.08,
+                        "trades": 6,
+                        "profit_over_max_drawdown": 0.5,
+                    },
+                    "violations": ["research: trades=6 < 7"],
+                    "promotion_reason": "blind/verification/LEAN failed",
+                },
+            }
+        ],
+    }
+    state = StrategyLoopState(run_id=cfg.run_id, iteration=9, final_blind_status=final_blind_status)
+    save_checkpoint(cfg, state)
+
+    context = prepare_context(cfg, cfg.run_id, 9)
+
+    feedback = context["loop_memory"]["final_blind_feedback"]
+    assert feedback[0]["iteration"] == 7
+    assert feedback[0]["research_metrics"]["trades"] == 6
+    assert feedback[0]["violations"] == ["research: trades=6 < 7"]
+    assert feedback[0]["rank_profile"]["side_mode"] == "both"
 
 
 def test_promotion_requires_passing_constraints(tmp_path: Path) -> None:
