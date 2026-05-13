@@ -52,12 +52,12 @@
     }
   ],
   "entry_pricing": {
-    "price_side": "same",
+    "price_side": "other",
     "use_order_book": false,
     "order_book_top": 1
   },
   "exit_pricing": {
-    "price_side": "same",
+    "price_side": "other",
     "use_order_book": false,
     "order_book_top": 1
   },

@@ -53,6 +53,14 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def test_fixed_freqtrade_rank_config_supports_market_order_analysis() -> None:
+    config_path = repo_paths.REPO_ROOT / strategy_loop_mod.FIXED_FREQTRADE_CONFIG
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+
+    assert payload["entry_pricing"]["price_side"] == "other"
+    assert payload["exit_pricing"]["price_side"] == "other"
+
+
 def _install_fake_lean_gate(
     monkeypatch: pytest.MonkeyPatch,
     *,
