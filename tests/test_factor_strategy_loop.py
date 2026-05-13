@@ -415,6 +415,26 @@ def test_strategy_loop_formal_cli_preset_leaves_manual_mode_unchanged() -> None:
     assert args.lean_gate_mode == "off"
 
 
+def test_factor_lab_cli_default_lean_bin_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    from scripts.factor_lab import _default_lean_bin
+
+    monkeypatch.setenv("LEAN_BIN", "/opt/lean/bin/lean")
+
+    assert _default_lean_bin() == "/opt/lean/bin/lean"
+
+
+def test_factor_lab_cli_default_lean_bin_finds_user_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from scripts.factor_lab import _default_lean_bin
+
+    user_lean = tmp_path / ".local" / "bin" / "lean"
+    user_lean.parent.mkdir(parents=True)
+    user_lean.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.delenv("LEAN_BIN", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    assert _default_lean_bin() == str(user_lean)
+
+
 def test_triple_holdout_without_finalists_writes_final_promotion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "unit_empty_finalists"

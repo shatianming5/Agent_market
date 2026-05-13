@@ -74,6 +74,16 @@ DATA_VENUE_CHOICES = ["auto", "kucoin", "okx", "bybit", "binance"]
 MINING_DATA_VENUE_CHOICES = ["kucoin", "okx", "bybit", "binance"]
 
 
+def _default_lean_bin() -> str:
+    configured = str(os.environ.get("LEAN_BIN") or "").strip()
+    if configured:
+        return configured
+    user_bin = Path.home() / ".local" / "bin" / "lean"
+    if user_bin.exists():
+        return str(user_bin)
+    return "lean"
+
+
 # ============================================================
 # Subcommand handlers
 # ============================================================
@@ -1338,7 +1348,7 @@ def build_parser():
                      help="comma-separated normalized pairs to block, e.g. SOL/USDT,BTC/USDT")
     mlg.add_argument("--no-corr-recompute", action="store_true",
                      help="skip rank-series recomputation for fast diagnostics")
-    mlg.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"))
+    mlg.add_argument("--lean-bin", default=_default_lean_bin())
     mlg.add_argument("--lean-timeout", type=int, default=None)
     mlg.add_argument("--lean-data-root", default=None,
                      help="override futures feather root for LEAN export")
@@ -1621,7 +1631,7 @@ def build_parser():
     lb = sub.add_parser("lean-backtest", help="run local LEAN backtest for an exported bridge project")
     lb.add_argument("--lean-project", required=True,
                     help="exported LEAN project directory")
-    lb.add_argument("--lean-bin", default="lean",
+    lb.add_argument("--lean-bin", default=_default_lean_bin(),
                     help="LEAN CLI binary/path (default: lean)")
     lb.add_argument("--timeout", type=int, default=None,
                     help="optional subprocess timeout in seconds")
@@ -1699,7 +1709,7 @@ def build_parser():
                     help="number of deduped candidates retained per Pareto axis")
     sl.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"],
                     help="run local LEAN validation as a promotion gate; enabled modes fail closed")
-    sl.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"),
+    sl.add_argument("--lean-bin", default=_default_lean_bin(),
                     help="LEAN CLI binary/path for --lean-gate-mode")
     sl.add_argument("--lean-timeout", type=int, default=None,
                     help="optional LEAN backtest timeout in seconds")
@@ -1741,7 +1751,7 @@ def build_parser():
     sle.add_argument("--verify-policy", default="none", choices=["pareto", "best", "all", "none"])
     sle.add_argument("--pareto-size-per-axis", type=int, default=3)
     sle.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"])
-    sle.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"))
+    sle.add_argument("--lean-bin", default=_default_lean_bin())
     sle.add_argument("--lean-timeout", type=int, default=None)
     sle.add_argument("--lean-required-status", default="ok")
     sle.add_argument("--lean-data-root", default=None)
