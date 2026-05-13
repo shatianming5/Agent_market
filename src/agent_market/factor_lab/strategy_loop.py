@@ -8,6 +8,7 @@ are auditable and resumable.
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 import csv
 import hashlib
 import json
@@ -57,8 +58,9 @@ CANDIDATE_FREQTRADE_STRATEGY = "freqtrade_strategy"
 CANDIDATE_TYPES = {CANDIDATE_RANK_PROFILE, CANDIDATE_FREQTRADE_STRATEGY}
 
 AGENT_HERMES = "hermes"
+AGENT_OPENAI = "openai"
 AGENT_OPENCODE = "opencode"
-AGENT_TYPES = {AGENT_HERMES, AGENT_OPENCODE}
+AGENT_TYPES = {AGENT_HERMES, AGENT_OPENAI, AGENT_OPENCODE}
 HERMES_REASONING_EFFORTS = {"", "none", "minimal", "low", "medium", "high", "xhigh"}
 
 EVAL_RESEARCH = "research"
@@ -945,6 +947,66 @@ def _hermes_cli_env(base_env: Optional[Mapping[str, str]] = None, *, load_dotenv
     env["NO_PROXY"] = no_proxy
     env["no_proxy"] = no_proxy
     return env
+
+
+def _openai_compatible_env(base_env: Optional[Mapping[str, str]] = None, *, load_dotenv: bool = True) -> dict[str, str]:
+    return _hermes_cli_env(base_env, load_dotenv=load_dotenv)
+
+
+def _openai_compatible_model(config_model: str, env: Mapping[str, str]) -> str:
+    for value in (
+        config_model,
+        env.get("LLM_MODEL", ""),
+        env.get("OPENAI_MODEL", ""),
+        env.get("HERMES_MODEL", ""),
+        env.get("OPENCODE_MODEL", ""),
+    ):
+        raw = str(value or "").strip()
+        if raw:
+            return raw.split("/", 1)[1] if raw.startswith("custom/") else raw
+    return ""
+
+
+@contextmanager
+def _temporary_environ(overrides: Mapping[str, str]):
+    previous: dict[str, Optional[str]] = {}
+    for key, value in overrides.items():
+        previous[key] = os.environ.get(key)
+        os.environ[key] = str(value)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _json_object_from_text(text: str) -> Optional[dict[str, Any]]:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    for match in re.finditer(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE):
+        try:
+            obj = json.loads(match.group(1).strip())
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            continue
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if not match:
+        return None
+    try:
+        obj = json.loads(match.group(0))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
 
 
 def _prepare_hermes_run_home(run_id: str, env: dict[str, str]) -> Path:
@@ -3815,6 +3877,12 @@ class StrategyLoopRunner:
             self._validate_unique_candidate(candidate)
             self._record_candidate_path(candidate_path)
             return
+        if self.config.agent == AGENT_OPENAI:
+            self._run_openai_compatible_agent(idir, prompt)
+            candidate = validate_candidate(candidate_path, default_n=self.config.n)
+            self._validate_unique_candidate(candidate)
+            self._record_candidate_path(candidate_path)
+            return
         if self.config.agent != AGENT_OPENCODE:
             raise ValueError(f"unsupported strategy-loop agent: {self.config.agent!r}")
 
@@ -3952,6 +4020,60 @@ class StrategyLoopRunner:
             self._validate_unique_candidate(normalized)
             return True
         return False
+
+    def _run_openai_compatible_agent(self, idir: Path, prompt: str) -> None:
+        env = _openai_compatible_env()
+        api_key = str(env.get("OPENAI_API_KEY") or env.get("LLM_API_KEY") or "").strip()
+        if not api_key:
+            raise RuntimeError("OpenAI-compatible agent requires OPENAI_API_KEY or LLM_API_KEY")
+        model = _openai_compatible_model(self.config.model, env)
+        if not model:
+            raise RuntimeError("OpenAI-compatible agent requires --model, LLM_MODEL, or OPENAI_MODEL")
+        base_url = (
+            str(env.get("OPENAI_BASE_URL") or env.get("LLM_BASE_URL") or env.get("OPENAI_API_BASE") or "https://api.openai.com/v1")
+            .strip()
+            .rstrip("/")
+        )
+        if not base_url:
+            base_url = "https://api.openai.com/v1"
+
+        try:
+            from agent_market.strategy_miner.agent_adapter import StrategyAgent
+        except Exception as exc:
+            raise RuntimeError("StrategyAgent/OpenAI-compatible dependencies are unavailable") from exc
+
+        direct_prompt = (
+            f"{prompt}\n\n"
+            "You are running through the direct OpenAI-compatible strategy-loop adapter. "
+            "You do not have filesystem tools. Return exactly one JSON object that can be "
+            "saved as candidate.json. Do not include markdown fences or commentary."
+        )
+        with _temporary_environ(env):
+            agent = StrategyAgent(
+                workspace=idir,
+                provider="openai",
+                model=model,
+                base_url=base_url,
+                max_turns=self.config.max_turns,
+                stale_timeout=self.config.stale_timeout,
+                max_retries=self.config.max_retries,
+            )
+            try:
+                result = agent.run_result(direct_prompt)
+            finally:
+                agent.close()
+
+        assistant_text = getattr(result, "assistant_text", "") or ""
+        usage = getattr(result, "usage", None) or {}
+        if usage:
+            self.state.token_cost[str(self.state.iteration)] = usage
+        (idir / "agent_response.txt").write_text(assistant_text, encoding="utf-8")
+        payload = _json_object_from_text(assistant_text)
+        if payload is None:
+            raise RuntimeError("OpenAI-compatible agent did not return a JSON candidate")
+        if "candidate_type" not in payload and isinstance(payload.get("candidate"), Mapping):
+            payload = dict(payload["candidate"])
+        write_json(idir / "candidate.json", payload)
 
     def _run_hermes_cli(self, idir: Path, prompt: str, *, env: Optional[Mapping[str, str]] = None) -> None:
         if shutil.which("hermes") is None:

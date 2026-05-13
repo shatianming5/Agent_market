@@ -751,6 +751,16 @@ def cmd_strategy_loop(args):
                 "strategy-loop preflight: --agent hermes requires `hermes` on PATH. "
                 "Install it or pick a different --agent."
             )
+    elif agent_cli == "openai":
+        llm_env = strategy_loop._openai_compatible_env()
+        if not str(llm_env.get("OPENAI_API_KEY") or llm_env.get("LLM_API_KEY") or "").strip():
+            raise SystemExit(
+                "strategy-loop preflight: --agent openai requires OPENAI_API_KEY or LLM_API_KEY."
+            )
+        if not strategy_loop._openai_compatible_model(args.model, llm_env):
+            raise SystemExit(
+                "strategy-loop preflight: --agent openai requires --model, LLM_MODEL, or OPENAI_MODEL."
+            )
     elif agent_cli == "opencode":
         has_bin = _shutil.which("opencode") is not None
         has_url = bool(_os.environ.get("OPENCODE_URL"))
@@ -1634,8 +1644,8 @@ def build_parser():
     sl.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
     sl.add_argument("--lane", default="auto", choices=["auto", "1h", "4h", "15m_intraday", "5m_micro", "1m_micro"])
     sl.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES)
-    sl.add_argument("--agent", default="hermes", choices=["hermes", "opencode"],
-                    help="candidate-generation agent; Hermes is the default, OpenCode is legacy")
+    sl.add_argument("--agent", default="hermes", choices=["hermes", "openai", "opencode"],
+                    help="candidate-generation agent; openai uses direct OpenAI-compatible chat, OpenCode is legacy")
     sl.add_argument("--model", default=(os.environ.get("HERMES_MODEL") or os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or os.environ.get("OPENCODE_MODEL") or ""))
     sl.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
     sl.add_argument("--max-iterations", type=int, default=30)

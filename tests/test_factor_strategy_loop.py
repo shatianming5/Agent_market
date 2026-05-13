@@ -604,6 +604,23 @@ def test_hermes_cli_env_uses_openai_compatible_settings_and_bypasses_local_proxy
     assert _hermes_model("custom/gpt-5.2", env) == "gpt-5.2"
 
 
+def test_openai_compatible_env_and_model_aliases() -> None:
+    from agent_market.factor_lab.strategy_loop import _openai_compatible_env, _openai_compatible_model
+
+    env = _openai_compatible_env(
+        {
+            "LLM_BASE_URL": "http://127.0.0.1:8317",
+            "LLM_API_KEY": "local-key",
+            "LLM_MODEL": "custom/gpt-5.5",
+        },
+        load_dotenv=False,
+    )
+
+    assert env["OPENAI_BASE_URL"] == "http://127.0.0.1:8317/v1"
+    assert env["OPENAI_API_KEY"] == "local-key"
+    assert _openai_compatible_model("", env) == "gpt-5.5"
+
+
 def test_runner_uses_hermes_cli_for_codegen(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_hermes",
@@ -647,6 +664,59 @@ def test_runner_uses_hermes_cli_for_codegen(monkeypatch: pytest.MonkeyPatch, tmp
     assert ["--max-turns", "7"] == cmd[cmd.index("--max-turns"):cmd.index("--max-turns") + 2]
     assert validate_candidate(tmp_path / "candidate.json")["name"] == "hermes_candidate"
     assert runner.state.candidate_paths
+
+
+def test_runner_uses_openai_compatible_agent_for_codegen(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_openai",
+        run_id="unit_openai_run",
+        agent="openai",
+        model="gpt-5.5",
+        max_turns=5,
+        max_retries=1,
+    )
+    runner = StrategyLoopRunner(cfg)
+    runner.state.iteration = 2
+    captured: dict[str, object] = {}
+
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:8317/v1")
+
+    import agent_market.strategy_miner.agent_adapter as adapter
+
+    class FakeStrategyAgent:
+        def __init__(self, **kwargs: object) -> None:
+            captured["kwargs"] = kwargs
+
+        def run_result(self, prompt: str) -> types.SimpleNamespace:
+            captured["prompt"] = prompt
+            return types.SimpleNamespace(
+                assistant_text=json.dumps(
+                    {
+                        "candidate_type": "rank_profile",
+                        "name": "openai_candidate",
+                        "rank_profile": {"top_k": 2, "rebalance_hours": 8},
+                    }
+                ),
+                usage={"total_tokens": 7},
+            )
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    monkeypatch.setattr(adapter, "StrategyAgent", FakeStrategyAgent)
+
+    runner._code_gen(tmp_path)
+
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["provider"] == "openai"
+    assert kwargs["model"] == "gpt-5.5"
+    assert kwargs["base_url"] == "http://127.0.0.1:8317/v1"
+    assert "direct OpenAI-compatible strategy-loop adapter" in str(captured["prompt"])
+    assert validate_candidate(tmp_path / "candidate.json")["name"] == "openai_candidate"
+    assert runner.state.token_cost["2"] == {"total_tokens": 7}
+    assert captured["closed"] is True
 
 
 def test_runner_applies_hermes_reasoning_effort(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
