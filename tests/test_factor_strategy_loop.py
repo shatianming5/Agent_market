@@ -725,6 +725,8 @@ def test_runner_uses_openai_compatible_agent_for_codegen(monkeypatch: pytest.Mon
             captured["closed"] = True
 
     monkeypatch.setattr(adapter, "StrategyAgent", FakeStrategyAgent)
+    (tmp_path / "context").mkdir()
+    _write_json(tmp_path / "context" / "prepare.json", {"unit_context": True})
 
     runner._code_gen(tmp_path)
 
@@ -734,6 +736,7 @@ def test_runner_uses_openai_compatible_agent_for_codegen(monkeypatch: pytest.Mon
     assert kwargs["model"] == "gpt-5.5"
     assert kwargs["base_url"] == "http://127.0.0.1:8317/v1"
     assert "direct OpenAI-compatible strategy-loop adapter" in str(captured["prompt"])
+    assert '"unit_context": true' in str(captured["prompt"])
     assert validate_candidate(tmp_path / "candidate.json")["name"] == "openai_candidate"
     assert runner.state.token_cost["2"] == {"total_tokens": 7}
     assert captured["closed"] is True

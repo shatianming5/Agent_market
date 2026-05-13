@@ -4042,11 +4042,17 @@ class StrategyLoopRunner:
         except Exception as exc:
             raise RuntimeError("StrategyAgent/OpenAI-compatible dependencies are unavailable") from exc
 
+        context_path = idir / "context" / "prepare.json"
+        context_text = context_path.read_text(encoding="utf-8") if context_path.exists() else "{}"
         direct_prompt = (
-            f"{prompt}\n\n"
             "You are running through the direct OpenAI-compatible strategy-loop adapter. "
-            "You do not have filesystem tools. Return exactly one JSON object that can be "
-            "saved as candidate.json. Do not include markdown fences or commentary."
+            "You do not have filesystem tools. Do not emit tool calls. Use the inline "
+            "prepare context below as the source of truth, even if the original instruction "
+            "mentions reading files.\n\n"
+            f"Original instruction:\n{prompt}\n\n"
+            f"Inline prepare context JSON:\n```json\n{context_text}\n```\n\n"
+            "Return exactly one JSON object that can be saved as candidate.json. "
+            "Do not include markdown fences or commentary."
         )
         with _temporary_environ(env):
             agent = StrategyAgent(
