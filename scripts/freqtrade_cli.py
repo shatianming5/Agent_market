@@ -11,6 +11,9 @@ from typing import Any, Callable, Optional
 logger = logging.getLogger("agent_market.freqtrade_cli")
 
 
+_OFFLINE_MARKET_RUNMODE_TOKENS = ("backtest", "hyperopt", "edge", "lookahead", "recursive")
+
+
 def _bootstrap_freqtrade_sys_path() -> None:
     """Make freqtrade imports deterministic under repo executions.
 
@@ -47,6 +50,21 @@ def _bootstrap_freqtrade_sys_path() -> None:
     sys.path[:] = [vendored_root_s] + sanitized
 
 
+def _runmode_text(runmode: Any) -> str:
+    value = getattr(runmode, "value", runmode)
+    return str(value or "").lower()
+
+
+def _should_synthesize_offline_markets(runmode: Any, optimize_modes: Any) -> bool:
+    try:
+        if runmode in optimize_modes:
+            return True
+    except Exception:
+        pass
+    text = _runmode_text(runmode)
+    return any(token in text for token in _OFFLINE_MARKET_RUNMODE_TOKENS)
+
+
 def _patch_offline_markets() -> None:
     """Monkeypatch freqtrade to avoid exchange API calls in optimize modes.
 
@@ -71,7 +89,7 @@ def _patch_offline_markets() -> None:
         try:
             if not getattr(self, "_markets", None):
                 cfg = getattr(self, "_config", None) or {}
-                if cfg.get("runmode") in OPTIMIZE_MODES:
+                if _should_synthesize_offline_markets(cfg.get("runmode"), OPTIMIZE_MODES):
                     pairs = (
                         cfg.get("pairs")
                         or (cfg.get("exchange") or {}).get("pair_whitelist")
@@ -110,7 +128,7 @@ def _patch_offline_markets() -> None:
                     if synthesized:
                         try:
                             logging.getLogger("freqtrade").warning(
-                                "Markets not loaded (optimize mode). Using synthesized markets for offline run."
+                                "Markets not loaded (offline analysis mode). Using synthesized markets for offline run."
                             )
                         except Exception:
                             pass

@@ -153,6 +153,17 @@ def test_freqtrade_cli_bootstrap_survives_pythonpath_shadowing():
     assert "Freqtrade Version" in (proc.stdout or "")
 
 
+def test_freqtrade_offline_markets_cover_analysis_modes():
+    wrapper = _load_freqtrade_cli_module()
+    optimize_mode = object()
+
+    assert wrapper._should_synthesize_offline_markets(optimize_mode, {optimize_mode}) is True
+    assert wrapper._should_synthesize_offline_markets("lookahead-analysis", set()) is True
+    assert wrapper._should_synthesize_offline_markets("recursive-analysis", set()) is True
+    assert wrapper._should_synthesize_offline_markets("live", set()) is False
+    assert wrapper._should_synthesize_offline_markets("dry_run", set()) is False
+
+
 def test_freqtrade_preflight_uses_config_datadir(monkeypatch, tmp_path: Path):
     wrapper = _load_freqtrade_cli_module()
     userdir = tmp_path / "user_data"
