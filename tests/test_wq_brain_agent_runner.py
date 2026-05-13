@@ -397,6 +397,39 @@ def test_run_agent_failure_kind_recorded_on_nonzero_exit(isolated_artifacts):
     assert summary["failure"]["kind"] == "llm_quota"
     ck = read_checkpoint(tried_exprs_path("fail_tag"))
     assert ck["extra"]["failure_kind"] == "llm_quota"
+    assert ck["extra"]["rc"] == 5
+    assert ck["extra"]["raw_rc"] == 5
+
+
+def test_run_agent_zero_rc_hard_llm_failure_sets_effective_rc(isolated_artifacts):
+    """opencode can return rc=0 while the stream contains a provider quota error."""
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import read_checkpoint
+
+    config = AgentConfig(tag="zero_fail_tag", max_turns=2, timeout_sec=5.0,
+                         cli="opencode", model="m1")
+
+    def _fake_run(*args, **kwargs):
+        log_path = kwargs.get("log_path")
+        if log_path is not None:
+            Path(log_path).write_text(
+                "ERROR service=session.processor error=用户额度不足, 剩余额度: $0.000000\n"
+                "Error: 用户额度不足, 剩余额度: $0.000000\n",
+                encoding="utf-8",
+            )
+        return 0
+
+    with patch("agent_market.wq_brain.agent_runner._run_cli_with_group_timeout",
+               side_effect=_fake_run):
+        summary = run_agent(config)
+
+    assert summary["agent_returncode"] == 0
+    assert summary["agent_effective_returncode"] == 1
+    assert summary["failure"]["kind"] == "llm_quota"
+    ck = read_checkpoint(tried_exprs_path("zero_fail_tag"))
+    assert ck["extra"]["failure_kind"] == "llm_quota"
+    assert ck["extra"]["rc"] == 1
+    assert ck["extra"]["raw_rc"] == 0
 
 
 def test_family_diversity_hint_calls_out_missing_families():

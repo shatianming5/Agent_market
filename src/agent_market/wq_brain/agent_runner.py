@@ -253,6 +253,7 @@ _FAILURE_PATTERNS: tuple[tuple[re.Pattern, str, str], ...] = (
      "LLM CLI received an invalid API key / unavailable model. Verify "
      "OPENAI_API_KEY, OPENAI_MODEL, and the .opencode.json model registry."),
 )
+_ZERO_RC_HARD_FAILURE_KINDS = {"llm_quota", "llm_config"}
 
 
 def _classify_agent_failure(log_path: Path, *, tail_bytes: int = 4000) -> dict:
@@ -498,17 +499,29 @@ def run_agent(config: AgentConfig) -> dict:
         "cli": cli,
         "elapsed_sec": elapsed,
         "agent_returncode": rc,
+        "agent_effective_returncode": rc,
         "log_path": str(log_path),
         "review": review,
     }
     if rc != 0:
         summary["failure"] = _classify_agent_failure(log_path)
+        summary["agent_effective_returncode"] = rc
         logger.warning(
             "Agent exited rc=%d kind=%s — %s",
             rc,
             summary["failure"].get("kind"),
             summary["failure"].get("hint"),
         )
+    else:
+        zero_rc_failure = _classify_agent_failure(log_path)
+        if zero_rc_failure.get("kind") in _ZERO_RC_HARD_FAILURE_KINDS:
+            summary["failure"] = zero_rc_failure
+            summary["agent_effective_returncode"] = 1
+            logger.warning(
+                "Agent CLI returned rc=0 but log shows hard failure kind=%s — %s",
+                zero_rc_failure.get("kind"),
+                zero_rc_failure.get("hint"),
+            )
     for fname in ("notes.md", "summary.md", "pool.json"):
         if (run_dir / fname).exists():
             summary[f"agent_{fname}"] = True
@@ -525,10 +538,11 @@ def run_agent(config: AgentConfig) -> dict:
             last_iter=int(review.get("iter_simulated") or 0),
             extra={
                 "run_dir": str(run_dir),
-                "rc": rc,
+                "rc": int(summary.get("agent_effective_returncode", rc) or rc),
+                "raw_rc": rc,
                 "elapsed_sec": round(elapsed, 1),
                 "tag": config.tag,
-                "failure_kind": summary.get("failure", {}).get("kind") if rc != 0 else None,
+                "failure_kind": summary.get("failure", {}).get("kind"),
             },
         )
     except OSError as exc:

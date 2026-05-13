@@ -1909,6 +1909,9 @@ def cmd_agent(args: argparse.Namespace) -> None:
     )
     summary = run_agent(config)
     print(json.dumps(summary, indent=2, default=str))
+    effective_rc = int(summary.get("agent_effective_returncode") or 0)
+    if effective_rc != 0:
+        sys.exit(effective_rc)
 
 
 def cmd_report(args: argparse.Namespace) -> None:
