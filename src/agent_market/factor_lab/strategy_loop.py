@@ -1501,6 +1501,7 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         "negative_feedback": [],
         "stagnation": {},
         "gate_repair_hints": {},
+        "validation_gate_repair_hints": {},
         "final_blind_feedback": [],
     }
     try:
@@ -1587,6 +1588,7 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         memory["negative_feedback"] = feedback[-recent_limit:]
         if loaded_config is not None:
             memory["gate_repair_hints"] = _search_gate_repair_hints(history, loaded_config)
+            memory["validation_gate_repair_hints"] = _validation_gate_repair_hints(history, loaded_config)
         final_status = state.final_blind_status if isinstance(state.final_blind_status, Mapping) else {}
         if not final_status:
             final_status_path = loop_root(run_id) / "final_blind_status.json"
@@ -1977,6 +1979,91 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
     }
 
 
+def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: StrategyLoopConfig) -> dict[str, Any]:
+    gates = scaled_gate_values(config, config.validation_timerange)
+    min_trades = int(gates["min_trades"])
+    min_pdd = float(gates["min_profit_over_dd"])
+    validation_pdd_failures: list[dict[str, Any]] = []
+    validation_losses: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        profile = _row_rank_profile(row)
+        if not profile:
+            continue
+        windows = row.get("window_metrics") if isinstance(row.get("window_metrics"), Mapping) else {}
+        search_window = windows.get("search") if isinstance(windows.get("search"), Mapping) else {}
+        validation_window = windows.get("validation") if isinstance(windows.get("validation"), Mapping) else {}
+        if search_window.get("constraints_ok") is not True or not validation_window:
+            continue
+        if validation_window.get("constraints_ok") is True:
+            continue
+        validation_metrics = _stage_metrics_from_row(row, "validation")
+        search_metrics = _stage_metrics_from_row(row, "search")
+        if not validation_metrics:
+            continue
+        trades = _coerce_int(validation_metrics.get("trades"), 0)
+        pdd = _coerce_finite_float(validation_metrics.get("profit_over_max_drawdown"), 0.0)
+        profit = _coerce_finite_float(validation_metrics.get("profit_pct"), 0.0)
+        drawdown = _coerce_finite_float(validation_metrics.get("max_drawdown_pct"), 0.0)
+        search_pdd = _coerce_finite_float(search_metrics.get("profit_over_max_drawdown"), 0.0)
+        compact = {
+            "iteration": row.get("iteration"),
+            "name": (_row_candidate(row) or {}).get("name"),
+            "validation_trades": trades,
+            "validation_trades_gap": max(0, min_trades - trades),
+            "validation_profit_over_max_drawdown": pdd,
+            "validation_profit_over_max_drawdown_gap": min_pdd - pdd,
+            "validation_profit_pct": profit,
+            "validation_max_drawdown_pct": drawdown,
+            "search_profit_over_max_drawdown": search_pdd,
+            "search_profit_pct": _coerce_finite_float(search_metrics.get("profit_pct"), 0.0),
+            "violations": validation_window.get("violations") or row.get("violations") or [],
+            "rank_profile": dict(profile),
+        }
+        if trades >= min_trades and pdd < min_pdd:
+            validation_pdd_failures.append(compact)
+        if profit <= 0.0:
+            validation_losses.append(compact)
+
+    validation_pdd_failures.sort(
+        key=lambda item: (
+            float(item["validation_profit_over_max_drawdown"]),
+            float(item["validation_profit_pct"]),
+            float(item["search_profit_over_max_drawdown"]),
+        ),
+        reverse=True,
+    )
+    validation_losses.sort(
+        key=lambda item: (
+            float(item["search_profit_over_max_drawdown"]),
+            float(item["validation_profit_pct"]),
+        ),
+        reverse=True,
+    )
+    notes: list[str] = []
+    if validation_pdd_failures:
+        notes.append(
+            "At least one candidate cleared search gates but failed validation P/DD; prioritize out-of-time robustness before more search tuning."
+        )
+    if validation_losses:
+        notes.append(
+            "At least one search-pass candidate lost money in validation; prefer regime, market-momentum, ATR, and breadth controls."
+        )
+    return {
+        "validation_gates": gates,
+        "validation_profit_drawdown_fail": validation_pdd_failures[:5],
+        "validation_loss_after_search_pass": validation_losses[:5],
+        "recommended_repair_order": [
+            "enable hq regime filters with minimum edge and market-momentum caps",
+            "tighten min_abs_score_z by 0.02-0.05 around the search-pass validation-fail anchor",
+            "reduce top_k or market/ATR exposure before reducing risk sizing alone",
+            "do not keep optimizing search P/DD while validation P/DD is negative",
+        ],
+        "notes": notes,
+    }
+
+
 def _candidate_name(raw: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_]+", "_", raw).strip("_").lower()
     return safe[:72] or "rank_profile_repair"
@@ -2039,6 +2126,82 @@ def build_rank_profile_repair_queue(
 
     candidates: list[dict[str, Any]] = []
     seen_profiles: set[str] = set()
+
+    validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
+    validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
+    if isinstance(validation_failures, Sequence):
+        for anchor in validation_failures[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_risk = _coerce_finite_float(anchor_profile.get("risk_per_trade"), _coerce_finite_float(base.get("risk_per_trade"), 0.015))
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), _coerce_finite_float(base.get("max_entry_atr_pct"), 0.05))
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            current_market_mom = anchor_profile.get("short_max_market_mom_24h")
+            market_mom_cap = min(_coerce_finite_float(current_market_mom, 0.03), 0.03)
+            current_regime_mom = anchor_profile.get("regime_short_max_market_mom_24h")
+            regime_market_cap = min(_coerce_finite_float(current_regime_mom, 0.03), 0.03)
+            current_regime_atr = anchor_profile.get("regime_max_market_atr_pct")
+            regime_atr_cap = min(_coerce_finite_float(current_regime_atr, 0.04), 0.04)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = [
+                (
+                    "validation_regime_hq",
+                    "validation_regime_filter_repair",
+                    {
+                        "regime_mode": "hq",
+                        "regime_min_edge_ic": max(_coerce_finite_float(anchor_profile.get("regime_min_edge_ic"), 0.0), 0.01),
+                        "regime_min_pair_edge_ic": max(_coerce_finite_float(anchor_profile.get("regime_min_pair_edge_ic"), 0.0), 0.01),
+                        "regime_min_pair_count": max(_coerce_int(anchor_profile.get("regime_min_pair_count"), 0), 3),
+                        "regime_short_max_market_mom_24h": regime_market_cap,
+                        "regime_max_market_atr_pct": regime_atr_cap,
+                    },
+                    "filter entries to higher-quality cross-sectional and market regimes after validation loss",
+                ),
+                ("validation_z_plus_002", "validation_entry_quality_repair", {"min_abs_score_z": anchor_z + 0.02}, "tighten entry z after search passed but validation P/DD failed"),
+                ("validation_topk_minus_1", "validation_breadth_repair", {"top_k": max(1, anchor_top_k - 1)}, "reduce breadth after validation loss while preserving the anchor structure"),
+                ("validation_market_mom_030", "validation_market_momentum_filter_repair", {"short_max_market_mom_24h": market_mom_cap}, "avoid new shorts when broad market momentum is too strong"),
+                ("validation_atr_minus_010", "validation_tail_filter_repair", {"max_entry_atr_pct": anchor_atr - 0.01}, "tighten ATR exposure after validation drawdown failed"),
+                ("validation_risk_minus_20pct", "validation_risk_repair", {"risk_per_trade": anchor_risk * 0.8}, "reduce sizing only after adding robustness-oriented validation repairs"),
+                ("validation_short_mom_minus_004", "validation_pair_momentum_filter_repair", {"short_max_mom_24h": anchor_short_mom - 0.004}, "avoid shorting high-momentum pairs in the validation window"),
+            ]
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": "controller_rank_profile_validation_repair",
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
 
     near_pdd_misses = hints.get("near_miss_profit_drawdown_gate") if isinstance(hints, Mapping) else []
     if isinstance(near_pdd_misses, Sequence):
@@ -3800,6 +3963,7 @@ top-3 drawdown total depth > 50% → -500. Focus on monthly stability and balanc
 - `loop_memory.pareto_memory`: best composite, Freqtrade profit, Freqtrade profit/drawdown, and research profit/drawdown anchors.
 - `loop_memory.stagnation`: whether local search has switched into structured exploration.
 - `loop_memory.gate_repair_hints`: search-window near misses and targeted repairs for trade-count/PDD gates.
+- `loop_memory.validation_gate_repair_hints`: search-pass candidates that failed validation/out-of-time gates.
 - `loop_memory.final_blind_feedback`: latest blind holdout finalist failures. Treat these as the
   hard promotion feedback to repair before optimizing search score.
 - `loop_memory.recent_score_history`: recent attempts, metrics, and violations.
@@ -3835,6 +3999,8 @@ Search discipline:
 - If `previous_failure` exists, fix that contract failure first and mention the fix in `analysis.md`.
 - If `final_blind_feedback` exists, repair those exact blind failures first: minimum trades,
   profit/drawdown, verification status, and LEAN comparison drift.
+- If `validation_gate_repair_hints` has search-pass validation failures, repair validation first with
+  regime, market-momentum, ATR, breadth, or z-threshold controls before adding more search-only tweaks.
 - If recent valid candidates are unprofitable, make one to three targeted changes; do not randomly rewrite
   every knob at once.
 - Do not repeat any rank profile listed in `avoid_repeating_rank_profiles`.

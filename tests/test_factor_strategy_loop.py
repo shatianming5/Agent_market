@@ -1766,6 +1766,99 @@ def test_rank_profile_repair_queue_self_anchors_when_baseline_missing(tmp_path: 
     assert "Parent: iteration_10" in (idir / "analysis.md").read_text(encoding="utf-8")
 
 
+def test_rank_profile_repair_queue_prioritizes_validation_failures(tmp_path: Path) -> None:
+    near_pdd = {
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 3,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.47,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.013,
+        "leverage_cap": 4.0,
+        "short_max_mom_24h": 0.038,
+        "max_entry_atr_pct": 0.05,
+    }
+    validation_fail = {
+        **near_pdd,
+        "risk_per_trade": 0.0117,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_validation_repair",
+        run_id="unit_validation_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 13,
+            "candidate": {"candidate_type": "rank_profile", "name": "near_pdd", "rank_profile": near_pdd},
+            "parameter_signature": rank_profile_signature(near_pdd),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": 13.8,
+                        "max_drawdown_pct": 11.7,
+                        "profit_over_max_drawdown": 1.18,
+                        "trades": 101,
+                    },
+                    "violations": ["profit_over_max_drawdown=1.18 < 1.2"],
+                }
+            },
+        },
+        {
+            "run_id": cfg.run_id,
+            "iteration": 21,
+            "candidate": {"candidate_type": "rank_profile", "name": "validation_fail", "rank_profile": validation_fail},
+            "parameter_signature": rank_profile_signature(validation_fail),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 14.1,
+                        "max_drawdown_pct": 11.1,
+                        "profit_over_max_drawdown": 1.27,
+                        "trades": 101,
+                    },
+                    "violations": [],
+                },
+                "validation": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": -3.8,
+                        "max_drawdown_pct": 6.8,
+                        "profit_over_max_drawdown": -0.56,
+                        "trades": 24,
+                    },
+                    "violations": ["research: profit_over_max_drawdown=-0.56 < 1.2"],
+                },
+            },
+        },
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+    runner = StrategyLoopRunner(cfg)
+    runner.state.iteration = 22
+    runner.state.score_history = rows
+    idir = tmp_path / "iter_22"
+    idir.mkdir()
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_validation_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_21"
+    assert queue[0]["metadata"]["anchor_validation_profit_pct"] == -3.8
+    assert queue[0]["rank_profile"]["regime_mode"] == "hq"
+    assert runner._seed_rank_profile_repair_candidate(idir, idir / "candidate.json") is True
+    candidate = validate_candidate(idir / "candidate.json")
+    assert candidate["metadata"]["source"] == "controller_rank_profile_validation_repair"
+    assert candidate["metadata"]["parent_anchor"] == "iteration_21"
+
+
 def test_triple_holdout_promotion_requires_blind_and_passed_verification(tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_triple_promote",
