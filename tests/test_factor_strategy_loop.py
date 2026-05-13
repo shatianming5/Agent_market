@@ -1650,6 +1650,66 @@ def test_rank_profile_repair_queue_generates_untried_trade_gate_repairs(tmp_path
     assert candidate["rank_profile"]["min_abs_score_z"] < baseline["min_abs_score_z"]
 
 
+def test_rank_profile_repair_queue_anchors_near_pdd_misses(tmp_path: Path) -> None:
+    baseline = {
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 2,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.51,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.01785,
+        "leverage_cap": 5.0,
+        "short_max_mom_24h": 0.038,
+        "max_entry_atr_pct": 0.05,
+    }
+    anchor = {
+        **baseline,
+        "top_k": 3,
+        "min_abs_score_z": 1.50,
+        "risk_per_trade": 0.013,
+        "leverage_cap": 4.0,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_near_pdd_repair",
+        run_id="unit_near_pdd_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "optimized_profile.json"),
+    )
+    _write_json(
+        tmp_path / "optimized_profile.json",
+        {
+            "candidate_state": baseline["candidate_state"],
+            "selection": {"recompute_corr": False, "n": 50},
+            "risk": baseline,
+        },
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 10,
+            "candidate": {"candidate_type": "rank_profile", "name": "near_pdd", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "research_metrics": {
+                "profit_pct": 13.4,
+                "max_drawdown_pct": 11.5,
+                "profit_over_max_drawdown": 1.17,
+                "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] + 20,
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue(baseline, cfg, rows=rows)
+
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_near_pdd_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_10"
+    assert queue[0]["rank_profile"]["top_k"] == 3
+    assert queue[0]["rank_profile"]["min_abs_score_z"] > anchor["min_abs_score_z"]
+
+
 def test_triple_holdout_promotion_requires_blind_and_passed_verification(tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_triple_promote",

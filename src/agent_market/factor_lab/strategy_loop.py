@@ -1916,6 +1916,7 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
     min_trades = int(gates["min_trades"])
     min_pdd = float(gates["min_profit_over_dd"])
     near_misses: list[dict[str, Any]] = []
+    near_pdd_misses: list[dict[str, Any]] = []
     high_trade_low_quality: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, Mapping):
@@ -1940,9 +1941,13 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
         }
         if trades < min_trades and pdd >= min_pdd and profit > 0:
             near_misses.append(compact)
+        if trades >= min_trades and profit > 0 and pdd < min_pdd and pdd >= min_pdd * 0.75:
+            compact["profit_over_max_drawdown_gap"] = min_pdd - pdd
+            near_pdd_misses.append(compact)
         if trades >= min_trades and pdd < min_pdd:
             high_trade_low_quality.append(compact)
     near_misses.sort(key=lambda item: (int(item["trades_gap"]), -float(item["profit_over_max_drawdown"])))
+    near_pdd_misses.sort(key=lambda item: (float(item["profit_over_max_drawdown_gap"]), -float(item["profit_pct"])))
     high_trade_low_quality.sort(key=lambda item: (float(item["profit_over_max_drawdown"]), -int(item["trades"])))
     hints: list[str] = []
     if near_misses:
@@ -1953,9 +1958,14 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
         hints.append(
             "High-trade attempts cleared trade count but damaged profit/drawdown; combine participation repairs with quality controls instead of broad cadence cuts."
         )
+    if near_pdd_misses:
+        hints.append(
+            "Best search near-misses cleared trade count and profit but missed profit/drawdown; prefer tiny quality repairs around those anchors."
+        )
     return {
         "search_gates": gates,
         "near_miss_trade_gate": near_misses[:5],
+        "near_miss_profit_drawdown_gate": near_pdd_misses[:5],
         "high_trade_low_quality": high_trade_low_quality[:5],
         "recommended_repair_order": [
             "lower min_abs_score_z by 0.01-0.03 from a high-P/DD anchor",
@@ -2028,6 +2038,57 @@ def build_rank_profile_repair_queue(
 
     candidates: list[dict[str, Any]] = []
     seen_profiles: set[str] = set()
+
+    near_pdd_misses = hints.get("near_miss_profit_drawdown_gate") if isinstance(hints, Mapping) else []
+    if isinstance(near_pdd_misses, Sequence):
+        for anchor in near_pdd_misses[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_risk = _coerce_finite_float(anchor_profile.get("risk_per_trade"), _coerce_finite_float(base.get("risk_per_trade"), 0.015))
+            anchor_leverage = _coerce_finite_float(anchor_profile.get("leverage_cap"), _coerce_finite_float(base.get("leverage_cap"), 3.0))
+            anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), _coerce_finite_float(base.get("max_entry_atr_pct"), 0.05))
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = [
+                ("near_pdd_z_plus_001", "profit_drawdown_quality_repair", {"min_abs_score_z": anchor_z + 0.01}, "tighten entry z slightly around the best P/DD near-miss"),
+                ("near_pdd_risk_minus_10pct", "profit_drawdown_risk_repair", {"risk_per_trade": anchor_risk * 0.9}, "reduce risk around the best P/DD near-miss to lower drawdown"),
+                ("near_pdd_atr_minus_005", "profit_drawdown_tail_filter_repair", {"max_entry_atr_pct": anchor_atr - 0.005}, "tighten ATR entry filter around the best P/DD near-miss"),
+                ("near_pdd_short_mom_minus_002", "profit_drawdown_momentum_filter_repair", {"short_max_mom_24h": anchor_short_mom - 0.002}, "avoid shorting the strongest momentum names while preserving the near-miss structure"),
+                ("near_pdd_leverage_minus_05", "profit_drawdown_leverage_repair", {"leverage_cap": anchor_leverage - 0.5}, "reduce leverage around the best P/DD near-miss"),
+            ]
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated near-PDD repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": "controller_rank_profile_near_pdd_repair",
+                            "search_mode": search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_over_max_drawdown_gap": anchor.get("profit_over_max_drawdown_gap"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
     for raw_name, family, changes, tradeoff in queue_specs:
         try:
             profile = _profile_with_changes(base, changes, default_n=config.n)
