@@ -364,7 +364,7 @@ def test_strategy_loop_formal_cli_preset_forces_strict_promotion_gates() -> None
 
     _apply_strategy_loop_formal_preset(args)
 
-    assert args.eval_mode == "freqtrade"
+    assert args.eval_mode == "two_stage"
     assert args.score_mode == "composite"
     assert args.promote_policy == "final"
     assert args.validation_protocol == "triple_holdout"

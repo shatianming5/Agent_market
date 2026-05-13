@@ -726,7 +726,7 @@ def cmd_lean_compare(args):
 def _apply_strategy_loop_formal_preset(args) -> None:
     if not getattr(args, "formal", False):
         return
-    args.eval_mode = strategy_loop.EVAL_FREQTRADE
+    args.eval_mode = strategy_loop.EVAL_TWO_STAGE
     args.score_mode = strategy_loop.SCORE_COMPOSITE
     args.promote_policy = strategy_loop.PROMOTE_FINAL
     args.validation_protocol = strategy_loop.VALIDATION_TRIPLE_HOLDOUT
@@ -1688,7 +1688,7 @@ def build_parser():
     sl.add_argument("--baseline-profile", default=None,
                     help="optimized_profile.json to use as the baseline/default rank profile")
     sl.add_argument("--formal", action="store_true",
-                    help="private-fund-grade preset: freqtrade eval, composite score, final promotion, triple holdout, at least Pareto verification, at least LEAN final gate")
+                    help="private-fund-grade preset: two-stage eval, composite score, final promotion, triple holdout, at least Pareto verification, at least LEAN final gate")
     sl.add_argument("--eval-mode", default="two_stage", choices=["research", "two_stage", "freqtrade"],
                     help="research only, two-stage research->fixed Freqtrade validation, or force Freqtrade stage")
     sl.add_argument("--score-mode", default="composite", choices=["research", "freqtrade", "composite"],
