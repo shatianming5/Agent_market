@@ -1223,6 +1223,40 @@ def test_lean_gate_all_uses_validation_stage_artifact_for_triple_holdout(tmp_pat
     assert gate["artifacts"]["rank_artifact"].endswith("lean_gate/iteration/rank_artifact.json")
 
 
+def test_freqtrade_window_backtest_exports_stage_signals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_freqtrade_stage",
+        run_id="unit_freqtrade_stage_run",
+        eval_mode="freqtrade",
+    )
+    runner = StrategyLoopRunner(cfg)
+    captured: dict[str, object] = {}
+
+    def fake_rank_export(**kwargs: object) -> dict:
+        captured["rank_kwargs"] = kwargs
+        return {"signals": {"all": str(tmp_path / "validation.feather")}, "exported": True}
+
+    monkeypatch.setattr(strategy_loop_mod, "_resolve_factor_state", lambda tag: (None, None))
+    monkeypatch.setattr(strategy_loop_mod.rank_portfolio, "rank_export", fake_rank_export)
+    monkeypatch.setattr(
+        StrategyLoopRunner,
+        "_run_fixed_freqtrade_backtest",
+        lambda self, idir, research_result, timerange=None, stage="single": {"ok": True, "signal_dir": str(tmp_path)},
+    )
+
+    result = runner._run_window_backtest(
+        tmp_path,
+        {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2}},
+        stage="validation",
+        timerange="20260301-20260331",
+        run_freqtrade=True,
+    )
+
+    assert result["signals"]["all"].endswith("validation.feather")
+    assert result["freqtrade_backtest"] == {"ok": True, "signal_dir": str(tmp_path)}
+    assert captured["rank_kwargs"]["tag"].endswith("_validation")
+
+
 def test_promote_policy_final_defers_global_optimized_profile(tmp_path: Path) -> None:
     tag = "unit_promote_final"
     out = repo_paths.artifacts_root() / "rank_portfolio" / tag / "optimized_profile.json"

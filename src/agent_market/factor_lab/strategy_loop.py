@@ -4251,7 +4251,7 @@ class StrategyLoopRunner:
             end=end,
         )
         if self.config.eval_mode == EVAL_FREQTRADE:
-            result: dict[str, Any] = {}
+            result = rank_portfolio.rank_export(**kwargs)
         else:
             result = rank_portfolio.rank_backtest(**kwargs)
         result["base_tag"] = self.config.tag
