@@ -12,6 +12,7 @@ logger = logging.getLogger("agent_market.freqtrade_cli")
 
 
 _OFFLINE_MARKET_RUNMODE_TOKENS = ("backtest", "hyperopt", "edge", "lookahead", "recursive")
+_OFFLINE_MARKET_COMMANDS = {"backtesting", "hyperopt", "edge", "lookahead-analysis", "recursive-analysis"}
 
 
 def _bootstrap_freqtrade_sys_path() -> None:
@@ -65,7 +66,11 @@ def _should_synthesize_offline_markets(runmode: Any, optimize_modes: Any) -> boo
     return any(token in text for token in _OFFLINE_MARKET_RUNMODE_TOKENS)
 
 
-def _patch_offline_markets() -> None:
+def _force_offline_markets_for_args(args: list[str]) -> bool:
+    return any(arg in _OFFLINE_MARKET_COMMANDS for arg in args)
+
+
+def _patch_offline_markets(*, force: bool = False) -> None:
     """Monkeypatch freqtrade to avoid exchange API calls in optimize modes.
 
     In backtesting/hyperopt modes, freqtrade often accesses `Exchange.markets`,
@@ -89,7 +94,7 @@ def _patch_offline_markets() -> None:
         try:
             if not getattr(self, "_markets", None):
                 cfg = getattr(self, "_config", None) or {}
-                if _should_synthesize_offline_markets(cfg.get("runmode"), OPTIMIZE_MODES):
+                if force or _should_synthesize_offline_markets(cfg.get("runmode"), OPTIMIZE_MODES):
                     pairs = (
                         cfg.get("pairs")
                         or (cfg.get("exchange") or {}).get("pair_whitelist")
@@ -230,7 +235,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         skip_preflight = True
         args = [a for a in args if a != "--no-ohlcv-preflight"]
     if not disable:
-        _patch_offline_markets()
+        _patch_offline_markets(force=_force_offline_markets_for_args(args))
     if not skip_preflight:
         _preflight_raw_ohlcv(args)
 

@@ -162,6 +162,9 @@ def test_freqtrade_offline_markets_cover_analysis_modes():
     assert wrapper._should_synthesize_offline_markets("recursive-analysis", set()) is True
     assert wrapper._should_synthesize_offline_markets("live", set()) is False
     assert wrapper._should_synthesize_offline_markets("dry_run", set()) is False
+    assert wrapper._force_offline_markets_for_args(["lookahead-analysis"]) is True
+    assert wrapper._force_offline_markets_for_args(["recursive-analysis"]) is True
+    assert wrapper._force_offline_markets_for_args(["trade"]) is False
 
 
 def test_freqtrade_preflight_uses_config_datadir(monkeypatch, tmp_path: Path):
