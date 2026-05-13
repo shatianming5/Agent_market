@@ -47,6 +47,8 @@ class OHLCVPreflightError(SystemExit):
 def _candidate_data_roots(
     userdir: Path,
     extra_datadirs: Optional[Iterable[Path | str]] = None,
+    *,
+    include_userdir_data: bool = True,
 ) -> list[Path]:
     """Yield all directories that could hold raw OHLCV feathers.
 
@@ -57,7 +59,7 @@ def _candidate_data_roots(
     """
     roots: list[Path] = []
     primary = Path(userdir) / "data"
-    if primary.exists():
+    if include_userdir_data and primary.exists():
         roots.append(primary)
     if extra_datadirs:
         for d in extra_datadirs:
@@ -73,11 +75,15 @@ def assert_raw_ohlcv(
     sample_limit: int = 5,
     skip_env: str = "AGENT_MARKET_NO_OHLCV_PREFLIGHT",
     extra_datadirs: Optional[Iterable[Path | str]] = None,
+    include_userdir_data: bool = True,
 ) -> None:
     """Raise ``OHLCVPreflightError`` if any OHLCV feather has != 6 cols or wrong order.
 
     Scans ``userdir/data/<exchange>/`` plus any ``extra_datadirs`` (e.g.
-    `--datadir` values from a freqtrade invocation). Matches both spot
+    `--datadir` values from a freqtrade invocation). Callers that know the
+    effective Freqtrade datadir can set ``include_userdir_data=False`` so an
+    unrelated exchange cache under the same userdir does not block the run.
+    Matches both spot
     pattern ``<PAIR>-<tf>.feather`` and futures pattern
     ``<PAIR>-<tf>-futures.feather``; deeper sub-namespaces (funding/,
     micro/, features/) are skipped to avoid false positives.
@@ -88,7 +94,7 @@ def assert_raw_ohlcv(
     if os.environ.get(skip_env, "").strip() == "1":
         return
     udir = Path(userdir)
-    roots = _candidate_data_roots(udir, extra_datadirs)
+    roots = _candidate_data_roots(udir, extra_datadirs, include_userdir_data=include_userdir_data)
     if not roots:
         return
 

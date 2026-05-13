@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -7,6 +9,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+
+def _load_freqtrade_cli_module():
+    repo_root = Path(__file__).resolve().parents[1]
+    wrapper = repo_root / "scripts" / "freqtrade_cli.py"
+    spec = importlib.util.spec_from_file_location("freqtrade_cli_under_test", wrapper)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_resolve_nproc_limit_disabled_by_default(monkeypatch):
@@ -139,3 +151,52 @@ def test_freqtrade_cli_bootstrap_survives_pythonpath_shadowing():
     )
     assert proc.returncode == 0, (proc.stderr or proc.stdout or "")
     assert "Freqtrade Version" in (proc.stdout or "")
+
+
+def test_freqtrade_preflight_uses_config_datadir(monkeypatch, tmp_path: Path):
+    wrapper = _load_freqtrade_cli_module()
+    userdir = tmp_path / "user_data"
+    datadir = userdir / "data" / "okx"
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"user_data_dir": str(userdir), "datadir": str(datadir)}),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_assert_raw_ohlcv(userdir_arg, **kwargs):  # noqa: ANN001
+        captured["userdir"] = Path(userdir_arg)
+        captured["extra_datadirs"] = [Path(p) for p in (kwargs.get("extra_datadirs") or [])]
+        captured["include_userdir_data"] = kwargs.get("include_userdir_data")
+
+    import agent_market.freqtrade_preflight as preflight
+
+    monkeypatch.setattr(preflight, "assert_raw_ohlcv", fake_assert_raw_ohlcv)
+
+    wrapper._preflight_raw_ohlcv(["lookahead-analysis", "--config", str(config)])
+
+    assert captured["userdir"] == userdir
+    assert captured["extra_datadirs"] == [datadir]
+    assert captured["include_userdir_data"] is False
+
+
+def test_freqtrade_preflight_includes_recursive_analysis(monkeypatch, tmp_path: Path):
+    wrapper = _load_freqtrade_cli_module()
+    userdir = tmp_path / "user_data"
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"user_data_dir": str(userdir)}), encoding="utf-8")
+    called = {"value": False}
+
+    def fake_assert_raw_ohlcv(userdir_arg, **kwargs):  # noqa: ANN001, ARG001
+        called["value"] = True
+        assert Path(userdir_arg) == userdir
+        assert kwargs.get("include_userdir_data") is True
+
+    import agent_market.freqtrade_preflight as preflight
+
+    monkeypatch.setattr(preflight, "assert_raw_ohlcv", fake_assert_raw_ohlcv)
+
+    wrapper._preflight_raw_ohlcv(["recursive-analysis", "--config", str(config)])
+
+    assert called["value"] is True
