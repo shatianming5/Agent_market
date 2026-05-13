@@ -30,6 +30,7 @@ from agent_market.factor_lab.strategy_loop import (
     iteration_dir,
     leaderboard_path,
     load_checkpoint,
+    normalize_rank_profile,
     parse_lookahead_csv,
     parse_recursive_output,
     rank_profile_signature,
@@ -268,6 +269,20 @@ def test_config_accepts_hermes_reasoning_effort() -> None:
     assert cfg.hermes_reasoning_effort == "xhigh"
 
 
+def test_rank_profile_normalizes_common_enum_aliases() -> None:
+    profile = normalize_rank_profile(
+        {
+            "edge_mode": "on",
+            "regime_mode": "on",
+            "side_mode": "short",
+        }
+    )
+
+    assert profile["edge_mode"] == "rolling_ic"
+    assert profile["regime_mode"] == "hq"
+    assert profile["side_mode"] == "short"
+
+
 def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "doctor_formal_ok"
@@ -463,6 +478,40 @@ def test_triple_holdout_without_finalists_writes_final_promotion(tmp_path: Path,
     assert final_promotion == {"promoted": False, "artifacts": {}, "reason": "no Pareto finalists available"}
     assert final_status["promotion"] == final_promotion
     assert result["final_promotion"] == final_promotion
+
+
+def test_triple_holdout_skips_invalid_pareto_finalist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "unit_invalid_finalist"
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_invalid_finalist",
+        run_id=run_id,
+        promote=True,
+        promote_policy="final",
+        validation_protocol="triple_holdout",
+    )
+    invalid_candidate = tmp_path / "candidate.json"
+    _write_json(
+        invalid_candidate,
+        {
+            "candidate_type": "rank_profile",
+            "rank_profile": {"top_k": 2, "regime_mode": "unsupported"},
+        },
+    )
+    runner = StrategyLoopRunner(cfg)
+    monkeypatch.setattr(
+        runner,
+        "_refresh_pareto_pool",
+        lambda: {"finalists": [{"iteration": 1, "candidate_path": str(invalid_candidate)}]},
+    )
+    monkeypatch.setattr(runner, "_deepresearch_sidecar", lambda final_status: {"status": VERIFICATION_PASSED})
+
+    promotion = runner._finalize_triple_holdout()
+    final_status = json.loads((repo_paths.artifacts_root() / "factor_strategy_loop" / run_id / "final_blind_status.json").read_text(encoding="utf-8"))
+
+    assert promotion["promoted"] is False
+    assert "no Pareto finalist passed" in promotion["reason"]
+    assert final_status["finalists"][0]["reason"].startswith("candidate invalid:")
 
 
 def test_strategy_loop_registry_records_retention_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1627,6 +1676,35 @@ def test_pareto_pool_six_axes_dedup_and_caps() -> None:
     assert all(len(axis_rows) <= 3 for axis_rows in pool["axes"].values())
     assert len(pool["finalists"]) <= 12
     assert all(finalist["pareto_axes"] for finalist in pool["finalists"])
+
+
+def test_pareto_pool_excludes_failed_iteration_rows() -> None:
+    rows = [
+        {
+            "run_id": "unit_pareto_failed",
+            "iteration": 1,
+            "candidate_path": "artifacts/factor_strategy_loop/unit/iter_01/candidate.json",
+            "candidate": {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2, "regime_mode": "bad"}},
+            "parameter_signature": "",
+            "score": -1_000_000.0,
+            "score_components": {"composite_score": 10_000.0},
+            "verification_status": VERIFICATION_FAILED,
+        },
+        {
+            "run_id": "unit_pareto_failed",
+            "iteration": 2,
+            "candidate_path": "artifacts/factor_strategy_loop/unit/iter_02/candidate.json",
+            "candidate": {"candidate_type": "rank_profile", "rank_profile": {"top_k": 3}},
+            "parameter_signature": "valid",
+            "score": 1.0,
+            "score_components": {"composite_score": 1.0},
+        },
+    ]
+
+    pool = build_pareto_pool(rows)
+
+    assert [row["iteration"] for row in pool["axes"]["best_validation_composite"]] == [2]
+    assert all(row["iteration"] != 1 for row in pool["finalists"])
 
 
 def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_path: Path) -> None:

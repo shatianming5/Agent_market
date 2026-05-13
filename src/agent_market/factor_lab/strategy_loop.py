@@ -254,6 +254,27 @@ ENUM_LIMITS = {
     "data_venue": {"auto", "kucoin", "okx", "bybit", "binance"},
 }
 
+ENUM_ALIASES = {
+    "edge_mode": {
+        "on": "rolling_ic",
+        "enabled": "rolling_ic",
+        "true": "rolling_ic",
+        "1": "rolling_ic",
+        "disabled": "off",
+        "false": "off",
+        "0": "off",
+    },
+    "regime_mode": {
+        "on": "hq",
+        "enabled": "hq",
+        "true": "hq",
+        "1": "hq",
+        "disabled": "off",
+        "false": "off",
+        "0": "off",
+    },
+}
+
 BANNED_STRATEGY_IMPORTS = {
     "asyncio",
     "httpx",
@@ -1318,6 +1339,8 @@ def _regime_stability_score(row: Mapping[str, Any]) -> Optional[float]:
 
 
 def _axis_value(axis: str, row: Mapping[str, Any]) -> Optional[float]:
+    if not _pareto_row_eligible(row):
+        return None
     if axis == "best_validation_composite":
         return _score_component(row, "composite_score")
     if axis == "best_validation_freqtrade_profit":
@@ -1344,6 +1367,20 @@ def _axis_value(axis: str, row: Mapping[str, Any]) -> Optional[float]:
     if axis == "best_regime_stability":
         return _regime_stability_score(row)
     return None
+
+
+def _pareto_row_eligible(row: Mapping[str, Any]) -> bool:
+    status = str(row.get("verification_status") or "").strip().lower()
+    if status == VERIFICATION_FAILED:
+        return False
+    raw_score = row.get("score")
+    if raw_score is not None:
+        try:
+            if float(raw_score) <= FAILED_ITERATION_SCORE:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def build_pareto_pool(
@@ -1638,6 +1675,11 @@ def prepare_context(config: StrategyLoopConfig, run_id: str, iteration: int) -> 
             else ["candidate.json", "analysis.md"]
         ),
         "allowed_rank_profile_keys": sorted(RANK_PROFILE_KEYS),
+        "allowed_rank_profile_enum_values": {
+            key: sorted(values)
+            for key, values in ENUM_LIMITS.items()
+            if key in RANK_PROFILE_KEYS
+        },
     }
 
 
@@ -1675,7 +1717,8 @@ def normalize_rank_profile(profile: Mapping[str, Any], *, default_n: int = 50) -
                 raise ValueError("exclude_pairs must be a string or list")
             continue
         if key in ENUM_LIMITS:
-            lowered = str(value).strip().lower()
+            lowered = "true" if value is True else "false" if value is False else str(value).strip().lower()
+            lowered = ENUM_ALIASES.get(key, {}).get(lowered, lowered)
             if lowered not in ENUM_LIMITS[key]:
                 raise ValueError(f"{key} must be one of {sorted(ENUM_LIMITS[key])}, got {value!r}")
             out[key] = lowered
@@ -3696,6 +3739,11 @@ Candidate schema:
 {json.dumps(schema_example, indent=2, sort_keys=True)}
 ```
 
+Allowed rank-profile enum values:
+```json
+{json.dumps({key: sorted(values) for key, values in ENUM_LIMITS.items() if key in RANK_PROFILE_KEYS}, indent=2, sort_keys=True)}
+```
+
 For a Freqtrade candidate, use `"candidate_type": "freqtrade_strategy"` and write
 `strategy.py`. The strategy must inherit `freqtrade.strategy.IStrategy` and read
 pre-generated rank signal files; do not reinvent cross-coin ranking inside Freqtrade.
@@ -5495,7 +5543,11 @@ class StrategyLoopRunner:
             if not candidate_path.exists():
                 final_rows.append({"finalist": finalist, "ok": False, "reason": f"candidate missing: {candidate_path_raw}"})
                 continue
-            candidate = validate_candidate(candidate_path, default_n=self.config.n)
+            try:
+                candidate = validate_candidate(candidate_path, default_n=self.config.n)
+            except Exception as exc:
+                final_rows.append({"finalist": finalist, "ok": False, "reason": f"candidate invalid: {exc}"})
+                continue
             iteration_value = finalist.get("iteration") or candidate_path.parent.name
             blind_dir = loop_root(self.config.run_id) / f"blind_{str(iteration_value).replace('/', '_')}"
             blind_dir.mkdir(parents=True, exist_ok=True)
