@@ -407,6 +407,64 @@ def _altitude_taxonomy_block() -> str:
     )
 
 
+def _pheromone_trail_block(tried_records: list[dict], *, max_rows: int = 8) -> str:
+    """Render a typed pheromone-trail summary if any rows carry the new metadata.
+
+    Rows that lack ``evidence_type`` / ``altitude`` / ``delta_U`` are quietly
+    skipped, so this block stays empty for legacy logs and only fires once
+    Phase-2 instrumentation has populated the new fields.
+    """
+    enriched = [r for r in tried_records if r.get("evidence_type") or r.get("altitude")]
+    if not enriched:
+        return ""
+    enriched_sorted = sorted(
+        enriched,
+        key=lambda r: (-(float(r.get("delta_U") or 0.0)), -float(r.get("ts") or 0.0)),
+    )
+    top = enriched_sorted[:max_rows]
+    evt_counts: Counter[str] = Counter(
+        (r.get("evidence_type") or "?") for r in enriched
+    )
+    alt_counts: Counter[str] = Counter(
+        (r.get("altitude") or "?") for r in enriched
+    )
+
+    lines = [
+        f"### 🐜 PHEROMONE TRAILS (typed parent→child edits, top by ΔU, n={len(enriched)})",
+        "",
+        "_Each row is a logged pheromone link: parent → child plus the_"
+        " _classified edit altitude and the realised utility delta. Reuse_"
+        " _the high-ΔU evidence_types/altitudes; avoid stacking edits that_"
+        " _historically produced ΔU ≤ 0._",
+        "",
+        "| altitude | evidence_type | parent | sharpe | fitness | ΔU | child_expr |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for r in top:
+        alt = r.get("altitude") or "-"
+        evt = r.get("evidence_type") or "-"
+        parent = (r.get("parent_alpha_id") or "-")[:14]
+        sh = r.get("sharpe")
+        fi = r.get("fitness")
+        du = r.get("delta_U")
+        sh_s = f"{sh:.2f}" if isinstance(sh, (int, float)) else "-"
+        fi_s = f"{fi:.2f}" if isinstance(fi, (int, float)) else "-"
+        du_s = f"{du:+.3f}" if isinstance(du, (int, float)) else "-"
+        expr = (r.get("expr") or "")[:75].replace("|", "/")
+        lines.append(
+            f"| {alt} | {evt} | {parent} | {sh_s} | {fi_s} | {du_s} | `{expr}` |"
+        )
+
+    lines.extend([
+        "",
+        "**Logged altitude mix**: " +
+        " ".join(f"{k}×{v}" for k, v in alt_counts.most_common()),
+        "**Evidence-type mix**: " +
+        " ".join(f"{k}×{v}" for k, v in evt_counts.most_common()),
+    ])
+    return "\n".join(lines)
+
+
 def _recent_altitude_distribution_hint(
     tried_records: list[dict],
     *,
@@ -830,6 +888,9 @@ def _build_prior_knowledge_block(
         altitude_hint = _recent_altitude_distribution_hint(tried)
         if altitude_hint:
             parts.append(altitude_hint)
+        pheromone_hint = _pheromone_trail_block(tried)
+        if pheromone_hint:
+            parts.append(pheromone_hint)
         # Slot cool-down catches anti-flip oscillation in a tighter window
         # (5 records vs the 10 used by skeleton/family concentration). Fires
         # only when the same slot was revisited without fitness improvement —

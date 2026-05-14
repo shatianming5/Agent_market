@@ -1,8 +1,15 @@
-"""Cross-loop tried-expressions log.
+"""Cross-loop tried-expressions log (typed pheromone ledger).
 
-Every `simulate` call with --tag appends one JSONL line. Subsequent agent
+Every ``simulate`` call with ``--tag`` appends one JSONL line. Subsequent agent
 sessions read recent entries and inject them into the prompt so each loop
 learns from prior loops without rerunning the same expressions.
+
+Records also serve as **typed pheromone links** in the ant-colony view: each
+row carries an ``altitude`` (L1 region/universe → L4 numeric tweak), an
+``evidence_type`` (seed/mutation/crossover/...), a ``parent_alpha_id``, and a
+``delta_U`` describing the utility delta against the parent. These metadata
+fields are optional and absent in legacy rows, so readers MUST tolerate
+missing values.
 """
 from __future__ import annotations
 
@@ -14,6 +21,35 @@ from pathlib import Path
 from typing import Any, Callable, Hashable, Optional
 
 _APPEND_LOCK = threading.Lock()
+
+
+# Altitude levels mirror the PheroViz HCT — higher altitude = larger edit
+# magnitude.  We keep the literal strings stable across versions so old logs
+# remain queryable.
+ALTITUDE_L1_REGION_UNIVERSE = "L1_region_universe"
+ALTITUDE_L2_OP_FAMILY = "L2_op_family"
+ALTITUDE_L3_SLOT_PARAM = "L3_slot_param"
+ALTITUDE_L4_NUMERIC_TWEAK = "L4_numeric_tweak"
+
+ALTITUDES: tuple[str, ...] = (
+    ALTITUDE_L1_REGION_UNIVERSE,
+    ALTITUDE_L2_OP_FAMILY,
+    ALTITUDE_L3_SLOT_PARAM,
+    ALTITUDE_L4_NUMERIC_TWEAK,
+)
+
+EVIDENCE_TYPES: tuple[str, ...] = (
+    "seed",
+    "mutation",
+    "crossover",
+    "region_swap",
+    "op_swap",
+    "param_shift",
+    "decay_shift",
+    "neutralization_swap",
+    "numeric_tweak",
+    "manual",
+)
 
 
 def append_tried(
@@ -29,8 +65,18 @@ def append_tried(
     region: str = "",
     universe: str = "",
     decay: int = 0,
+    evidence_type: Optional[str] = None,
+    altitude: Optional[str] = None,
+    parent_alpha_id: Optional[str] = None,
+    delta_U: Optional[float] = None,
 ) -> None:
-    record = {
+    """Append a typed pheromone-link row to ``tried_exprs.jsonl``.
+
+    The Phase-2 fields ``evidence_type``, ``altitude``, ``parent_alpha_id``,
+    and ``delta_U`` are optional; passing ``None`` keeps the legacy schema so
+    older readers/tooling stay backward-compatible.
+    """
+    record: dict[str, Any] = {
         "ts": time.time(),
         "expr": expr,
         "sharpe": sharpe,
@@ -43,6 +89,14 @@ def append_tried(
         "universe": universe,
         "decay": decay,
     }
+    if evidence_type is not None:
+        record["evidence_type"] = evidence_type
+    if altitude is not None:
+        record["altitude"] = altitude
+    if parent_alpha_id is not None:
+        record["parent_alpha_id"] = parent_alpha_id
+    if delta_U is not None:
+        record["delta_U"] = float(delta_U)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, default=str) + "\n"
     with _APPEND_LOCK:
@@ -50,6 +104,67 @@ def append_tried(
             f.write(line)
             f.flush()
             os.fsync(f.fileno())
+
+
+def utility_score(
+    *,
+    sharpe: Optional[float],
+    fitness: Optional[float],
+    turnover: Optional[float],
+    weight_sharpe: float = 1.0,
+    weight_fitness: float = 1.0,
+    turnover_penalty: float = 0.5,
+) -> float:
+    """Compact utility used to compute ``delta_U`` between a child and parent.
+
+    Mirrors PheroViz's unified utility but specialised to WQ alpha gates:
+    higher Sharpe + fitness are rewarded; higher turnover is penalised
+    linearly. Missing inputs default to 0.0 so legacy rows do not break.
+    """
+    sh = float(sharpe or 0.0)
+    fi = float(fitness or 0.0)
+    to = float(turnover or 0.0)
+    return weight_sharpe * sh + weight_fitness * fi - turnover_penalty * to
+
+
+def classify_altitude(parent: Optional[dict[str, Any]], child: dict[str, Any]) -> str:
+    """Heuristic altitude classifier for child→parent edits.
+
+    Returns the broadest level whose attribute differs:
+    - L1: region OR universe changed
+    - L2: op family (token-set first-occurrence) changed
+    - L3: structural slot edit but op family preserved (parameter shift)
+    - L4: numeric-only tweak (signed_power exponent, ts_decay window…)
+    """
+    if parent is None:
+        return ALTITUDE_L1_REGION_UNIVERSE
+    if (parent.get("region") or "") != (child.get("region") or ""):
+        return ALTITUDE_L1_REGION_UNIVERSE
+    if (parent.get("universe") or "") != (child.get("universe") or ""):
+        return ALTITUDE_L1_REGION_UNIVERSE
+    p_expr = (parent.get("expr") or "").strip()
+    c_expr = (child.get("expr") or "").strip()
+    if not p_expr or not c_expr:
+        return ALTITUDE_L3_SLOT_PARAM
+    p_ops = _op_signature(p_expr)
+    c_ops = _op_signature(c_expr)
+    if p_ops != c_ops:
+        return ALTITUDE_L2_OP_FAMILY
+    if _strip_numbers(p_expr) != _strip_numbers(c_expr):
+        return ALTITUDE_L3_SLOT_PARAM
+    return ALTITUDE_L4_NUMERIC_TWEAK
+
+
+def _op_signature(expr: str) -> tuple[str, ...]:
+    """Order-preserving tuple of operator tokens appearing in an expression."""
+    import re
+    return tuple(re.findall(r"[A-Za-z_][A-Za-z0-9_]*(?=\s*\()", expr))
+
+
+def _strip_numbers(expr: str) -> str:
+    """Erase numeric literals so ``L3 vs L4`` edits compare without them."""
+    import re
+    return re.sub(r"-?\d+(?:\.\d+)?", "#", expr)
 
 
 def find_recent_revisits(
