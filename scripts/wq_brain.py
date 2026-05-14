@@ -1839,6 +1839,147 @@ def cmd_docs(args: argparse.Namespace) -> None:
         _emit({"ok": False, "error": f"unknown topic: {args.topic}"}, code=1)
 
 
+def cmd_colony_run(args: argparse.Namespace) -> None:
+    """Run a wq_brain colony — one ant per (region, universe) panel.
+
+    Each panel runs sequentially with the same model/CLI settings. After
+    every panel completes, its high-altitude (L1 / L2) pheromone rows fan
+    out to the next panel's tried log under ``evidence_type=colony_shared``.
+    """
+    from agent_market.wq_brain.colony import (
+        ColonyConfig,
+        PanelSpec,
+        parse_panels,
+        run_colony,
+    )
+
+    try:
+        regions = parse_panels(args.panels)
+    except ValueError as exc:
+        _emit({"ok": False, "error": str(exc)}, code=2)
+    if args.panel_tag_prefix:
+        prefix = args.panel_tag_prefix
+    else:
+        prefix = f"{args.colony_tag}_panel"
+    panels = [
+        PanelSpec(
+            tag=f"{prefix}_{i}_{region}_{universe}".lower(),
+            region=region,
+            universe=universe,
+            decay=args.decay,
+            neutralization=args.neutralization,
+            truncation=args.truncation,
+            max_turns=args.max_turns,
+            quality_sharpe_min=args.quality_sharpe_min,
+            quality_fitness_min=args.quality_fitness_min,
+            auto_submit=not args.no_auto_submit,
+        )
+        for i, (region, universe) in enumerate(regions)
+    ]
+    cfg = ColonyConfig(
+        colony_tag=args.colony_tag,
+        panels=panels,
+        cli=args.cli,
+        model=args.model,
+        timeout_sec=args.timeout_sec,
+        provider=args.provider,
+        toolsets=args.toolsets,
+        yolo=not args.no_yolo,
+        reasoning_effort=args.reasoning_effort,
+    )
+    manifest = run_colony(cfg)
+    _emit({"ok": True, "manifest": manifest})
+
+
+def cmd_ping_llm(args: argparse.Namespace) -> None:
+    """Health-check the configured LLM endpoint before launching an agent loop.
+
+    Sends a minimal chat-completions request and reports latency + token usage,
+    so 'opencode run' / 'hermes' loops do not silently die at the title-gen step.
+    """
+    import os
+    import time
+    import urllib.error
+    import urllib.request
+
+    base = (args.base_url or os.environ.get("OPENAI_BASE_URL") or "").rstrip("/")
+    api_key = args.api_key or os.environ.get("OPENAI_API_KEY") or ""
+    model = args.model or os.environ.get("OPENAI_MODEL") or ""
+    if not base or not api_key or not model:
+        _emit(
+            {
+                "ok": False,
+                "error": "missing OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL — "
+                         "set via env or --base-url / --api-key / --model",
+            },
+            code=2,
+        )
+    body = json.dumps(
+        {
+            "model": model,
+            "max_tokens": 4,
+            "temperature": 0.0,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+    ).encode("utf-8")
+    url = f"{base}/v1/chat/completions"
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=args.timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="replace"))
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+    except urllib.error.HTTPError as exc:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        _emit(
+            {
+                "ok": False,
+                "url": url,
+                "model": model,
+                "elapsed_ms": elapsed_ms,
+                "http_status": exc.code,
+                "error": exc.reason,
+                "body": exc.read().decode("utf-8", errors="replace")[:1500],
+            },
+            code=1,
+        )
+    except Exception as exc:
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        _emit(
+            {
+                "ok": False,
+                "url": url,
+                "model": model,
+                "elapsed_ms": elapsed_ms,
+                "error": f"{type(exc).__name__}: {exc}",
+            },
+            code=1,
+        )
+    usage = payload.get("usage") or {}
+    _emit(
+        {
+            "ok": True,
+            "url": url,
+            "model": model,
+            "elapsed_ms": elapsed_ms,
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+            "first_choice_role": (
+                ((payload.get("choices") or [{}])[0].get("message") or {}).get("role")
+            ),
+        }
+    )
+
+
 def cmd_web_search(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.web_search import web_search
     sources = tuple(s.strip() for s in args.source.split(",") if s.strip())
@@ -2402,6 +2543,53 @@ def _build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("docs", help="show local FASTEXPR docs")
     sp.add_argument("topic", choices=["operators"])
     sp.set_defaults(func=cmd_docs)
+
+    sp = sub.add_parser("ping-llm",
+                        help="health-check the configured LLM endpoint before "
+                             "launching an agent loop")
+    sp.add_argument("--base-url", default=None,
+                    help="override OPENAI_BASE_URL")
+    sp.add_argument("--api-key", default=None,
+                    help="override OPENAI_API_KEY (avoid; prefer env)")
+    sp.add_argument("--model", default=None,
+                    help="override OPENAI_MODEL")
+    sp.add_argument("--timeout", type=float, default=15.0,
+                    help="request timeout in seconds (default 15)")
+    sp.set_defaults(func=cmd_ping_llm)
+
+    sp = sub.add_parser(
+        "colony",
+        help="multi-ant colony: one ant per (region, universe) panel with "
+             "L1/L2 pheromone fan-out",
+    )
+    csub = sp.add_subparsers(dest="colony_cmd", required=True)
+    sc = csub.add_parser("run", help="run a colony sequentially")
+    sc.add_argument("--colony-tag", required=True,
+                    help="unique tag for this colony run (used in artifact paths)")
+    sc.add_argument("--panels", required=True,
+                    help="REGION:UNIVERSE,REGION:UNIVERSE,...  e.g. "
+                         "USA:TOP500,USA:TOP1000,USA:TOP3000")
+    sc.add_argument("--panel-tag-prefix", default="",
+                    help="tag prefix per panel; defaults to <colony-tag>_panel")
+    sc.add_argument("--cli", default="opencode",
+                    help="agent CLI: opencode | hermes | auto")
+    sc.add_argument("--model", default="",
+                    help="LLM model id for the agent CLI (required)")
+    sc.add_argument("--provider", default="",
+                    help="optional provider hint for the agent CLI")
+    sc.add_argument("--toolsets", default="terminal,file")
+    sc.add_argument("--reasoning-effort", default="")
+    sc.add_argument("--no-yolo", action="store_true",
+                    help="disable opencode --yolo")
+    sc.add_argument("--max-turns", type=int, default=12)
+    sc.add_argument("--decay", type=int, default=6)
+    sc.add_argument("--neutralization", default="SUBINDUSTRY")
+    sc.add_argument("--truncation", type=float, default=0.08)
+    sc.add_argument("--quality-sharpe-min", type=float, default=1.25)
+    sc.add_argument("--quality-fitness-min", type=float, default=1.0)
+    sc.add_argument("--no-auto-submit", action="store_true")
+    sc.add_argument("--timeout-sec", type=float, default=900.0)
+    sc.set_defaults(func=cmd_colony_run)
 
     sp = sub.add_parser("web-search", help="general web search (Brave/Wikipedia/GitHub fallback)")
     sp.add_argument("query")
