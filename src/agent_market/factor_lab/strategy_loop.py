@@ -2143,6 +2143,7 @@ def build_rank_profile_repair_queue(
             anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
             anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), _coerce_finite_float(base.get("max_entry_atr_pct"), 0.05))
             anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_side = str(anchor_profile.get("side_mode") or "short").strip().lower()
             current_market_mom = anchor_profile.get("short_max_market_mom_24h")
             market_mom_cap = min(_coerce_finite_float(current_market_mom, 0.03), 0.03)
             current_regime_mom = anchor_profile.get("regime_short_max_market_mom_24h")
@@ -2182,6 +2183,32 @@ def build_rank_profile_repair_queue(
                             "recover a small validation trade deficit after robust filters reduced participation",
                         ),
                     ]
+                )
+            if anchor_side == "short":
+                anchor_specs.extend(
+                    [
+                        (
+                            "validation_side_both",
+                            "validation_side_structure_repair",
+                            {"side_mode": "both", "long_min_mom_24h": 0.0},
+                            "test whether validation loss is a short-only regime failure while preserving short eligibility",
+                        ),
+                        (
+                            "validation_side_long",
+                            "validation_side_structure_repair",
+                            {"side_mode": "long", "long_min_mom_24h": 0.0},
+                            "test a structural direction flip after repeated short-only validation losses",
+                        ),
+                    ]
+                )
+            elif anchor_side == "both":
+                anchor_specs.append(
+                    (
+                        "validation_side_long",
+                        "validation_side_structure_repair",
+                        {"side_mode": "long", "long_min_mom_24h": 0.0},
+                        "test long-only exposure after mixed-side validation loss",
+                    )
                 )
             anchor_specs.extend(
                 [
