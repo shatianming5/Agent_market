@@ -24,7 +24,9 @@ Design choices for MVP:
 from __future__ import annotations
 
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -362,82 +364,162 @@ def colony_run_dir(colony_tag: str) -> Path:
     return wq_brain_root() / "colony" / colony_tag
 
 
+_TELEMETRY_LOCK = threading.Lock()
+
+
+def telemetry_path(colony_tag: str) -> Path:
+    """Path to the per-colony telemetry JSONL stream."""
+    return colony_run_dir(colony_tag) / "telemetry.jsonl"
+
+
+def write_telemetry(colony_tag: str, event: dict[str, Any]) -> None:
+    """Append a telemetry event row. Safe under thread + process parallelism."""
+    path = telemetry_path(colony_tag)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(event, default=str) + "\n"
+    with _TELEMETRY_LOCK:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+
+
+def _execute_panel(
+    config: ColonyConfig,
+    idx: int,
+    panel: PanelSpec,
+    runner: Callable[[AgentConfig], dict[str, Any]],
+) -> dict[str, Any]:
+    """One panel's full run-cycle. Safe to call concurrently per panel."""
+    injected = inject_cache_into_panel(config.colony_tag, panel)
+    decision = compute_panel_routing_advisory(
+        config.colony_tag, panel, source_panels=config.panels[:idx]
+    )
+    write_panel_routing_advisory(config.colony_tag, panel.tag, decision)
+    agent_cfg = panel.to_agent_config(
+        cli=config.cli,
+        model=config.model,
+        timeout_sec=config.timeout_sec,
+        provider=config.provider,
+        toolsets=config.toolsets,
+        yolo=config.yolo,
+        reasoning_effort=config.reasoning_effort,
+    )
+    panel_start = time.time()
+    write_telemetry(config.colony_tag, {
+        "ts": panel_start,
+        "event": "panel_start",
+        "panel_index": idx,
+        "panel_tag": panel.tag,
+        "region": panel.region,
+        "universe": panel.universe,
+        "routing_action": decision.action,
+        "routing_altitude": decision.target_altitude,
+        "shared_pheromones_injected": injected,
+    })
+    result = runner(agent_cfg)
+    elapsed = max(time.time() - panel_start, 0.0)
+    cache_kept = write_panel_pheromones_to_cache(config.colony_tag, panel)
+    write_telemetry(config.colony_tag, {
+        "ts": time.time(),
+        "event": "panel_end",
+        "panel_index": idx,
+        "panel_tag": panel.tag,
+        "elapsed_sec": elapsed,
+        "cache_kept_after_run": cache_kept,
+        "result": result,
+    })
+    return {
+        "panel_index": idx,
+        "panel_tag": panel.tag,
+        "region": panel.region,
+        "universe": panel.universe,
+        "shared_pheromones_injected": injected,
+        "routing_advisory": decision.to_dict(),
+        "cache_kept_after_run": cache_kept,
+        "elapsed_sec": elapsed,
+        "result": result,
+    }
+
+
 def run_colony(
     config: ColonyConfig,
     *,
     runner: Callable[[AgentConfig], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Run each panel sequentially, fanning out L1/L2 pheromones in order.
+    """Run all panels with optional thread parallelism.
 
     Returns a manifest dict summarising the colony run. The optional
     ``runner`` parameter lets tests stub out ``run_agent`` without spawning
     real subprocesses; when omitted, the module-level ``run_agent`` symbol
     is looked up at call time so ``unittest.mock.patch`` works as expected.
+
+    ``ColonyConfig.workers`` selects parallelism:
+
+      * ``workers ≤ 1`` (default) → sequential, identical to the prior
+        Phase-3 MVP behaviour. Pheromone fan-out propagates each panel's
+        evidence to the next, so ordering is deterministic.
+      * ``workers > 1`` → ThreadPoolExecutor with ``workers`` threads. Each
+        panel still runs ``inject → routing → runner → write_cache``, but
+        the cache + telemetry files coordinate via flock so parallel
+        writers never corrupt them.
     """
     if not config.panels:
         raise ValueError("colony has no panels")
     if not config.model:
         raise ValueError("colony model is empty — set ColonyConfig.model")
     if runner is None:
-        # Re-resolve at call time so monkeypatch / mock.patch can swap it.
         from . import colony as _self_mod
         runner = _self_mod.run_agent
 
     run_dir = colony_run_dir(config.colony_tag)
     run_dir.mkdir(parents=True, exist_ok=True)
-
     started_at = time.time()
+    write_telemetry(config.colony_tag, {
+        "ts": started_at,
+        "event": "colony_start",
+        "colony_tag": config.colony_tag,
+        "panel_count": len(config.panels),
+        "workers": config.workers,
+        "model": config.model,
+    })
+
     panel_summaries: list[dict[str, Any]] = []
-
-    for idx, panel in enumerate(config.panels):
-        # Read cache top-K into this panel's tried_log so the agent prompt
-        # sees colony evidence from all prior panels.
-        injected = inject_cache_into_panel(config.colony_tag, panel)
-        # Compute and persist a routing advisory for this panel.
-        decision = compute_panel_routing_advisory(
-            config.colony_tag, panel, source_panels=config.panels[:idx]
-        )
-        write_panel_routing_advisory(config.colony_tag, panel.tag, decision)
-
-        agent_cfg = panel.to_agent_config(
-            cli=config.cli,
-            model=config.model,
-            timeout_sec=config.timeout_sec,
-            provider=config.provider,
-            toolsets=config.toolsets,
-            yolo=config.yolo,
-            reasoning_effort=config.reasoning_effort,
-        )
-        panel_start = time.time()
-        result = runner(agent_cfg)
-        # After the panel finishes, push its newly-found L1/L2 rows into
-        # the cache for the next panel(s) to consume.
-        cache_kept = write_panel_pheromones_to_cache(config.colony_tag, panel)
-        panel_summaries.append(
-            {
-                "panel_index": idx,
-                "panel_tag": panel.tag,
-                "region": panel.region,
-                "universe": panel.universe,
-                "shared_pheromones_injected": injected,
-                "routing_advisory": decision.to_dict(),
-                "cache_kept_after_run": cache_kept,
-                "elapsed_sec": max(time.time() - panel_start, 0.0),
-                "result": result,
+    workers = max(int(config.workers or 1), 1)
+    if workers == 1:
+        for idx, panel in enumerate(config.panels):
+            panel_summaries.append(_execute_panel(config, idx, panel, runner))
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_execute_panel, config, idx, panel, runner): idx
+                for idx, panel in enumerate(config.panels)
             }
-        )
+            partial: list[dict[str, Any]] = []
+            for fut in as_completed(futures):
+                partial.append(fut.result())
+            partial.sort(key=lambda s: s["panel_index"])
+            panel_summaries.extend(partial)
 
+    ended_at = time.time()
     manifest = {
         "colony_tag": config.colony_tag,
         "started_at": started_at,
-        "ended_at": time.time(),
+        "ended_at": ended_at,
         "cli": config.cli,
         "model": config.model,
         "timeout_sec": config.timeout_sec,
+        "workers": workers,
         "panels": [asdict(p) for p in config.panels],
         "panel_summaries": panel_summaries,
     }
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, default=str), encoding="utf-8"
     )
+    write_telemetry(config.colony_tag, {
+        "ts": ended_at,
+        "event": "colony_end",
+        "colony_tag": config.colony_tag,
+        "panel_count": len(config.panels),
+        "elapsed_sec": ended_at - started_at,
+    })
     return manifest
