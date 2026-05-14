@@ -1834,6 +1834,105 @@ def test_rank_profile_repair_queue_self_anchors_search_trade_near_misses(tmp_pat
     assert candidate["metadata"]["parent_anchor"] == "iteration_43"
 
 
+def test_rank_profile_repair_queue_defers_search_trade_after_repeated_validation_losses(tmp_path: Path) -> None:
+    base_profile = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 1,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.51,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.038,
+        "max_entry_atr_pct": 0.05,
+        "regime_mode": "hq",
+        "regime_min_edge_ic": 0.01,
+        "regime_min_pair_edge_ic": 0.01,
+        "regime_min_pair_count": 3,
+        "regime_short_max_market_mom_24h": 0.03,
+        "regime_max_market_atr_pct": 0.04,
+    }
+    search_near_miss = {**base_profile, "min_abs_score_z": 1.54}
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_validation_loss_defers_search_trade",
+        run_id="unit_validation_loss_defers_search_trade_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 44,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "search_trade_near_miss",
+                "rank_profile": search_near_miss,
+            },
+            "parameter_signature": rank_profile_signature(search_near_miss),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": 39.5,
+                        "max_drawdown_pct": 6.5,
+                        "profit_over_max_drawdown": 6.1,
+                        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] - 2,
+                    },
+                    "violations": ["trades=52 < 54"],
+                }
+            },
+        }
+    ]
+    for iteration, validation_profit, search_pdd in ((41, -2.8, 5.0), (46, -2.87, 5.8), (49, -1.81, 6.4)):
+        row_profile = {**base_profile, "min_abs_score_z": 1.48 + iteration / 1000.0}
+        rows.append(
+            {
+                "run_id": cfg.run_id,
+                "iteration": iteration,
+                "candidate": {
+                    "candidate_type": "rank_profile",
+                    "name": f"validation_loss_{iteration}",
+                    "rank_profile": row_profile,
+                },
+                "parameter_signature": rank_profile_signature(row_profile),
+                "window_metrics": {
+                    "search": {
+                        "constraints_ok": True,
+                        "research_metrics": {
+                            "profit_pct": 35.0 + iteration / 10.0,
+                            "max_drawdown_pct": 6.0,
+                            "profit_over_max_drawdown": search_pdd,
+                            "trades": 58,
+                        },
+                        "violations": [],
+                    },
+                    "validation": {
+                        "constraints_ok": False,
+                        "research_metrics": {
+                            "profit_pct": validation_profit,
+                            "max_drawdown_pct": 5.5,
+                            "profit_over_max_drawdown": validation_profit / 5.5,
+                            "trades": scaled_gate_values(cfg, cfg.validation_timerange)["min_trades"] - 3,
+                        },
+                        "violations": ["research: validation loss after search pass"],
+                    },
+                },
+            }
+        )
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_validation_repair"
+    assert queue[0]["metadata"]["hypothesis_family"] == "validation_factor_subset_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_49"
+
+
 def test_rank_profile_repair_queue_prioritizes_validation_failures(tmp_path: Path) -> None:
     near_pdd = {
         "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",

@@ -2130,8 +2130,16 @@ def build_rank_profile_repair_queue(
     seen_profiles: set[str] = set()
     tried_profiles = {str(row.get("parameter_signature")) for row in rows if isinstance(row, Mapping) and row.get("parameter_signature")}
 
+    validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
+    validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
+    validation_losses = validation_hints.get("validation_loss_after_search_pass") if isinstance(validation_hints, Mapping) else []
+    persistent_validation_loss = isinstance(validation_losses, Sequence) and len(validation_losses) >= 3
+    defer_search_trade_repairs = bool(
+        persistent_validation_loss and isinstance(validation_failures, Sequence) and validation_failures
+    )
+
     near_trade_misses = hints.get("near_miss_trade_gate") if isinstance(hints, Mapping) else []
-    if not has_baseline and isinstance(near_trade_misses, Sequence):
+    if not has_baseline and isinstance(near_trade_misses, Sequence) and not defer_search_trade_repairs:
         for anchor in near_trade_misses[:2]:
             if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
                 continue
@@ -2210,10 +2218,6 @@ def build_rank_profile_repair_queue(
                     }
                 )
 
-    validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
-    validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
-    validation_losses = validation_hints.get("validation_loss_after_search_pass") if isinstance(validation_hints, Mapping) else []
-    persistent_validation_loss = isinstance(validation_losses, Sequence) and len(validation_losses) >= 3
     if isinstance(validation_failures, Sequence):
         for anchor in validation_failures[:2]:
             if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
@@ -2335,7 +2339,7 @@ def build_rank_profile_repair_queue(
                     signature = rank_profile_signature(profile, default_n=config.n)
                 except Exception:
                     continue
-                if signature in seen_profiles or profile == anchor_profile:
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
                     continue
                 seen_profiles.add(signature)
                 structural_change = any(
@@ -2390,7 +2394,7 @@ def build_rank_profile_repair_queue(
                     signature = rank_profile_signature(profile, default_n=config.n)
                 except Exception:
                     continue
-                if signature in seen_profiles or profile == anchor_profile:
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
                     continue
                 seen_profiles.add(signature)
                 candidates.append(
@@ -2418,7 +2422,7 @@ def build_rank_profile_repair_queue(
             signature = rank_profile_signature(profile, default_n=config.n)
         except Exception:
             continue
-        if signature in seen_profiles or profile == base:
+        if signature in seen_profiles or signature in tried_profiles or profile == base:
             continue
         seen_profiles.add(signature)
         structural_change = any(key in STRUCTURAL_RANK_KEYS and profile.get(key) != base.get(key) for key in profile)
