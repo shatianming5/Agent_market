@@ -2236,6 +2236,7 @@ def cmd_colony_run(args: argparse.Namespace) -> None:
         yolo=not args.no_yolo,
         reasoning_effort=args.reasoning_effort,
         workers=int(getattr(args, "workers", 1) or 1),
+        workers_mode=str(getattr(args, "workers_mode", "thread") or "thread"),
     )
     manifest = run_colony(cfg)
     _emit({"ok": True, "manifest": manifest})
@@ -2987,8 +2988,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--no-auto-submit", action="store_true")
     sc.add_argument("--timeout-sec", type=float, default=900.0)
     sc.add_argument("--workers", type=int, default=1,
-                    help="thread-pool size; >1 enables parallel panels "
+                    help="pool size; >1 enables parallel panels "
                          "(default 1 — sequential)")
+    sc.add_argument("--workers-mode", default="thread",
+                    choices=("thread", "process"),
+                    help="thread → ThreadPoolExecutor (default, low overhead, "
+                         "good when run_agent already spawns subprocesses); "
+                         "process → ProcessPoolExecutor (true OS-level "
+                         "parallelism, needed for cross-machine cache work)")
     sc.set_defaults(func=cmd_colony_run)
 
     ss = csub.add_parser("status",

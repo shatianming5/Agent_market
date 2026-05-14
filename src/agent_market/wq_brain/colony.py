@@ -26,7 +26,11 @@ from __future__ import annotations
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -116,7 +120,8 @@ class ColonyConfig:
     toolsets: str = "terminal,file"
     yolo: bool = True
     reasoning_effort: str = ""
-    workers: int = 1  # reserved for future parallelism
+    workers: int = 1  # >1 enables parallel panels
+    workers_mode: str = "thread"  # ``thread`` | ``process``
     # ``AGENT_MARKET_ARTIFACTS_ROOT`` env var controls where artifacts go.
     # Tests can monkeypatch it via ``monkeypatch.setenv``.
 
@@ -487,11 +492,16 @@ def run_colony(
 
     panel_summaries: list[dict[str, Any]] = []
     workers = max(int(config.workers or 1), 1)
+    workers_mode = (config.workers_mode or "thread").lower()
     if workers == 1:
         for idx, panel in enumerate(config.panels):
             panel_summaries.append(_execute_panel(config, idx, panel, runner))
     else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        if workers_mode == "process":
+            executor_cls = ProcessPoolExecutor
+        else:
+            executor_cls = ThreadPoolExecutor
+        with executor_cls(max_workers=workers) as pool:
             futures = {
                 pool.submit(_execute_panel, config, idx, panel, runner): idx
                 for idx, panel in enumerate(config.panels)
@@ -511,6 +521,7 @@ def run_colony(
         "model": config.model,
         "timeout_sec": config.timeout_sec,
         "workers": workers,
+        "workers_mode": workers_mode,
         "panels": [asdict(p) for p in config.panels],
         "panel_summaries": panel_summaries,
     }
