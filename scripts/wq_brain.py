@@ -97,7 +97,12 @@ def cmd_simulate(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.paths import alpha_pool_path, tried_exprs_path
     from agent_market.wq_brain.pool import AlphaPool
     from agent_market.wq_brain.quota_monitor import release_action, reserve_action
-    from agent_market.wq_brain.tried_log import append_tried
+    from agent_market.wq_brain.tried_log import (
+        append_tried,
+        classify_altitude,
+        read_tried,
+        utility_score,
+    )
     settings = AlphaSettings(
         region=args.region, universe=args.universe, decay=args.decay,
         neutralization=args.neutralization, truncation=args.truncation,
@@ -130,6 +135,43 @@ def cmd_simulate(args: argparse.Namespace) -> None:
         network_called = True
         result = sess.simulate_and_parse(args.expr, settings, timeout=args.timeout)
         if args.tag:
+            parent_row = None
+            parent_alpha_id = getattr(args, "parent_alpha_id", None) or None
+            if parent_alpha_id:
+                for row in reversed(read_tried(tried_exprs_path(args.tag), tail=2000)):
+                    if (row.get("alpha_id") or "") == parent_alpha_id:
+                        parent_row = row
+                        break
+            altitude = None
+            delta_u = None
+            child_view = {
+                "expr": args.expr,
+                "region": args.region,
+                "universe": args.universe,
+            }
+            if parent_row is not None:
+                altitude = classify_altitude(parent_row, child_view)
+                if result.sharpe is not None and result.fitness is not None:
+                    delta_u = (
+                        utility_score(
+                            sharpe=result.sharpe,
+                            fitness=result.fitness,
+                            turnover=result.turnover,
+                        )
+                        - utility_score(
+                            sharpe=parent_row.get("sharpe"),
+                            fitness=parent_row.get("fitness"),
+                            turnover=parent_row.get("turnover"),
+                        )
+                    )
+            elif parent_alpha_id:
+                # Parent id given but not found in log → still tag the row so
+                # we can see the *intended* parent in the prompt trail.
+                altitude = "L1_region_universe"
+            evidence_type = (
+                getattr(args, "evidence_type", None)
+                or ("manual" if not parent_alpha_id else "mutation")
+            )
             append_tried(
                 tried_exprs_path(args.tag),
                 expr=args.expr,
@@ -142,6 +184,10 @@ def cmd_simulate(args: argparse.Namespace) -> None:
                 region=args.region,
                 universe=args.universe,
                 decay=args.decay,
+                evidence_type=evidence_type,
+                altitude=altitude,
+                parent_alpha_id=parent_alpha_id,
+                delta_U=delta_u,
             )
         out: dict[str, Any] = {"ok": True, "expr": args.expr, **result.to_dict()}
         if quota["status"] == "throttle":
@@ -2164,6 +2210,16 @@ def _build_parser() -> argparse.ArgumentParser:
                          "Set to 999 to disable auto-persist.")
     sp.add_argument("--auto-persist-fitness", type=float, default=1.0,
                     help="see --auto-persist-sharpe")
+    sp.add_argument("--parent-alpha-id", default=None,
+                    help="alpha_id of the parent expression that this candidate "
+                         "was derived from; if supplied, altitude and ΔU are "
+                         "auto-computed against the parent's tried_log row")
+    sp.add_argument("--evidence-type", default=None,
+                    help="override the evidence_type label written to tried_log "
+                         "(e.g. seed/mutation/crossover/region_swap/op_swap/"
+                         "param_shift/decay_shift/neutralization_swap/"
+                         "numeric_tweak); defaults to 'manual' when no parent "
+                         "is supplied, 'mutation' otherwise")
     sp.set_defaults(func=cmd_simulate)
 
     sp = sub.add_parser("submit", help="submit alpha to WQ PROD pool")
