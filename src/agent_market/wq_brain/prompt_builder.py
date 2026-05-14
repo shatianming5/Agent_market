@@ -25,6 +25,7 @@ tests can render prompts in a few ms.
 """
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from typing import Optional
@@ -404,6 +405,40 @@ def _altitude_taxonomy_block() -> str:
         "**Bubble-up rule**: 2 consecutive L4 edits MUST be followed by L2 "
         "or L1 — pure field swaps in the same operator stack produce signals "
         "that WQ self-correlation rejects as duplicates."
+    )
+
+
+def _routing_advisory_block(tag: str) -> str:
+    """Render the colony routing advisory for ``tag`` if one exists.
+
+    Looks for advisories produced by the colony controller at
+    ``<wq_brain_root>/colony/*/routing/<tag>.json``. The first matching file
+    wins; if there is none, returns an empty string and the rest of the
+    prompt is unaffected.
+    """
+    from .paths import wq_brain_root
+    base = wq_brain_root() / "colony"
+    if not base.exists():
+        return ""
+    matches = list(base.glob(f"*/routing/{tag}.json"))
+    if not matches:
+        return ""
+    # Newest advisory wins.
+    matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    try:
+        data = json.loads(matches[0].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    action = data.get("action") or "?"
+    target = data.get("target_altitude") or "?"
+    rationale = data.get("rationale") or ""
+    inputs = data.get("inputs") or {}
+    return (
+        "### 🧭 COLONY ROUTING ADVISORY\n\n"
+        f"_The colony controller recommends action **{action.upper()}** at_\n"
+        f"_altitude **{target}** for this panel._\n\n"
+        f"**Rationale**: {rationale}\n\n"
+        f"_(Inputs: {inputs})_"
     )
 
 
@@ -872,6 +907,10 @@ def _build_prior_knowledge_block(
                     f"{e.fitness:.2f} | {e.turnover:.2f} |"
                 )
             parts.append("\n".join(lines))
+
+    routing_block = _routing_advisory_block(tag)
+    if routing_block:
+        parts.append(routing_block)
 
     tried = read_tried(tried_exprs_path(tag), tail=max_tried * 4)
     if tried:

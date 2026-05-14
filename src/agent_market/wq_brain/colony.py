@@ -37,6 +37,7 @@ from .pheromone_cache import (
     top_links,
     write_links,
 )
+from .routing import RoutingDecision, decide, state_from_rows
 from .tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,
     ALTITUDE_L2_OP_FAMILY,
@@ -212,6 +213,56 @@ def write_panel_pheromones_to_cache(
     return write_links(colony_tag, _rows_to_links(shareable, source_tag=panel.tag))
 
 
+def routing_advisory_path(colony_tag: str, panel_tag: str) -> Path:
+    """Path of the routing advisory JSON the panel's prompt will pick up."""
+    from .paths import wq_brain_root
+    return (
+        wq_brain_root() / "colony" / colony_tag / "routing" / f"{panel_tag}.json"
+    )
+
+
+def compute_panel_routing_advisory(
+    colony_tag: str,
+    target_panel: PanelSpec,
+    *,
+    source_panels: Sequence[PanelSpec] = (),
+    diagnosis_scope: str = "local",
+) -> RoutingDecision:
+    """Compute the routing decision the *target* panel should receive.
+
+    Combines the target panel's own tried_log tail with cache-wide conflict
+    counts to populate ``RoutingState`` then calls :func:`decide`.
+    """
+    rows: list[dict[str, Any]] = []
+    target_path = tried_exprs_path(target_panel.tag)
+    if target_path.exists():
+        rows.extend(read_tried(target_path, tail=200))
+    # Conflict signal: max stored conflicts across cache links.
+    cache = read_cache(colony_tag)
+    conflict_counts = [
+        float(link.conflicts)
+        for bucket in cache.values()
+        for link in bucket
+    ]
+    chi = max(conflict_counts, default=0.0)
+    state = state_from_rows(rows, cross_panel_conflict=chi,
+                            diagnosis_scope=diagnosis_scope)
+    return decide(state)
+
+
+def write_panel_routing_advisory(
+    colony_tag: str, panel_tag: str, decision: RoutingDecision
+) -> Path:
+    """Persist a routing advisory so prompt_builder can render it."""
+    path = routing_advisory_path(colony_tag, panel_tag)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(decision.to_dict(), indent=2, default=str),
+        encoding="utf-8",
+    )
+    return path
+
+
 def inject_cache_into_panel(
     colony_tag: str,
     target_panel: PanelSpec,
@@ -338,6 +389,11 @@ def run_colony(
         # Read cache top-K into this panel's tried_log so the agent prompt
         # sees colony evidence from all prior panels.
         injected = inject_cache_into_panel(config.colony_tag, panel)
+        # Compute and persist a routing advisory for this panel.
+        decision = compute_panel_routing_advisory(
+            config.colony_tag, panel, source_panels=config.panels[:idx]
+        )
+        write_panel_routing_advisory(config.colony_tag, panel.tag, decision)
 
         agent_cfg = panel.to_agent_config(
             cli=config.cli,
@@ -360,6 +416,7 @@ def run_colony(
                 "region": panel.region,
                 "universe": panel.universe,
                 "shared_pheromones_injected": injected,
+                "routing_advisory": decision.to_dict(),
                 "cache_kept_after_run": cache_kept,
                 "elapsed_sec": max(time.time() - panel_start, 0.0),
                 "result": result,
