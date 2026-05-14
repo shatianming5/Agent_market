@@ -2021,7 +2021,7 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
             "violations": validation_window.get("violations") or row.get("violations") or [],
             "rank_profile": dict(profile),
         }
-        if trades >= min_trades and pdd < min_pdd:
+        if trades < min_trades or pdd < min_pdd:
             validation_pdd_failures.append(compact)
         if profit <= 0.0:
             validation_losses.append(compact)
@@ -2056,6 +2056,7 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
         "validation_loss_after_search_pass": validation_losses[:5],
         "recommended_repair_order": [
             "enable hq regime filters with minimum edge and market-momentum caps",
+            "if the best validation-fail repair is close but below min_trades, recover trades with top_k+1 or z-0.01 around that anchor",
             "tighten min_abs_score_z by 0.02-0.05 around the search-pass validation-fail anchor",
             "reduce top_k or market/ATR exposure before reducing risk sizing alone",
             "do not keep optimizing search P/DD while validation P/DD is negative",
@@ -2148,6 +2149,7 @@ def build_rank_profile_repair_queue(
             regime_market_cap = min(_coerce_finite_float(current_regime_mom, 0.03), 0.03)
             current_regime_atr = anchor_profile.get("regime_max_market_atr_pct")
             regime_atr_cap = min(_coerce_finite_float(current_regime_atr, 0.04), 0.04)
+            validation_trade_gap = _coerce_int(anchor.get("validation_trades_gap"), 0)
             anchor_iter = anchor.get("iteration")
             anchor_specs = [
                 (
@@ -2163,13 +2165,34 @@ def build_rank_profile_repair_queue(
                     },
                     "filter entries to higher-quality cross-sectional and market regimes after validation loss",
                 ),
-                ("validation_z_plus_002", "validation_entry_quality_repair", {"min_abs_score_z": anchor_z + 0.02}, "tighten entry z after search passed but validation P/DD failed"),
-                ("validation_topk_minus_1", "validation_breadth_repair", {"top_k": max(1, anchor_top_k - 1)}, "reduce breadth after validation loss while preserving the anchor structure"),
-                ("validation_market_mom_030", "validation_market_momentum_filter_repair", {"short_max_market_mom_24h": market_mom_cap}, "avoid new shorts when broad market momentum is too strong"),
-                ("validation_atr_minus_010", "validation_tail_filter_repair", {"max_entry_atr_pct": anchor_atr - 0.01}, "tighten ATR exposure after validation drawdown failed"),
-                ("validation_risk_minus_20pct", "validation_risk_repair", {"risk_per_trade": anchor_risk * 0.8}, "reduce sizing only after adding robustness-oriented validation repairs"),
-                ("validation_short_mom_minus_004", "validation_pair_momentum_filter_repair", {"short_max_mom_24h": anchor_short_mom - 0.004}, "avoid shorting high-momentum pairs in the validation window"),
             ]
+            if validation_trade_gap > 0:
+                anchor_specs.extend(
+                    [
+                        (
+                            "validation_trade_topk_plus_1",
+                            "validation_trade_repair_after_regime",
+                            {"top_k": min(10, anchor_top_k + 1)},
+                            "recover validation trade count from the best validation-fail anchor without changing side or risk",
+                        ),
+                        (
+                            "validation_trade_z_minus_001",
+                            "validation_trade_repair_after_regime",
+                            {"min_abs_score_z": anchor_z - 0.01},
+                            "recover a small validation trade deficit after robust filters reduced participation",
+                        ),
+                    ]
+                )
+            anchor_specs.extend(
+                [
+                    ("validation_z_plus_002", "validation_entry_quality_repair", {"min_abs_score_z": anchor_z + 0.02}, "tighten entry z after search passed but validation P/DD failed"),
+                    ("validation_topk_minus_1", "validation_breadth_repair", {"top_k": max(1, anchor_top_k - 1)}, "reduce breadth after validation loss while preserving the anchor structure"),
+                    ("validation_market_mom_030", "validation_market_momentum_filter_repair", {"short_max_market_mom_24h": market_mom_cap}, "avoid new shorts when broad market momentum is too strong"),
+                    ("validation_atr_minus_010", "validation_tail_filter_repair", {"max_entry_atr_pct": anchor_atr - 0.01}, "tighten ATR exposure after validation drawdown failed"),
+                    ("validation_risk_minus_20pct", "validation_risk_repair", {"risk_per_trade": anchor_risk * 0.8}, "reduce sizing only after adding robustness-oriented validation repairs"),
+                    ("validation_short_mom_minus_004", "validation_pair_momentum_filter_repair", {"short_max_mom_24h": anchor_short_mom - 0.004}, "avoid shorting high-momentum pairs in the validation window"),
+                ]
+            )
             for raw_name, family, changes, tradeoff in anchor_specs:
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)

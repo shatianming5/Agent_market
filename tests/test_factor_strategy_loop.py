@@ -1859,6 +1859,75 @@ def test_rank_profile_repair_queue_prioritizes_validation_failures(tmp_path: Pat
     assert candidate["metadata"]["parent_anchor"] == "iteration_21"
 
 
+def test_rank_profile_repair_queue_recovers_validation_trade_gap_after_regime(tmp_path: Path) -> None:
+    anchor = {
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 2,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.48,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 4.0,
+        "short_max_mom_24h": 0.038,
+        "max_entry_atr_pct": 0.05,
+        "regime_mode": "hq",
+        "regime_min_edge_ic": 0.01,
+        "regime_min_pair_edge_ic": 0.01,
+        "regime_min_pair_count": 3,
+        "regime_short_max_market_mom_24h": 0.03,
+        "regime_max_market_atr_pct": 0.04,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_validation_trade_repair",
+        run_id="unit_validation_trade_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 25,
+            "candidate": {"candidate_type": "rank_profile", "name": "validation_regime", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 35.7,
+                        "max_drawdown_pct": 6.5,
+                        "profit_over_max_drawdown": 5.45,
+                        "trades": 60,
+                    },
+                    "violations": [],
+                },
+                "validation": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": -2.1,
+                        "max_drawdown_pct": 5.5,
+                        "profit_over_max_drawdown": -0.38,
+                        "trades": scaled_gate_values(cfg, cfg.validation_timerange)["min_trades"] - 3,
+                    },
+                    "violations": ["research: trades=16 < 19"],
+                },
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_validation_repair"
+    assert queue[0]["metadata"]["hypothesis_family"] == "validation_trade_repair_after_regime"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_25"
+    assert queue[0]["rank_profile"]["top_k"] == 3
+    assert queue[0]["rank_profile"]["regime_mode"] == "hq"
+
+
 def test_triple_holdout_promotion_requires_blind_and_passed_verification(tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_triple_promote",
