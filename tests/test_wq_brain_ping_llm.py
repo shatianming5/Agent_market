@@ -94,6 +94,50 @@ def test_ping_llm_emits_http_status_on_http_error(cli_module, monkeypatch):
     assert "upstream timeout" in out["body"]
 
 
+def test_ping_llm_strips_trailing_v1_from_base_url(cli_module, monkeypatch):
+    """When OPENAI_BASE_URL already ends in /v1 we must not append /v1 again."""
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_MODEL", "MiniMax-M2.7-highspeed")
+
+    captured_urls: list[str] = []
+
+    def fake_urlopen(req, timeout=None):
+        captured_urls.append(req.full_url)
+        return _fake_urlopen_response({"choices": [], "usage": {}})
+
+    buf = io.StringIO()
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+            redirect_stdout(buf), pytest.raises(SystemExit) as excinfo:
+        parser = cli_module._build_parser()
+        args = parser.parse_args(["ping-llm"])
+        args.func(args)
+
+    assert excinfo.value.code == 0
+    assert captured_urls == ["https://example.test/v1/chat/completions"]
+
+
+def test_ping_llm_appends_v1_when_base_url_is_host_root(cli_module, monkeypatch):
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_MODEL", "MiniMax-M2.7-highspeed")
+
+    captured_urls: list[str] = []
+
+    def fake_urlopen(req, timeout=None):
+        captured_urls.append(req.full_url)
+        return _fake_urlopen_response({"choices": [], "usage": {}})
+
+    buf = io.StringIO()
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen), \
+            redirect_stdout(buf), pytest.raises(SystemExit):
+        parser = cli_module._build_parser()
+        args = parser.parse_args(["ping-llm"])
+        args.func(args)
+
+    assert captured_urls == ["https://example.test/v1/chat/completions"]
+
+
 def test_ping_llm_emits_missing_env_error(cli_module, monkeypatch):
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)

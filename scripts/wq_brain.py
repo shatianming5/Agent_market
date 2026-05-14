@@ -1922,7 +1922,12 @@ def cmd_ping_llm(args: argparse.Namespace) -> None:
             "messages": [{"role": "user", "content": "ping"}],
         }
     ).encode("utf-8")
-    url = f"{base}/v1/chat/completions"
+    # OPENAI_BASE_URL is allowed to end with /v1 or be the host root; normalise
+    # so we never end up with /v1/v1/chat/completions (404 on most providers).
+    if base.endswith("/v1") or base.endswith("/v1/"):
+        url = base.rstrip("/") + "/chat/completions"
+    else:
+        url = base + "/v1/chat/completions"
     req = urllib.request.Request(
         url,
         data=body,
