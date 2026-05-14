@@ -210,9 +210,29 @@ def cmd_simulate(args: argparse.Namespace) -> None:
                 parent_alpha_id=parent_alpha_id,
                 delta_U=delta_u,
             )
+            colony_tag = getattr(args, "colony_tag", None) or ""
+            if colony_tag:
+                from agent_market.wq_brain.colony_state import update_best_so_far
+                _, bsf_updated = update_best_so_far(
+                    colony_tag,
+                    args.tag,
+                    alpha_id=result.alpha_id,
+                    expr=args.expr,
+                    sharpe=result.sharpe,
+                    fitness=result.fitness,
+                    turnover=result.turnover,
+                    delta_U=delta_u,
+                )
+                if bsf_updated:
+                    # Let callers know they've set a new high-water mark.
+                    # Surfaced in the simulate response so the colony log can
+                    # promote the candidate immediately.
+                    setattr(args, "_bsf_updated", True)
         out: dict[str, Any] = {"ok": True, "expr": args.expr, **result.to_dict()}
         if quota["status"] == "throttle":
             out["quota_advisory"] = quota
+        if getattr(args, "_bsf_updated", False):
+            out["best_so_far_updated"] = True
 
         # Auto-persist passing candidates as UNSUBMITTED in the pool so a
         # later salvage / submit pass can reach them. Pre-fix, 70% of
@@ -1906,6 +1926,140 @@ def cmd_docs(args: argparse.Namespace) -> None:
         _emit({"ok": False, "error": f"unknown topic: {args.topic}"}, code=1)
 
 
+def cmd_colony_status(args: argparse.Namespace) -> None:
+    """Print best-so-far + cache summary for a colony tag."""
+    from agent_market.wq_brain.colony import colony_run_dir
+    from agent_market.wq_brain.colony_state import list_panel_bests
+    from agent_market.wq_brain.pheromone_cache import (
+        cache_path,
+        classify_uncertainty,
+        read_cache,
+    )
+
+    manifest_path = colony_run_dir(args.colony_tag) / "manifest.json"
+    manifest: Any = None
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except OSError:
+            manifest = None
+    bests = [b.to_dict() for b in list_panel_bests(args.colony_tag)]
+    cache = read_cache(args.colony_tag)
+    cache_summary = {
+        alt: {
+            "size": len(bucket),
+            "executed": sum(
+                1 for l in bucket
+                if classify_uncertainty(l) == "executed_verified"
+            ),
+            "low_support": sum(
+                1 for l in bucket
+                if classify_uncertainty(l) == "low_support"
+            ),
+            "disagreement_prone": sum(
+                1 for l in bucket
+                if classify_uncertainty(l) == "disagreement_prone"
+            ),
+        }
+        for alt, bucket in cache.items()
+    }
+    _emit(
+        {
+            "ok": True,
+            "colony_tag": args.colony_tag,
+            "cache_path": str(cache_path(args.colony_tag)),
+            "manifest": manifest,
+            "panel_bests": bests,
+            "cache_summary": cache_summary,
+        }
+    )
+
+
+def cmd_colony_pheromones_list(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.pheromone_cache import (
+        classify_uncertainty,
+        read_cache,
+        score,
+    )
+
+    cache = read_cache(args.colony_tag)
+    rows: list[dict[str, Any]] = []
+    for alt, bucket in cache.items():
+        for link in bucket:
+            rows.append(
+                {
+                    "altitude": alt,
+                    "alpha_id": link.alpha_id,
+                    "expr": link.expr,
+                    "sharpe": link.sharpe,
+                    "fitness": link.fitness,
+                    "turnover": link.turnover,
+                    "delta_U": link.delta_U,
+                    "evidence_type": link.evidence_type,
+                    "support": link.support,
+                    "conflicts": link.conflicts,
+                    "uncertainty": classify_uncertainty(link),
+                    "score": round(score(link), 4),
+                    "source_panel_tag": link.source_panel_tag,
+                    "ts": link.ts,
+                }
+            )
+    rows.sort(key=lambda r: -r["score"])
+    _emit(
+        {
+            "ok": True,
+            "colony_tag": args.colony_tag,
+            "count": len(rows),
+            "links": rows[: args.limit] if args.limit > 0 else rows,
+        }
+    )
+
+
+def cmd_colony_pheromones_show(args: argparse.Namespace) -> None:
+    from agent_market.wq_brain.pheromone_cache import (
+        classify_uncertainty,
+        read_cache,
+        score,
+    )
+
+    for bucket in read_cache(args.colony_tag).values():
+        for link in bucket:
+            if (link.alpha_id or "") == args.alpha_id:
+                payload = link.to_dict()
+                payload["uncertainty"] = classify_uncertainty(link)
+                payload["score"] = round(score(link), 4)
+                _emit({"ok": True, "link": payload})
+    _emit(
+        {"ok": False, "error": f"alpha_id={args.alpha_id} not in cache"},
+        code=1,
+    )
+
+
+def cmd_colony_reset(args: argparse.Namespace) -> None:
+    """Delete shared cache + routing advisories + best-so-far for a colony.
+
+    Manifest and per-panel run dirs are preserved so analysis remains
+    possible; only the *advisory layer* is wiped.
+    """
+    from agent_market.wq_brain.colony import colony_run_dir
+    from agent_market.wq_brain.pheromone_cache import cache_path
+
+    removed: list[str] = []
+    cp = cache_path(args.colony_tag)
+    if cp.exists():
+        cp.unlink()
+        removed.append(str(cp))
+    run_dir = colony_run_dir(args.colony_tag)
+    for sub in ("routing", "best_so_far"):
+        sub_dir = run_dir / sub
+        if sub_dir.exists():
+            for f in sub_dir.glob("*"):
+                if f.is_file():
+                    f.unlink()
+                    removed.append(str(f))
+    _emit({"ok": True, "colony_tag": args.colony_tag, "removed": removed})
+
+
 def cmd_colony_run(args: argparse.Namespace) -> None:
     """Run a wq_brain colony — one ant per (region, universe) panel.
 
@@ -2250,6 +2404,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cooldown-delta-flip", type=float, default=0.05,
                     help="cool-down ΔU threshold: same-slot retries are "
                          "allowed when the prior ΔU > this (default 0.05)")
+    sp.add_argument("--colony-tag", default=None,
+                    help="when set, update the panel's best-so-far record "
+                         "inside artifacts/wq_brain/colony/<colony-tag>/")
     sp.set_defaults(func=cmd_simulate)
 
     sp = sub.add_parser("submit", help="submit alpha to WQ PROD pool")
@@ -2681,6 +2838,31 @@ def _build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--no-auto-submit", action="store_true")
     sc.add_argument("--timeout-sec", type=float, default=900.0)
     sc.set_defaults(func=cmd_colony_run)
+
+    ss = csub.add_parser("status",
+                         help="show manifest + cache summary + panel bests")
+    ss.add_argument("--colony-tag", required=True)
+    ss.set_defaults(func=cmd_colony_status)
+
+    sph = csub.add_parser(
+        "pheromones",
+        help="inspect or manage entries in the shared pheromone cache",
+    )
+    psub = sph.add_subparsers(dest="pheromones_cmd", required=True)
+    pls = psub.add_parser("list",
+                          help="list cache entries sorted by score desc")
+    pls.add_argument("--colony-tag", required=True)
+    pls.add_argument("--limit", type=int, default=20,
+                     help="0 = no limit (default 20)")
+    pls.set_defaults(func=cmd_colony_pheromones_list)
+    psh = psub.add_parser("show", help="show full detail of one link")
+    psh.add_argument("--colony-tag", required=True)
+    psh.add_argument("--alpha-id", required=True)
+    psh.set_defaults(func=cmd_colony_pheromones_show)
+
+    sr = csub.add_parser("reset", help="wipe cache + routing + best-so-far")
+    sr.add_argument("--colony-tag", required=True)
+    sr.set_defaults(func=cmd_colony_reset)
 
     sp = sub.add_parser("web-search", help="general web search (Brave/Wikipedia/GitHub fallback)")
     sp.add_argument("query")

@@ -361,3 +361,31 @@ def top_links(
         )
         out.extend(ranked[:per_altitude])
     return out
+
+
+# Uncertainty tag taxonomy:
+#   * ``low_support`` — never re-used + older than half its altitude's TTL.
+#   * ``disagreement_prone`` — accumulated conflicts > 0.
+#   * ``executed_verified`` — supported AND not conflicted; safe to inherit
+#     as a hard constraint.
+UNCERTAINTY_LOW_SUPPORT = "low_support"
+UNCERTAINTY_DISAGREEMENT = "disagreement_prone"
+UNCERTAINTY_EXECUTED = "executed_verified"
+
+
+def classify_uncertainty(
+    link: PheromoneLink, *, now: Optional[float] = None
+) -> str:
+    """Return the uncertainty tag for a link.
+
+    The classifier is deterministic so callers (CLI, prompt-builder, gates)
+    all reach the same conclusion without ad-hoc heuristics.
+    """
+    now_ts = now if now is not None else _now()
+    if link.conflicts > 0:
+        return UNCERTAINTY_DISAGREEMENT
+    ttl = TTL_SECONDS.get(link.altitude, TTL_SECONDS[ALTITUDE_L4_NUMERIC_TWEAK])
+    age = max(now_ts - link.ts, 0.0)
+    if link.support == 0 and age > (ttl / 2.0):
+        return UNCERTAINTY_LOW_SUPPORT
+    return UNCERTAINTY_EXECUTED
