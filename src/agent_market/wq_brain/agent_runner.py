@@ -79,6 +79,9 @@ def _load_dotenv_into(env: dict[str, str], dotenv: Path) -> None:
 
 def _llm_cli_env(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
     env = os.environ.copy()
+    # .env.local wins over .env so `wq_brain endpoint failover` can pin a
+    # healthy endpoint without rewriting the user's primary .env file.
+    _load_dotenv_into(env, repo_root() / ".env.local")
     _load_dotenv_into(env, repo_root() / ".env")
     # Normalize the 3 documented base-URL aliases (README mentions
     # OPENAI_API_BASE in §195/209; OPENAI_BASE_URL in §46; LLM_BASE_URL is

@@ -2083,6 +2083,61 @@ def cmd_colony_reset(args: argparse.Namespace) -> None:
     _emit({"ok": True, "colony_tag": args.colony_tag, "removed": removed})
 
 
+def cmd_endpoint_failover(args: argparse.Namespace) -> None:
+    """Probe LLM endpoint candidates and pin the first healthy one."""
+    from agent_market.wq_brain.endpoint_probe import (
+        EndpointCandidate,
+        first_healthy,
+        load_candidates_from_env,
+        load_candidates_from_file,
+        probe_candidates,
+        write_env_local,
+    )
+    from agent_market.wq_brain.paths import repo_root
+
+    candidates: list[EndpointCandidate] = []
+    if args.candidates_file:
+        candidates = load_candidates_from_file(Path(args.candidates_file))
+    elif args.base_url and args.model:
+        candidates = [
+            EndpointCandidate(
+                base_url=args.base_url, model=args.model,
+                api_key=args.api_key, label="cli_override",
+            )
+        ]
+    else:
+        candidates = load_candidates_from_env()
+    if not candidates:
+        _emit(
+            {
+                "ok": False,
+                "error": "no candidates supplied — provide --candidates-file, "
+                         "--base-url/--model, or OPENAI_FALLBACK_ENDPOINTS env",
+            },
+            code=2,
+        )
+    probes = probe_candidates(candidates, timeout=args.timeout)
+    winner = first_healthy(probes)
+    payload: dict[str, Any] = {
+        "ok": winner is not None,
+        "candidates_count": len(candidates),
+        "probes": [p.to_dict() for p in probes],
+    }
+    if winner is None:
+        _emit(payload | {"error": "no healthy candidate"}, code=1)
+    if not args.dry_run:
+        env_local = repo_root() / ".env.local"
+        write_env_local(env_local, winner.candidate)
+        payload["env_local"] = str(env_local)
+    payload["chosen"] = {
+        "base_url": winner.candidate.base_url,
+        "model": winner.candidate.model,
+        "label": winner.candidate.label,
+        "elapsed_ms": winner.elapsed_ms,
+    }
+    _emit(payload)
+
+
 def cmd_colony_run(args: argparse.Namespace) -> None:
     """Run a wq_brain colony — one ant per (region, universe) panel.
 
@@ -2828,6 +2883,26 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--timeout", type=float, default=15.0,
                     help="request timeout in seconds (default 15)")
     sp.set_defaults(func=cmd_ping_llm)
+
+    sp = sub.add_parser(
+        "endpoint",
+        help="LLM endpoint health probe + failover (writes .env.local)",
+    )
+    esub = sp.add_subparsers(dest="endpoint_cmd", required=True)
+    ef = esub.add_parser("failover",
+                         help="probe candidates and pin the first healthy one")
+    ef.add_argument("--candidates-file",
+                    help="JSON file listing {base_url, api_key, model, label}")
+    ef.add_argument("--base-url", default=None,
+                    help="override candidate base URL (one-shot)")
+    ef.add_argument("--api-key", default=None,
+                    help="override candidate API key (one-shot)")
+    ef.add_argument("--model", default=None,
+                    help="override candidate model (one-shot)")
+    ef.add_argument("--timeout", type=float, default=10.0)
+    ef.add_argument("--dry-run", action="store_true",
+                    help="probe only; do not write .env.local")
+    ef.set_defaults(func=cmd_endpoint_failover)
 
     sp = sub.add_parser(
         "colony",
