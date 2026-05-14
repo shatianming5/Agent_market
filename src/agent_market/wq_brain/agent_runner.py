@@ -252,8 +252,18 @@ _FAILURE_PATTERNS: tuple[tuple[re.Pattern, str, str], ...] = (
      "llm_config",
      "LLM CLI received an invalid API key / unavailable model. Verify "
      "OPENAI_API_KEY, OPENAI_MODEL, and the .opencode.json model registry."),
+    (re.compile(r"(AI_APICallError|AI_RetryError|"
+                r"upstream.*error|provider.*error|"
+                r"\bHTTP[ /]?5\d\d\b|\b5\d\d\s+(internal|bad gateway|service "
+                r"unavailable|gateway timeout)|"
+                r"\bbad gateway\b|\bservice unavailable\b|\bgateway timeout\b)",
+                re.IGNORECASE),
+     "llm_provider_error",
+     "LLM provider returned an upstream API error (AI_APICallError / 5xx / "
+     "bad gateway). Verify OPENAI_BASE_URL is reachable, the model endpoint "
+     "is up, and re-run `wq_brain ping-llm` before resuming the loop."),
 )
-_ZERO_RC_HARD_FAILURE_KINDS = {"llm_quota", "llm_config"}
+_ZERO_RC_HARD_FAILURE_KINDS = {"llm_quota", "llm_config", "llm_provider_error"}
 
 
 def _classify_agent_failure(log_path: Path, *, tail_bytes: int = 4000) -> dict:

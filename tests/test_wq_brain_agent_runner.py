@@ -341,6 +341,31 @@ def test_classify_agent_failure_recognises_runner_timeout(tmp_path):
     assert cls["kind"] == "timeout"
 
 
+def test_classify_agent_failure_recognises_llm_provider_error_ai_apicallerror(tmp_path):
+    from agent_market.wq_brain.agent_runner import (
+        _ZERO_RC_HARD_FAILURE_KINDS,
+        _classify_agent_failure,
+    )
+    log = tmp_path / "agent.log"
+    log.write_text(
+        'ERROR service=llm providerID=custom modelID=MiniMax-M2.7-highspeed '
+        'error={"error":{"name":"AI_APICallError","url":"https://example/v1/chat/completions"}}\n',
+        encoding="utf-8",
+    )
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "llm_provider_error"
+    assert "llm_provider_error" in _ZERO_RC_HARD_FAILURE_KINDS
+    assert "upstream" in cls["hint"].lower() or "provider" in cls["hint"].lower()
+
+
+def test_classify_agent_failure_recognises_llm_provider_5xx(tmp_path):
+    from agent_market.wq_brain.agent_runner import _classify_agent_failure
+    log = tmp_path / "agent.log"
+    log.write_text("HTTP 502 Bad Gateway from upstream model\n", encoding="utf-8")
+    cls = _classify_agent_failure(log)
+    assert cls["kind"] == "llm_provider_error"
+
+
 def test_classify_agent_failure_unknown_when_no_pattern(tmp_path):
     from agent_market.wq_brain.agent_runner import _classify_agent_failure
     log = tmp_path / "agent.log"
