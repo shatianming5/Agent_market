@@ -19,6 +19,10 @@ class Segment:
     fitness: Optional[float] = None
     turnover: Optional[float] = None
     family: str = ""  # rough family label inferred from expr structure
+    alpha_id: Optional[str] = None
+    region: Optional[str] = None
+    universe: Optional[str] = None
+    decay: Optional[int] = None
 
 
 # ── Family inference (heuristic, used to diversify the surfaced segments) ──
@@ -102,6 +106,10 @@ def extract_top_segments(
             expr=expr, score=score,
             sharpe=sh, fitness=fi, turnover=to,
             family=infer_family(expr),
+            alpha_id=r.get("alpha_id"),
+            region=r.get("region") or None,
+            universe=r.get("universe") or None,
+            decay=r.get("decay") if r.get("decay") is not None else None,
         ))
 
     segments.sort(key=lambda s: -s.score)
@@ -131,6 +139,7 @@ def format_crossover_block(segments: list[Segment]) -> str:
     """Render the top fragments as a markdown block for the agent prompt."""
     if not segments:
         return ""
+    has_parents = any(s.alpha_id for s in segments)
     lines = [
         "## Cross-Over Candidates (MANDATORY recombination source)",
         "",
@@ -148,19 +157,58 @@ def format_crossover_block(segments: list[Segment]) -> str:
         "a NEW expression that fuses ≥2 of them. Do NOT just re-submit any of",
         "these alphas; do NOT just tweak a single window.",
         "",
-        "| # | family | sh | fi | to | quick | expr |",
-        "|---|---|---|---|---|---|---|",
     ]
+    if has_parents:
+        lines.append("| # | family | parent | sh | fi | to | quick | expr |")
+        lines.append("|---|---|---|---|---|---|---|---|")
+    else:
+        lines.append("| # | family | sh | fi | to | quick | expr |")
+        lines.append("|---|---|---|---|---|---|---|")
     for i, s in enumerate(segments, 1):
         sh = f"{s.sharpe:.2f}" if s.sharpe is not None else "-"
         fi = f"{s.fitness:.2f}" if s.fitness is not None else "-"
         to = f"{s.turnover:.2f}" if s.turnover is not None else "-"
         expr = s.expr.replace("|", "/")[:90]
-        lines.append(f"| {i} | {s.family} | {sh} | {fi} | {to} | {s.score:.0f} | `{expr}` |")
+        if has_parents:
+            parent = f"`{s.alpha_id}`" if s.alpha_id else "-"
+            lines.append(
+                f"| {i} | {s.family} | {parent} | {sh} | {fi} | {to} | "
+                f"{s.score:.0f} | `{expr}` |"
+            )
+        else:
+            lines.append(
+                f"| {i} | {s.family} | {sh} | {fi} | {to} | "
+                f"{s.score:.0f} | `{expr}` |"
+            )
     lines.append("")
     lines.append("**Recombination patterns** to consider:")
     lines.append("- Window-graft: take family A's window length and apply to family B's operator stack")
     lines.append("- Normalization swap: replace family A's outer `rank()` with family B's `group_zscore(_, sector)`")
     lines.append("- Sign mix: subtract two families: `rank(family_A) - 0.5 * rank(family_B)`")
     lines.append("- Liquidity overlay: multiply a directional family by `volume / adv20` from a humped family")
+    parents = [s for s in segments if s.alpha_id]
+    if parents:
+        lines.append("")
+        lines.append(
+            "**Ready-to-paste `simulate` calls** (replace `<new_expr>` with the "
+            "recombination output and `{TAG}` with your run tag):"
+        )
+        lines.append("")
+        lines.append("```bash")
+        for s in parents[:5]:
+            flag_parts = [
+                "python {WQ_TOOLS} simulate \"<new_expr>\"",
+                f"--parent-alpha-id {s.alpha_id}",
+                "--evidence-type crossover",
+                "--tag {TAG}",
+            ]
+            if s.region:
+                flag_parts.append(f"--region {s.region}")
+            if s.universe:
+                flag_parts.append(f"--universe {s.universe}")
+            if s.decay is not None:
+                flag_parts.append(f"--decay {s.decay}")
+            lines.append(" \\\n  ".join(flag_parts))
+            lines.append("")
+        lines.append("```")
     return "\n".join(lines)

@@ -32,6 +32,29 @@ class MutationStrategy(str, Enum):
     REGENERATE_FULL = "regenerate_full"
 
 
+# Maps each diagnostic strategy onto the canonical ``evidence_type`` token the
+# tried_log + pheromone cache expect when the LLM acts on this suggestion.
+STRATEGY_TO_EVIDENCE_TYPE: dict["MutationStrategy", str] = {}  # filled below
+
+
+def _populate_strategy_evidence_map() -> None:
+    """Populated once the class is defined; cleared here for readability."""
+    STRATEGY_TO_EVIDENCE_TYPE.update({
+        MutationStrategy.MUTATE_WINDOW: "numeric_tweak",
+        MutationStrategy.MUTATE_OPERATOR: "op_swap",
+        MutationStrategy.MUTATE_NORMALIZATION: "param_shift",
+        MutationStrategy.MUTATE_SIGNAL_TYPE: "param_shift",
+        MutationStrategy.MUTATE_NONLINEAR: "op_swap",
+        MutationStrategy.MUTATE_INTERACTION: "crossover",
+        MutationStrategy.REDUCE_TURNOVER: "param_shift",
+        MutationStrategy.SIMPLIFY: "param_shift",
+        MutationStrategy.REGENERATE_FULL: "seed",
+    })
+
+
+_populate_strategy_evidence_map()
+
+
 @dataclass
 class Diagnosis:
     strategy: MutationStrategy
@@ -76,6 +99,10 @@ class FailureContext:
     returns: Optional[float] = None
     status: str = "COMPLETE"
     error: Optional[str] = None
+    alpha_id: Optional[str] = None
+    region: Optional[str] = None
+    universe: Optional[str] = None
+    decay: Optional[int] = None
 
     @property
     def passes(self) -> bool:
@@ -220,7 +247,43 @@ class MutationEngine:
                         lines.append(f"  - {sk}: {sv}")
                 elif len(str(v)) < 200:
                     lines.append(f"- {k}: {v}")
+        cmd = self.simulate_command_template()
+        if cmd:
+            lines.append("")
+            lines.append("**Recommended `simulate` call** (replace `<new_expr>` "
+                         "with the mutated FASTEXPR and TAG with your run tag):")
+            lines.append("")
+            lines.append("```bash")
+            lines.append(cmd)
+            lines.append("```")
         return "\n".join(lines)
+
+    def simulate_command_template(self) -> str:
+        """Render a ready-to-paste ``simulate`` command for this diagnosis.
+
+        The command includes ``--parent-alpha-id`` and ``--evidence-type``
+        flags pre-filled from the failure context, so the LLM only has to
+        supply the mutated expression and the run tag. Returns an empty
+        string when the failure context lacks an ``alpha_id`` (we cannot
+        link the new row back to a parent then).
+        """
+        if not self.ctx.alpha_id:
+            return ""
+        diag = self.diagnose()
+        evidence = STRATEGY_TO_EVIDENCE_TYPE.get(diag.strategy, "mutation")
+        flags = [
+            "python {WQ_TOOLS} simulate \"<new_expr>\"",
+            f"--parent-alpha-id {self.ctx.alpha_id}",
+            f"--evidence-type {evidence}",
+            "--tag {TAG}",
+        ]
+        if self.ctx.region:
+            flags.append(f"--region {self.ctx.region}")
+        if self.ctx.universe:
+            flags.append(f"--universe {self.ctx.universe}")
+        if self.ctx.decay is not None:
+            flags.append(f"--decay {self.ctx.decay}")
+        return " \\\n  ".join(flags)
 
     # -- helpers ---------------------------------------------------------
     def _count_nesting(self, expr: str) -> int:
@@ -327,6 +390,10 @@ def diagnose_from_record(record: dict[str, Any]) -> Optional[Diagnosis]:
         returns=_to_float(record.get("returns")),
         status=str(record.get("status") or "COMPLETE"),
         error=record.get("error"),
+        alpha_id=record.get("alpha_id"),
+        region=record.get("region") or None,
+        universe=record.get("universe") or None,
+        decay=record.get("decay") if record.get("decay") is not None else None,
     )
     return MutationEngine(ctx).diagnose()
 
@@ -353,6 +420,10 @@ def render_top_failures_block(records: list[dict[str, Any]], *, top_n: int = 3) 
             turnover=_to_float(r.get("turnover")),
             returns=_to_float(r.get("returns")),
             status="COMPLETE",
+            alpha_id=r.get("alpha_id"),
+            region=r.get("region") or None,
+            universe=r.get("universe") or None,
+            decay=r.get("decay") if r.get("decay") is not None else None,
         )
         candidates.append((ctx, MutationEngine(ctx)))
 
