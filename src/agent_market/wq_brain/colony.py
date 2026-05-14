@@ -31,6 +31,12 @@ from typing import Any, Callable, Sequence
 
 from .agent_runner import AgentConfig, run_agent
 from .paths import tried_exprs_path
+from .pheromone_cache import (
+    PheromoneLink,
+    read_cache,
+    top_links,
+    write_links,
+)
 from .tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,
     ALTITUDE_L2_OP_FAMILY,
@@ -162,6 +168,94 @@ def collect_shared_pheromones(
     return shared
 
 
+def _rows_to_links(rows: Sequence[dict[str, Any]], *, source_tag: str) -> list[PheromoneLink]:
+    """Convert tried_log rows into ``PheromoneLink`` objects for the cache."""
+    out: list[PheromoneLink] = []
+    for row in rows:
+        out.append(
+            PheromoneLink(
+                altitude=row.get("altitude") or "",
+                expr=row.get("expr") or "",
+                alpha_id=row.get("alpha_id"),
+                region=row.get("region") or "",
+                universe=row.get("universe") or "",
+                sharpe=row.get("sharpe"),
+                fitness=row.get("fitness"),
+                turnover=row.get("turnover"),
+                delta_U=row.get("delta_U"),
+                evidence_type=row.get("evidence_type") or "",
+                parent_alpha_id=row.get("parent_alpha_id"),
+                source_panel_tag=source_tag,
+                ts=float(row.get("ts") or 0.0),
+            )
+        )
+    return out
+
+
+def write_panel_pheromones_to_cache(
+    colony_tag: str, panel: PanelSpec, *, tail: int = 200
+) -> dict[str, int]:
+    """Push a panel's L1/L2 tried_log rows into the colony shared cache.
+
+    Returns the post-eviction ``{altitude: kept_count}`` summary so callers
+    can log capacity utilisation per altitude.
+    """
+    path = tried_exprs_path(panel.tag)
+    if not path.exists():
+        return {}
+    shareable = [
+        row
+        for row in read_tried(path, tail=tail)
+        if (row.get("altitude") or "") in SHARED_ALTITUDES
+        and (row.get("expr") or "")
+    ]
+    return write_links(colony_tag, _rows_to_links(shareable, source_tag=panel.tag))
+
+
+def inject_cache_into_panel(
+    colony_tag: str,
+    target_panel: PanelSpec,
+    *,
+    per_altitude: int = 8,
+) -> int:
+    """Read the colony cache and inject the top-scoring links into a panel.
+
+    Each injected row is tagged ``evidence_type='colony_shared'`` so the
+    existing prompt_builder pheromone block renders it without further
+    changes; the original row's ``alpha_id`` becomes the ``parent_alpha_id``
+    on the injected row.
+    """
+    target_path = tried_exprs_path(target_panel.tag)
+    existing_exprs = {
+        (r.get("expr") or "")
+        for r in read_tried(target_path, tail=10_000)
+    } if target_path.exists() else set()
+    injected = 0
+    for link in top_links(colony_tag, altitudes=SHARED_ALTITUDES, per_altitude=per_altitude):
+        if not link.expr or link.expr in existing_exprs:
+            continue
+        append_tried(
+            target_path,
+            expr=link.expr,
+            sharpe=link.sharpe,
+            fitness=link.fitness,
+            turnover=link.turnover,
+            alpha_id=link.alpha_id,
+            status="COMPLETE",
+            error=None,
+            region=link.region,
+            universe=link.universe,
+            decay=0,
+            evidence_type="colony_shared",
+            altitude=link.altitude,
+            parent_alpha_id=link.alpha_id,
+            delta_U=link.delta_U,
+        )
+        existing_exprs.add(link.expr)
+        injected += 1
+    return injected
+
+
 def inject_shared_pheromones(
     target_panel: PanelSpec,
     shared: Sequence[dict[str, Any]],
@@ -241,10 +335,9 @@ def run_colony(
     panel_summaries: list[dict[str, Any]] = []
 
     for idx, panel in enumerate(config.panels):
-        # Fan out: panels [0..idx-1] are the sources for shared pheromones.
-        sources = config.panels[:idx]
-        shared = collect_shared_pheromones(sources)
-        injected = inject_shared_pheromones(panel, shared)
+        # Read cache top-K into this panel's tried_log so the agent prompt
+        # sees colony evidence from all prior panels.
+        injected = inject_cache_into_panel(config.colony_tag, panel)
 
         agent_cfg = panel.to_agent_config(
             cli=config.cli,
@@ -257,6 +350,9 @@ def run_colony(
         )
         panel_start = time.time()
         result = runner(agent_cfg)
+        # After the panel finishes, push its newly-found L1/L2 rows into
+        # the cache for the next panel(s) to consume.
+        cache_kept = write_panel_pheromones_to_cache(config.colony_tag, panel)
         panel_summaries.append(
             {
                 "panel_index": idx,
@@ -264,7 +360,7 @@ def run_colony(
                 "region": panel.region,
                 "universe": panel.universe,
                 "shared_pheromones_injected": injected,
-                "shared_sources": [p.tag for p in sources],
+                "cache_kept_after_run": cache_kept,
                 "elapsed_sec": max(time.time() - panel_start, 0.0),
                 "result": result,
             }
