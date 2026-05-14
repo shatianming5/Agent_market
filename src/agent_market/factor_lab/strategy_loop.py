@@ -2268,8 +2268,17 @@ def build_rank_profile_repair_queue(
     )
 
     near_trade_misses = hints.get("near_miss_trade_gate") if isinstance(hints, Mapping) else []
-    if not has_baseline and isinstance(near_trade_misses, Sequence) and not defer_search_trade_repairs:
-        for anchor in near_trade_misses[:2]:
+    eligible_near_trade_misses = near_trade_misses
+    if defer_search_trade_repairs and isinstance(near_trade_misses, Sequence):
+        eligible_near_trade_misses = [
+            anchor
+            for anchor in near_trade_misses
+            if isinstance(anchor, Mapping)
+            and isinstance(anchor.get("rank_profile"), Mapping)
+            and bool(anchor["rank_profile"].get("exclude_pairs"))
+        ]
+    if not has_baseline and isinstance(eligible_near_trade_misses, Sequence):
+        for anchor in eligible_near_trade_misses[:2]:
             if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
                 continue
             try:
