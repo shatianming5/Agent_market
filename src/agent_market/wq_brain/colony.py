@@ -281,8 +281,12 @@ def inject_cache_into_panel(
         (r.get("expr") or "")
         for r in read_tried(target_path, tail=10_000)
     } if target_path.exists() else set()
+    from .gates import lex_resolve_conflicts
+    ranked = lex_resolve_conflicts(
+        top_links(colony_tag, altitudes=SHARED_ALTITUDES, per_altitude=per_altitude)
+    )
     injected = 0
-    for link in top_links(colony_tag, altitudes=SHARED_ALTITUDES, per_altitude=per_altitude):
+    for link in ranked:
         if not link.expr or link.expr in existing_exprs:
             continue
         append_tried(

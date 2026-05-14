@@ -116,6 +116,27 @@ def cmd_simulate(args: argparse.Namespace) -> None:
             "error": local_gate_error,
         }, code=2)
         return
+    if args.tag and not getattr(args, "skip_cooldown", False):
+        from agent_market.wq_brain.gates import slot_cooldown_block
+        tried_rows = read_tried(tried_exprs_path(args.tag), tail=200)
+        block = slot_cooldown_block(
+            args.expr,
+            tried_rows,
+            window=int(getattr(args, "cooldown_window", 8)),
+            delta_flip=float(getattr(args, "cooldown_delta_flip", 0.05)),
+        )
+        if block is not None:
+            _emit(
+                {
+                    "ok": False,
+                    "expr": args.expr,
+                    "rejected_by": "slot_cooldown",
+                    "error": block.reason,
+                    "cooldown": block.to_dict(),
+                },
+                code=2,
+            )
+            return
     # Atomic reserve+commit closes the TOCTOU window between
     # "is there capacity?" and "record the call". The reservation is rolled
     # back via release_action below if the simulate call never reaches WQ.
@@ -2220,6 +2241,15 @@ def _build_parser() -> argparse.ArgumentParser:
                          "param_shift/decay_shift/neutralization_swap/"
                          "numeric_tweak); defaults to 'manual' when no parent "
                          "is supplied, 'mutation' otherwise")
+    sp.add_argument("--skip-cooldown", action="store_true",
+                    help="bypass the slot cool-down hard gate "
+                         "(use only to recover from false positives)")
+    sp.add_argument("--cooldown-window", type=int, default=8,
+                    help="cool-down window: how many recent rows to scan "
+                         "for the same slot (default 8)")
+    sp.add_argument("--cooldown-delta-flip", type=float, default=0.05,
+                    help="cool-down ΔU threshold: same-slot retries are "
+                         "allowed when the prior ΔU > this (default 0.05)")
     sp.set_defaults(func=cmd_simulate)
 
     sp = sub.add_parser("submit", help="submit alpha to WQ PROD pool")

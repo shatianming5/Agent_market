@@ -135,6 +135,9 @@ def test_cmd_simulate_classifies_altitude_and_delta_U_against_parent(
     )
 
     # Child A: same ops, only numeric tweak (window 20 → 30) → L4
+    # --skip-cooldown bypasses the slot gate; this test exercises the
+    # altitude-classifier wiring, not the cool-down hard gate (covered in
+    # test_wq_brain_gates.py).
     code_a, _ = _run_simulate(
         cli_module,
         [
@@ -143,6 +146,7 @@ def test_cmd_simulate_classifies_altitude_and_delta_U_against_parent(
             "--parent-alpha-id", "parent_a",
             "--region", "USA", "--universe", "TOP500", "--decay", "6",
             "--auto-persist-sharpe", "999",
+            "--skip-cooldown",
         ],
         _StubResult(sharpe=1.45, fitness=1.12, turnover=0.20, alpha_id="child_a"),
     )
@@ -158,6 +162,7 @@ def test_cmd_simulate_classifies_altitude_and_delta_U_against_parent(
             "--region", "USA", "--universe", "TOP500", "--decay", "6",
             "--evidence-type", "op_swap",
             "--auto-persist-sharpe", "999",
+            "--skip-cooldown",
         ],
         _StubResult(sharpe=1.20, fitness=0.95, turnover=0.18, alpha_id="child_b"),
     )
