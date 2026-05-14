@@ -11,9 +11,9 @@ import pytest
 
 def _write_backtest_zip(tmp_path: Path, *, strategy_name: str = "FreqtradeMLStrategy") -> tuple[Path, datetime]:
     zip_path = tmp_path / "backtest-result-test.zip"
-    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    day_one = now - timedelta(days=1)
-    day_two = now
+    latest_safe_hour = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) - timedelta(hours=2)
+    day_one = latest_safe_hour - timedelta(days=1)
+    day_two = latest_safe_hour
     payload = {
         "strategy": {
             strategy_name: {
