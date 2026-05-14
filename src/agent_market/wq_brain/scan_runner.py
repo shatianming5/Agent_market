@@ -134,11 +134,17 @@ def run_scan(config: ScanConfig, session: Optional[WQSession] = None) -> dict:
         if r is None:
             continue
         try:
+            # Seed-driven scan candidates: no parent (root of search tree),
+            # altitude L1 (region/universe-level exploration), evidence_type
+            # 'seed'. ``delta_U`` is omitted because there's no parent to diff
+            # against; cache scoring falls back to recency.
             append_tried(
                 tried_path, expr=c.expr,
                 sharpe=r.sharpe, fitness=r.fitness, turnover=r.turnover,
                 alpha_id=r.alpha_id, status=r.status, error=r.error,
                 region=config.region, universe=config.universe, decay=config.decay,
+                evidence_type="seed",
+                altitude="L1_region_universe",
             )
         except Exception as exc:
             logger.warning("tried_log append failed for %s: %s", c.candidate_id, exc)

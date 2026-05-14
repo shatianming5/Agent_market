@@ -42,6 +42,37 @@ def test_scan_dry_run_produces_expansion_summary(tmp_path, isolated_artifacts):
     assert (run_dir / "expansion.json").exists()
 
 
+def test_scan_writes_seed_pheromone_metadata(tmp_path, isolated_artifacts):
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.tried_log import (
+        ALTITUDE_L1_REGION_UNIVERSE,
+        read_tried,
+    )
+
+    seeds = _make_seeds_file(tmp_path)
+    config = ScanConfig(tag="t_seed", seed_file=seeds, max_candidates=2,
+                        auto_submit=False)
+    mock_session = MagicMock()
+
+    def fake_batch_simulate(candidates, **kw):
+        for i, c in enumerate(candidates):
+            c.sim_result = SimulationResult(
+                sharpe=1.4, fitness=1.1, returns=0.10, turnover=0.20,
+                alpha_id=f"seed_{i}", status="COMPLETE",
+            )
+        return candidates
+
+    mock_session.batch_simulate.side_effect = fake_batch_simulate
+    run_scan(config, session=mock_session)
+
+    rows = read_tried(tried_exprs_path("t_seed"))
+    assert rows, "scan should append at least one row"
+    for row in rows:
+        assert row["evidence_type"] == "seed"
+        assert row["altitude"] == ALTITUDE_L1_REGION_UNIVERSE
+        assert row.get("parent_alpha_id") is None
+
+
 def test_scan_full_with_mock_session_passes_quality_filter(tmp_path, isolated_artifacts):
     seeds = _make_seeds_file(tmp_path)
     config = ScanConfig(tag="t1", seed_file=seeds, max_candidates=20, auto_submit=False)
