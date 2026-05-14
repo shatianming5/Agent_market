@@ -144,6 +144,7 @@ PARETO_AXES = (
     "best_regime_stability",
 )
 STRUCTURAL_RANK_KEYS = {
+    "n",
     "candidate_state",
     "timeframe",
     "data_venue",
@@ -2140,6 +2141,7 @@ def build_rank_profile_repair_queue(
                 continue
             anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
             anchor_risk = _coerce_finite_float(anchor_profile.get("risk_per_trade"), _coerce_finite_float(base.get("risk_per_trade"), 0.015))
+            anchor_n = _coerce_int(anchor_profile.get("n"), config.n)
             anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
             anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), _coerce_finite_float(base.get("max_entry_atr_pct"), 0.05))
             anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
@@ -2210,6 +2212,27 @@ def build_rank_profile_repair_queue(
                         "test long-only exposure after mixed-side validation loss",
                     )
                 )
+            factor_n_specs = [
+                (
+                    "validation_factor_n_half",
+                    "validation_factor_subset_repair",
+                    {"n": max(5, anchor_n // 2)},
+                    "test a narrower alpha subset after validation loss suggests state-level factor overfit",
+                ),
+                (
+                    "validation_factor_n_plus_50",
+                    "validation_factor_subset_repair",
+                    {"n": min(200, anchor_n + 50)},
+                    "test a broader alpha subset to reduce idiosyncratic factor overfit across windows",
+                ),
+                (
+                    "validation_factor_n_100",
+                    "validation_factor_subset_repair",
+                    {"n": 100},
+                    "test a fixed mid-breadth alpha subset for out-of-time stability",
+                ),
+            ]
+            anchor_specs.extend(factor_n_specs)
             anchor_specs.extend(
                 [
                     ("validation_z_plus_002", "validation_entry_quality_repair", {"min_abs_score_z": anchor_z + 0.02}, "tighten entry z after search passed but validation P/DD failed"),
