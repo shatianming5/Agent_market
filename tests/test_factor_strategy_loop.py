@@ -1933,6 +1933,105 @@ def test_rank_profile_repair_queue_defers_search_trade_after_repeated_validation
     assert queue[0]["metadata"]["parent_anchor"] == "iteration_49"
 
 
+def test_rank_profile_repair_queue_adds_validation_pair_exclusion_repairs(tmp_path: Path) -> None:
+    import pandas as pd
+
+    signal_dir = tmp_path / "signals"
+    signal_dir.mkdir()
+    dates = pd.date_range("2026-03-01", periods=5, freq="1h", tz="UTC")
+    prices = {
+        "BTC/USDT": [100.0, 102.0, 104.0, 106.0, 108.0],
+        "ADA/USDT": [100.0, 99.0, 98.0, 97.0, 96.0],
+        "ETH/USDT": [100.0, 100.0, 100.0, 100.0, 100.0],
+    }
+    signal_rows = []
+    for pair, values in prices.items():
+        for idx, date in enumerate(dates):
+            weight = -1.0 if pair in {"BTC/USDT", "ADA/USDT"} and idx < 3 else 0.0
+            price = values[idx]
+            signal_rows.append(
+                {
+                    "date": date,
+                    "pair": pair,
+                    "open": price,
+                    "high": price * 1.001,
+                    "low": price * 0.999,
+                    "close": price,
+                    "rp_target_weight": weight,
+                    "rp_stop_pct": 0.2,
+                }
+            )
+    pd.DataFrame(signal_rows).to_feather(signal_dir / "all.feather")
+
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 2,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.52,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.038,
+        "max_entry_atr_pct": 0.05,
+        "regime_mode": "hq",
+        "regime_min_edge_ic": 0.01,
+        "regime_min_pair_edge_ic": 0.01,
+        "regime_min_pair_count": 3,
+        "regime_short_max_market_mom_24h": 0.03,
+        "regime_max_market_atr_pct": 0.04,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_validation_pair_exclusion_repair",
+        run_id="unit_validation_pair_exclusion_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 50,
+            "candidate": {"candidate_type": "rank_profile", "name": "validation_pair_loss", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 36.0,
+                        "max_drawdown_pct": 6.0,
+                        "profit_over_max_drawdown": 6.0,
+                        "trades": 56,
+                    },
+                    "violations": [],
+                },
+                "validation": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": -2.0,
+                        "max_drawdown_pct": 5.0,
+                        "profit_over_max_drawdown": -0.4,
+                        "trades": 16,
+                    },
+                    "signal_dir": str(signal_dir),
+                    "violations": ["research: validation loss after search pass"],
+                },
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["hypothesis_family"] == "validation_pair_exclusion_repair"
+    assert queue[0]["metadata"]["search_mode"] == "structured_explore"
+    assert queue[0]["rank_profile"]["top_k"] == 3
+    assert queue[0]["rank_profile"]["exclude_pairs"] == ["BTC/USDT"]
+
+
 def test_rank_profile_repair_queue_prioritizes_validation_failures(tmp_path: Path) -> None:
     near_pdd = {
         "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",

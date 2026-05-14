@@ -2017,6 +2017,7 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
             "validation_profit_over_max_drawdown_gap": min_pdd - pdd,
             "validation_profit_pct": profit,
             "validation_max_drawdown_pct": drawdown,
+            "validation_signal_dir": validation_window.get("signal_dir"),
             "search_profit_over_max_drawdown": search_pdd,
             "search_profit_pct": _coerce_finite_float(search_metrics.get("profit_pct"), 0.0),
             "violations": validation_window.get("violations") or row.get("violations") or [],
@@ -2064,6 +2065,134 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
         ],
         "notes": notes,
     }
+
+
+def _resolve_signal_file(raw_signal_dir: Any) -> Optional[Path]:
+    raw = str(raw_signal_dir or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = repo_paths.resolve_repo_path(raw)
+    if path.is_dir():
+        path = path / "all.feather"
+    return path if path.exists() else None
+
+
+def _validation_pair_loss_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+    config: StrategyLoopConfig,
+) -> list[tuple[str, str, dict[str, Any], str]]:
+    signal_path = _resolve_signal_file(anchor.get("validation_signal_dir"))
+    if signal_path is None:
+        return []
+    try:
+        import numpy as np
+        import pandas as pd
+    except Exception:
+        return []
+    try:
+        df = pd.read_feather(signal_path)
+    except Exception:
+        return []
+    required = {"date", "pair", "open", "high", "low", "close", "rp_target_weight", "rp_stop_pct"}
+    if not required.issubset(set(df.columns)):
+        return []
+    try:
+        df = df.copy().sort_values(["pair", "date"]).reset_index(drop=True)
+        df["date"] = pd.to_datetime(df["date"], utc=True)
+    except Exception:
+        return []
+
+    pieces = []
+    for _, sub in df.groupby("pair", sort=False):
+        sub = sub.copy()
+        sub["next_open"] = sub["open"].shift(-1)
+        sub["next_high"] = sub["high"].shift(-1)
+        sub["next_low"] = sub["low"].shift(-1)
+        sub["next_next_open"] = sub["open"].shift(-2)
+        sub["ret_next"] = (sub["next_next_open"] / sub["next_open"].clip(lower=1e-12)) - 1.0
+        pieces.append(sub)
+    if not pieces:
+        return []
+
+    scored: list[tuple[str, float]] = []
+    prev_weights: dict[str, float] = {}
+    fee_rate = _coerce_finite_float(anchor_profile.get("fee_rate"), 0.0004)
+    slippage = _coerce_finite_float(anchor_profile.get("slippage"), 0.0003)
+    for _, group in pd.concat(pieces, ignore_index=True).sort_values(["date", "pair"]).groupby("date", sort=True):
+        weights_now: dict[str, float] = {}
+        for _, row in group.iterrows():
+            pair = str(row["pair"])
+            weight = float(row.get("rp_target_weight", 0.0) or 0.0)
+            weights_now[pair] = weight
+            pnl = 0.0
+            ret_next = row.get("ret_next")
+            if abs(weight) > 0.0 and np.isfinite(ret_next):
+                entry = float(row.get("next_open") or row.get("close") or 0.0)
+                if entry <= 0.0:
+                    entry = float(row.get("close") or 0.0)
+                side = 1.0 if weight > 0.0 else -1.0
+                if side > 0.0:
+                    adverse = (entry - float(row.get("next_low", entry))) / max(entry, 1e-12)
+                    side_ret = float(ret_next)
+                else:
+                    adverse = (float(row.get("next_high", entry)) - entry) / max(entry, 1e-12)
+                    side_ret = -float(ret_next)
+                stop = float(row.get("rp_stop_pct") or 0.02)
+                if adverse >= stop:
+                    side_ret = -stop
+                pnl = abs(weight) * side_ret
+            cost = abs(weight - prev_weights.get(pair, 0.0)) * (fee_rate + slippage)
+            if abs(weight) > 0.0 or cost > 0.0:
+                scored.append((pair, pnl - cost))
+        prev_weights = weights_now
+    if not scored:
+        return []
+
+    pair_pnl: dict[str, float] = {}
+    for pair, pnl in scored:
+        norm = _normalize_pair_token(pair)
+        if norm:
+            pair_pnl[norm] = pair_pnl.get(norm, 0.0) + float(pnl)
+    loss_pairs = [pair for pair, pnl in sorted(pair_pnl.items(), key=lambda item: item[1]) if pnl < 0.0]
+    if not loss_pairs:
+        return []
+
+    existing = anchor_profile.get("exclude_pairs") or []
+    if isinstance(existing, str):
+        existing_pairs = [_normalize_pair_token(p) for p in existing.split(",")]
+    elif isinstance(existing, Sequence):
+        existing_pairs = [_normalize_pair_token(p) for p in existing]
+    else:
+        existing_pairs = []
+    existing_pairs = [p for p in existing_pairs if p]
+
+    def merged_exclusions(extra: Sequence[str]) -> list[str]:
+        merged: list[str] = []
+        for pair in [*existing_pairs, *extra]:
+            norm = _normalize_pair_token(pair)
+            if norm and norm not in merged:
+                merged.append(norm)
+        return merged
+
+    top_k = _coerce_int(anchor_profile.get("top_k"), 2)
+    specs: list[tuple[str, str, dict[str, Any], str]] = []
+    for count, topk_bump in ((1, 1), (2, 1), (3, 2)):
+        pairs = [p for p in loss_pairs[:count] if p not in existing_pairs]
+        if len(pairs) != count:
+            continue
+        label = "worst" if count == 1 else f"worst{count}"
+        specs.append(
+            (
+                f"validation_exclude_{label}_topk_plus_{topk_bump}",
+                "validation_pair_exclusion_repair",
+                {"exclude_pairs": merged_exclusions(pairs), "top_k": min(10, top_k + topk_bump)},
+                f"exclude validation loser pair(s) {', '.join(pairs)} and add rank breadth to backfill trade count",
+            )
+        )
+    return specs
 
 
 def _candidate_name(raw: str) -> str:
@@ -2256,6 +2385,7 @@ def build_rank_profile_repair_queue(
                     "filter entries to higher-quality cross-sectional and market regimes after validation loss",
                 ),
             ]
+            anchor_specs.extend(_validation_pair_loss_repairs(anchor, anchor_profile, config))
             factor_n_specs = [
                 (
                     "validation_factor_n_half",
