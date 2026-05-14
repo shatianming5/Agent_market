@@ -2058,6 +2058,56 @@ def cmd_colony_pheromones_show(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_colony_train_policy(args: argparse.Namespace) -> None:
+    """Train the colony's learned routing policy from logged tried_log rows."""
+    from agent_market.wq_brain.colony import colony_run_dir
+    from agent_market.wq_brain.paths import tried_exprs_path
+    from agent_market.wq_brain.routing_policy import (
+        LearnedPolicy,
+        policy_path,
+        samples_from_history,
+    )
+    from agent_market.wq_brain.tried_log import read_tried
+
+    panel_tags: list[str] = args.panel_tags.split(",") if args.panel_tags else []
+    if not panel_tags:
+        manifest_path = colony_run_dir(args.colony_tag) / "manifest.json"
+        if manifest_path.exists():
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for p in data.get("panels", []) or []:
+                tag = p.get("tag") if isinstance(p, dict) else None
+                if tag:
+                    panel_tags.append(tag)
+    rows: list[dict[str, Any]] = []
+    for tag in panel_tags:
+        path = tried_exprs_path(tag.strip())
+        if path.exists():
+            rows.extend(read_tried(path, tail=5000))
+    samples = samples_from_history(rows)
+    if not samples:
+        _emit(
+            {
+                "ok": False,
+                "error": "no enriched (state, action, reward) samples — "
+                         "ensure tried_log rows carry altitude + delta_U "
+                         "metadata before training",
+            },
+            code=1,
+        )
+    pp = policy_path(args.colony_tag)
+    policy = LearnedPolicy.load(pp) or LearnedPolicy.empty()
+    policy.train(samples, epochs=args.epochs, lr=args.lr)
+    policy.save(pp)
+    _emit({
+        "ok": True,
+        "colony_tag": args.colony_tag,
+        "policy_path": str(pp),
+        "training_samples": policy.training_samples,
+        "training_epochs": policy.training_epochs,
+        "training_lr": policy.training_lr,
+    })
+
+
 def cmd_colony_reset(args: argparse.Namespace) -> None:
     """Delete shared cache + routing advisories + best-so-far for a colony.
 
@@ -2965,6 +3015,21 @@ def _build_parser() -> argparse.ArgumentParser:
     sr = csub.add_parser("reset", help="wipe cache + routing + best-so-far")
     sr.add_argument("--colony-tag", required=True)
     sr.set_defaults(func=cmd_colony_reset)
+
+    sp_train = csub.add_parser(
+        "train-policy",
+        help="train the learned routing policy μ_θ from tried_log history",
+    )
+    sp_train.add_argument("--colony-tag", required=True)
+    sp_train.add_argument(
+        "--panel-tags",
+        default="",
+        help="comma-separated panel tags; defaults to all panels in the "
+             "colony manifest",
+    )
+    sp_train.add_argument("--epochs", type=int, default=20)
+    sp_train.add_argument("--lr", type=float, default=0.1)
+    sp_train.set_defaults(func=cmd_colony_train_policy)
 
     sp = sub.add_parser("web-search", help="general web search (Brave/Wikipedia/GitHub fallback)")
     sp.add_argument("query")

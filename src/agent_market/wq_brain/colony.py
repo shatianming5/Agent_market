@@ -40,6 +40,7 @@ from .pheromone_cache import (
     write_links,
 )
 from .routing import RoutingDecision, decide, state_from_rows
+from .routing_policy import LearnedPolicy, hybrid_decide, policy_path
 from .tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,
     ALTITUDE_L2_OP_FAMILY,
@@ -249,7 +250,8 @@ def compute_panel_routing_advisory(
     chi = max(conflict_counts, default=0.0)
     state = state_from_rows(rows, cross_panel_conflict=chi,
                             diagnosis_scope=diagnosis_scope)
-    return decide(state)
+    policy = LearnedPolicy.load(policy_path(colony_tag))
+    return hybrid_decide(state, policy=policy)
 
 
 def write_panel_routing_advisory(
