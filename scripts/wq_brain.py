@@ -193,6 +193,29 @@ def cmd_simulate(args: argparse.Namespace) -> None:
                 getattr(args, "evidence_type", None)
                 or ("manual" if not parent_alpha_id else "mutation")
             )
+            if altitude is None:
+                # Parent-less rows still need an altitude so they propagate
+                # through the shared cache. Infer from evidence_type using
+                # the same convention as classify_altitude:
+                #   seed / manual / region_swap        → L1_region_universe
+                #   op_swap / crossover                → L2_op_family
+                #   param_shift / decay_shift /        → L3_slot_param
+                #     neutralization_swap
+                #   numeric_tweak                       → L4_numeric_tweak
+                _altitude_by_evidence = {
+                    "seed": "L1_region_universe",
+                    "manual": "L1_region_universe",
+                    "region_swap": "L1_region_universe",
+                    "op_swap": "L2_op_family",
+                    "crossover": "L2_op_family",
+                    "param_shift": "L3_slot_param",
+                    "decay_shift": "L3_slot_param",
+                    "neutralization_swap": "L3_slot_param",
+                    "numeric_tweak": "L4_numeric_tweak",
+                }
+                altitude = _altitude_by_evidence.get(
+                    evidence_type, "L3_slot_param"
+                )
             append_tried(
                 tried_exprs_path(args.tag),
                 expr=args.expr,

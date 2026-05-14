@@ -58,6 +58,28 @@ python {WQ_TOOLS} pre-check ALPHA_ID --corr-max 0.7
 python {WQ_TOOLS} simulate "rank(close / ts_mean(close, 20) - 1)" \
   --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}
 
+# 🐜 COLONY / PHEROMONE METADATA (use whenever you derive from a prior alpha):
+#   --parent-alpha-id <ID>     parent in tried_exprs; auto-classifies edit
+#                              altitude (L1/L2/L3/L4) + ΔU vs parent.
+#   --evidence-type <KIND>     one of: seed | mutation | crossover | op_swap |
+#                              region_swap | param_shift | decay_shift |
+#                              neutralization_swap | numeric_tweak | manual.
+#                              Defaults to 'mutation' when --parent-alpha-id
+#                              is set, otherwise 'manual' (seed-equivalent).
+#   --colony-tag <TAG>         when inside a colony, updates best_so_far.json.
+# Mutation Hints + Cross-Over Candidates blocks below already print ready-to-
+# paste lines with these flags — copy them verbatim and only replace <new_expr>.
+# Example:
+python {WQ_TOOLS} simulate "rank(ts_corr(close, volume, 20)) * rank(volume / adv20)" \
+  --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG} \
+  --parent-alpha-id akA1rPR1 --evidence-type op_swap --colony-tag {TAG}_colony
+
+# Slot cool-down hard gate: same operator-skeleton + same field set retried
+# with a tiny prior ΔU (< 0.05) is automatically rejected before quota is
+# burned. To intentionally retry such a slot (e.g. after escalating an arg),
+# add --skip-cooldown. Tune via --cooldown-window N (default 8) or
+# --cooldown-delta-flip X (default 0.05).
+
 # Submit a passing alpha. The CLI runs TWO gates before calling WQ:
 #  (1) LOCAL jaccard: rejects if token-similarity ≥0.7 with any ACTIVE
 #      alpha — saves WQ submit quota + 30s verify wait.
@@ -108,6 +130,19 @@ python {WQ_TOOLS} skill-list
 
 # Show full operator/field reference (also embedded below)
 python {WQ_TOOLS} docs operators
+
+# Pre-flight: confirm OPENAI_BASE_URL / OPENAI_MODEL respond before the
+# whole agent process starts up. Catches "model_not_found / 503" failures
+# fast (these used to silently abort the loop after the title-gen step).
+python {WQ_TOOLS} ping-llm
+
+# 🐜 Colony introspection — useful when running inside a multi-ant colony:
+python {WQ_TOOLS} colony status      --colony-tag <TAG>
+python {WQ_TOOLS} colony pheromones list --colony-tag <TAG> --limit 20
+python {WQ_TOOLS} colony pheromones show --colony-tag <TAG> --alpha-id <ID>
+# The 🧭 COLONY ROUTING ADVISORY block injected above tells you the controller's
+# recommended next action (stay / deeper / bubble_up / jump_root) and the
+# target altitude — treat it as a strong hint when picking your next edit.
 ```
 
 You may also use file/terminal freely to write notes, run quick analyses, etc.

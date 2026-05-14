@@ -105,10 +105,10 @@ def test_cmd_simulate_writes_manual_evidence_when_no_parent(
     assert len(rows) == 1
     row = rows[0]
     assert row["evidence_type"] == "manual"
-    # Optional fields are omitted (kept None-equivalent) when no parent supplied,
-    # preserving backward compatibility with legacy readers.
+    # No parent → no delta_U. Altitude defaults to L1_region_universe so the
+    # row is still eligible for cross-panel pheromone propagation.
     assert row.get("parent_alpha_id") is None
-    assert row.get("altitude") is None
+    assert row.get("altitude") == "L1_region_universe"
     assert row.get("delta_U") is None
 
 
