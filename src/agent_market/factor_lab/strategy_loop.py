@@ -2131,6 +2131,8 @@ def build_rank_profile_repair_queue(
 
     validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
     validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
+    validation_losses = validation_hints.get("validation_loss_after_search_pass") if isinstance(validation_hints, Mapping) else []
+    persistent_validation_loss = isinstance(validation_losses, Sequence) and len(validation_losses) >= 3
     if isinstance(validation_failures, Sequence):
         for anchor in validation_failures[:2]:
             if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
@@ -2169,6 +2171,28 @@ def build_rank_profile_repair_queue(
                     "filter entries to higher-quality cross-sectional and market regimes after validation loss",
                 ),
             ]
+            factor_n_specs = [
+                (
+                    "validation_factor_n_half",
+                    "validation_factor_subset_repair",
+                    {"n": max(5, anchor_n // 2)},
+                    "test a narrower alpha subset after validation loss suggests state-level factor overfit",
+                ),
+                (
+                    "validation_factor_n_plus_50",
+                    "validation_factor_subset_repair",
+                    {"n": min(200, anchor_n + 50)},
+                    "test a broader alpha subset to reduce idiosyncratic factor overfit across windows",
+                ),
+                (
+                    "validation_factor_n_100",
+                    "validation_factor_subset_repair",
+                    {"n": 100},
+                    "test a fixed mid-breadth alpha subset for out-of-time stability",
+                ),
+            ]
+            if persistent_validation_loss:
+                anchor_specs.extend(factor_n_specs)
             if validation_trade_gap > 0:
                 anchor_specs.extend(
                     [
@@ -2212,27 +2236,8 @@ def build_rank_profile_repair_queue(
                         "test long-only exposure after mixed-side validation loss",
                     )
                 )
-            factor_n_specs = [
-                (
-                    "validation_factor_n_half",
-                    "validation_factor_subset_repair",
-                    {"n": max(5, anchor_n // 2)},
-                    "test a narrower alpha subset after validation loss suggests state-level factor overfit",
-                ),
-                (
-                    "validation_factor_n_plus_50",
-                    "validation_factor_subset_repair",
-                    {"n": min(200, anchor_n + 50)},
-                    "test a broader alpha subset to reduce idiosyncratic factor overfit across windows",
-                ),
-                (
-                    "validation_factor_n_100",
-                    "validation_factor_subset_repair",
-                    {"n": 100},
-                    "test a fixed mid-breadth alpha subset for out-of-time stability",
-                ),
-            ]
-            anchor_specs.extend(factor_n_specs)
+            if not persistent_validation_loss:
+                anchor_specs.extend(factor_n_specs)
             anchor_specs.extend(
                 [
                     ("validation_z_plus_002", "validation_entry_quality_repair", {"min_abs_score_z": anchor_z + 0.02}, "tighten entry z after search passed but validation P/DD failed"),
