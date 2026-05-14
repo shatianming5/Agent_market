@@ -2128,6 +2128,87 @@ def build_rank_profile_repair_queue(
 
     candidates: list[dict[str, Any]] = []
     seen_profiles: set[str] = set()
+    tried_profiles = {str(row.get("parameter_signature")) for row in rows if isinstance(row, Mapping) and row.get("parameter_signature")}
+
+    near_trade_misses = hints.get("near_miss_trade_gate") if isinstance(hints, Mapping) else []
+    if not has_baseline and isinstance(near_trade_misses, Sequence):
+        for anchor in near_trade_misses[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = [
+                (
+                    "search_trade_topk_plus_1",
+                    "search_trade_topk_repair",
+                    {"top_k": min(10, anchor_top_k + 1)},
+                    "add one rank slot around a high-P/DD search near-miss that only lacks trade count",
+                ),
+                (
+                    "search_trade_z_minus_001",
+                    "search_trade_threshold_repair",
+                    {"min_abs_score_z": anchor_z - 0.01},
+                    "lower entry z by 0.01 around a high-P/DD search near-miss",
+                ),
+                (
+                    "search_trade_z_minus_002",
+                    "search_trade_threshold_repair",
+                    {"min_abs_score_z": anchor_z - 0.02},
+                    "lower entry z by 0.02 only after the near-miss preserved profit/drawdown quality",
+                ),
+                (
+                    "search_trade_short_mom_plus_002",
+                    "search_trade_momentum_filter_repair",
+                    {"short_max_mom_24h": anchor_short_mom + 0.002},
+                    "loosen pair momentum entry filter minimally from the high-P/DD near-miss",
+                ),
+                (
+                    "search_trade_rebalance_minus_1",
+                    "search_trade_cadence_repair",
+                    {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                    "increase cadence by one hour step only after threshold repairs are queued",
+                ),
+            ]
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated search trade-count repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": "controller_rank_profile_search_trade_repair",
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_trades": anchor.get("trades"),
+                            "anchor_trades_gap": anchor.get("trades_gap"),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_pct": anchor.get("profit_pct"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
 
     validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
     validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
