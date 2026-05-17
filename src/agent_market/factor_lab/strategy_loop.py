@@ -2168,6 +2168,130 @@ def _pair_loss_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mappin
     return loss_pairs
 
 
+def _signal_activity_summary_from_signal_dir(raw_signal_dir: Any) -> dict[str, Any]:
+    signal_path = _resolve_signal_file(raw_signal_dir)
+    if signal_path is None:
+        return {}
+    try:
+        import pandas as pd
+    except Exception:
+        return {}
+    try:
+        df = pd.read_feather(signal_path)
+    except Exception:
+        return {}
+    required = {"date", "pair", "rp_target_weight"}
+    if not required.issubset(set(df.columns)):
+        return {}
+    try:
+        df = df.copy()
+        df["date"] = pd.to_datetime(df["date"], utc=True)
+        weights = pd.to_numeric(df["rp_target_weight"], errors="coerce").fillna(0.0).abs()
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+
+    active = df[weights > 0.0]
+    days = df["date"].dt.floor("D")
+    total_days = int(days.nunique())
+    active_days = int(active["date"].dt.floor("D").nunique()) if not active.empty else 0
+    active_rows = int(len(active))
+    active_pairs = int(active["pair"].astype(str).nunique()) if not active.empty else 0
+    pair_counts = active["pair"].astype(str).value_counts() if not active.empty else None
+    top_pair_share = (
+        float(pair_counts.iloc[0] / active_rows) if pair_counts is not None and active_rows > 0 else 0.0
+    )
+    return {
+        "total_days": total_days,
+        "active_days": active_days,
+        "active_day_ratio": float(active_days / total_days) if total_days > 0 else 0.0,
+        "active_rows": active_rows,
+        "active_pairs": active_pairs,
+        "top_pair_active_share": top_pair_share,
+    }
+
+
+def _validation_activity_coverage_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+) -> list[tuple[str, str, dict[str, Any], str, dict[str, Any]]]:
+    summary = _signal_activity_summary_from_signal_dir(anchor.get("validation_signal_dir"))
+    total_days = _coerce_int(summary.get("total_days") if summary else None, 0)
+    active_days = _coerce_int(summary.get("active_days") if summary else None, 0)
+    if total_days < 14:
+        return []
+    min_active_days = max(10, int(math.ceil(total_days * 0.5)))
+    if active_days >= min_active_days:
+        return []
+
+    anchor_top_k = _coerce_int(anchor_profile.get("top_k"), 2)
+    anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), 6)
+    regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+    regime_edge = _coerce_finite_float(anchor_profile.get("regime_min_edge_ic"), 0.0)
+    regime_pair_edge = _coerce_finite_float(anchor_profile.get("regime_min_pair_edge_ic"), 0.0)
+    regime_market_mom = _coerce_finite_float(anchor_profile.get("regime_short_max_market_mom_24h"), 0.03)
+    regime_atr = _coerce_finite_float(anchor_profile.get("regime_max_market_atr_pct"), 0.04)
+
+    specs: list[tuple[str, str, dict[str, Any], str, dict[str, Any]]] = []
+    if regime_pair_count > 1:
+        specs.append(
+            (
+                "validation_activity_regime_pair_count_minus_1",
+                "validation_activity_regime_coverage_repair",
+                {"regime_min_pair_count": regime_pair_count - 1},
+                "broaden eligible regimes after validation passed but active-day coverage was narrow",
+                summary,
+            )
+        )
+    if regime_edge > 0.0 or regime_pair_edge > 0.0:
+        specs.append(
+            (
+                "validation_activity_regime_edge_minus_005",
+                "validation_activity_regime_coverage_repair",
+                {
+                    "regime_min_edge_ic": max(0.0, regime_edge - 0.005),
+                    "regime_min_pair_edge_ic": max(0.0, regime_pair_edge - 0.005),
+                },
+                "lower regime edge floors slightly to test whether the validation pass is over-filtered",
+                summary,
+            )
+        )
+    specs.extend(
+        [
+            (
+                "validation_activity_regime_market_mom_plus_005",
+                "validation_activity_market_coverage_repair",
+                {"regime_short_max_market_mom_24h": regime_market_mom + 0.005},
+                "allow marginally stronger broad-market momentum when validation activity is sparse",
+                summary,
+            ),
+            (
+                "validation_activity_regime_atr_plus_005",
+                "validation_activity_market_coverage_repair",
+                {"regime_max_market_atr_pct": regime_atr + 0.005},
+                "allow a slightly wider market ATR regime before changing pair exclusions",
+                summary,
+            ),
+            (
+                "validation_activity_topk_plus_1",
+                "validation_activity_breadth_repair",
+                {"top_k": min(10, anchor_top_k + 1)},
+                "add one rank slot to improve temporal coverage from a validation-passed anchor",
+                summary,
+            ),
+            (
+                "validation_activity_rebalance_minus_1",
+                "validation_activity_cadence_repair",
+                {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                "increase cadence by one hour step to test whether narrow validation coverage is a cadence artifact",
+                summary,
+            ),
+        ]
+    )
+    return specs
+
+
 def _merged_excluded_pairs(anchor_profile: Mapping[str, Any], extra: Sequence[str]) -> list[str]:
     existing = anchor_profile.get("exclude_pairs") or []
     if isinstance(existing, str):
@@ -2296,6 +2420,37 @@ def build_rank_profile_repair_queue(
             except Exception:
                 continue
             anchor_iter = anchor.get("iteration")
+            activity_specs = _validation_activity_coverage_repairs(anchor, anchor_profile)
+            for raw_name, family, changes, tradeoff, activity_summary in activity_specs[:4]:
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation-passed activity repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": "controller_rank_profile_validation_pass_activity_repair",
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "validation_activity_summary": activity_summary,
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
             for raw_name, family, changes, tradeoff in _validation_pair_loss_repairs(anchor, anchor_profile, config)[:2]:
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
