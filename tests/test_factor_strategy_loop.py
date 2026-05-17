@@ -3161,3 +3161,40 @@ def test_structured_mode_requires_structural_change() -> None:
     with pytest.raises(ValueError, match="insufficient structural change"):
         runner._validate_unique_candidate(local_only)
     runner._validate_unique_candidate(structural)
+
+
+def test_structured_mode_accepts_regime_gate_changes() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit_structured_regime", run_id="unit_structured_regime_run")
+    runner = StrategyLoopRunner(cfg)
+    runner.state.exploration_mode = "structured"
+    runner.state.best_candidate = {
+        "candidate": {
+            "candidate_type": "rank_profile",
+            "rank_profile": {
+                "top_k": 5,
+                "side_mode": "short",
+                "regime_mode": "hq",
+                "regime_min_pair_count": 3,
+                "regime_min_edge_ic": 0.01,
+                "regime_min_pair_edge_ic": 0.01,
+                "regime_short_max_market_mom_24h": 0.03,
+                "regime_max_market_atr_pct": 0.04,
+            },
+        }
+    }
+    regime_change = {
+        "candidate_type": "rank_profile",
+        "metadata": {"search_mode": "structured_explore"},
+        "rank_profile": {
+            "top_k": 5,
+            "side_mode": "short",
+            "regime_mode": "hq",
+            "regime_min_pair_count": 2,
+            "regime_min_edge_ic": 0.01,
+            "regime_min_pair_edge_ic": 0.01,
+            "regime_short_max_market_mom_24h": 0.03,
+            "regime_max_market_atr_pct": 0.04,
+        },
+    }
+
+    runner._validate_unique_candidate(regime_change)
