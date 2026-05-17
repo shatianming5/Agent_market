@@ -2017,6 +2017,7 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
             "validation_profit_over_max_drawdown_gap": min_pdd - pdd,
             "validation_profit_pct": profit,
             "validation_max_drawdown_pct": drawdown,
+            "search_signal_dir": search_window.get("signal_dir"),
             "validation_signal_dir": validation_window.get("signal_dir"),
             "search_profit_over_max_drawdown": search_pdd,
             "search_profit_pct": _coerce_finite_float(search_metrics.get("profit_pct"), 0.0),
@@ -2079,12 +2080,8 @@ def _resolve_signal_file(raw_signal_dir: Any) -> Optional[Path]:
     return path if path.exists() else None
 
 
-def _validation_pair_loss_repairs(
-    anchor: Mapping[str, Any],
-    anchor_profile: Mapping[str, Any],
-    config: StrategyLoopConfig,
-) -> list[tuple[str, str, dict[str, Any], str]]:
-    signal_path = _resolve_signal_file(anchor.get("validation_signal_dir"))
+def _pair_loss_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mapping[str, Any]) -> list[str]:
+    signal_path = _resolve_signal_file(raw_signal_dir)
     if signal_path is None:
         return []
     try:
@@ -2157,9 +2154,10 @@ def _validation_pair_loss_repairs(
         if norm:
             pair_pnl[norm] = pair_pnl.get(norm, 0.0) + float(pnl)
     loss_pairs = [pair for pair, pnl in sorted(pair_pnl.items(), key=lambda item: item[1]) if pnl < 0.0]
-    if not loss_pairs:
-        return []
+    return loss_pairs
 
+
+def _merged_excluded_pairs(anchor_profile: Mapping[str, Any], extra: Sequence[str]) -> list[str]:
     existing = anchor_profile.get("exclude_pairs") or []
     if isinstance(existing, str):
         existing_pairs = [_normalize_pair_token(p) for p in existing.split(",")]
@@ -2168,14 +2166,24 @@ def _validation_pair_loss_repairs(
     else:
         existing_pairs = []
     existing_pairs = [p for p in existing_pairs if p]
+    merged: list[str] = []
+    for pair in [*existing_pairs, *extra]:
+        norm = _normalize_pair_token(pair)
+        if norm and norm not in merged:
+            merged.append(norm)
+    return merged
 
-    def merged_exclusions(extra: Sequence[str]) -> list[str]:
-        merged: list[str] = []
-        for pair in [*existing_pairs, *extra]:
-            norm = _normalize_pair_token(pair)
-            if norm and norm not in merged:
-                merged.append(norm)
-        return merged
+
+def _validation_pair_loss_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+    config: StrategyLoopConfig,
+) -> list[tuple[str, str, dict[str, Any], str]]:
+    loss_pairs = _pair_loss_order_from_signal_dir(anchor.get("validation_signal_dir"), anchor_profile)
+    if not loss_pairs:
+        return []
+
+    existing_pairs = _merged_excluded_pairs(anchor_profile, [])
 
     top_k = _coerce_int(anchor_profile.get("top_k"), 2)
     specs: list[tuple[str, str, dict[str, Any], str]] = []
@@ -2188,7 +2196,7 @@ def _validation_pair_loss_repairs(
             (
                 f"validation_exclude_{label}_topk_plus_{topk_bump}",
                 "validation_pair_exclusion_repair",
-                {"exclude_pairs": merged_exclusions(pairs), "top_k": min(10, top_k + topk_bump)},
+                {"exclude_pairs": _merged_excluded_pairs(anchor_profile, pairs), "top_k": min(10, top_k + topk_bump)},
                 f"exclude validation loser pair(s) {', '.join(pairs)} and add rank breadth to backfill trade count",
             )
         )
@@ -2303,6 +2311,24 @@ def build_rank_profile_repair_queue(
                         "exit shorts as soon as pair momentum turns positive after validation profit is positive but P/DD is still below gate",
                     )
                 )
+            if validation_pdd >= min_validation_pdd and _coerce_finite_float(current_exit_mom, 1.0) <= 0.0:
+                search_loss_pairs = _pair_loss_order_from_signal_dir(anchor.get("search_signal_dir"), anchor_profile)
+                existing_pairs = _merged_excluded_pairs(anchor_profile, [])
+                backfill_pairs = [pair for pair in search_loss_pairs if pair not in existing_pairs]
+                if backfill_pairs:
+                    backfill_pair = backfill_pairs[0]
+                    anchor_specs.append(
+                        (
+                            "validation_trade_exit_mom_minus_002_search_loser_z145",
+                            "validation_trade_search_loss_exclusion_repair",
+                            {
+                                "short_exit_mom_24h": -0.02,
+                                "min_abs_score_z": min(anchor_z, 1.45),
+                                "exclude_pairs": _merged_excluded_pairs(anchor_profile, [backfill_pair]),
+                            },
+                            f"add validation trades from a profitable exit-filter anchor while excluding search loser pair {backfill_pair}",
+                        )
+                    )
             anchor_specs.extend(
                 [
                     (

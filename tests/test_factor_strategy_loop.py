@@ -2177,6 +2177,100 @@ def test_rank_profile_repair_queue_prioritizes_positive_validation_trade_gap(tmp
     )
 
 
+def test_rank_profile_repair_queue_adds_search_loser_exit_trade_repair(tmp_path: Path) -> None:
+    import pandas as pd
+
+    signal_dir = tmp_path / "search_signals"
+    signal_dir.mkdir()
+    dates = pd.date_range("2026-02-01", periods=5, freq="1h", tz="UTC")
+    prices = {
+        "SOL/USDT": [100.0, 102.0, 104.0, 106.0, 108.0],
+        "ADA/USDT": [100.0, 99.0, 98.0, 97.0, 96.0],
+    }
+    rows = []
+    for pair, values in prices.items():
+        for idx, date in enumerate(dates):
+            rows.append(
+                {
+                    "date": date,
+                    "pair": pair,
+                    "open": values[idx],
+                    "high": values[idx] * 1.01,
+                    "low": values[idx] * 0.99,
+                    "close": values[idx],
+                    "rp_target_weight": -1.0 if idx < 3 else 0.0,
+                    "rp_stop_pct": 0.2,
+                }
+            )
+    pd.DataFrame(rows).to_feather(signal_dir / "all.feather")
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.52,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.042,
+        "short_exit_mom_24h": 0.0,
+        "max_entry_atr_pct": 0.05,
+        "exclude_pairs": ["BTC/USDT"],
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_search_loser_exit_trade_repair",
+        run_id="unit_search_loser_exit_trade_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    row = {
+        "run_id": cfg.run_id,
+        "iteration": 73,
+        "candidate": {
+            "candidate_type": "rank_profile",
+            "name": "positive_validation_undertraded_exit_anchor",
+            "rank_profile": anchor,
+        },
+        "parameter_signature": rank_profile_signature(anchor),
+        "window_metrics": {
+            "search": {
+                "constraints_ok": True,
+                "signal_dir": str(signal_dir),
+                "research_metrics": {
+                    "profit_pct": 8.5,
+                    "max_drawdown_pct": 5.4,
+                    "profit_over_max_drawdown": 1.56,
+                    "trades": 72,
+                },
+                "violations": [],
+            },
+            "validation": {
+                "constraints_ok": False,
+                "research_metrics": {
+                    "profit_pct": 1.46,
+                    "max_drawdown_pct": 0.8,
+                    "profit_over_max_drawdown": 1.82,
+                    "trades": scaled_gate_values(cfg, cfg.validation_timerange)["min_trades"] - 4,
+                },
+                "violations": ["research: trades=15 < 19"],
+            },
+        },
+    }
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=[row])
+
+    assert queue
+    assert queue[0]["metadata"]["hypothesis_family"] == "validation_trade_search_loss_exclusion_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_73"
+    assert queue[0]["rank_profile"]["short_exit_mom_24h"] == -0.02
+    assert queue[0]["rank_profile"]["min_abs_score_z"] == 1.45
+    assert queue[0]["rank_profile"]["exclude_pairs"] == ["BTC/USDT", "SOL/USDT"]
+
+
 def test_rank_profile_repair_queue_adds_validation_pair_exclusion_repairs(tmp_path: Path) -> None:
     import pandas as pd
 
