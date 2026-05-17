@@ -2787,6 +2787,19 @@ def test_lookahead_and_recursive_parsers_block_bias(tmp_path: Path) -> None:
         "ELRankPortfolioLeverageStrategy,true,1,0,rp_future,12\n",
         encoding="utf-8",
     )
+    header_only_csv = tmp_path / "lookahead_header_only.csv"
+    header_only_csv.write_text(
+        "filename,strategy,has_bias,total_signals,biased_entry_signals,biased_exit_signals,biased_indicators\n",
+        encoding="utf-8",
+    )
+    header_only_log = tmp_path / "lookahead_header_only.log"
+    header_only_log.write_text(
+        "2026-05-17 23:06:28,368 - freqtrade.optimize.analysis.lookahead - INFO - "
+        "ELRankPortfolioLeverageStrategy: no bias detected\n"
+        "\u2502 ELRankPortfolioLeverageStrategy.py \u2502 ELRankPortfolioLeverageStrategy \u2502 "
+        "No \u2502 19 \u2502 0 \u2502 0 \u2502 \u2502\n",
+        encoding="utf-8",
+    )
     recursive_ok = tmp_path / "recursive_ok.csv"
     recursive_ok.write_text("indicator,diff\nrsi,0\n", encoding="utf-8")
     recursive_bad = tmp_path / "recursive_bad.csv"
@@ -2803,6 +2816,8 @@ def test_lookahead_and_recursive_parsers_block_bias(tmp_path: Path) -> None:
     assert parse_lookahead_csv(ok_csv, min_trades=5)["status"] == VERIFICATION_PASSED
     assert parse_lookahead_csv(bad_csv, min_trades=5)["status"] == VERIFICATION_FAILED
     assert parse_lookahead_csv(ok_csv, min_trades=50)["status"] == VERIFICATION_FAILED
+    assert parse_lookahead_csv(header_only_csv, min_trades=19, log_path=header_only_log)["status"] == VERIFICATION_PASSED
+    assert parse_lookahead_csv(header_only_csv, min_trades=20, log_path=header_only_log)["status"] == VERIFICATION_FAILED
     assert parse_recursive_output(recursive_ok)["status"] == VERIFICATION_PASSED
     assert parse_recursive_output(recursive_ok_log)["status"] == VERIFICATION_PASSED
     assert parse_recursive_output(recursive_bad)["status"] == VERIFICATION_FAILED

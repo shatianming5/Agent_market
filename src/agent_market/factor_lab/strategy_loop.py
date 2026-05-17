@@ -3432,17 +3432,56 @@ def _numeric_zero(value: Any) -> bool:
         return _boolish_false(value)
 
 
+def _lookahead_rows_from_log(path: str | Path, *, strategy: str) -> list[dict[str, Any]]:
+    log_path = Path(path)
+    if not log_path.exists():
+        return []
+    text = log_path.read_text(encoding="utf-8", errors="ignore")
+    rows: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if strategy not in line or "\u2502" not in line:
+            continue
+        cells = [cell.strip() for cell in line.split("\u2502") if cell.strip()]
+        try:
+            strategy_idx = next(idx for idx, cell in enumerate(cells) if cell == strategy)
+        except StopIteration:
+            continue
+        tail = cells[strategy_idx:]
+        if len(tail) < 5:
+            continue
+        rows.append(
+            _lower_key_map(
+                {
+                    "strategy": tail[0],
+                    "has_bias": tail[1],
+                    "total_signals": tail[2],
+                    "biased_entry_signals": tail[3],
+                    "biased_exit_signals": tail[4],
+                    "biased_indicators": tail[5] if len(tail) > 5 else "",
+                }
+            )
+        )
+    if rows:
+        return rows
+    if re.search(rf"{re.escape(strategy)}\s*:\s*no bias detected", text, flags=re.I):
+        return [_lower_key_map({"strategy": strategy, "has_bias": "no", "total_signals": 0})]
+    return []
+
+
 def parse_lookahead_csv(
     path: str | Path,
     *,
     strategy: str = FIXED_FREQTRADE_STRATEGY,
     min_trades: int = 0,
+    log_path: str | Path | None = None,
 ) -> dict[str, Any]:
     csv_path = Path(path)
     if not csv_path.exists():
         return {"status": VERIFICATION_INCONCLUSIVE, "violations": [f"lookahead csv missing: {csv_path}"], "rows": []}
     with csv_path.open("r", encoding="utf-8-sig", newline="") as fh:
         rows = [_lower_key_map(row) for row in csv.DictReader(fh)]
+    if not rows and log_path is not None:
+        rows = _lookahead_rows_from_log(log_path, strategy=strategy)
     if not rows:
         return {"status": VERIFICATION_INCONCLUSIVE, "violations": ["lookahead csv has no rows"], "rows": []}
 
@@ -6132,7 +6171,12 @@ class StrategyLoopRunner:
             lookahead_proc = subprocess.CompletedProcess(lookahead_cmd, 124, stdout=str(exc))
             (gate_dir / "lookahead.log").write_text(str(exc), encoding="utf-8")
         min_gate_trades = int(scaled_gate_values(self.config, timerange)["min_trades"])
-        lookahead = parse_lookahead_csv(lookahead_csv, strategy=FIXED_FREQTRADE_STRATEGY, min_trades=min_gate_trades)
+        lookahead = parse_lookahead_csv(
+            lookahead_csv,
+            strategy=FIXED_FREQTRADE_STRATEGY,
+            min_trades=min_gate_trades,
+            log_path=gate_dir / "lookahead.log",
+        )
         if lookahead_proc.returncode != 0:
             lookahead["status"] = VERIFICATION_FAILED
             lookahead.setdefault("violations", []).append(f"lookahead command exited {lookahead_proc.returncode}")
