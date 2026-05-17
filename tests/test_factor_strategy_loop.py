@@ -2165,10 +2165,16 @@ def test_rank_profile_repair_queue_prioritizes_positive_validation_trade_gap(tmp
     queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
 
     assert queue
-    assert queue[0]["metadata"]["hypothesis_family"] == "validation_trade_repair_after_regime"
+    assert queue[0]["metadata"]["hypothesis_family"] == "validation_exit_filter_repair_after_positive_validation"
     assert queue[0]["metadata"]["parent_anchor"] == "iteration_60"
     assert queue[0]["rank_profile"]["exclude_pairs"] == ["BTC/USDT"]
-    assert queue[0]["rank_profile"]["top_k"] == 4
+    assert queue[0]["rank_profile"]["short_exit_mom_24h"] == 0.0
+    assert any(
+        item["metadata"]["hypothesis_family"] == "validation_trade_repair_after_regime"
+        and item["metadata"]["parent_anchor"] == "iteration_60"
+        and item["rank_profile"]["top_k"] == 4
+        for item in queue
+    )
 
 
 def test_rank_profile_repair_queue_adds_validation_pair_exclusion_repairs(tmp_path: Path) -> None:

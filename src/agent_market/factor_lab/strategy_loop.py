@@ -2273,6 +2273,12 @@ def build_rank_profile_repair_queue(
                 continue
             validation_trade_gap = _coerce_int(anchor.get("validation_trades_gap"), 0)
             validation_profit = _coerce_finite_float(anchor.get("validation_profit_pct"), 0.0)
+            validation_pdd = _coerce_finite_float(anchor.get("validation_profit_over_max_drawdown"), 0.0)
+            validation_gates = validation_hints.get("validation_gates") if isinstance(validation_hints, Mapping) else {}
+            min_validation_pdd = _coerce_finite_float(
+                validation_gates.get("min_profit_over_dd") if isinstance(validation_gates, Mapping) else None,
+                config.min_profit_over_dd,
+            )
             if validation_trade_gap <= 0 or validation_profit <= 0.0:
                 continue
             try:
@@ -2284,38 +2290,53 @@ def build_rank_profile_repair_queue(
             anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
             anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
             anchor_iter = anchor.get("iteration")
-            anchor_specs = [
-                (
-                    "validation_trade_topk_plus_1",
-                    "validation_trade_repair_after_regime",
-                    {"top_k": min(10, anchor_top_k + 1)},
-                    "recover validation trade count from a profitable validation-fail anchor before more search-only tuning",
-                ),
-                (
-                    "validation_trade_z_minus_001",
-                    "validation_trade_repair_after_regime",
-                    {"min_abs_score_z": anchor_z - 0.01},
-                    "recover a small validation trade deficit after the anchor already turned validation profit positive",
-                ),
-                (
-                    "validation_trade_topk_plus_1_z_minus_001",
-                    "validation_trade_combo_repair_after_positive_validation",
-                    {"top_k": min(10, anchor_top_k + 1), "min_abs_score_z": anchor_z - 0.01},
-                    "combine one extra slot with a tiny threshold repair when validation is profitable but materially under-traded",
-                ),
-                (
-                    "validation_trade_short_mom_plus_002",
-                    "validation_trade_repair_after_positive_validation",
-                    {"short_max_mom_24h": anchor_short_mom + 0.002},
-                    "add marginal validation trades after the repaired anchor is profitable but below the trade gate",
-                ),
-                (
-                    "validation_trade_rebalance_minus_1",
-                    "validation_trade_repair_after_positive_validation",
-                    {"rebalance_hours": max(1, anchor_rebalance - 1)},
-                    "increase cadence slightly after validation is positive but still under-traded",
-                ),
-            ]
+            anchor_specs = []
+            current_exit_mom = anchor_profile.get("short_exit_mom_24h")
+            if validation_pdd < min_validation_pdd and (
+                current_exit_mom is None or _coerce_finite_float(current_exit_mom, 1.0) > 0.0
+            ):
+                anchor_specs.append(
+                    (
+                        "validation_exit_mom_000",
+                        "validation_exit_filter_repair_after_positive_validation",
+                        {"short_exit_mom_24h": 0.0},
+                        "exit shorts as soon as pair momentum turns positive after validation profit is positive but P/DD is still below gate",
+                    )
+                )
+            anchor_specs.extend(
+                [
+                    (
+                        "validation_trade_topk_plus_1",
+                        "validation_trade_repair_after_regime",
+                        {"top_k": min(10, anchor_top_k + 1)},
+                        "recover validation trade count from a profitable validation-fail anchor before more search-only tuning",
+                    ),
+                    (
+                        "validation_trade_z_minus_001",
+                        "validation_trade_repair_after_regime",
+                        {"min_abs_score_z": anchor_z - 0.01},
+                        "recover a small validation trade deficit after the anchor already turned validation profit positive",
+                    ),
+                    (
+                        "validation_trade_topk_plus_1_z_minus_001",
+                        "validation_trade_combo_repair_after_positive_validation",
+                        {"top_k": min(10, anchor_top_k + 1), "min_abs_score_z": anchor_z - 0.01},
+                        "combine one extra slot with a tiny threshold repair when validation is profitable but materially under-traded",
+                    ),
+                    (
+                        "validation_trade_short_mom_plus_002",
+                        "validation_trade_repair_after_positive_validation",
+                        {"short_max_mom_24h": anchor_short_mom + 0.002},
+                        "add marginal validation trades after the repaired anchor is profitable but below the trade gate",
+                    ),
+                    (
+                        "validation_trade_rebalance_minus_1",
+                        "validation_trade_repair_after_positive_validation",
+                        {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                        "increase cadence slightly after validation is positive but still under-traded",
+                    ),
+                ]
+            )
             for raw_name, family, changes, tradeoff in anchor_specs:
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
