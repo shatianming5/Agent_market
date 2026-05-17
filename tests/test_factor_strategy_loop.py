@@ -2370,6 +2370,98 @@ def test_rank_profile_repair_queue_adds_validation_pair_exclusion_repairs(tmp_pa
     assert queue[0]["rank_profile"]["exclude_pairs"] == ["BTC/USDT"]
 
 
+def test_rank_profile_repair_queue_adds_validation_pass_pair_robustness_repairs(tmp_path: Path) -> None:
+    import pandas as pd
+
+    signal_dir = tmp_path / "signals"
+    signal_dir.mkdir()
+    dates = pd.date_range("2026-03-01", periods=5, freq="1h", tz="UTC")
+    prices = {
+        "LINK/USDT": [100.0, 104.0, 108.0, 112.0, 116.0],
+        "ADA/USDT": [100.0, 99.0, 98.0, 97.0, 96.0],
+    }
+    signal_rows = []
+    for pair, values in prices.items():
+        for idx, date in enumerate(dates):
+            signal_rows.append(
+                {
+                    "date": date,
+                    "pair": pair,
+                    "open": values[idx],
+                    "high": values[idx] * 1.001,
+                    "low": values[idx] * 0.999,
+                    "close": values[idx],
+                    "rp_target_weight": -1.0 if idx < 3 else 0.0,
+                    "rp_stop_pct": 0.2,
+                }
+            )
+    pd.DataFrame(signal_rows).to_feather(signal_dir / "all.feather")
+
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.45,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.042,
+        "short_exit_mom_24h": -0.02,
+        "max_entry_atr_pct": 0.05,
+        "exclude_pairs": ["BTC/USDT", "SOL/USDT"],
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_validation_pass_pair_robustness_repair",
+        run_id="unit_validation_pass_pair_robustness_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 1,
+            "candidate": {"candidate_type": "rank_profile", "name": "validation_passed", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 5.0,
+                        "max_drawdown_pct": 3.0,
+                        "profit_over_max_drawdown": 1.66,
+                        "trades": 80,
+                    },
+                    "violations": [],
+                },
+                "validation": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 1.8,
+                        "max_drawdown_pct": 0.8,
+                        "profit_over_max_drawdown": 2.25,
+                        "trades": 20,
+                    },
+                    "signal_dir": str(signal_dir),
+                    "violations": [],
+                },
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_validation_pass_robustness_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_1"
+    assert queue[0]["rank_profile"]["top_k"] == 6
+    assert queue[0]["rank_profile"]["exclude_pairs"] == ["BTC/USDT", "SOL/USDT", "LINK/USDT"]
+
+
 def test_rank_profile_repair_queue_prioritizes_validation_failures(tmp_path: Path) -> None:
     near_pdd = {
         "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",

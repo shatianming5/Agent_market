@@ -1986,6 +1986,7 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
     min_pdd = float(gates["min_profit_over_dd"])
     validation_pdd_failures: list[dict[str, Any]] = []
     validation_losses: list[dict[str, Any]] = []
+    validation_passed: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, Mapping):
             continue
@@ -1996,8 +1997,6 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
         search_window = windows.get("search") if isinstance(windows.get("search"), Mapping) else {}
         validation_window = windows.get("validation") if isinstance(windows.get("validation"), Mapping) else {}
         if search_window.get("constraints_ok") is not True or not validation_window:
-            continue
-        if validation_window.get("constraints_ok") is True:
             continue
         validation_metrics = _stage_metrics_from_row(row, "validation")
         search_metrics = _stage_metrics_from_row(row, "search")
@@ -2024,6 +2023,9 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
             "violations": validation_window.get("violations") or row.get("violations") or [],
             "rank_profile": dict(profile),
         }
+        if validation_window.get("constraints_ok") is True:
+            validation_passed.append(compact)
+            continue
         if trades < min_trades or pdd < min_pdd:
             validation_pdd_failures.append(compact)
         if profit <= 0.0:
@@ -2044,6 +2046,14 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
         ),
         reverse=True,
     )
+    validation_passed.sort(
+        key=lambda item: (
+            float(item["validation_profit_over_max_drawdown"]),
+            float(item["validation_profit_pct"]),
+            int(item["validation_trades"]),
+        ),
+        reverse=True,
+    )
     notes: list[str] = []
     if validation_pdd_failures:
         notes.append(
@@ -2055,6 +2065,7 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
         )
     return {
         "validation_gates": gates,
+        "validation_passed": validation_passed[:5],
         "validation_profit_drawdown_fail": validation_pdd_failures[:5],
         "validation_loss_after_search_pass": validation_losses[:5],
         "recommended_repair_order": [
@@ -2268,12 +2279,52 @@ def build_rank_profile_repair_queue(
     tried_profiles = {str(row.get("parameter_signature")) for row in rows if isinstance(row, Mapping) and row.get("parameter_signature")}
 
     validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
+    validation_passed = validation_hints.get("validation_passed") if isinstance(validation_hints, Mapping) else []
     validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
     validation_losses = validation_hints.get("validation_loss_after_search_pass") if isinstance(validation_hints, Mapping) else []
     persistent_validation_loss = isinstance(validation_losses, Sequence) and len(validation_losses) >= 3
     defer_search_trade_repairs = bool(
         persistent_validation_loss and isinstance(validation_failures, Sequence) and validation_failures
     )
+
+    if isinstance(validation_passed, Sequence):
+        for anchor in validation_passed[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_iter = anchor.get("iteration")
+            for raw_name, family, changes, tradeoff in _validation_pair_loss_repairs(anchor, anchor_profile, config)[:2]:
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation-passed robustness repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": "controller_rank_profile_validation_pass_robustness_repair",
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
 
     if isinstance(validation_failures, Sequence):
         for anchor in validation_failures[:3]:
