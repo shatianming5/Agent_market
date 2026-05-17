@@ -2035,6 +2035,117 @@ def test_rank_profile_repair_queue_recovers_exclusion_search_trade_near_miss(tmp
     assert queue[0]["rank_profile"]["top_k"] == 4
 
 
+def test_rank_profile_repair_queue_prioritizes_positive_validation_trade_gap(tmp_path: Path) -> None:
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 3,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.51,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.038,
+        "max_entry_atr_pct": 0.05,
+        "exclude_pairs": ["BTC/USDT"],
+        "regime_mode": "hq",
+        "regime_min_edge_ic": 0.01,
+        "regime_min_pair_edge_ic": 0.01,
+        "regime_min_pair_count": 3,
+        "regime_short_max_market_mom_24h": 0.03,
+        "regime_max_market_atr_pct": 0.04,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_positive_validation_trade_gap",
+        run_id="unit_positive_validation_trade_gap_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = []
+    for iteration, validation_profit in ((46, -2.8), (49, -1.8), (50, -1.7)):
+        row_profile = {**anchor, "exclude_pairs": [], "min_abs_score_z": 1.48 + iteration / 1000.0}
+        rows.append(
+            {
+                "run_id": cfg.run_id,
+                "iteration": iteration,
+                "candidate": {
+                    "candidate_type": "rank_profile",
+                    "name": f"validation_loss_{iteration}",
+                    "rank_profile": row_profile,
+                },
+                "parameter_signature": rank_profile_signature(row_profile),
+                "window_metrics": {
+                    "search": {
+                        "constraints_ok": True,
+                        "research_metrics": {
+                            "profit_pct": 35.0,
+                            "max_drawdown_pct": 6.0,
+                            "profit_over_max_drawdown": 5.0 + iteration / 100.0,
+                            "trades": 56,
+                        },
+                        "violations": [],
+                    },
+                    "validation": {
+                        "constraints_ok": False,
+                        "research_metrics": {
+                            "profit_pct": validation_profit,
+                            "max_drawdown_pct": 5.0,
+                            "profit_over_max_drawdown": validation_profit / 5.0,
+                            "trades": scaled_gate_values(cfg, cfg.validation_timerange)["min_trades"] - 3,
+                        },
+                        "violations": ["research: validation loss after search pass"],
+                    },
+                },
+            }
+        )
+    rows.append(
+        {
+            "run_id": cfg.run_id,
+            "iteration": 60,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "validation_positive_undertraded",
+                "rank_profile": anchor,
+            },
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 24.6,
+                        "max_drawdown_pct": 5.8,
+                        "profit_over_max_drawdown": 4.2,
+                        "trades": 54,
+                    },
+                    "violations": [],
+                },
+                "validation": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": 0.78,
+                        "max_drawdown_pct": 3.3,
+                        "profit_over_max_drawdown": 0.236,
+                        "trades": scaled_gate_values(cfg, cfg.validation_timerange)["min_trades"] - 6,
+                    },
+                    "violations": ["research: trades=13 < 19"],
+                },
+            },
+        }
+    )
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["hypothesis_family"] == "validation_trade_repair_after_regime"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_60"
+    assert queue[0]["rank_profile"]["exclude_pairs"] == ["BTC/USDT"]
+    assert queue[0]["rank_profile"]["top_k"] == 4
+
+
 def test_rank_profile_repair_queue_adds_validation_pair_exclusion_repairs(tmp_path: Path) -> None:
     import pandas as pd
 

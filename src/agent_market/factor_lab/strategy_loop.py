@@ -2368,6 +2368,7 @@ def build_rank_profile_repair_queue(
             anchor_risk = _coerce_finite_float(anchor_profile.get("risk_per_trade"), _coerce_finite_float(base.get("risk_per_trade"), 0.015))
             anchor_n = _coerce_int(anchor_profile.get("n"), config.n)
             anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
             anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), _coerce_finite_float(base.get("max_entry_atr_pct"), 0.05))
             anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
             anchor_side = str(anchor_profile.get("side_mode") or "short").strip().lower()
@@ -2378,6 +2379,7 @@ def build_rank_profile_repair_queue(
             current_regime_atr = anchor_profile.get("regime_max_market_atr_pct")
             regime_atr_cap = min(_coerce_finite_float(current_regime_atr, 0.04), 0.04)
             validation_trade_gap = _coerce_int(anchor.get("validation_trades_gap"), 0)
+            validation_profit = _coerce_finite_float(anchor.get("validation_profit_pct"), 0.0)
             anchor_iter = anchor.get("iteration")
             anchor_specs = [
                 (
@@ -2394,6 +2396,41 @@ def build_rank_profile_repair_queue(
                     "filter entries to higher-quality cross-sectional and market regimes after validation loss",
                 ),
             ]
+            validation_trade_specs = []
+            if validation_trade_gap > 0:
+                validation_trade_specs = [
+                    (
+                        "validation_trade_topk_plus_1",
+                        "validation_trade_repair_after_regime",
+                        {"top_k": min(10, anchor_top_k + 1)},
+                        "recover validation trade count from the best validation-fail anchor without changing side or risk",
+                    ),
+                    (
+                        "validation_trade_z_minus_001",
+                        "validation_trade_repair_after_regime",
+                        {"min_abs_score_z": anchor_z - 0.01},
+                        "recover a small validation trade deficit after robust filters reduced participation",
+                    ),
+                ]
+                if validation_profit > 0.0:
+                    validation_trade_specs.extend(
+                        [
+                            (
+                                "validation_trade_short_mom_plus_002",
+                                "validation_trade_repair_after_positive_validation",
+                                {"short_max_mom_24h": anchor_short_mom + 0.002},
+                                "add marginal validation trades after the repaired anchor is profitable but below the trade gate",
+                            ),
+                            (
+                                "validation_trade_rebalance_minus_1",
+                                "validation_trade_repair_after_positive_validation",
+                                {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                                "increase cadence slightly after validation is positive but still under-traded",
+                            ),
+                        ]
+                    )
+            if validation_profit > 0.0 and validation_trade_specs:
+                anchor_specs.extend(validation_trade_specs)
             anchor_specs.extend(_validation_pair_loss_repairs(anchor, anchor_profile, config))
             factor_n_specs = [
                 (
@@ -2417,23 +2454,8 @@ def build_rank_profile_repair_queue(
             ]
             if persistent_validation_loss:
                 anchor_specs.extend(factor_n_specs)
-            if validation_trade_gap > 0:
-                anchor_specs.extend(
-                    [
-                        (
-                            "validation_trade_topk_plus_1",
-                            "validation_trade_repair_after_regime",
-                            {"top_k": min(10, anchor_top_k + 1)},
-                            "recover validation trade count from the best validation-fail anchor without changing side or risk",
-                        ),
-                        (
-                            "validation_trade_z_minus_001",
-                            "validation_trade_repair_after_regime",
-                            {"min_abs_score_z": anchor_z - 0.01},
-                            "recover a small validation trade deficit after robust filters reduced participation",
-                        ),
-                    ]
-                )
+            if validation_trade_specs and validation_profit <= 0.0:
+                anchor_specs.extend(validation_trade_specs)
             if anchor_side == "short":
                 anchor_specs.extend(
                     [
