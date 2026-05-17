@@ -2267,6 +2267,90 @@ def build_rank_profile_repair_queue(
         persistent_validation_loss and isinstance(validation_failures, Sequence) and validation_failures
     )
 
+    if isinstance(validation_failures, Sequence):
+        for anchor in validation_failures[:3]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            validation_trade_gap = _coerce_int(anchor.get("validation_trades_gap"), 0)
+            validation_profit = _coerce_finite_float(anchor.get("validation_profit_pct"), 0.0)
+            if validation_trade_gap <= 0 or validation_profit <= 0.0:
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = [
+                (
+                    "validation_trade_topk_plus_1",
+                    "validation_trade_repair_after_regime",
+                    {"top_k": min(10, anchor_top_k + 1)},
+                    "recover validation trade count from a profitable validation-fail anchor before more search-only tuning",
+                ),
+                (
+                    "validation_trade_z_minus_001",
+                    "validation_trade_repair_after_regime",
+                    {"min_abs_score_z": anchor_z - 0.01},
+                    "recover a small validation trade deficit after the anchor already turned validation profit positive",
+                ),
+                (
+                    "validation_trade_topk_plus_1_z_minus_001",
+                    "validation_trade_combo_repair_after_positive_validation",
+                    {"top_k": min(10, anchor_top_k + 1), "min_abs_score_z": anchor_z - 0.01},
+                    "combine one extra slot with a tiny threshold repair when validation is profitable but materially under-traded",
+                ),
+                (
+                    "validation_trade_short_mom_plus_002",
+                    "validation_trade_repair_after_positive_validation",
+                    {"short_max_mom_24h": anchor_short_mom + 0.002},
+                    "add marginal validation trades after the repaired anchor is profitable but below the trade gate",
+                ),
+                (
+                    "validation_trade_rebalance_minus_1",
+                    "validation_trade_repair_after_positive_validation",
+                    {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                    "increase cadence slightly after validation is positive but still under-traded",
+                ),
+            ]
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation trade-count repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": "controller_rank_profile_positive_validation_trade_repair",
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_validation_trades_gap": anchor.get("validation_trades_gap"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
     near_trade_misses = hints.get("near_miss_trade_gate") if isinstance(hints, Mapping) else []
     eligible_near_trade_misses = near_trade_misses
     if defer_search_trade_repairs and isinstance(near_trade_misses, Sequence):

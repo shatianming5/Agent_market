@@ -2136,6 +2136,31 @@ def test_rank_profile_repair_queue_prioritizes_positive_validation_trade_gap(tmp
             },
         }
     )
+    search_near_miss = {**anchor, "min_abs_score_z": 1.52}
+    rows.append(
+        {
+            "run_id": cfg.run_id,
+            "iteration": 62,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "search_profitable_undertraded",
+                "rank_profile": search_near_miss,
+            },
+            "parameter_signature": rank_profile_signature(search_near_miss),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": 24.5,
+                        "max_drawdown_pct": 5.5,
+                        "profit_over_max_drawdown": 4.4,
+                        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] - 1,
+                    },
+                    "violations": ["research: trades below gate"],
+                }
+            },
+        }
+    )
 
     queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
 
