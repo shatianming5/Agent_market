@@ -1288,49 +1288,6 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _compact_final_blind_feedback(final_status: Mapping[str, Any], *, limit: int = 6) -> list[dict[str, Any]]:
-    finalists = final_status.get("finalists") if isinstance(final_status.get("finalists"), list) else []
-    feedback: list[dict[str, Any]] = []
-    for row in finalists[: int(limit)]:
-        if not isinstance(row, Mapping):
-            continue
-        finalist = row.get("finalist") if isinstance(row.get("finalist"), Mapping) else {}
-        evaluation = row.get("evaluation") if isinstance(row.get("evaluation"), Mapping) else {}
-        candidate = evaluation.get("candidate") if isinstance(evaluation.get("candidate"), Mapping) else {}
-        metrics = evaluation.get("metrics") if isinstance(evaluation.get("metrics"), Mapping) else {}
-        research_metrics = evaluation.get("research_metrics") if isinstance(evaluation.get("research_metrics"), Mapping) else metrics
-        lean_gate = evaluation.get("lean_gate") if isinstance(evaluation.get("lean_gate"), Mapping) else {}
-        lean_metrics = evaluation.get("lean_metrics") if isinstance(evaluation.get("lean_metrics"), Mapping) else {}
-        if not lean_metrics and isinstance(lean_gate.get("lean_metrics"), Mapping):
-            lean_metrics = lean_gate["lean_metrics"]
-        feedback.append(
-            {
-                "iteration": finalist.get("iteration"),
-                "candidate_path": finalist.get("candidate_path") or row.get("source_candidate_path"),
-                "score": row.get("score"),
-                "promotion_eligible": row.get("promotion_eligible"),
-                "constraints_ok": row.get("constraints_ok"),
-                "verification_status": row.get("verification_status"),
-                "lean_gate_status": row.get("lean_gate_status"),
-                "lean_comparison_status": row.get("lean_comparison_status"),
-                "research_metrics": {
-                    key: research_metrics.get(key)
-                    for key in ("profit_pct", "max_drawdown_pct", "trades", "profit_over_max_drawdown")
-                    if key in research_metrics
-                },
-                "lean_metrics": {
-                    key: lean_metrics.get(key)
-                    for key in ("total_return", "max_drawdown", "trades", "profit_over_max_drawdown")
-                    if key in lean_metrics
-                },
-                "violations": evaluation.get("violations") or [],
-                "diagnostics": evaluation.get("promotion_reason") or row.get("reason") or "",
-                "rank_profile": candidate.get("rank_profile") if isinstance(candidate, Mapping) else finalist.get("rank_profile"),
-            }
-        )
-    return feedback
-
-
 def _row_candidate(row: Mapping[str, Any]) -> Mapping[str, Any]:
     candidate = row.get("candidate")
     return candidate if isinstance(candidate, Mapping) else {}
@@ -1583,7 +1540,6 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         "stagnation": {},
         "gate_repair_hints": {},
         "validation_gate_repair_hints": {},
-        "final_blind_feedback": [],
     }
     try:
         loaded_config, state = load_checkpoint(run_id)
@@ -1670,14 +1626,6 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         if loaded_config is not None:
             memory["gate_repair_hints"] = _search_gate_repair_hints(history, loaded_config)
             memory["validation_gate_repair_hints"] = _validation_gate_repair_hints(history, loaded_config)
-        final_status = state.final_blind_status if isinstance(state.final_blind_status, Mapping) else {}
-        if not final_status:
-            final_status_path = loop_root(run_id) / "final_blind_status.json"
-            if final_status_path.exists():
-                final_status = load_json(final_status_path, {})
-        if isinstance(final_status, Mapping):
-            memory["final_blind_feedback"] = _compact_final_blind_feedback(final_status)
-
     previous_iter = iteration_dir(run_id, iteration - 1) if iteration > 1 else None
     if previous_iter is not None and (previous_iter / "error.json").exists():
         error = load_json(previous_iter / "error.json", {})
@@ -1902,7 +1850,7 @@ def _compact_direct_agent_context(context: Mapping[str, Any]) -> dict[str, Any]:
         ):
             if key in memory:
                 compact_memory[key] = _bounded_prompt_value(memory.get(key), max_chars=8_000)
-        for key in ("final_blind_feedback", "gate_repair_hints", "validation_gate_repair_hints"):
+        for key in ("gate_repair_hints", "validation_gate_repair_hints"):
             if key in memory:
                 compact_memory[key] = _bounded_prompt_value(memory.get(key), max_chars=3_000)
         recent = memory.get("recent_score_history")
@@ -5843,8 +5791,6 @@ top-3 drawdown total depth > 50% → -500. Focus on monthly stability and balanc
 - `loop_memory.stagnation`: whether local search has switched into structured exploration.
 - `loop_memory.gate_repair_hints`: search-window near misses and targeted repairs for trade-count/PDD gates.
 - `loop_memory.validation_gate_repair_hints`: search-pass candidates that failed validation/out-of-time gates.
-- `loop_memory.final_blind_feedback`: latest blind holdout finalist failures. Treat these as the
-  hard promotion feedback to repair before optimizing search score.
 - `loop_memory.recent_score_history`: recent attempts, metrics, and violations.
 - `loop_memory.previous_failure`: exact validation/runtime failure to fix first.
 - `loop_memory.avoid_repeating_rank_profiles`: parameter sets that should not be repeated.
@@ -5860,7 +5806,7 @@ Write only these files in the current workspace root:
 {type_instruction}
 
 Do not write outside this workspace. Do not edit repository files. Do not run long backtests.
-Do not use future data, and do not weaken risk controls just to increase headline return.
+Do not use future data, do not tune from blind holdout results, and do not weaken risk controls just to increase headline return.
 
 Search discipline:
 - On iteration 1, reproduce `optimized_baseline.rank_profile` exactly before proposing new ablations.
@@ -5878,8 +5824,8 @@ Search discipline:
 - Copy `candidate_state` as the exact path shown in `optimized_baseline` or the schema example; never
   shorten it to only a filename such as `state_0149.json`.
 - If `previous_failure` exists, fix that contract failure first and mention the fix in `analysis.md`.
-- If `final_blind_feedback` exists, repair those exact blind failures first: minimum trades,
-  profit/drawdown, verification status, and LEAN comparison drift.
+- Treat the blind holdout as final promotion evidence only. Do not infer parameter changes from blind
+  failures; use search and validation diagnostics for candidate generation.
 - If `validation_gate_repair_hints` has search-pass validation failures, repair validation first with
   regime, market-momentum, ATR, breadth, or z-threshold controls before adding more search-only tweaks.
 - If recent valid candidates are unprofitable, make one to three targeted changes; do not randomly rewrite
@@ -6398,7 +6344,6 @@ class StrategyLoopRunner:
                     "avoid_repeating_rank_profiles",
                     "avoid_repeating_rank_profile_signatures",
                     "recent_score_history",
-                    "final_blind_feedback",
                 )
                 if key in loop_memory
             },

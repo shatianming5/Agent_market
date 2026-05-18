@@ -333,7 +333,8 @@ def test_prompt_can_force_freqtrade_candidate_type(tmp_path: Path) -> None:
     assert "RP_SIGNAL_DIR" in prompt
     assert "loop_memory.best_candidate" in prompt
     assert "avoid_repeating_rank_profiles" in prompt
-    assert "final_blind_feedback" in prompt
+    assert "final_blind_feedback" not in prompt
+    assert "do not tune from blind holdout results" in prompt
     assert "rp_target_weight` used in stake/position sizing logic" in prompt
 
 
@@ -1661,7 +1662,7 @@ def test_prepare_context_includes_pareto_memory() -> None:
     assert pareto["best_research_profit_over_drawdown"]["name"] == "best_research_pdd"
 
 
-def test_prepare_context_includes_final_blind_feedback() -> None:
+def test_prepare_context_hides_final_blind_feedback_from_agent_memory() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit_blind_memory", run_id="unit_blind_memory_run", max_iterations=4)
     final_blind_status = {
         "selected": None,
@@ -1706,11 +1707,8 @@ def test_prepare_context_includes_final_blind_feedback() -> None:
 
     context = prepare_context(cfg, cfg.run_id, 9)
 
-    feedback = context["loop_memory"]["final_blind_feedback"]
-    assert feedback[0]["iteration"] == 7
-    assert feedback[0]["research_metrics"]["trades"] == 6
-    assert feedback[0]["violations"] == ["research: trades=6 < 7"]
-    assert feedback[0]["rank_profile"]["side_mode"] == "both"
+    assert "final_blind_feedback" not in context["loop_memory"]
+    assert "final_blind_feedback" not in json.dumps(strategy_loop_mod._compact_direct_agent_context(context), sort_keys=True)
 
 
 def test_promotion_requires_passing_constraints(tmp_path: Path) -> None:
