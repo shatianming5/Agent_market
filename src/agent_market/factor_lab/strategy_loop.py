@@ -2623,20 +2623,30 @@ def _repair_key(source: Any, family: Any, changes: Mapping[str, Any] | Sequence[
 
 def _behavior_duplicate_repair_keys(rows: Sequence[Mapping[str, Any]]) -> set[tuple[str, str, tuple[str, ...]]]:
     blocked: set[tuple[str, str, tuple[str, ...]]] = set()
+    prior_fingerprints: dict[str, list[dict[str, Any]]] = {"search": [], "validation": []}
     for row in rows:
         if not isinstance(row, Mapping):
-            continue
-        novelty = row.get("behavior_novelty") if isinstance(row.get("behavior_novelty"), Mapping) else {}
-        if str(novelty.get("status") or "").strip().lower() not in BEHAVIOR_DUPLICATE_STATUSES:
             continue
         candidate = _row_candidate(row)
         metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), Mapping) else {}
         source = str(metadata.get("source") or "")
         family = str(metadata.get("hypothesis_family") or "")
         changed_keys = metadata.get("changed_keys") if isinstance(metadata, Mapping) else []
-        if not source or not family or not changed_keys:
-            continue
-        blocked.add(_repair_key(source, family, changed_keys))
+        has_repair_key = bool(source and family and changed_keys)
+        repair_key = _repair_key(source, family, changed_keys) if has_repair_key else None
+        novelty = row.get("behavior_novelty") if isinstance(row.get("behavior_novelty"), Mapping) else {}
+        if repair_key is not None and str(novelty.get("status") or "").strip().lower() in BEHAVIOR_DUPLICATE_STATUSES:
+            blocked.add(repair_key)
+
+        for stage in ("validation", "search"):
+            fp = _row_stage_signal_fingerprint(row, stage)
+            if not fp:
+                continue
+            if repair_key is not None and any(
+                _signal_behavior_duplicate(fp, prior_fp) for prior_fp in prior_fingerprints[stage]
+            ):
+                blocked.add(repair_key)
+            prior_fingerprints[stage].append(fp)
     return blocked
 
 
@@ -3032,6 +3042,9 @@ def build_rank_profile_repair_queue(
                 ]
             )
             for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_positive_validation_trade_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
                     signature = rank_profile_signature(profile, default_n=config.n)
@@ -3050,7 +3063,7 @@ def build_rank_profile_repair_queue(
                         "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
                         "description": f"Controller-generated validation trade-count repair from iteration {anchor_iter}: {tradeoff}.",
                         "metadata": {
-                            "source": "controller_rank_profile_positive_validation_trade_repair",
+                            "source": source,
                             "search_mode": "structured_explore" if structured or structural_change else search_mode,
                             "parent_anchor": f"iteration_{anchor_iter}",
                             "hypothesis_family": family,
@@ -3122,6 +3135,9 @@ def build_rank_profile_repair_queue(
                 ),
             ]
             for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_search_trade_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
                     signature = rank_profile_signature(profile, default_n=config.n)
@@ -3140,7 +3156,7 @@ def build_rank_profile_repair_queue(
                         "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
                         "description": f"Controller-generated search trade-count repair from iteration {anchor_iter}: {tradeoff}.",
                         "metadata": {
-                            "source": "controller_rank_profile_search_trade_repair",
+                            "source": source,
                             "search_mode": "structured_explore" if structured or structural_change else search_mode,
                             "parent_anchor": f"iteration_{anchor_iter}",
                             "hypothesis_family": family,
@@ -3294,6 +3310,9 @@ def build_rank_profile_repair_queue(
                 ]
             )
             for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_validation_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
                     signature = rank_profile_signature(profile, default_n=config.n)
@@ -3312,7 +3331,7 @@ def build_rank_profile_repair_queue(
                         "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
                         "description": f"Controller-generated validation repair from iteration {anchor_iter}: {tradeoff}.",
                         "metadata": {
-                            "source": "controller_rank_profile_validation_repair",
+                            "source": source,
                             "search_mode": "structured_explore" if structured or structural_change else search_mode,
                             "parent_anchor": f"iteration_{anchor_iter}",
                             "hypothesis_family": family,
@@ -3349,6 +3368,9 @@ def build_rank_profile_repair_queue(
                 ("near_pdd_leverage_minus_05", "profit_drawdown_leverage_repair", {"leverage_cap": anchor_leverage - 0.5}, "reduce leverage around the best P/DD near-miss"),
             ]
             for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_near_pdd_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
                     signature = rank_profile_signature(profile, default_n=config.n)
@@ -3363,7 +3385,7 @@ def build_rank_profile_repair_queue(
                         "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
                         "description": f"Controller-generated near-PDD repair from iteration {anchor_iter}: {tradeoff}.",
                         "metadata": {
-                            "source": "controller_rank_profile_near_pdd_repair",
+                            "source": source,
                             "search_mode": search_mode,
                             "parent_anchor": f"iteration_{anchor_iter}",
                             "hypothesis_family": family,
@@ -6731,20 +6753,77 @@ class StrategyLoopRunner:
                 if isinstance(fp, Mapping)
             }
         validation_fp = fingerprints.get("validation") if isinstance(fingerprints.get("validation"), Mapping) else {}
+        search_fp = fingerprints.get("search") if isinstance(fingerprints.get("search"), Mapping) else {}
+
+        def nearest_duplicate(
+            stage: str,
+            fp: Mapping[str, Any],
+            prior_rows: Sequence[Mapping[str, Any]],
+        ) -> Optional[dict[str, Any]]:
+            for prior in prior_rows:
+                prior_fp = _row_stage_signal_fingerprint(prior, stage)
+                duplicate = _signal_behavior_duplicate(fp, prior_fp)
+                if duplicate is None:
+                    continue
+                return {
+                    **duplicate,
+                    "iteration": prior.get("iteration"),
+                    "candidate_path": prior.get("candidate_path"),
+                    "active_rows": prior_fp.get("active_rows"),
+                    "active_days": prior_fp.get("active_days"),
+                    "active_pairs": prior_fp.get("active_pairs"),
+                    "action_signature": prior_fp.get("action_signature"),
+                    "path_signature": prior_fp.get("path_signature"),
+                }
+            return None
+
         novelty: dict[str, Any] = {
             "status": "recorded" if validation_fp else "unavailable",
             "stage": "validation",
             "reason": "validation signal fingerprint recorded" if validation_fp else "validation signal fingerprint unavailable",
         }
         if not validation_fp:
+            if search_fp:
+                nearest = nearest_duplicate("search", search_fp, self.state.score_history)
+                if nearest is not None:
+                    novelty = {
+                        "status": str(nearest.get("status") or "near_duplicate"),
+                        "stage": "search",
+                        "reason": nearest.get("reason") or "near-duplicate search signal path",
+                        "fingerprint": _compact_signal_fingerprint(search_fp),
+                        "nearest": nearest,
+                    }
+                else:
+                    novelty = {
+                        "status": "recorded",
+                        "stage": "search",
+                        "reason": "search signal fingerprint recorded",
+                        "fingerprint": _compact_signal_fingerprint(search_fp),
+                    }
             evaluation["behavior_novelty"] = novelty
             evaluation.setdefault("pareto_eligible", True)
             return
         if not bool(evaluation.get("constraints_ok")):
-            novelty["status"] = "not_applicable"
-            novelty["reason"] = "validation hard gates did not pass"
+            nearest = nearest_duplicate("validation", validation_fp, self.state.score_history)
+            if nearest is None:
+                novelty["status"] = "not_applicable"
+                novelty["reason"] = "validation hard gates did not pass"
+                novelty["fingerprint"] = _compact_signal_fingerprint(validation_fp)
+            else:
+                novelty = {
+                    "status": str(nearest.get("status") or "near_duplicate"),
+                    "stage": "validation",
+                    "reason": nearest.get("reason") or "near-duplicate validation signal path",
+                    "fingerprint": _compact_signal_fingerprint(validation_fp),
+                    "nearest": nearest,
+                    "gate_status": "failed",
+                }
             evaluation["behavior_novelty"] = novelty
             evaluation.setdefault("pareto_eligible", True)
+            components = evaluation.setdefault("score_components", {})
+            if isinstance(components, dict):
+                components["behavior_novelty_status"] = novelty["status"]
+                components["behavior_novelty_reason"] = novelty["reason"]
             return
 
         prior_rows: list[Mapping[str, Any]] = []
@@ -6761,23 +6840,7 @@ class StrategyLoopRunner:
                 }
             )
 
-        nearest: Optional[dict[str, Any]] = None
-        for prior in prior_rows:
-            prior_fp = _row_stage_signal_fingerprint(prior, "validation")
-            duplicate = _signal_behavior_duplicate(validation_fp, prior_fp)
-            if duplicate is None:
-                continue
-            nearest = {
-                **duplicate,
-                "iteration": prior.get("iteration"),
-                "candidate_path": prior.get("candidate_path"),
-                "active_rows": prior_fp.get("active_rows"),
-                "active_days": prior_fp.get("active_days"),
-                "active_pairs": prior_fp.get("active_pairs"),
-                "action_signature": prior_fp.get("action_signature"),
-                "path_signature": prior_fp.get("path_signature"),
-            }
-            break
+        nearest = nearest_duplicate("validation", validation_fp, prior_rows)
 
         if nearest is None:
             novelty["status"] = "novel"

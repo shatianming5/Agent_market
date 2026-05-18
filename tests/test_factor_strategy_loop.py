@@ -1346,6 +1346,43 @@ def test_runner_marks_validation_pass_signal_noop_not_pareto(tmp_path: Path) -> 
     assert any("behavior_novelty" in item for item in evaluation["violations"])
 
 
+def test_runner_marks_validation_fail_signal_noop_as_feedback(tmp_path: Path) -> None:
+    prior_dir = tmp_path / "prior"
+    current_dir = tmp_path / "current"
+    _write_signal_behavior_fixture(prior_dir, weight=-1.0)
+    _write_signal_behavior_fixture(current_dir, weight=-0.5)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_behavior_fail_feedback",
+        run_id="unit_behavior_fail_feedback_run",
+        validation_protocol="triple_holdout",
+        promote_policy="final",
+    )
+    runner = StrategyLoopRunner(cfg)
+    runner.state.score_history = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 1,
+            "candidate_path": "iter_01/candidate.json",
+            "constraints_ok": False,
+            "window_metrics": {"validation": {"signal_dir": str(prior_dir)}},
+        }
+    ]
+    evaluation = {
+        "constraints_ok": False,
+        "violations": ["research: trades=11 < 19"],
+        "window_metrics": {"validation": {"signal_dir": str(current_dir)}},
+        "score_components": {},
+    }
+
+    runner._apply_behavior_novelty_gate(evaluation)
+
+    assert evaluation["pareto_eligible"] is True
+    assert evaluation["behavior_novelty"]["status"] == "no_op"
+    assert evaluation["behavior_novelty"]["stage"] == "validation"
+    assert evaluation["behavior_novelty"]["gate_status"] == "failed"
+    assert evaluation["score_components"]["behavior_novelty_status"] == "no_op"
+
+
 def test_iteration_failure_violations_are_truncated() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit_failure_truncate", run_id="unit_failure_truncate_run")
     runner = StrategyLoopRunner(cfg)
@@ -2850,6 +2887,107 @@ def test_rank_profile_repair_queue_skips_behavior_duplicate_activity_repairs(tmp
     assert all(
         item["metadata"].get("changed_keys") != ["regime_min_pair_count"]
         or item["metadata"].get("source") != "controller_rank_profile_validation_pass_activity_repair"
+        for item in queue
+    )
+
+
+def test_rank_profile_repair_queue_infers_duplicate_signal_repairs(tmp_path: Path) -> None:
+    prior_dir = tmp_path / "prior_validation"
+    duplicate_dir = tmp_path / "duplicate_validation"
+    _write_signal_behavior_fixture(prior_dir, weight=-1.0)
+    _write_signal_behavior_fixture(duplicate_dir, weight=-0.5)
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.5,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.034,
+        "short_exit_mom_24h": -0.02,
+        "max_entry_atr_pct": 0.05,
+        "regime_mode": "hq",
+        "regime_min_edge_ic": 0.01,
+        "regime_min_pair_edge_ic": 0.01,
+        "regime_min_pair_count": 3,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_inferred_duplicate_repair",
+        run_id="unit_inferred_duplicate_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    validation_metrics = {
+        "profit_pct": 1.1,
+        "max_drawdown_pct": 0.3,
+        "profit_over_max_drawdown": 3.6,
+        "trades": scaled_gate_values(cfg, cfg.validation_timerange)["min_trades"] - 8,
+    }
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 45,
+            "candidate": {"candidate_type": "rank_profile", "name": "prior_undertraded", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {"profit_pct": 3.6, "max_drawdown_pct": 2.8, "profit_over_max_drawdown": 1.25, "trades": 64},
+                },
+                "validation": {
+                    "constraints_ok": False,
+                    "research_metrics": validation_metrics,
+                    "signal_dir": str(prior_dir),
+                    "violations": ["research: trades=11 < 19"],
+                },
+            },
+        },
+        {
+            "run_id": cfg.run_id,
+            "iteration": 46,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "duplicate_pair_count_repair",
+                "metadata": {
+                    "source": "controller_rank_profile_positive_validation_trade_repair",
+                    "hypothesis_family": "validation_trade_regime_coverage_repair",
+                    "changed_keys": ["regime_min_pair_count"],
+                },
+                "rank_profile": {**anchor, "regime_min_pair_count": 2},
+            },
+            "parameter_signature": rank_profile_signature({**anchor, "regime_min_pair_count": 2}),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {"profit_pct": 3.6, "max_drawdown_pct": 2.8, "profit_over_max_drawdown": 1.25, "trades": 64},
+                },
+                "validation": {
+                    "constraints_ok": False,
+                    "research_metrics": validation_metrics,
+                    "signal_dir": str(duplicate_dir),
+                    "violations": ["research: trades=11 < 19"],
+                },
+            },
+        },
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert all(
+        item["metadata"].get("source") != "controller_rank_profile_positive_validation_trade_repair"
+        or item["metadata"].get("changed_keys") != ["regime_min_pair_count"]
+        for item in queue
+    )
+    assert any(
+        item["metadata"].get("source") == "controller_rank_profile_positive_validation_trade_repair"
+        and item["metadata"].get("changed_keys") == ["regime_min_edge_ic", "regime_min_pair_edge_ic"]
         for item in queue
     )
 
