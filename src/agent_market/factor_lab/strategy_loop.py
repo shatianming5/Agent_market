@@ -135,12 +135,13 @@ def _is_stagnation_recovery_candidate(evaluation: Mapping[str, Any]) -> bool:
     metadata = candidate.get("metadata")
     if not isinstance(metadata, Mapping):
         return False
-    if str(metadata.get("source") or "") != "controller_rank_profile_search_quality_repair":
-        return False
+    source = str(metadata.get("source") or "")
     family = str(metadata.get("hypothesis_family") or "")
-    if "after_duplicate_paths" in family:
+    if source == "controller_rank_profile_search_quality_repair" and "after_duplicate_paths" in family:
         return True
-    return bool(metadata.get("behavior_feedback"))
+    if source == "controller_rank_profile_positive_validation_trade_repair":
+        return True
+    return source == "controller_rank_profile_search_quality_repair" and bool(metadata.get("behavior_feedback"))
 
 _VENUE_EXCHANGE: dict[str, str] = {
     "okx": "okx",
@@ -2905,6 +2906,11 @@ def build_rank_profile_repair_queue(
             anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
             anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
             anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+            anchor_regime_edge = _coerce_finite_float(anchor_profile.get("regime_min_edge_ic"), 0.0)
+            anchor_regime_pair_edge = _coerce_finite_float(anchor_profile.get("regime_min_pair_edge_ic"), 0.0)
+            anchor_regime_market_mom = _coerce_finite_float(anchor_profile.get("regime_short_max_market_mom_24h"), 0.03)
+            anchor_regime_atr = _coerce_finite_float(anchor_profile.get("regime_max_market_atr_pct"), 0.04)
             anchor_iter = anchor.get("iteration")
             anchor_specs = []
             current_exit_mom = anchor_profile.get("short_exit_mom_24h")
@@ -2939,6 +2945,33 @@ def build_rank_profile_repair_queue(
                     )
             anchor_specs.extend(
                 [
+                    (
+                        "validation_trade_regime_pair_count_minus_1",
+                        "validation_trade_regime_coverage_repair",
+                        {"regime_min_pair_count": max(1, anchor_regime_pair_count - 1)},
+                        "broaden eligible validation regimes without loosening entry z after a search-passed under-traded anchor",
+                    ),
+                    (
+                        "validation_trade_regime_edge_minus_005",
+                        "validation_trade_regime_coverage_repair",
+                        {
+                            "regime_min_edge_ic": max(0.0, anchor_regime_edge - 0.005),
+                            "regime_min_pair_edge_ic": max(0.0, anchor_regime_pair_edge - 0.005),
+                        },
+                        "lower regime edge floors slightly to recover validation activity while preserving pair exclusions",
+                    ),
+                    (
+                        "validation_trade_regime_market_mom_plus_005",
+                        "validation_trade_regime_market_coverage_repair",
+                        {"regime_short_max_market_mom_24h": anchor_regime_market_mom + 0.005},
+                        "allow marginally stronger broad-market momentum in validation before lowering entry quality",
+                    ),
+                    (
+                        "validation_trade_regime_atr_plus_005",
+                        "validation_trade_regime_market_coverage_repair",
+                        {"regime_max_market_atr_pct": anchor_regime_atr + 0.005},
+                        "allow a wider market ATR regime to recover validation trades without changing rank threshold",
+                    ),
                     (
                         "validation_trade_topk_plus_1",
                         "validation_trade_repair_after_regime",

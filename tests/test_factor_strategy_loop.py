@@ -207,6 +207,28 @@ def test_stagnation_recovery_candidate_gets_grace_at_stop_threshold() -> None:
     assert runner.state.exploration_mode == "structured"
 
 
+def test_positive_validation_recovery_candidate_gets_stagnation_grace() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit", run_id="unit_positive_validation_recovery", max_iterations=3)
+    runner = StrategyLoopRunner(cfg)
+    runner.state.best_composite_score = 10.0
+    runner.state.no_composite_improvement_count = strategy_loop_mod.STAGNATION_STOP_AFTER - 1
+
+    runner._update_stagnation(
+        {
+            "score_components": {"composite_score": 1.0},
+            "candidate": {
+                "metadata": {
+                    "source": "controller_rank_profile_positive_validation_trade_repair",
+                    "hypothesis_family": "validation_trade_regime_coverage_repair",
+                }
+            },
+        }
+    )
+
+    assert runner.state.status == strategy_loop_mod.LOOP_RUNNING
+    assert runner.state.no_composite_improvement_count == strategy_loop_mod._stagnation_grace_count() + 1
+
+
 def test_candidate_schema_rejects_out_of_bounds_leverage(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate.json"
     _write_json(
@@ -2999,6 +3021,8 @@ def test_rank_profile_repair_queue_prioritizes_validation_trade_repair_after_sea
     assert queue[0]["metadata"]["source"] == "controller_rank_profile_positive_validation_trade_repair"
     assert queue[0]["metadata"]["parent_anchor"] == "iteration_46"
     names = [item["name"] for item in queue[:8]]
+    assert "validation_trade_regime_pair_count_minus_1_iter_46" in names
+    assert "validation_trade_regime_edge_minus_005_iter_46" in names
     assert "validation_trade_topk_plus_1_z_minus_002_iter_46" in names
 
 
