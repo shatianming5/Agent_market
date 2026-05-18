@@ -2677,6 +2677,163 @@ def test_rank_profile_repair_queue_prioritizes_validation_pass_activity_repairs(
     assert queue[0]["rank_profile"]["regime_min_pair_count"] == 2
 
 
+def test_rank_profile_repair_queue_skips_behavior_duplicate_activity_repairs(tmp_path: Path) -> None:
+    import pandas as pd
+
+    signal_dir = tmp_path / "sparse_validation_signals"
+    signal_dir.mkdir()
+    dates = pd.date_range("2026-03-01", periods=20, freq="1D", tz="UTC")
+    rows_out = []
+    for pair in ("ADA/USDT", "DOT/USDT"):
+        for idx, date in enumerate(dates):
+            rows_out.append({"date": date, "pair": pair, "rp_target_weight": -1.0 if idx < 3 else 0.0})
+    pd.DataFrame(rows_out).to_feather(signal_dir / "all.feather")
+
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.45,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.042,
+        "short_exit_mom_24h": -0.02,
+        "max_entry_atr_pct": 0.05,
+        "exclude_pairs": ["BTC/USDT", "SOL/USDT"],
+        "regime_mode": "hq",
+        "regime_min_edge_ic": 0.01,
+        "regime_min_pair_edge_ic": 0.01,
+        "regime_min_pair_count": 4,
+        "regime_short_max_market_mom_24h": 0.03,
+        "regime_max_market_atr_pct": 0.04,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_duplicate_activity_repair",
+        run_id="unit_duplicate_activity_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 7,
+            "candidate": {"candidate_type": "rank_profile", "name": "validation_passed_sparse", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {"constraints_ok": True, "research_metrics": {"profit_pct": 5.0, "max_drawdown_pct": 3.0, "profit_over_max_drawdown": 1.66, "trades": 80}},
+                "validation": {
+                    "constraints_ok": True,
+                    "research_metrics": {"profit_pct": 1.8, "max_drawdown_pct": 0.8, "profit_over_max_drawdown": 2.25, "trades": 20},
+                    "signal_dir": str(signal_dir),
+                    "violations": [],
+                },
+            },
+        },
+        {
+            "run_id": cfg.run_id,
+            "iteration": 8,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "duplicate_activity",
+                "rank_profile": {**anchor, "regime_min_pair_count": 3},
+                "metadata": {
+                    "source": "controller_rank_profile_validation_pass_activity_repair",
+                    "hypothesis_family": "validation_activity_regime_coverage_repair",
+                    "changed_keys": ["regime_min_pair_count"],
+                },
+            },
+            "parameter_signature": rank_profile_signature({**anchor, "regime_min_pair_count": 3}),
+            "behavior_novelty": {"status": "duplicate"},
+        },
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert all(
+        item["metadata"].get("changed_keys") != ["regime_min_pair_count"]
+        or item["metadata"].get("source") != "controller_rank_profile_validation_pass_activity_repair"
+        for item in queue
+    )
+
+
+def test_rank_profile_repair_queue_prioritizes_search_quality_after_duplicate_paths(tmp_path: Path) -> None:
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.42,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.042,
+        "max_entry_atr_pct": 0.05,
+        "regime_mode": "hq",
+        "regime_min_pair_count": 3,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_search_quality_after_duplicate",
+        run_id="unit_search_quality_after_duplicate_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 23,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "duplicate_path",
+                "rank_profile": anchor,
+                "metadata": {
+                    "source": "controller_rank_profile_validation_pass_activity_repair",
+                    "hypothesis_family": "validation_activity_market_coverage_repair",
+                    "changed_keys": ["regime_short_max_market_mom_24h"],
+                },
+            },
+            "parameter_signature": rank_profile_signature(anchor),
+            "behavior_novelty": {"status": "duplicate"},
+        },
+        {
+            "run_id": cfg.run_id,
+            "iteration": 24,
+            "candidate": {"candidate_type": "rank_profile", "name": "active_search_low_quality", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature({**anchor, "min_abs_score_z": 1.41}),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": 4.0,
+                        "max_drawdown_pct": 5.0,
+                        "profit_over_max_drawdown": 0.8,
+                        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] + 20,
+                    },
+                    "violations": ["profit_over_max_drawdown=0.8 < 1.2"],
+                }
+            },
+        },
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_search_quality_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_24"
+    assert queue[0]["metadata"]["behavior_feedback"]
+    assert queue[0]["rank_profile"]["min_abs_score_z"] > anchor["min_abs_score_z"]
+
+
 def test_rank_profile_repair_queue_prioritizes_validation_failures(tmp_path: Path) -> None:
     near_pdd = {
         "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",

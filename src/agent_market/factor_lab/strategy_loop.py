@@ -1984,7 +1984,14 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
             high_trade_low_quality.append(compact)
     near_misses.sort(key=lambda item: (int(item["trades_gap"]), -float(item["profit_over_max_drawdown"])))
     near_pdd_misses.sort(key=lambda item: (float(item["profit_over_max_drawdown_gap"]), -float(item["profit_pct"])))
-    high_trade_low_quality.sort(key=lambda item: (float(item["profit_over_max_drawdown"]), -int(item["trades"])))
+    high_trade_low_quality.sort(
+        key=lambda item: (
+            float(item["profit_over_max_drawdown"]),
+            float(item["profit_pct"]),
+            int(item["trades"]),
+        ),
+        reverse=True,
+    )
     hints: list[str] = []
     if near_misses:
         hints.append(
@@ -2583,6 +2590,35 @@ def _validation_pair_loss_repairs(
     return specs
 
 
+def _repair_key(source: Any, family: Any, changes: Mapping[str, Any] | Sequence[str] | None) -> tuple[str, str, tuple[str, ...]]:
+    if isinstance(changes, Mapping):
+        changed_keys = tuple(sorted(str(key) for key in changes))
+    elif isinstance(changes, Sequence) and not isinstance(changes, (str, bytes)):
+        changed_keys = tuple(sorted(str(key) for key in changes))
+    else:
+        changed_keys = ()
+    return (str(source or ""), str(family or ""), changed_keys)
+
+
+def _behavior_duplicate_repair_keys(rows: Sequence[Mapping[str, Any]]) -> set[tuple[str, str, tuple[str, ...]]]:
+    blocked: set[tuple[str, str, tuple[str, ...]]] = set()
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        novelty = row.get("behavior_novelty") if isinstance(row.get("behavior_novelty"), Mapping) else {}
+        if str(novelty.get("status") or "").strip().lower() not in BEHAVIOR_DUPLICATE_STATUSES:
+            continue
+        candidate = _row_candidate(row)
+        metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), Mapping) else {}
+        source = str(metadata.get("source") or "")
+        family = str(metadata.get("hypothesis_family") or "")
+        changed_keys = metadata.get("changed_keys") if isinstance(metadata, Mapping) else []
+        if not source or not family or not changed_keys:
+            continue
+        blocked.add(_repair_key(source, family, changed_keys))
+    return blocked
+
+
 def _candidate_name(raw: str) -> str:
     safe = re.sub(r"[^A-Za-z0-9_]+", "_", raw).strip("_").lower()
     return safe[:72] or "rank_profile_repair"
@@ -2646,6 +2682,8 @@ def build_rank_profile_repair_queue(
     candidates: list[dict[str, Any]] = []
     seen_profiles: set[str] = set()
     tried_profiles = {str(row.get("parameter_signature")) for row in rows if isinstance(row, Mapping) and row.get("parameter_signature")}
+    behavior_blocked_repairs = _behavior_duplicate_repair_keys(rows)
+    has_behavior_duplicate_feedback = bool(behavior_blocked_repairs)
 
     validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
     validation_passed = validation_hints.get("validation_passed") if isinstance(validation_hints, Mapping) else []
@@ -2667,6 +2705,9 @@ def build_rank_profile_repair_queue(
             anchor_iter = anchor.get("iteration")
             activity_specs = _validation_activity_coverage_repairs(anchor, anchor_profile)
             for raw_name, family, changes, tradeoff, activity_summary in activity_specs[:4]:
+                source = "controller_rank_profile_validation_pass_activity_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
                     signature = rank_profile_signature(profile, default_n=config.n)
@@ -2681,7 +2722,7 @@ def build_rank_profile_repair_queue(
                         "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
                         "description": f"Controller-generated validation-passed activity repair from iteration {anchor_iter}: {tradeoff}.",
                         "metadata": {
-                            "source": "controller_rank_profile_validation_pass_activity_repair",
+                            "source": source,
                             "search_mode": "structured_explore",
                             "parent_anchor": f"iteration_{anchor_iter}",
                             "hypothesis_family": family,
@@ -2697,6 +2738,9 @@ def build_rank_profile_repair_queue(
                     }
                 )
             for raw_name, family, changes, tradeoff in _validation_pair_loss_repairs(anchor, anchor_profile, config)[:2]:
+                source = "controller_rank_profile_validation_pass_robustness_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
                 try:
                     profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
                     signature = rank_profile_signature(profile, default_n=config.n)
@@ -2711,7 +2755,7 @@ def build_rank_profile_repair_queue(
                         "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
                         "description": f"Controller-generated validation-passed robustness repair from iteration {anchor_iter}: {tradeoff}.",
                         "metadata": {
-                            "source": "controller_rank_profile_validation_pass_robustness_repair",
+                            "source": source,
                             "search_mode": "structured_explore",
                             "parent_anchor": f"iteration_{anchor_iter}",
                             "hypothesis_family": family,
@@ -2721,6 +2765,85 @@ def build_rank_profile_repair_queue(
                             "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
                             "anchor_validation_trades": anchor.get("validation_trades"),
                             "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    if has_behavior_duplicate_feedback and isinstance(high_trade_low_quality, Sequence):
+        for anchor in high_trade_low_quality[:3]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs: list[tuple[str, str, dict[str, Any], str]] = [
+                (
+                    "search_quality_z_plus_002_after_duplicate_paths",
+                    "search_quality_entry_repair_after_duplicate_paths",
+                    {"min_abs_score_z": anchor_z + 0.02},
+                    "tighten entry quality around a search-active candidate after validation-pass repairs proved no-op",
+                ),
+                (
+                    "search_quality_topk_minus_1_z_plus_001_after_duplicate_paths",
+                    "search_quality_breadth_repair_after_duplicate_paths",
+                    {"top_k": max(1, anchor_top_k - 1), "min_abs_score_z": anchor_z + 0.01},
+                    "trim breadth while preserving the newly changed search signal path",
+                ),
+                (
+                    "search_quality_short_mom_minus_004_after_duplicate_paths",
+                    "search_quality_pair_momentum_repair_after_duplicate_paths",
+                    {"short_max_mom_24h": anchor_short_mom - 0.004},
+                    "avoid the highest-momentum shorts from the search-active failed path",
+                ),
+            ]
+            if str(anchor_profile.get("regime_mode") or "").strip().lower() == "hq":
+                anchor_specs.append(
+                    (
+                        "search_quality_regime_pair_count_plus_1_after_duplicate_paths",
+                        "search_quality_regime_breadth_repair_after_duplicate_paths",
+                        {"regime_min_pair_count": anchor_regime_pair_count + 1},
+                        "require broader pair confirmation after active search paths failed quality gates",
+                    )
+                )
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_search_quality_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated search quality repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_pct": anchor.get("profit_pct"),
+                            "anchor_trades": anchor.get("trades"),
+                            "behavior_feedback": "validation-pass repairs produced duplicate signal paths; repair active search near-misses instead",
                         },
                         "rank_profile": profile,
                     }
