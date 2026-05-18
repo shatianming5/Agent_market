@@ -184,6 +184,8 @@ STRUCTURAL_RANK_KEYS = {
     "regime_short_max_market_mom_72h",
     "regime_max_market_atr_pct",
     "top_k",
+    "min_pairs_for_top_k",
+    "low_pair_top_k",
     "gross_cap",
     "net_cap",
     "single_pair_cap",
@@ -193,6 +195,8 @@ STRUCTURAL_RANK_KEYS = {
 RANK_PROFILE_KEYS = {
     "n",
     "top_k",
+    "min_pairs_for_top_k",
+    "low_pair_top_k",
     "gross_cap",
     "net_cap",
     "single_pair_cap",
@@ -241,6 +245,8 @@ RANK_PROFILE_KEYS = {
 NUMERIC_LIMITS = {
     "n": (1, 200),
     "top_k": (1, 10),
+    "min_pairs_for_top_k": (1, 50),
+    "low_pair_top_k": (1, 10),
     "gross_cap": (0.0, 10.0),
     "net_cap": (0.0, 5.0),
     "single_pair_cap": (0.0, 2.0),
@@ -2914,6 +2920,8 @@ def build_rank_profile_repair_queue(
                 continue
             anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
             anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_min_pairs_for_top_k = _coerce_int(anchor_profile.get("min_pairs_for_top_k"), 8)
+            anchor_low_pair_top_k = _coerce_int(anchor_profile.get("low_pair_top_k"), 1)
             anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
             anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
             anchor_regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
@@ -2996,6 +3004,27 @@ def build_rank_profile_repair_queue(
                         "validation_trade_regime_market_coverage_repair",
                         {"regime_max_market_atr_pct": anchor_regime_atr + 0.005},
                         "allow a wider market ATR regime to recover validation trades without changing rank threshold",
+                    ),
+                    (
+                        "validation_trade_low_pair_topk_plus_1",
+                        "validation_trade_low_pair_breadth_repair",
+                        {"low_pair_top_k": min(anchor_top_k, max(1, anchor_low_pair_top_k) + 1)},
+                        "add one slot only on sparse valid-pair bars after validation is profitable but under-traded",
+                    ),
+                    (
+                        "validation_trade_min_pairs_for_topk_minus_2",
+                        "validation_trade_low_pair_breadth_repair",
+                        {"min_pairs_for_top_k": max(1, anchor_min_pairs_for_top_k - 2)},
+                        "apply full top_k on moderately sparse valid-pair bars without lowering rank z",
+                    ),
+                    (
+                        "validation_trade_sparse_topk_combo",
+                        "validation_trade_low_pair_breadth_combo_repair",
+                        {
+                            "low_pair_top_k": min(anchor_top_k, max(1, anchor_low_pair_top_k) + 1),
+                            "min_pairs_for_top_k": max(1, anchor_min_pairs_for_top_k - 2),
+                        },
+                        "combine sparse-bar breadth repairs to change validation activity without broad cadence changes",
                     ),
                     (
                         "validation_trade_topk_plus_1",
@@ -3591,6 +3620,8 @@ def _rank_kwargs(
         "timeframe": params.pop("timeframe", config.timeframe),
         "data_venue": params.pop("data_venue", config.data_venue),
         "top_k": params.pop("top_k", 2),
+        "min_pairs_for_top_k": params.pop("min_pairs_for_top_k", None),
+        "low_pair_top_k": params.pop("low_pair_top_k", None),
         "gross_cap": params.pop("gross_cap", 2.0),
         "net_cap": params.pop("net_cap", None),
         "single_pair_cap": params.pop("single_pair_cap", None),

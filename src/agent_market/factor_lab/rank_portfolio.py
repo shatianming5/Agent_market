@@ -103,6 +103,8 @@ class RiskConfig:
         gross_cap: Optional[float] = None,
         net_cap: Optional[float] = None,
         top_k: Optional[int] = None,
+        min_pairs_for_top_k: Optional[int] = None,
+        low_pair_top_k: Optional[int] = None,
         single_pair_cap: Optional[float] = None,
         side_mode: Optional[str] = None,
         min_abs_score_z: Optional[float] = None,
@@ -168,6 +170,8 @@ class RiskConfig:
             "min_abs_score_z": ("RP_SCORE_THRESHOLD", float),
             "rebalance_hours": ("RP_REBALANCE_HOURS", int),
             "leverage_cap": ("RP_MAX_LEVERAGE", float),
+            "min_pairs_for_top_k": ("RP_MIN_PAIRS_FOR_TOP_K", int),
+            "low_pair_top_k": ("RP_LOW_PAIR_TOP_K", int),
             "edge_lookback_hours": ("RP_EDGE_LOOKBACK_HOURS", int),
             "edge_min_periods": ("RP_EDGE_MIN_PERIODS", int),
             "edge_deadband": ("RP_EDGE_DEADBAND", float),
@@ -222,6 +226,10 @@ class RiskConfig:
             cfg.net_cap = float(net_cap)
         if top_k is not None:
             cfg.top_k = int(top_k)
+        if min_pairs_for_top_k is not None:
+            cfg.min_pairs_for_top_k = int(min_pairs_for_top_k)
+        if low_pair_top_k is not None:
+            cfg.low_pair_top_k = int(low_pair_top_k)
         if single_pair_cap is not None:
             cfg.single_pair_cap = float(single_pair_cap)
         if side_mode is not None:
@@ -1527,6 +1535,8 @@ def rank_export(
     start: Optional[str] = None,
     end: Optional[str] = None,
     top_k: Optional[int] = None,
+    min_pairs_for_top_k: Optional[int] = None,
+    low_pair_top_k: Optional[int] = None,
     gross_cap: Optional[float] = None,
     net_cap: Optional[float] = None,
     single_pair_cap: Optional[float] = None,
@@ -1609,6 +1619,8 @@ def rank_export(
         gross_cap=gross_cap,
         net_cap=net_cap,
         top_k=top_k,
+        min_pairs_for_top_k=min_pairs_for_top_k,
+        low_pair_top_k=low_pair_top_k,
         single_pair_cap=single_pair_cap,
         side_mode=side_mode,
         min_abs_score_z=min_abs_score_z,
@@ -1868,6 +1880,8 @@ def rank_backtest(
     data_venue: str = "auto",
     pairs: Optional[Sequence[str] | str] = None,
     top_k: int = 2,
+    min_pairs_for_top_k: Optional[int] = None,
+    low_pair_top_k: Optional[int] = None,
     gross_cap: float = 2.0,
     net_cap: Optional[float] = None,
     single_pair_cap: Optional[float] = None,
@@ -1924,6 +1938,8 @@ def rank_backtest(
         start=start,
         end=end,
         top_k=top_k,
+        min_pairs_for_top_k=min_pairs_for_top_k,
+        low_pair_top_k=low_pair_top_k,
         gross_cap=gross_cap,
         net_cap=net_cap,
         single_pair_cap=single_pair_cap,
