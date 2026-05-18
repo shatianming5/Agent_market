@@ -29,7 +29,7 @@ from .paths import (
     USER_DATA,
     feather_for_pair,
 )
-from .timeframes import bars_for_hours, bars_for_minutes, manifest_matches_profile, normalize_timeframe
+from .timeframes import bars_for_hours, bars_for_minutes, manifest_matches_profile, normalize_timeframe, timeframe_minutes
 
 
 DEFAULT_TAG = "gpt54_purealpha_v2_full1000_fix1"
@@ -1353,24 +1353,38 @@ def _coerce_utc_timestamp(value: Any) -> Optional[pd.Timestamp]:
 
 def _warmup_start_for_rank_signals(start: Optional[str], cfg: RiskConfig) -> Tuple[Optional[str], Dict[str, Any]]:
     start_ts = _coerce_utc_timestamp(start)
-    if start_ts is None or _edge_mode(cfg) != "rolling_ic":
+    if start_ts is None:
         return start, {"enabled": False, "requested_start": str(start) if start else None}
 
-    warmup_hours = int(max(
+    tf = normalize_timeframe(getattr(cfg, "timeframe", "1h"))
+    risk_warmup_hours = int(max(24 * 30, 96, 72, 24))
+    edge_warmup_hours = 0
+    if _edge_mode(cfg) == "rolling_ic":
+        edge_warmup_hours = int(max(
+            0,
+            int(getattr(cfg, "edge_lookback_hours", 0) or 0),
+            int(getattr(cfg, "edge_min_periods", 0) or 0),
+        ))
+    # Round trip through bars so non-1h timeframes request enough whole candles.
+    warmup_bars = int(max(
         0,
-        int(getattr(cfg, "edge_lookback_hours", 0) or 0),
-        int(getattr(cfg, "edge_min_periods", 0) or 0),
+        bars_for_hours(risk_warmup_hours, tf),
+        bars_for_hours(edge_warmup_hours, tf),
     ))
-    if warmup_hours <= 0:
+    if warmup_bars <= 0:
         return start, {"enabled": False, "requested_start": start_ts.isoformat()}
 
-    load_start_ts = start_ts - pd.Timedelta(hours=warmup_hours)
+    warmup_minutes = int(warmup_bars * timeframe_minutes(tf))
+    load_start_ts = start_ts - pd.Timedelta(minutes=warmup_minutes)
     load_start = load_start_ts.strftime("%Y-%m-%d %H:%M:%S")
     return load_start, {
         "enabled": True,
         "requested_start": start_ts.isoformat(),
         "load_start": load_start_ts.isoformat(),
-        "warmup_hours": warmup_hours,
+        "warmup_hours": float(warmup_minutes) / 60.0,
+        "warmup_bars": warmup_bars,
+        "edge_warmup_hours": edge_warmup_hours,
+        "risk_warmup_hours": risk_warmup_hours,
     }
 
 
@@ -1381,7 +1395,22 @@ def build_rank_signals(
     *,
     trading_start: Optional[Any] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    venue = add_risk_columns(venue_panel, timeframe=getattr(cfg, "timeframe", "1h"))
+    risk_columns = {
+        "rp_atr_pct",
+        "rp_mom_24h",
+        "rp_mom_72h",
+        "rp_volume_ratio",
+        "rp_ma_gap_96h",
+        "rp_market_mom_24h",
+        "rp_market_mom_72h",
+        "rp_market_ma_gap_96h",
+        "rp_market_atr_pct",
+    }
+    if risk_columns.issubset(set(venue_panel.columns)):
+        venue = venue_panel.copy()
+        venue["date"] = pd.to_datetime(venue["date"], utc=True)
+    else:
+        venue = add_risk_columns(venue_panel, timeframe=getattr(cfg, "timeframe", "1h"))
     scores = score_frame.copy()
     scores["date"] = pd.to_datetime(scores["date"], utc=True)
     merged = venue.merge(scores, on=["date", "__pair__"], how="left")

@@ -337,14 +337,66 @@ def test_rank_signal_trading_start_preserves_edge_warmup_without_carrying_positi
     assert first_trading_date.loc[first_trading_date["pair"] == "P0/USDT", "rp_side"].iloc[0] == -1
 
 
+def test_rank_signal_reuses_precomputed_risk_columns() -> None:
+    pairs = [f"P{i}/USDT" for i in range(4)]
+    dates = pd.date_range("2026-01-01", periods=80, freq="1h", tz="UTC")
+    score_rows = []
+    venue_rows = []
+    for i, date in enumerate(dates):
+        for j, pair in enumerate(pairs):
+            score_rows.append({
+                "date": date,
+                "__pair__": pair,
+                "rp_score": float(j),
+                "rp_score_z": float(j - 1.5),
+            })
+            close = 100.0 + float(i) * 0.01 + float(j) * 0.001
+            venue_rows.append({
+                "date": date,
+                "__pair__": pair,
+                "open": close,
+                "high": close * 1.001,
+                "low": close * 0.999,
+                "close": close,
+                "volume": 1000.0 + float(j),
+            })
+    score_frame = pd.DataFrame(score_rows)
+    venue = pd.DataFrame(venue_rows)
+    cfg = rp.RiskConfig(
+        gross_cap=1.0,
+        net_cap=1.0,
+        single_pair_cap=1.0,
+        risk_per_trade=0.02,
+        top_k=1,
+        min_pairs_for_top_k=4,
+        low_pair_top_k=1,
+        side_mode="short",
+        min_abs_score_z=0.0,
+        rebalance_hours=8,
+    )
+
+    raw_signals, _ = rp.build_rank_signals(score_frame, venue, cfg)
+    risk_venue = rp.add_risk_columns(venue, timeframe="1h")
+    cached_signals, _ = rp.build_rank_signals(score_frame, risk_venue, cfg)
+
+    pd.testing.assert_series_equal(
+        raw_signals["rp_target_weight"].reset_index(drop=True),
+        cached_signals["rp_target_weight"].reset_index(drop=True),
+        check_names=False,
+    )
+
+
 def test_rolling_edge_rank_export_uses_pre_start_warmup_window() -> None:
     cfg = rp.RiskConfig(edge_mode="rolling_ic", edge_lookback_hours=336, edge_min_periods=168)
 
     load_start, report = rp._warmup_start_for_rank_signals("2026-04-01", cfg)  # noqa: SLF001
 
     assert report["enabled"] is True
-    assert report["warmup_hours"] == 336
-    assert load_start == "2026-03-18 00:00:00"
+    assert report["warmup_hours"] == 720
+    assert report["warmup_bars"] == 720
+    assert report["edge_warmup_hours"] == 336
+    assert report["risk_warmup_hours"] == 720
+    assert load_start == "2026-03-02 00:00:00"
 
 
 def test_short_momentum_filter_blocks_strong_rebound_entries() -> None:
