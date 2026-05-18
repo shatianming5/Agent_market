@@ -175,6 +175,8 @@ STRUCTURAL_RANK_KEYS = {
     "rebalance_minutes",
     "side_mode",
     "rebalance_hours",
+    "min_abs_score_z",
+    "score_threshold",
     "edge_mode",
     "regime_mode",
     "pair_edge_min_entry_ic",
@@ -191,6 +193,17 @@ STRUCTURAL_RANK_KEYS = {
     "gross_cap",
     "net_cap",
     "single_pair_cap",
+    "short_max_mom_24h",
+    "short_max_mom_72h",
+    "long_min_mom_24h",
+    "max_entry_atr_pct",
+    "short_max_market_mom_24h",
+    "short_max_market_mom_72h",
+    "short_max_market_ma_gap",
+    "short_exit_mom_24h",
+    "short_exit_mom_72h",
+    "short_exit_market_mom_24h",
+    "short_exit_market_ma_gap",
     "exclude_pairs",
 }
 
@@ -2490,6 +2503,28 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
         profit = _coerce_finite_float(validation_metrics.get("profit_pct"), 0.0)
         drawdown = _coerce_finite_float(validation_metrics.get("max_drawdown_pct"), 0.0)
         search_pdd = _coerce_finite_float(search_metrics.get("profit_over_max_drawdown"), 0.0)
+        stability = validation_window.get("regime_stability") if isinstance(validation_window.get("regime_stability"), Mapping) else {}
+        stability_summary = {
+            key: stability.get(key)
+            for key in (
+                "score",
+                "subwindow_count",
+                "positive_subwindows",
+                "positive_subwindow_ratio",
+                "worst_subwindow_profit_pct",
+                "best_subwindow_profit_pct",
+                "profit_std",
+                "max_subwindow_drawdown_pct",
+                "worst_subwindow_profit_over_max_drawdown",
+                "worst_subwindow",
+                "best_subwindow",
+                "month_count",
+                "positive_month_ratio",
+                "worst_month",
+                "best_month",
+            )
+            if stability.get(key) not in (None, {}, [])
+        }
         compact = {
             "iteration": row.get("iteration"),
             "name": (_row_candidate(row) or {}).get("name"),
@@ -2506,6 +2541,8 @@ def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Str
             "violations": validation_window.get("violations") or row.get("violations") or [],
             "rank_profile": dict(profile),
         }
+        if stability_summary:
+            compact["validation_regime_stability"] = stability_summary
         if validation_window.get("constraints_ok") is True:
             validation_passed.append(compact)
             continue
@@ -2987,6 +3024,97 @@ def _validation_activity_coverage_repairs(
     return specs
 
 
+def _validation_stability_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+) -> list[tuple[str, str, dict[str, Any], str, dict[str, Any]]]:
+    stability = anchor.get("validation_regime_stability")
+    if not isinstance(stability, Mapping):
+        return []
+    subwindow_count = _coerce_int(stability.get("subwindow_count"), 0)
+    if subwindow_count < 2:
+        return []
+    positive_ratio = _coerce_finite_float(stability.get("positive_subwindow_ratio"), 1.0)
+    worst_profit = _coerce_finite_float(stability.get("worst_subwindow_profit_pct"), 0.0)
+    profit_std = _coerce_finite_float(stability.get("profit_std"), 0.0)
+    max_subwindow_dd = _coerce_finite_float(stability.get("max_subwindow_drawdown_pct"), 0.0)
+    if positive_ratio >= 0.75 and worst_profit >= 0.0 and max_subwindow_dd <= 8.0:
+        return []
+
+    anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), 1.5)
+    anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), 0.05)
+    anchor_pair_hold = _coerce_finite_float(anchor_profile.get("pair_edge_min_hold_ic"), 0.0)
+    anchor_regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+    anchor_side = str(anchor_profile.get("side_mode") or "short").strip().lower()
+    regime_mode = str(anchor_profile.get("regime_mode") or "").strip().lower()
+    summary = dict(stability)
+    specs: list[tuple[str, str, dict[str, Any], str, dict[str, Any]]] = []
+    if anchor_side in {"short", "both"}:
+        current_exit_mom = anchor_profile.get("short_exit_mom_24h")
+        if current_exit_mom is None or _coerce_finite_float(current_exit_mom, 1.0) > 0.0:
+            specs.append(
+                (
+                    "validation_stability_exit_mom_000",
+                    "validation_subwindow_tail_exit_repair",
+                    {"short_exit_mom_24h": 0.0},
+                    "exit short exposure when pair momentum turns positive after validation passed but subwindow stability was weak",
+                    summary,
+                )
+            )
+        current_market_exit = anchor_profile.get("short_exit_market_mom_24h")
+        if current_market_exit is None or _coerce_finite_float(current_market_exit, 1.0) > 0.0:
+            specs.append(
+                (
+                    "validation_stability_market_exit_000",
+                    "validation_subwindow_tail_exit_repair",
+                    {"short_exit_market_mom_24h": 0.0},
+                    "exit shorts when broad-market momentum turns positive after validation passed with weak subwindow stability",
+                    summary,
+                )
+            )
+    if anchor_atr > 0.005 and (worst_profit < 0.0 or max_subwindow_dd > 5.0):
+        specs.append(
+            (
+                "validation_stability_atr_minus_005",
+                "validation_subwindow_tail_filter_repair",
+                {"max_entry_atr_pct": max(0.0, anchor_atr - 0.005)},
+                "tighten ATR entry exposure after validation passed but a subwindow carried tail drawdown",
+                summary,
+            )
+        )
+    if profit_std > 3.0 or worst_profit < 0.0:
+        specs.append(
+            (
+                "validation_stability_z_plus_001",
+                "validation_subwindow_entry_quality_repair",
+                {"min_abs_score_z": anchor_z + 0.01},
+                "require a slightly stronger rank score after validation passed with unstable subwindow returns",
+                summary,
+            )
+        )
+    if anchor_pair_hold < 0.02 and (worst_profit < 0.0 or positive_ratio < 0.75):
+        specs.append(
+            (
+                "validation_stability_pair_hold_plus_005",
+                "validation_subwindow_pair_edge_hold_repair",
+                {"pair_edge_min_hold_ic": anchor_pair_hold + 0.005},
+                "drop held positions sooner when pair edge decays after validation subwindow instability",
+                summary,
+            )
+        )
+    if regime_mode == "hq" and anchor_regime_pair_count > 0 and anchor_regime_pair_count < 8:
+        specs.append(
+            (
+                "validation_stability_regime_pair_count_plus_1",
+                "validation_subwindow_regime_confirmation_repair",
+                {"regime_min_pair_count": anchor_regime_pair_count + 1},
+                "require broader regime confirmation after validation passed but only some subwindows were profitable",
+                summary,
+            )
+        )
+    return specs
+
+
 def _merged_excluded_pairs(anchor_profile: Mapping[str, Any], extra: Sequence[str]) -> list[str]:
     existing = anchor_profile.get("exclude_pairs") or []
     if isinstance(existing, str):
@@ -3170,6 +3298,40 @@ def build_rank_profile_repair_queue(
             except Exception:
                 continue
             anchor_iter = anchor.get("iteration")
+            stability_specs = _validation_stability_repairs(anchor, anchor_profile)
+            for raw_name, family, changes, tradeoff, stability_summary in stability_specs[:4]:
+                source = "controller_rank_profile_validation_pass_stability_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation-passed stability repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "validation_regime_stability": stability_summary,
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
             activity_specs = _validation_activity_coverage_repairs(anchor, anchor_profile)
             for raw_name, family, changes, tradeoff, activity_summary in activity_specs[:4]:
                 source = "controller_rank_profile_validation_pass_activity_repair"

@@ -1081,9 +1081,15 @@ def test_openai_compatible_agent_repairs_controller_contract_failure(
             if len(calls) == 1:
                 payload = {
                     "candidate_type": "rank_profile",
-                    "name": "local_z_only",
+                    "name": "local_risk_only",
                     "metadata": {"search_mode": "structured_explore"},
-                    "rank_profile": {"n": 50, "top_k": 2, "min_abs_score_z": 1.48, "candidate_state": state_rel},
+                    "rank_profile": {
+                        "n": 50,
+                        "top_k": 2,
+                        "min_abs_score_z": 1.45,
+                        "risk_per_trade": 0.02,
+                        "candidate_state": state_rel,
+                    },
                 }
             else:
                 payload = {
@@ -3107,6 +3113,91 @@ def test_rank_profile_repair_queue_prioritizes_validation_pass_activity_repairs(
     assert queue[0]["rank_profile"]["regime_min_pair_count"] == 2
 
 
+def test_rank_profile_repair_queue_prioritizes_validation_pass_stability_repairs(tmp_path: Path) -> None:
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.45,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.042,
+        "short_exit_mom_24h": 0.04,
+        "short_exit_market_mom_24h": 0.04,
+        "max_entry_atr_pct": 0.05,
+        "regime_mode": "hq",
+        "regime_min_edge_ic": 0.01,
+        "regime_min_pair_edge_ic": 0.01,
+        "regime_min_pair_count": 3,
+        "regime_short_max_market_mom_24h": 0.03,
+        "regime_max_market_atr_pct": 0.04,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_validation_pass_stability_repair",
+        run_id="unit_validation_pass_stability_repair_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 8,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "validation_passed_unstable",
+                "rank_profile": anchor,
+            },
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 10.0,
+                        "max_drawdown_pct": 4.0,
+                        "profit_over_max_drawdown": 2.5,
+                        "trades": 80,
+                    },
+                    "violations": [],
+                },
+                "validation": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 4.0,
+                        "max_drawdown_pct": 2.0,
+                        "profit_over_max_drawdown": 2.0,
+                        "trades": 20,
+                    },
+                    "regime_stability": {
+                        "subwindow_count": 4,
+                        "positive_subwindows": 2,
+                        "positive_subwindow_ratio": 0.5,
+                        "worst_subwindow_profit_pct": -3.2,
+                        "profit_std": 4.1,
+                        "max_subwindow_drawdown_pct": 6.5,
+                        "worst_subwindow": {"period": "2026-03-15..2026-03-21", "profit_pct": -3.2},
+                    },
+                    "violations": [],
+                },
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_validation_pass_stability_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_8"
+    assert queue[0]["metadata"]["hypothesis_family"] == "validation_subwindow_tail_exit_repair"
+    assert queue[0]["metadata"]["validation_regime_stability"]["worst_subwindow_profit_pct"] == -3.2
+    assert queue[0]["rank_profile"]["short_exit_mom_24h"] == 0.0
+
+
 def test_rank_profile_repair_queue_skips_behavior_duplicate_activity_repairs(tmp_path: Path) -> None:
     import pandas as pd
 
@@ -4068,6 +4159,36 @@ def test_structured_mode_requires_structural_change() -> None:
     with pytest.raises(ValueError, match="insufficient structural change"):
         runner._validate_unique_candidate(local_only)
     runner._validate_unique_candidate(structural)
+
+
+def test_structured_mode_accepts_signal_filter_changes() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit_structured_filter", run_id="unit_structured_filter_run")
+    runner = StrategyLoopRunner(cfg)
+    runner.state.exploration_mode = "structured"
+    runner.state.best_candidate = {
+        "candidate": {
+            "candidate_type": "rank_profile",
+            "rank_profile": {
+                "top_k": 2,
+                "side_mode": "short",
+                "min_abs_score_z": 1.45,
+                "short_exit_mom_24h": 0.04,
+            },
+        }
+    }
+    threshold_change = {
+        "candidate_type": "rank_profile",
+        "metadata": {"search_mode": "structured_explore"},
+        "rank_profile": {"top_k": 2, "side_mode": "short", "min_abs_score_z": 1.46, "short_exit_mom_24h": 0.04},
+    }
+    exit_change = {
+        "candidate_type": "rank_profile",
+        "metadata": {"search_mode": "structured_explore"},
+        "rank_profile": {"top_k": 2, "side_mode": "short", "min_abs_score_z": 1.45, "short_exit_mom_24h": 0.0},
+    }
+
+    runner._validate_unique_candidate(threshold_change)
+    runner._validate_unique_candidate(exit_change)
 
 
 def test_structured_mode_accepts_regime_gate_changes() -> None:
