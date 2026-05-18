@@ -2710,6 +2710,20 @@ def build_rank_profile_repair_queue(
     validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
     validation_losses = validation_hints.get("validation_loss_after_search_pass") if isinstance(validation_hints, Mapping) else []
     persistent_validation_loss = isinstance(validation_losses, Sequence) and len(validation_losses) >= 3
+    validation_trade_recovery_ready = False
+    if isinstance(validation_failures, Sequence):
+        validation_gates = validation_hints.get("validation_gates") if isinstance(validation_hints, Mapping) else {}
+        min_validation_pdd = _coerce_finite_float(
+            validation_gates.get("min_profit_over_dd") if isinstance(validation_gates, Mapping) else None,
+            config.min_profit_over_dd,
+        )
+        validation_trade_recovery_ready = any(
+            isinstance(anchor, Mapping)
+            and _coerce_int(anchor.get("validation_trades_gap"), 0) > 0
+            and _coerce_finite_float(anchor.get("validation_profit_pct"), 0.0) > 0.0
+            and _coerce_finite_float(anchor.get("validation_profit_over_max_drawdown"), 0.0) >= min_validation_pdd
+            for anchor in validation_failures
+        )
     defer_search_trade_repairs = bool(
         persistent_validation_loss and isinstance(validation_failures, Sequence) and validation_failures
     )
@@ -2790,7 +2804,7 @@ def build_rank_profile_repair_queue(
                     }
                 )
 
-    if has_behavior_duplicate_feedback and isinstance(high_trade_low_quality, Sequence):
+    if has_behavior_duplicate_feedback and isinstance(high_trade_low_quality, Sequence) and not validation_trade_recovery_ready:
         for anchor in high_trade_low_quality[:3]:
             if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
                 continue
@@ -2938,10 +2952,22 @@ def build_rank_profile_repair_queue(
                         "recover a small validation trade deficit after the anchor already turned validation profit positive",
                     ),
                     (
+                        "validation_trade_z_minus_002",
+                        "validation_trade_repair_after_regime",
+                        {"min_abs_score_z": anchor_z - 0.02},
+                        "recover a larger validation trade deficit while staying close to the search-passed anchor",
+                    ),
+                    (
                         "validation_trade_topk_plus_1_z_minus_001",
                         "validation_trade_combo_repair_after_positive_validation",
                         {"top_k": min(10, anchor_top_k + 1), "min_abs_score_z": anchor_z - 0.01},
                         "combine one extra slot with a tiny threshold repair when validation is profitable but materially under-traded",
+                    ),
+                    (
+                        "validation_trade_topk_plus_1_z_minus_002",
+                        "validation_trade_combo_repair_after_positive_validation",
+                        {"top_k": min(10, anchor_top_k + 1), "min_abs_score_z": anchor_z - 0.02},
+                        "combine one extra slot with a moderate threshold repair when validation trade gap remains large",
                     ),
                     (
                         "validation_trade_short_mom_plus_002",
@@ -5216,6 +5242,13 @@ class StrategyLoopRunner:
                 if self.state.no_composite_improvement_count >= STAGNATION_STOP_AFTER:
                     self.state.no_composite_improvement_count = _stagnation_grace_count()
                 self.state.exploration_mode = "structured"
+                self.state.final_blind_status = None
+                self.state.final_promotion = None
+            elif self.state.status == LOOP_COMPLETED and requested_max_iterations >= self.state.iteration:
+                self.state.status = LOOP_RUNNING
+                self.state.stopped_reason = ""
+                self.state.final_blind_status = None
+                self.state.final_promotion = None
 
     def run(self) -> dict[str, Any]:
         root = loop_root(self.config.run_id)

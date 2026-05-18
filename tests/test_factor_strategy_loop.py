@@ -163,6 +163,26 @@ def test_resume_extended_stagnated_run_advances_with_grace() -> None:
     assert runner.state.exploration_mode == "structured"
 
 
+def test_resume_extended_completed_run_marks_running() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit", run_id="unit_resume_completed", max_iterations=3)
+    state = StrategyLoopState(run_id=cfg.run_id, iteration=4, phase=strategy_loop_mod.PHASE_PREPARE)
+    state.status = LOOP_COMPLETED
+    state.final_promotion = {"promoted": False, "reason": "old final"}
+    save_checkpoint(cfg, state)
+
+    resume_cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=cfg.run_id,
+        max_iterations=5,
+        resume=True,
+    )
+    runner = StrategyLoopRunner(resume_cfg)
+
+    assert runner.state.iteration == 4
+    assert runner.state.status == strategy_loop_mod.LOOP_RUNNING
+    assert runner.state.final_promotion is None
+
+
 def test_stagnation_recovery_candidate_gets_grace_at_stop_threshold() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit", run_id="unit_recovery_stagnation", max_iterations=3)
     runner = StrategyLoopRunner(cfg)
@@ -2881,6 +2901,105 @@ def test_rank_profile_repair_queue_prioritizes_search_quality_after_duplicate_pa
     assert queue[0]["metadata"]["parent_anchor"] == "iteration_24"
     assert queue[0]["metadata"]["behavior_feedback"]
     assert queue[0]["rank_profile"]["min_abs_score_z"] > anchor["min_abs_score_z"]
+
+
+def test_rank_profile_repair_queue_prioritizes_validation_trade_repair_after_search_pass(tmp_path: Path) -> None:
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.50,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "short_max_mom_24h": 0.034,
+        "short_exit_mom_24h": -0.02,
+        "max_entry_atr_pct": 0.05,
+        "exclude_pairs": ["BTC/USDT", "SOL/USDT", "LINK/USDT", "DOGE/USDT"],
+        "regime_mode": "hq",
+        "regime_min_pair_count": 3,
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_validation_trade_after_search_pass",
+        run_id="unit_validation_trade_after_search_pass_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 23,
+            "candidate": {
+                "candidate_type": "rank_profile",
+                "name": "duplicate_path",
+                "rank_profile": anchor,
+                "metadata": {
+                    "source": "controller_rank_profile_validation_pass_activity_repair",
+                    "hypothesis_family": "validation_activity_market_coverage_repair",
+                    "changed_keys": ["regime_short_max_market_mom_24h"],
+                },
+            },
+            "parameter_signature": rank_profile_signature(anchor),
+            "behavior_novelty": {"status": "duplicate"},
+        },
+        {
+            "run_id": cfg.run_id,
+            "iteration": 45,
+            "candidate": {"candidate_type": "rank_profile", "name": "search_near_quality", "rank_profile": {**anchor, "min_abs_score_z": 1.48}},
+            "parameter_signature": rank_profile_signature({**anchor, "min_abs_score_z": 1.48}),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": 3.5,
+                        "max_drawdown_pct": 3.0,
+                        "profit_over_max_drawdown": 1.18,
+                        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] + 10,
+                    },
+                }
+            },
+        },
+        {
+            "run_id": cfg.run_id,
+            "iteration": 46,
+            "candidate": {"candidate_type": "rank_profile", "name": "search_pass_validation_undertraded", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "constraints_ok": True,
+                    "research_metrics": {
+                        "profit_pct": 3.6,
+                        "max_drawdown_pct": 2.8,
+                        "profit_over_max_drawdown": 1.25,
+                        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] + 10,
+                    },
+                },
+                "validation": {
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": 1.1,
+                        "max_drawdown_pct": 0.3,
+                        "profit_over_max_drawdown": 3.6,
+                        "trades": scaled_gate_values(cfg, cfg.validation_timerange)["min_trades"] - 8,
+                    },
+                    "violations": ["research: trades=11 < 19"],
+                },
+            },
+        },
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_positive_validation_trade_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_46"
+    names = [item["name"] for item in queue[:8]]
+    assert "validation_trade_topk_plus_1_z_minus_002_iter_46" in names
 
 
 def test_rank_profile_repair_queue_prioritizes_validation_failures(tmp_path: Path) -> None:
