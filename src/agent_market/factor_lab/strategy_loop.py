@@ -22,7 +22,7 @@ import time
 import traceback
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
@@ -1220,6 +1220,7 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
                 "lean_score",
                 "blended_score",
                 "score_lean_weight",
+                "regime_stability_score",
             )
             if key in score_components
         },
@@ -1754,6 +1755,27 @@ def _compact_window_metrics_for_prompt(value: Any) -> dict[str, Any]:
             continue
         freqtrade = raw.get("freqtrade_backtest") if isinstance(raw.get("freqtrade_backtest"), Mapping) else {}
         violations = raw.get("violations")
+        stability = raw.get("regime_stability") if isinstance(raw.get("regime_stability"), Mapping) else {}
+        compact_stability = {
+            key: stability.get(key)
+            for key in (
+                "score",
+                "subwindow_count",
+                "positive_subwindows",
+                "positive_subwindow_ratio",
+                "worst_subwindow_profit_pct",
+                "best_subwindow_profit_pct",
+                "profit_std",
+                "max_subwindow_drawdown_pct",
+                "month_count",
+                "positive_month_ratio",
+                "worst_subwindow",
+                "best_subwindow",
+                "worst_month",
+                "best_month",
+            )
+            if stability.get(key) not in (None, {}, [])
+        }
         out[str(stage)] = {
             key: val
             for key, val in {
@@ -1762,6 +1784,7 @@ def _compact_window_metrics_for_prompt(value: Any) -> dict[str, Any]:
                 "violations": list(violations)[:6] if isinstance(violations, Sequence) and not isinstance(violations, str) else violations,
                 "research_metrics": _metric_subset(raw.get("research_metrics") or raw.get("research_backtest") or raw),
                 "freqtrade_metrics": _metric_subset(raw.get("freqtrade_metrics") or freqtrade.get("metrics")),
+                "regime_stability": compact_stability,
             }.items()
             if val not in (None, {}, [])
         }
@@ -2187,6 +2210,161 @@ def _coerce_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _parse_curve_datetime(value: Any) -> Optional[datetime]:
+    if hasattr(value, "to_pydatetime"):
+        try:
+            value = value.to_pydatetime()
+        except Exception:
+            pass
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, date):
+        dt = datetime(value.year, value.month, value.day)
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        text = text.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _equity_curve_points(raw_curve: Any) -> list[tuple[datetime, float]]:
+    if not isinstance(raw_curve, Sequence) or isinstance(raw_curve, (str, bytes)):
+        return []
+    points: list[tuple[datetime, float]] = []
+    for raw in raw_curve:
+        if not isinstance(raw, Mapping):
+            continue
+        dt = _parse_curve_datetime(raw.get("date"))
+        if dt is None:
+            continue
+        equity = _coerce_finite_float(raw.get("equity"), float("nan"))
+        if not math.isfinite(equity) or equity <= 0.0:
+            continue
+        points.append((dt, float(equity)))
+    points.sort(key=lambda item: item[0])
+    return points
+
+
+def _equity_period_summary(period: str, points: Sequence[tuple[datetime, float]]) -> Optional[dict[str, Any]]:
+    if len(points) < 2:
+        return None
+    start_equity = float(points[0][1])
+    end_equity = float(points[-1][1])
+    profit_pct = (end_equity / max(start_equity, 1e-12) - 1.0) * 100.0
+    high = start_equity
+    max_dd_pct = 0.0
+    for _, equity in points:
+        high = max(high, float(equity))
+        if high > 0.0:
+            max_dd_pct = max(max_dd_pct, (high - float(equity)) / high * 100.0)
+    if max_dd_pct <= 1e-9:
+        profit_over_dd = 100.0 if profit_pct > 0.0 else -100.0 if profit_pct < 0.0 else 0.0
+    else:
+        profit_over_dd = profit_pct / max_dd_pct
+    return {
+        "period": period,
+        "start": points[0][0].date().isoformat(),
+        "end": points[-1][0].date().isoformat(),
+        "points": len(points),
+        "profit_pct": round(float(profit_pct), 6),
+        "max_drawdown_pct": round(float(max_dd_pct), 6),
+        "profit_over_max_drawdown": round(float(profit_over_dd), 6),
+    }
+
+
+def _curve_period_summaries(
+    points: Sequence[tuple[datetime, float]],
+    *,
+    mode: str,
+    days: int = 7,
+) -> list[dict[str, Any]]:
+    if len(points) < 2:
+        return []
+    grouped: dict[str, list[tuple[datetime, float]]] = {}
+    if mode == "month":
+        for dt, equity in points:
+            key = f"{dt.year:04d}-{dt.month:02d}"
+            grouped.setdefault(key, []).append((dt, equity))
+    else:
+        first_day = points[0][0].date()
+        last_day = points[-1][0].date()
+        span_days = max(1, int(days))
+        for dt, equity in points:
+            idx = max(0, (dt.date() - first_day).days // span_days)
+            period_start = first_day + timedelta(days=idx * span_days)
+            period_end = min(period_start + timedelta(days=span_days - 1), last_day)
+            key = f"{period_start.isoformat()}..{period_end.isoformat()}"
+            grouped.setdefault(key, []).append((dt, equity))
+    summaries: list[dict[str, Any]] = []
+    for key, group in grouped.items():
+        summary = _equity_period_summary(key, group)
+        if summary is not None:
+            summaries.append(summary)
+    return summaries
+
+
+def _period_profit_std(periods: Sequence[Mapping[str, Any]]) -> float:
+    profits = [_coerce_finite_float(period.get("profit_pct"), 0.0) for period in periods]
+    if len(profits) <= 1:
+        return 0.0
+    mean = sum(profits) / len(profits)
+    variance = sum((value - mean) ** 2 for value in profits) / len(profits)
+    return math.sqrt(max(0.0, variance))
+
+
+def _curve_regime_stability(stage_result: Mapping[str, Any]) -> dict[str, Any]:
+    points = _equity_curve_points(stage_result.get("curve"))
+    if len(points) < 2:
+        return {}
+    subwindows = _curve_period_summaries(points, mode="fixed_days", days=7)
+    if not subwindows:
+        return {}
+    months = _curve_period_summaries(points, mode="month")
+    positive_subwindows = sum(1 for period in subwindows if _coerce_finite_float(period.get("profit_pct"), 0.0) > 0.0)
+    positive_months = sum(1 for period in months if _coerce_finite_float(period.get("profit_pct"), 0.0) > 0.0)
+    worst_subwindow = min(subwindows, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0))
+    best_subwindow = max(subwindows, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0))
+    worst_month = min(months, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0)) if months else {}
+    best_month = max(months, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0)) if months else {}
+    profit_std = _period_profit_std(subwindows)
+    worst_profit = _coerce_finite_float(worst_subwindow.get("profit_pct"), 0.0)
+    positive_ratio = positive_subwindows / max(len(subwindows), 1)
+    score = positive_ratio * 100.0 + worst_profit - profit_std
+    return {
+        "version": "equity-curve-regime-stability-v1",
+        "source": "rank_equity_curve",
+        "subwindow_days": 7,
+        "subwindow_count": len(subwindows),
+        "positive_subwindows": positive_subwindows,
+        "positive_subwindow_ratio": round(float(positive_ratio), 6),
+        "worst_subwindow_profit_pct": round(float(worst_profit), 6),
+        "best_subwindow_profit_pct": best_subwindow.get("profit_pct"),
+        "profit_std": round(float(profit_std), 6),
+        "max_subwindow_drawdown_pct": round(
+            max(_coerce_finite_float(period.get("max_drawdown_pct"), 0.0) for period in subwindows),
+            6,
+        ),
+        "worst_subwindow_profit_over_max_drawdown": worst_subwindow.get("profit_over_max_drawdown"),
+        "worst_subwindow": worst_subwindow,
+        "best_subwindow": best_subwindow,
+        "subwindows": subwindows,
+        "month_count": len(months),
+        "positive_months": positive_months,
+        "positive_month_ratio": round(float(positive_months / max(len(months), 1)), 6) if months else None,
+        "worst_month": worst_month,
+        "best_month": best_month,
+        "months": months,
+        "score": round(float(score), 6),
+    }
 
 
 def _clamp_numeric(key: str, value: Any) -> Any:
@@ -4370,7 +4548,7 @@ def _stage_window_metrics(stage_result: Mapping[str, Any], evaluation: Mapping[s
     elif isinstance(signals, Mapping):
         all_path = signals.get("all")
         signal_dir = _as_repo_meta(Path(str(all_path)).parent) if all_path else ""
-    return {
+    metrics = {
         "timerange": stage_result.get("timerange"),
         "start": stage_result.get("start"),
         "end": stage_result.get("end"),
@@ -4382,6 +4560,10 @@ def _stage_window_metrics(stage_result: Mapping[str, Any], evaluation: Mapping[s
         "violations": evaluation.get("violations") or [],
         "signal_dir": signal_dir,
     }
+    stability = _curve_regime_stability(stage_result)
+    if stability:
+        metrics["regime_stability"] = stability
+    return metrics
 
 
 def score_triple_holdout_backtest(backtest: Mapping[str, Any], config: StrategyLoopConfig) -> dict[str, Any]:
@@ -4441,6 +4623,11 @@ def score_triple_holdout_backtest(backtest: Mapping[str, Any], config: StrategyL
         "search": _stage_window_metrics(search, search_eval) if search else {},
         "validation": _stage_window_metrics(validation, validation_eval),
     }
+    validation_stability = validation_eval["window_metrics"]["validation"].get("regime_stability")
+    if isinstance(validation_stability, Mapping) and validation_stability.get("score") is not None:
+        components = validation_eval.setdefault("score_components", {})
+        if isinstance(components, dict):
+            components["regime_stability_score"] = _coerce_finite_float(validation_stability.get("score"), 0.0)
     validation_eval["selected_window"] = "validation"
     validation_eval["promotion_reason"] = (
         "validation window passed selected hard gates"

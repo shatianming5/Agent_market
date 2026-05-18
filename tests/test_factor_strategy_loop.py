@@ -1988,6 +1988,92 @@ def test_triple_holdout_score_uses_validation_not_search() -> None:
     assert evaluation["window_metrics"]["validation"]["metrics"]["profit_pct"] == 9.0
 
 
+def test_triple_holdout_records_validation_curve_regime_stability() -> None:
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_triple_regime_stability",
+        validation_protocol="triple_holdout",
+        eval_mode="freqtrade",
+        score_mode="composite",
+    )
+    search = {
+        "timerange": cfg.search_timerange,
+        "total_return_pct": 20.0,
+        "max_drawdown_pct": 5.0,
+        "profit_over_max_drawdown": 4.0,
+        "trades": 80,
+    }
+    validation = {
+        "timerange": cfg.validation_timerange,
+        "total_return_pct": 20.0,
+        "max_drawdown_pct": 5.0,
+        "profit_over_max_drawdown": 4.0,
+        "trades": 40,
+        "freqtrade_backtest": {
+            "ok": True,
+            "metrics": {"profit_pct": 20.0, "max_drawdown_pct": 5.0, "profit_over_max_drawdown": 4.0, "trades": 40},
+        },
+        "curve": [
+            {"date": "2026-03-01T00:00:00Z", "equity": 1.00},
+            {"date": "2026-03-07T00:00:00Z", "equity": 1.10},
+            {"date": "2026-03-08T00:00:00Z", "equity": 1.10},
+            {"date": "2026-03-14T00:00:00Z", "equity": 1.05},
+            {"date": "2026-03-15T00:00:00Z", "equity": 1.05},
+            {"date": "2026-03-21T00:00:00Z", "equity": 1.20},
+        ],
+    }
+
+    evaluation = score_triple_holdout_backtest({"stages": {"search": search, "validation": validation}}, cfg)
+    stability = evaluation["window_metrics"]["validation"]["regime_stability"]
+
+    assert stability["subwindow_count"] == 3
+    assert stability["positive_subwindows"] == 2
+    assert stability["positive_subwindow_ratio"] == pytest.approx(2 / 3)
+    assert stability["worst_subwindow"]["period"] == "2026-03-08..2026-03-14"
+    assert stability["worst_subwindow_profit_pct"] == pytest.approx(-4.545455)
+    assert evaluation["score_components"]["regime_stability_score"] == stability["score"]
+
+
+def test_pareto_pool_uses_curve_regime_stability_axis_without_explicit_component() -> None:
+    weak = {
+        "run_id": "unit_regime_axis",
+        "iteration": 1,
+        "candidate_path": "iter_01/candidate.json",
+        "candidate": {"candidate_type": "rank_profile", "name": "weak", "rank_profile": {"top_k": 2}},
+        "score": 1.0,
+        "score_components": {"composite_score": 1.0},
+        "constraints_ok": True,
+        "window_metrics": {
+            "validation": {
+                "regime_stability": {
+                    "positive_subwindow_ratio": 0.5,
+                    "worst_subwindow_profit_pct": -4.0,
+                    "profit_std": 3.0,
+                }
+            }
+        },
+    }
+    stable = {
+        **weak,
+        "iteration": 2,
+        "candidate_path": "iter_02/candidate.json",
+        "candidate": {"candidate_type": "rank_profile", "name": "stable", "rank_profile": {"top_k": 3}},
+        "score_components": {"composite_score": 0.5},
+        "window_metrics": {
+            "validation": {
+                "regime_stability": {
+                    "positive_subwindow_ratio": 1.0,
+                    "worst_subwindow_profit_pct": 1.0,
+                    "profit_std": 0.5,
+                }
+            }
+        },
+    }
+
+    pool = build_pareto_pool([weak, stable], size_per_axis=1)
+
+    assert pool["axes"]["best_regime_stability"][0]["iteration"] == 2
+
+
 def test_triple_holdout_search_window_scores_research_only_without_freqtrade_noise() -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_triple_search_research_only",
