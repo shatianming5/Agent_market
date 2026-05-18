@@ -3571,11 +3571,80 @@ def validate_candidate(candidate_path: str | Path, *, default_n: int = 50) -> di
     return normalized
 
 
+def _candidate_state_should_use_fallback(raw: str, fallback: Optional[Path]) -> bool:
+    if fallback is None:
+        return False
+    raw_path = Path(raw)
+    if not raw_path.parts:
+        return True
+    if len(raw_path.parts) == 1:
+        return True
+    return raw_path.name == fallback.name
+
+
 def _resolve_candidate_state_value(value: Any, fallback: Optional[Path]) -> Optional[str]:
     raw = str(value or "").strip()
     if raw:
-        return str(repo_paths.resolve_repo_path(raw))
+        resolved = repo_paths.resolve_repo_path(raw)
+        if not resolved.exists() and _candidate_state_should_use_fallback(raw, fallback):
+            return str(fallback) if fallback else str(resolved)
+        return str(resolved)
     return str(fallback) if fallback else None
+
+
+def _existing_candidate_state_fallback(config: StrategyLoopConfig, baseline_params: Optional[Mapping[str, Any]] = None) -> Optional[Path]:
+    params = baseline_params if baseline_params is not None else _baseline_rank_profile(config)
+    for raw in (
+        str(config.candidate_state or "").strip(),
+        str(params.get("candidate_state") or "").strip() if isinstance(params, Mapping) else "",
+    ):
+        if not raw:
+            continue
+        path = repo_paths.resolve_repo_path(raw)
+        if path.exists():
+            return path
+    factor_state, _ = _resolve_factor_state(config.tag)
+    if factor_state is not None and factor_state.exists():
+        return factor_state
+    return None
+
+
+def _postprocess_agent_rank_profile_payload(
+    payload: Mapping[str, Any],
+    config: StrategyLoopConfig,
+    *,
+    structured: bool = False,
+) -> dict[str, Any]:
+    out = dict(payload)
+    if config.candidate_type == CANDIDATE_RANK_PROFILE and not out.get("candidate_type"):
+        out["candidate_type"] = CANDIDATE_RANK_PROFILE
+    if str(out.get("candidate_type") or "").strip().lower() != CANDIDATE_RANK_PROFILE:
+        return out
+
+    metadata = dict(out.get("metadata")) if isinstance(out.get("metadata"), Mapping) else {}
+    if structured:
+        metadata["search_mode"] = "structured_explore"
+    elif not str(metadata.get("search_mode") or "").strip():
+        metadata["search_mode"] = "local_exploit"
+    metadata.setdefault("source", "openai_compatible_agent")
+
+    raw_profile = out.get("rank_profile") or out.get("profile") or out.get("params") or {}
+    if isinstance(raw_profile, Mapping):
+        profile = dict(raw_profile)
+        fallback = _existing_candidate_state_fallback(config)
+        raw_state = str(profile.get("candidate_state") or "").strip()
+        if fallback is not None:
+            if not raw_state:
+                profile["candidate_state"] = _as_repo_meta(fallback)
+                metadata.setdefault("candidate_state_repair", "filled_from_loop_config")
+            else:
+                resolved = repo_paths.resolve_repo_path(raw_state)
+                if not resolved.exists() and _candidate_state_should_use_fallback(raw_state, fallback):
+                    profile["candidate_state"] = _as_repo_meta(fallback)
+                    metadata.setdefault("candidate_state_repair", "expanded_short_state_path")
+        out["rank_profile"] = profile
+    out["metadata"] = metadata
+    return out
 
 
 def _rank_kwargs(
@@ -3597,6 +3666,9 @@ def _rank_kwargs(
         or str(config.candidate_state or "").strip()
         or baseline_params.get("candidate_state")
     )
+    candidate_state_fallback = candidate_state
+    if candidate_state_fallback is None or not candidate_state_fallback.exists():
+        candidate_state_fallback = _existing_candidate_state_fallback(config, baseline_params)
     if "recompute_corr" in candidate_params:
         recompute_corr = _coerce_bool(candidate_params.get("recompute_corr"))
     elif config.recompute_corr is not None:
@@ -3659,7 +3731,7 @@ def _rank_kwargs(
         "short_exit_market_mom_24h": params.pop("short_exit_market_mom_24h", None),
         "short_exit_market_ma_gap": params.pop("short_exit_market_ma_gap", None),
         "exclude_pairs": params.pop("exclude_pairs", None),
-        "candidate_state": _resolve_candidate_state_value(candidate_state_raw, candidate_state),
+        "candidate_state": _resolve_candidate_state_value(candidate_state_raw, candidate_state_fallback),
         "recompute_corr": bool(recompute_corr),
     }
 
@@ -5214,6 +5286,8 @@ Search discipline:
   cadence, edge/regime mode, top_k, gross/net/single cap, or another core risk structure.
 - Preserve `candidate_state`, `recompute_corr=false`, `short_max_mom_24h`, `short_max_mom_72h`,
   and `max_entry_atr_pct` unless your `analysis.md` clearly labels that one-field ablation.
+- Copy `candidate_state` as the exact path shown in `optimized_baseline` or the schema example; never
+  shorten it to only a filename such as `state_0149.json`.
 - If `previous_failure` exists, fix that contract failure first and mention the fix in `analysis.md`.
 - If `final_blind_feedback` exists, repair those exact blind failures first: minimum trades,
   profit/drawdown, verification status, and LEAN comparison drift.
@@ -5666,6 +5740,11 @@ class StrategyLoopRunner:
             raise RuntimeError("OpenAI-compatible agent did not return a JSON candidate")
         if "candidate_type" not in payload and isinstance(payload.get("candidate"), Mapping):
             payload = dict(payload["candidate"])
+        payload = _postprocess_agent_rank_profile_payload(
+            payload,
+            self.config,
+            structured=self.state.exploration_mode == "structured",
+        )
         write_json(idir / "candidate.json", payload)
 
     def _run_hermes_cli(self, idir: Path, prompt: str, *, env: Optional[Mapping[str, str]] = None) -> None:

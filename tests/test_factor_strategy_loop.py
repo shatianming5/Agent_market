@@ -707,6 +707,26 @@ def test_rank_kwargs_inherits_optimized_baseline_controls() -> None:
     assert kwargs["low_pair_top_k"] == 2
 
 
+def test_rank_kwargs_expands_short_candidate_state_from_config() -> None:
+    state_rel = "artifacts/factor_lab/mining/unit_rank_kwargs_state/state_0149.json"
+    state_path = repo_paths.resolve_repo_path(state_rel)
+    _write_json(state_path, {"survivors": []})
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_rank_kwargs_state",
+        candidate_state=state_rel,
+    )
+
+    kwargs = _rank_kwargs(
+        {"candidate_state": "state_0149.json", "top_k": 3},
+        cfg,
+        candidate_state=None,
+        tag="effective",
+    )
+
+    assert kwargs["candidate_state"] == str(state_path)
+    assert kwargs["top_k"] == 3
+
+
 def test_runner_seeds_initial_optimized_baseline_candidate(tmp_path: Path) -> None:
     baseline_path = tmp_path / "optimized_profile.json"
     _write_json(
@@ -952,6 +972,66 @@ def test_openai_compatible_agent_repairs_invalid_json(monkeypatch: pytest.Monkey
     response = (tmp_path / "agent_response.txt").read_text(encoding="utf-8")
     assert "JSON repair attempt" in response
     assert runner.state.token_cost["2"]["repair"] == {"total_tokens": 13}
+
+
+def test_openai_compatible_agent_repairs_structured_metadata_and_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    state_rel = "artifacts/factor_lab/mining/unit_openai_structured/state_0149.json"
+    state_path = repo_paths.resolve_repo_path(state_rel)
+    _write_json(state_path, {"survivors": []})
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_openai_structured",
+        run_id="unit_openai_structured_run",
+        agent="openai",
+        model="gpt-5.5",
+        candidate_state=state_rel,
+    )
+    runner = StrategyLoopRunner(cfg)
+    runner.state.iteration = 2
+    runner.state.exploration_mode = "structured"
+    runner.state.best_candidate = {
+        "candidate": {
+            "candidate_type": "rank_profile",
+            "rank_profile": {"top_k": 2, "candidate_state": state_rel},
+        }
+    }
+
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-key")
+
+    import agent_market.strategy_miner.agent_adapter as adapter
+
+    class FakeStrategyAgent:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def run_result(self, prompt: str) -> types.SimpleNamespace:
+            return types.SimpleNamespace(
+                assistant_text=json.dumps(
+                    {
+                        "candidate_type": "rank_profile",
+                        "name": "structured_topk",
+                        "rank_profile": {"top_k": 3, "candidate_state": "state_0149.json"},
+                    }
+                ),
+                usage={"total_tokens": 7},
+            )
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(adapter, "StrategyAgent", FakeStrategyAgent)
+    (tmp_path / "context").mkdir()
+    _write_json(tmp_path / "context" / "prepare.json", {"unit_context": True})
+
+    runner._code_gen(tmp_path)
+
+    candidate = validate_candidate(tmp_path / "candidate.json")
+    assert candidate["metadata"]["search_mode"] == "structured_explore"
+    assert candidate["metadata"]["candidate_state_repair"] == "expanded_short_state_path"
+    assert candidate["rank_profile"]["candidate_state"] == state_rel
+    assert repo_paths.resolve_repo_path(candidate["rank_profile"]["candidate_state"]) == state_path
 
 
 def test_runner_applies_hermes_reasoning_effort(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
