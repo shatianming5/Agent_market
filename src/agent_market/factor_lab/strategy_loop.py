@@ -1670,6 +1670,238 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
     return memory
 
 
+def _metric_subset(metrics: Any) -> dict[str, Any]:
+    if not isinstance(metrics, Mapping):
+        return {}
+    keys = (
+        "profit_pct",
+        "total_return_pct",
+        "profit_total_pct",
+        "max_drawdown_pct",
+        "max_account_underwater_pct",
+        "trades",
+        "total_trades",
+        "profit_over_max_drawdown",
+        "simulated_liquidations",
+        "liquidation_rejects",
+        "avg_turnover",
+        "kill_mode_count",
+    )
+    return {key: metrics.get(key) for key in keys if metrics.get(key) is not None}
+
+
+def _compact_behavior_novelty_for_prompt(value: Any) -> Any:
+    if not isinstance(value, Mapping):
+        return value
+
+    def _fingerprint(raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, Mapping):
+            return {}
+        keys = (
+            "active_rows",
+            "active_days",
+            "active_day_ratio",
+            "active_pairs",
+            "target_weight_changed_rows",
+            "active_target_weight_changed_rows",
+            "pair_counts",
+            "action_signature",
+            "path_signature",
+            "distribution_signature",
+        )
+        return {key: raw.get(key) for key in keys if raw.get(key) is not None}
+
+    out = {
+        key: value.get(key)
+        for key in ("status", "stage", "reason", "gate_status")
+        if value.get(key) is not None
+    }
+    fingerprint = _fingerprint(value.get("fingerprint"))
+    if fingerprint:
+        out["fingerprint"] = fingerprint
+    nearest = value.get("nearest")
+    if isinstance(nearest, Mapping):
+        out["nearest"] = {
+            key: nearest.get(key)
+            for key in (
+                "iteration",
+                "status",
+                "reason",
+                "similarity",
+                "active_rows",
+                "active_days",
+                "active_pairs",
+                "action_signature",
+                "path_signature",
+            )
+            if nearest.get(key) is not None
+        }
+    return out
+
+
+def _compact_window_metrics_for_prompt(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    out: dict[str, Any] = {}
+    for stage, raw in value.items():
+        if not isinstance(raw, Mapping):
+            continue
+        freqtrade = raw.get("freqtrade_backtest") if isinstance(raw.get("freqtrade_backtest"), Mapping) else {}
+        violations = raw.get("violations")
+        out[str(stage)] = {
+            key: val
+            for key, val in {
+                "score": raw.get("score"),
+                "constraints_ok": raw.get("constraints_ok"),
+                "violations": list(violations)[:6] if isinstance(violations, Sequence) and not isinstance(violations, str) else violations,
+                "research_metrics": _metric_subset(raw.get("research_metrics") or raw.get("research_backtest") or raw),
+                "freqtrade_metrics": _metric_subset(raw.get("freqtrade_metrics") or freqtrade.get("metrics")),
+            }.items()
+            if val not in (None, {}, [])
+        }
+    return out
+
+
+def _compact_candidate_row_for_prompt(row: Any) -> Any:
+    if not isinstance(row, Mapping):
+        return row
+    candidate = row.get("candidate") if isinstance(row.get("candidate"), Mapping) else {}
+    profile = (
+        candidate.get("rank_profile")
+        if isinstance(candidate.get("rank_profile"), Mapping)
+        else row.get("rank_profile") if isinstance(row.get("rank_profile"), Mapping)
+        else row.get("parameters") if isinstance(row.get("parameters"), Mapping)
+        else {}
+    )
+    metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), Mapping) else row.get("metadata")
+    violations = row.get("violations")
+    out = {
+        "iteration": row.get("iteration"),
+        "name": candidate.get("name") or row.get("name"),
+        "candidate_type": candidate.get("candidate_type") or row.get("candidate_type"),
+        "rank_profile": profile,
+        "metadata": metadata if isinstance(metadata, Mapping) else None,
+        "score": row.get("score"),
+        "score_components": row.get("score_components") if isinstance(row.get("score_components"), Mapping) else None,
+        "constraints_ok": row.get("constraints_ok"),
+        "violations": list(violations)[:6] if isinstance(violations, Sequence) and not isinstance(violations, str) else violations,
+        "research_metrics": _metric_subset(row.get("research_metrics") or row.get("metrics")),
+        "freqtrade_metrics": _metric_subset(row.get("freqtrade_metrics")),
+        "window_metrics": _compact_window_metrics_for_prompt(row.get("window_metrics")),
+        "behavior_novelty": _compact_behavior_novelty_for_prompt(row.get("behavior_novelty")),
+        "verification_status": row.get("verification_status"),
+        "pareto_eligible": row.get("pareto_eligible"),
+    }
+    return {key: val for key, val in out.items() if val not in (None, {}, [])}
+
+
+def _json_char_len(value: Any) -> int:
+    try:
+        return len(json.dumps(value, sort_keys=True, default=str))
+    except Exception:
+        return len(str(value))
+
+
+def _bounded_prompt_value(value: Any, *, max_chars: int = 8_000) -> Any:
+    size = _json_char_len(value)
+    if size <= max_chars:
+        return value
+    text = json.dumps(value, sort_keys=True, default=str)
+    return {"truncated": True, "chars": size, "preview": text[:max_chars]}
+
+
+def _compact_direct_agent_context(context: Mapping[str, Any]) -> dict[str, Any]:
+    direct_keys = (
+        "version",
+        "run_id",
+        "iteration",
+        "objective",
+        "config",
+        "optimized_baseline",
+        "baseline_search_policy",
+        "factor_source",
+        "factor_summary",
+        "futures_coverage",
+        "okx_coverage",
+        "previous_iteration",
+        "allowed_candidate_files",
+        "allowed_rank_profile_keys",
+        "allowed_rank_profile_enum_values",
+    )
+    compact = {key: context.get(key) for key in direct_keys if key in context}
+    previous = compact.get("previous_iteration")
+    if isinstance(previous, Mapping):
+        compact["previous_iteration"] = {
+            key: _bounded_prompt_value(value, max_chars=6_000)
+            for key, value in previous.items()
+            if key in {"candidate.json", "evaluation.json", "error.json", "analysis.md", "lean_analysis.json", "lean_analysis.md"}
+        }
+
+    memory = context.get("loop_memory") if isinstance(context.get("loop_memory"), Mapping) else {}
+    if memory:
+        compact_memory: dict[str, Any] = {}
+        for key in (
+            "best_candidate",
+            "best_composite_candidate",
+            "best_freqtrade_profit",
+            "best_freqtrade_profit_over_drawdown",
+            "best_research_profit_over_drawdown",
+            "best_lean_candidate",
+        ):
+            if key in memory:
+                compact_memory[key] = _compact_candidate_row_for_prompt(memory.get(key))
+        for key in (
+            "best_research_result",
+            "best_freqtrade_result",
+            "lean_metrics_history",
+            "stagnation",
+            "previous_failure",
+            "negative_feedback",
+        ):
+            if key in memory:
+                compact_memory[key] = _bounded_prompt_value(memory.get(key), max_chars=8_000)
+        for key in ("final_blind_feedback", "gate_repair_hints", "validation_gate_repair_hints"):
+            if key in memory:
+                compact_memory[key] = _bounded_prompt_value(memory.get(key), max_chars=3_000)
+        recent = memory.get("recent_score_history")
+        if isinstance(recent, Sequence) and not isinstance(recent, (str, bytes)):
+            compact_memory["recent_score_history"] = [
+                _compact_candidate_row_for_prompt(row)
+                for row in list(recent)[-6:]
+            ]
+        profiles = memory.get("avoid_repeating_rank_profiles")
+        if isinstance(profiles, Sequence) and not isinstance(profiles, (str, bytes)):
+            compact_memory["avoid_repeating_rank_profiles"] = list(profiles)[-6:]
+        signatures = memory.get("avoid_repeating_rank_profile_signatures")
+        if isinstance(signatures, Sequence) and not isinstance(signatures, (str, bytes)):
+            compact_memory["avoid_repeating_rank_profile_signatures"] = {
+                "count": len(signatures),
+                "recent": list(signatures)[-6:],
+            }
+        pareto = memory.get("pareto_memory")
+        if isinstance(pareto, Mapping):
+            compact_memory["pareto_memory"] = {
+                key: [_compact_candidate_row_for_prompt(row) for row in list(value)[:1]]
+                if isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+                else _compact_candidate_row_for_prompt(value)
+                for key, value in pareto.items()
+                if key in PARETO_AXES
+            }
+        compact["loop_memory"] = compact_memory
+
+    for key, value in context.items():
+        if key in compact or key in {"rank_artifacts", "loop_memory"}:
+            continue
+        if _json_char_len(value) <= 2_000:
+            compact[key] = value
+    compact["context_compaction"] = {
+        "source_chars": _json_char_len(context),
+        "compact_chars": _json_char_len(compact),
+        "note": "direct OpenAI-compatible agent receives compact context to avoid context-window failures",
+    }
+    return compact
+
+
 def prepare_context(config: StrategyLoopConfig, run_id: str, iteration: int) -> dict[str, Any]:
     factor_state, factor_source = _resolve_factor_state(config.tag)
     rank_dir = repo_paths.artifacts_root() / "rank_portfolio" / config.tag
@@ -5687,14 +5919,25 @@ class StrategyLoopRunner:
             raise RuntimeError("StrategyAgent/OpenAI-compatible dependencies are unavailable") from exc
 
         context_path = idir / "context" / "prepare.json"
-        context_text = context_path.read_text(encoding="utf-8") if context_path.exists() else "{}"
+        if context_path.exists():
+            context_payload = load_json(context_path, {})
+            if not isinstance(context_payload, Mapping):
+                context_payload = {}
+        else:
+            context_payload = {}
+        context_text = json.dumps(
+            _compact_direct_agent_context(context_payload),
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
         direct_prompt = (
             "You are running through the direct OpenAI-compatible strategy-loop adapter. "
             "You do not have filesystem tools. Do not emit tool calls. Use the inline "
-            "prepare context below as the source of truth, even if the original instruction "
-            "mentions reading files.\n\n"
+            "compact prepare context below as the source of truth, even if the original "
+            "instruction mentions reading files.\n\n"
             f"Original instruction:\n{prompt}\n\n"
-            f"Inline prepare context JSON:\n```json\n{context_text}\n```\n\n"
+            f"Inline compact prepare context JSON:\n```json\n{context_text}\n```\n\n"
             "Return exactly one compact JSON object that can be saved as candidate.json. "
             "Keep description and metadata strings concise, under 160 characters each. "
             "Do not include markdown fences or commentary."

@@ -1133,6 +1133,56 @@ def test_prepare_context_includes_loop_memory() -> None:
     assert memory["previous_failure"]["message"] == "bad strategy"
 
 
+def test_direct_agent_context_compaction_keeps_signal_summary_small() -> None:
+    row = {
+        "iteration": 12,
+        "candidate": {
+            "candidate_type": "rank_profile",
+            "name": "large_signal_row",
+            "rank_profile": {"top_k": 3, "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json"},
+        },
+        "metrics": {"profit_pct": 1.2, "max_drawdown_pct": 0.5, "trades": 10, "profit_over_max_drawdown": 2.4},
+        "window_metrics": {
+            "validation": {
+                "research_metrics": {"profit_pct": 1.0, "max_drawdown_pct": 0.5, "trades": 8, "profit_over_max_drawdown": 2.0},
+                "freqtrade_backtest": {"metrics": {"profit_pct": 0.8, "max_drawdown_pct": 0.4, "trades": 8}},
+            }
+        },
+        "behavior_novelty": {
+            "status": "near_duplicate",
+            "stage": "validation",
+            "reason": "unit",
+            "fingerprint": {
+                "active_rows": 52,
+                "active_days": 7,
+                "active_pairs": 4,
+                "pair_counts": {"BTC/USDT": 20},
+                "daily_active_counts": {f"2026-03-{day:02d}": day for day in range(1, 32)},
+                "action_signature": "a" * 64,
+            },
+        },
+    }
+    context = {
+        "version": "unit",
+        "objective": {"candidate_type": "rank_profile"},
+        "loop_memory": {
+            "recent_score_history": [row] * 30,
+            "pareto_memory": {"best_validation_composite": [row] * 10},
+            "avoid_repeating_rank_profile_signatures": [str(i) for i in range(100)],
+        },
+    }
+
+    compact = strategy_loop_mod._compact_direct_agent_context(context)
+
+    rendered = json.dumps(compact, sort_keys=True)
+    assert len(rendered) < 50_000
+    assert compact["context_compaction"]["source_chars"] > compact["context_compaction"]["compact_chars"]
+    recent = compact["loop_memory"]["recent_score_history"]
+    assert len(recent) == 6
+    assert "daily_active_counts" not in rendered
+    assert recent[-1]["behavior_novelty"]["fingerprint"]["active_rows"] == 52
+
+
 def test_prepare_context_promotes_optimized_profile_to_first_class_baseline() -> None:
     tag = "unit_context_baseline"
     baseline_path = repo_paths.artifacts_root() / "rank_portfolio" / tag / "optimized_profile.json"
