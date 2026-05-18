@@ -278,6 +278,75 @@ def test_rolling_edge_direction_is_causal() -> None:
     assert second.loc[second["pair"] == "P3/USDT", "rp_side"].iloc[0] == 0
 
 
+def test_rank_signal_trading_start_preserves_edge_warmup_without_carrying_positions() -> None:
+    pairs = [f"P{i}/USDT" for i in range(4)]
+    dates = pd.date_range("2026-01-01", periods=3, freq="1h", tz="UTC")
+    score_frame = pd.DataFrame(
+        {
+            "date": np.repeat(dates, len(pairs)),
+            "__pair__": pairs * len(dates),
+            "rp_score": [0.0, 1.0, 2.0, 3.0] * len(dates),
+            "rp_score_z": [-1.2, -0.4, 0.4, 1.2] * len(dates),
+        }
+    )
+    closes = {
+        dates[0]: [100.0, 100.0, 100.0, 100.0],
+        dates[1]: [100.0, 101.0, 102.0, 103.0],
+        dates[2]: [103.0, 103.02, 103.02, 103.0],
+    }
+    venue_rows = []
+    for date in dates:
+        for pair, close in zip(pairs, closes[date]):
+            venue_rows.append({
+                "date": date,
+                "__pair__": pair,
+                "open": close,
+                "high": close * 1.001,
+                "low": close * 0.999,
+                "close": close,
+                "volume": 1000.0,
+            })
+    cfg = rp.RiskConfig(
+        gross_cap=1.0,
+        net_cap=1.0,
+        single_pair_cap=1.0,
+        risk_per_trade=0.02,
+        top_k=1,
+        min_pairs_for_top_k=4,
+        low_pair_top_k=1,
+        side_mode="short",
+        min_abs_score_z=0.0,
+        rebalance_hours=2,
+        edge_mode="rolling_ic",
+        edge_lookback_hours=4,
+        edge_min_periods=1,
+        edge_deadband=0.0,
+    )
+
+    signals, _ = rp.build_rank_signals(
+        score_frame,
+        pd.DataFrame(venue_rows),
+        cfg,
+        trading_start=dates[1],
+    )
+
+    assert signals["date"].min() == dates[1]
+    first_trading_date = signals.loc[signals["date"] == dates[1]]
+    assert bool(first_trading_date["rp_rebalance"].all())
+    assert float(first_trading_date["rp_edge_sign"].iloc[0]) == 1.0
+    assert first_trading_date.loc[first_trading_date["pair"] == "P0/USDT", "rp_side"].iloc[0] == -1
+
+
+def test_rolling_edge_rank_export_uses_pre_start_warmup_window() -> None:
+    cfg = rp.RiskConfig(edge_mode="rolling_ic", edge_lookback_hours=336, edge_min_periods=168)
+
+    load_start, report = rp._warmup_start_for_rank_signals("2026-04-01", cfg)  # noqa: SLF001
+
+    assert report["enabled"] is True
+    assert report["warmup_hours"] == 336
+    assert load_start == "2026-03-18 00:00:00"
+
+
 def test_short_momentum_filter_blocks_strong_rebound_entries() -> None:
     pairs = [f"P{i}/USDT" for i in range(4)]
     dates = pd.date_range("2026-01-01", periods=80, freq="1h", tz="UTC")

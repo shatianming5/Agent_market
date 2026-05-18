@@ -1342,7 +1342,45 @@ def _passes_score_threshold(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
     return abs(z) >= threshold
 
 
-def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg: RiskConfig) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+def _coerce_utc_timestamp(value: Any) -> Optional[pd.Timestamp]:
+    if value in (None, ""):
+        return None
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
+def _warmup_start_for_rank_signals(start: Optional[str], cfg: RiskConfig) -> Tuple[Optional[str], Dict[str, Any]]:
+    start_ts = _coerce_utc_timestamp(start)
+    if start_ts is None or _edge_mode(cfg) != "rolling_ic":
+        return start, {"enabled": False, "requested_start": str(start) if start else None}
+
+    warmup_hours = int(max(
+        0,
+        int(getattr(cfg, "edge_lookback_hours", 0) or 0),
+        int(getattr(cfg, "edge_min_periods", 0) or 0),
+    ))
+    if warmup_hours <= 0:
+        return start, {"enabled": False, "requested_start": start_ts.isoformat()}
+
+    load_start_ts = start_ts - pd.Timedelta(hours=warmup_hours)
+    load_start = load_start_ts.strftime("%Y-%m-%d %H:%M:%S")
+    return load_start, {
+        "enabled": True,
+        "requested_start": start_ts.isoformat(),
+        "load_start": load_start_ts.isoformat(),
+        "warmup_hours": warmup_hours,
+    }
+
+
+def build_rank_signals(
+    score_frame: pd.DataFrame,
+    venue_panel: pd.DataFrame,
+    cfg: RiskConfig,
+    *,
+    trading_start: Optional[Any] = None,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     venue = add_risk_columns(venue_panel, timeframe=getattr(cfg, "timeframe", "1h"))
     scores = score_frame.copy()
     scores["date"] = pd.to_datetime(scores["date"], utc=True)
@@ -1368,7 +1406,14 @@ def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg
     held: Dict[str, Dict[str, float]] = {}
     side_mode = _side_mode(cfg)
     rebalance_bars = max(1, int(getattr(cfg, "rebalance_hours", 1) or 1))
-    for date_i, (_, group) in enumerate(merged.groupby("date", sort=True)):
+    trading_start_ts = _coerce_utc_timestamp(trading_start)
+    trade_date_i = 0
+    for _, group in merged.groupby("date", sort=True):
+        group_date = pd.Timestamp(group["date"].iloc[0])
+        if trading_start_ts is not None and group_date < trading_start_ts:
+            continue
+        date_i = trade_date_i
+        trade_date_i += 1
         g = group.copy()
         valid = (
             g["rp_score"].notna()
@@ -1658,12 +1703,13 @@ def rank_export(
         short_exit_market_ma_gap=short_exit_market_ma_gap,
         exclude_pairs=exclude_pairs,
     )
-    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=start, end=end)
-    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=start, end=end)
+    load_start, warmup_report = _warmup_start_for_rank_signals(start, risk_cfg)
+    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=load_start, end=end)
+    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=load_start, end=end)
     scores, score_report = compute_ensemble_scores(feature_panel, selected)
     if int(score_report.get("used_factor_count", 0) or 0) <= 0:
         raise ValueError(f"rank ensemble could not evaluate any selected factors: {score_report.get('errors', [])[:5]}")
-    signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg)
+    signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg, trading_start=start)
 
     out_dir = _artifact_dir(tag)
     selected_path = out_dir / "selected_factors.json"
@@ -1685,6 +1731,7 @@ def rank_export(
         "selection": selection_report,
         "scores": score_report,
         "signal_report": signal_report,
+        "signal_warmup": warmup_report,
     }
     (out_dir / "rank_export.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     return summary
@@ -2170,8 +2217,16 @@ def rank_sweep(
     )
     selection_report["pair_universe"] = pair_report
 
-    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=start, end=end)
-    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=start, end=end)
+    warmup_cfg = RiskConfig.from_profile(
+        risk_profile,
+        timeframe=tf,
+        edge_mode=edge_mode,
+        edge_lookback_hours=edge_lookback_hours,
+        edge_min_periods=edge_min_periods,
+    )
+    load_start, warmup_report = _warmup_start_for_rank_signals(start, warmup_cfg)
+    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=load_start, end=end)
+    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=load_start, end=end)
     scores, score_report = compute_ensemble_scores(feature_panel, selected)
     if int(score_report.get("used_factor_count", 0) or 0) <= 0:
         raise ValueError(f"rank ensemble could not evaluate any selected factors: {score_report.get('errors', [])[:5]}")
@@ -2230,7 +2285,7 @@ def rank_sweep(
                             short_exit_market_ma_gap=short_exit_market_ma_gap,
                             exclude_pairs=exclude_pairs,
                         )
-                        signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg)
+                        signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg, trading_start=start)
                         result = run_research_backtest(signals, risk_cfg)
                         result.update({
                             "tag": tag,
@@ -2280,6 +2335,7 @@ def rank_sweep(
                             "selected_factors": str(selected_path),
                             "candidate_source": source,
                             "signal_report": signal_report,
+                            "signal_warmup": warmup_report,
                         })
                         rows.append(result)
     summary = {
@@ -2295,6 +2351,7 @@ def rank_sweep(
         "selected_factors": str(selected_path),
         "selection": selection_report,
         "scores": score_report,
+        "signal_warmup": warmup_report,
         "results": rows,
         "best_by_profit_over_dd": max(rows, key=lambda r: r.get("profit_over_max_drawdown", -1e9)) if rows else None,
     }
