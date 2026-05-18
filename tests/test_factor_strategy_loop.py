@@ -1034,6 +1034,76 @@ def test_openai_compatible_agent_repairs_structured_metadata_and_state(
     assert repo_paths.resolve_repo_path(candidate["rank_profile"]["candidate_state"]) == state_path
 
 
+def test_openai_compatible_agent_repairs_controller_contract_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    state_rel = "artifacts/factor_lab/mining/unit_openai_contract/state_0149.json"
+    _write_json(repo_paths.resolve_repo_path(state_rel), {"survivors": []})
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_openai_contract",
+        run_id="unit_openai_contract_run",
+        agent="openai",
+        model="gpt-5.5",
+        candidate_state=state_rel,
+        max_retries=1,
+    )
+    runner = StrategyLoopRunner(cfg)
+    runner.state.iteration = 2
+    runner.state.exploration_mode = "structured"
+    runner.state.best_candidate = {
+        "candidate": {
+            "candidate_type": "rank_profile",
+            "rank_profile": {"n": 50, "top_k": 2, "min_abs_score_z": 1.45, "candidate_state": state_rel},
+        }
+    }
+
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-key")
+
+    import agent_market.strategy_miner.agent_adapter as adapter
+
+    calls: list[str] = []
+
+    class FakeStrategyAgent:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def run_result(self, prompt: str) -> types.SimpleNamespace:
+            calls.append(prompt)
+            if len(calls) == 1:
+                payload = {
+                    "candidate_type": "rank_profile",
+                    "name": "local_z_only",
+                    "metadata": {"search_mode": "structured_explore"},
+                    "rank_profile": {"n": 50, "top_k": 2, "min_abs_score_z": 1.48, "candidate_state": state_rel},
+                }
+            else:
+                payload = {
+                    "candidate_type": "rank_profile",
+                    "name": "repaired_topk",
+                    "metadata": {"search_mode": "structured_explore"},
+                    "rank_profile": {"n": 50, "top_k": 3, "min_abs_score_z": 1.48, "candidate_state": state_rel},
+                }
+            return types.SimpleNamespace(assistant_text=json.dumps(payload), usage={"total_tokens": len(calls)})
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(adapter, "StrategyAgent", FakeStrategyAgent)
+    (tmp_path / "context").mkdir()
+    _write_json(tmp_path / "context" / "prepare.json", {"loop_memory": {}})
+
+    runner._code_gen(tmp_path)
+
+    candidate = validate_candidate(tmp_path / "candidate.json")
+    assert len(calls) == 2
+    assert "failed the strategy-loop controller contract" in calls[1]
+    assert candidate["name"] == "repaired_topk"
+    assert candidate["rank_profile"]["top_k"] == 3
+    assert runner.state.token_cost["2"]["contract_repair"] == {"total_tokens": 2}
+    assert "contract repair attempt" in (tmp_path / "agent_response.txt").read_text(encoding="utf-8")
+
+
 def test_runner_applies_hermes_reasoning_effort(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(
         tag="unit_hermes_effort",

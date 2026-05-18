@@ -5756,8 +5756,14 @@ class StrategyLoopRunner:
             return
         if self.config.agent == AGENT_OPENAI:
             self._run_openai_compatible_agent(idir, prompt)
-            candidate = validate_candidate(candidate_path, default_n=self.config.n)
-            self._validate_unique_candidate(candidate)
+            try:
+                candidate = validate_candidate(candidate_path, default_n=self.config.n)
+                self._validate_unique_candidate(candidate)
+            except ValueError as exc:
+                if not self._repair_openai_compatible_candidate_contract(idir, exc):
+                    raise
+                candidate = validate_candidate(candidate_path, default_n=self.config.n)
+                self._validate_unique_candidate(candidate)
             self._record_candidate_path(candidate_path)
             return
         if self.config.agent != AGENT_OPENCODE:
@@ -5989,6 +5995,120 @@ class StrategyLoopRunner:
             structured=self.state.exploration_mode == "structured",
         )
         write_json(idir / "candidate.json", payload)
+
+    def _repair_openai_compatible_candidate_contract(self, idir: Path, error: Exception) -> bool:
+        if self.config.agent != AGENT_OPENAI or self.config.max_retries <= 0:
+            return False
+        candidate_path = idir / "candidate.json"
+        if not candidate_path.exists():
+            return False
+
+        env = _openai_compatible_env()
+        api_key = str(env.get("OPENAI_API_KEY") or env.get("LLM_API_KEY") or "").strip()
+        if not api_key:
+            return False
+        model = _openai_compatible_model(self.config.model, env)
+        if not model:
+            return False
+        base_url = (
+            str(env.get("OPENAI_BASE_URL") or env.get("LLM_BASE_URL") or env.get("OPENAI_API_BASE") or "https://api.openai.com/v1")
+            .strip()
+            .rstrip("/")
+        ) or "https://api.openai.com/v1"
+
+        try:
+            from agent_market.strategy_miner.agent_adapter import StrategyAgent
+        except Exception:
+            return False
+
+        current_candidate = load_json(candidate_path, {})
+        context_payload = load_json(idir / "context" / "prepare.json", {}) if (idir / "context" / "prepare.json").exists() else {}
+        compact_context = _compact_direct_agent_context(context_payload) if isinstance(context_payload, Mapping) else {}
+        loop_memory = compact_context.get("loop_memory") if isinstance(compact_context.get("loop_memory"), Mapping) else {}
+        repair_context = {
+            "contract_error": str(error),
+            "current_candidate": current_candidate,
+            "structured_mode": self.state.exploration_mode == "structured",
+            "structural_rank_keys": sorted(STRUCTURAL_RANK_KEYS),
+            "optimized_baseline": compact_context.get("optimized_baseline"),
+            "allowed_rank_profile_keys": compact_context.get("allowed_rank_profile_keys"),
+            "allowed_rank_profile_enum_values": compact_context.get("allowed_rank_profile_enum_values"),
+            "loop_memory": {
+                key: loop_memory.get(key)
+                for key in (
+                    "stagnation",
+                    "previous_failure",
+                    "avoid_repeating_rank_profiles",
+                    "avoid_repeating_rank_profile_signatures",
+                    "recent_score_history",
+                    "final_blind_feedback",
+                )
+                if key in loop_memory
+            },
+        }
+        repair_prompt = (
+            "The candidate.json you produced failed the strategy-loop controller contract. "
+            "Return exactly one corrected compact JSON object for candidate.json. No markdown, no commentary.\n\n"
+            "Requirements:\n"
+            "- candidate_type must be rank_profile.\n"
+            "- Preserve the full candidate_state path from optimized_baseline unless deliberately changing to an existing factor state.\n"
+            "- If structured_mode is true, metadata.search_mode must be structured_explore.\n"
+            "- If structured_mode is true, change at least one structural rank key versus the baseline/best anchor.\n"
+            "- Do not repeat avoid_repeating_rank_profiles or their recent quantized signatures.\n"
+            "- Keep description and metadata strings under 160 characters.\n\n"
+            f"Repair context JSON:\n```json\n{json.dumps(repair_context, indent=2, sort_keys=True, default=str)}\n```"
+        )
+        assistant_text = ""
+        usage: dict[str, Any] = {}
+        with _temporary_environ(env):
+            agent = StrategyAgent(
+                workspace=idir,
+                provider="openai",
+                model=model,
+                base_url=base_url,
+                max_turns=1,
+                stale_timeout=self.config.stale_timeout,
+                max_retries=0,
+            )
+            try:
+                result = agent.run_result(repair_prompt)
+                assistant_text = getattr(result, "assistant_text", "") or ""
+                usage = getattr(result, "usage", None) or {}
+            except Exception as exc:
+                response_path = idir / "agent_response.txt"
+                previous = response_path.read_text(encoding="utf-8") if response_path.exists() else ""
+                response_path.write_text(
+                    previous
+                    + "\n\n--- contract repair attempt failed ---\n"
+                    + f"{type(exc).__name__}: {exc}\n",
+                    encoding="utf-8",
+                )
+                return False
+            finally:
+                agent.close()
+
+        response_path = idir / "agent_response.txt"
+        previous = response_path.read_text(encoding="utf-8") if response_path.exists() else ""
+        response_path.write_text(
+            previous + "\n\n--- contract repair attempt ---\n" + assistant_text,
+            encoding="utf-8",
+        )
+        payload = _json_object_from_text(assistant_text)
+        if payload is None:
+            return False
+        if "candidate_type" not in payload and isinstance(payload.get("candidate"), Mapping):
+            payload = dict(payload["candidate"])
+        payload = _postprocess_agent_rank_profile_payload(
+            payload,
+            self.config,
+            structured=self.state.exploration_mode == "structured",
+        )
+        write_json(candidate_path, payload)
+        if usage:
+            token_usage = dict(self.state.token_cost.get(str(self.state.iteration)) or {})
+            token_usage["contract_repair"] = usage
+            self.state.token_cost[str(self.state.iteration)] = token_usage
+        return True
 
     def _run_hermes_cli(self, idir: Path, prompt: str, *, env: Optional[Mapping[str, str]] = None) -> None:
         if shutil.which("hermes") is None:
