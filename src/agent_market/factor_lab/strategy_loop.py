@@ -2961,10 +2961,25 @@ def build_rank_profile_repair_queue(
                         "lower regime edge floors slightly to recover validation activity while preserving pair exclusions",
                     ),
                     (
+                        "validation_trade_regime_market_mom_plus_003",
+                        "validation_trade_regime_market_coverage_repair",
+                        {"regime_short_max_market_mom_24h": anchor_regime_market_mom + 0.003},
+                        "allow slightly stronger broad-market momentum in validation while staying closer to the search gate",
+                    ),
+                    (
                         "validation_trade_regime_market_mom_plus_005",
                         "validation_trade_regime_market_coverage_repair",
                         {"regime_short_max_market_mom_24h": anchor_regime_market_mom + 0.005},
                         "allow marginally stronger broad-market momentum in validation before lowering entry quality",
+                    ),
+                    (
+                        "validation_trade_regime_market_mom_plus_005_z_plus_001",
+                        "validation_trade_regime_market_quality_combo_repair",
+                        {
+                            "regime_short_max_market_mom_24h": anchor_regime_market_mom + 0.005,
+                            "min_abs_score_z": anchor_z + 0.01,
+                        },
+                        "pair the near-passing market-regime coverage repair with a tiny entry-quality offset",
                     ),
                     (
                         "validation_trade_regime_atr_plus_005",

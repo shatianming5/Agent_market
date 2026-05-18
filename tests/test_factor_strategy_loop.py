@@ -3020,9 +3020,11 @@ def test_rank_profile_repair_queue_prioritizes_validation_trade_repair_after_sea
     assert queue
     assert queue[0]["metadata"]["source"] == "controller_rank_profile_positive_validation_trade_repair"
     assert queue[0]["metadata"]["parent_anchor"] == "iteration_46"
-    names = [item["name"] for item in queue[:8]]
+    names = [item["name"] for item in queue[:12]]
     assert "validation_trade_regime_pair_count_minus_1_iter_46" in names
     assert "validation_trade_regime_edge_minus_005_iter_46" in names
+    assert "validation_trade_regime_market_mom_plus_003_iter_46" in names
+    assert "validation_trade_regime_market_mom_plus_005_z_plus_001_iter_46" in names
     assert "validation_trade_topk_plus_1_z_minus_002_iter_46" in names
 
 
