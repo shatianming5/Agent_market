@@ -1141,6 +1141,120 @@ def test_runner_rejects_near_duplicate_rank_profile() -> None:
         runner._validate_unique_candidate(duplicate)
 
 
+def _write_signal_behavior_fixture(signal_dir: Path, *, weight: float = -1.0, active_pairs: tuple[str, ...] = ("BTC/USDT", "ETH/USDT")) -> None:
+    import pandas as pd
+
+    signal_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    dates = pd.date_range("2026-03-01", periods=5, freq="1D", tz="UTC")
+    for pair in ("BTC/USDT", "ETH/USDT", "SOL/USDT"):
+        for idx, date in enumerate(dates):
+            rows.append(
+                {
+                    "date": date,
+                    "pair": pair,
+                    "rp_target_weight": weight if pair in active_pairs and idx < 4 else 0.0,
+                }
+            )
+    pd.DataFrame(rows).to_feather(signal_dir / "all.feather")
+
+
+def test_signal_behavior_fingerprint_detects_same_signal_path(tmp_path: Path) -> None:
+    first_dir = tmp_path / "signals_a"
+    second_dir = tmp_path / "signals_b"
+    _write_signal_behavior_fixture(first_dir, weight=-1.0)
+    _write_signal_behavior_fixture(second_dir, weight=-0.5)
+
+    first = strategy_loop_mod._signal_behavior_fingerprint_from_signal_dir(first_dir)
+    second = strategy_loop_mod._signal_behavior_fingerprint_from_signal_dir(second_dir)
+    duplicate = strategy_loop_mod._signal_behavior_duplicate(second, first)
+
+    assert first["active_rows"] == 8
+    assert first["active_days"] == 4
+    assert first["active_pairs"] == 2
+    assert first["pair_counts"] == {"BTC/USDT": 4, "ETH/USDT": 4}
+    assert first["action_signature"] != second["action_signature"]
+    assert duplicate["status"] == "no_op"
+
+
+def test_pareto_pool_excludes_signal_behavior_duplicates(tmp_path: Path) -> None:
+    first_dir = tmp_path / "signals_a"
+    second_dir = tmp_path / "signals_b"
+    _write_signal_behavior_fixture(first_dir, weight=-1.0)
+    _write_signal_behavior_fixture(second_dir, weight=-0.5)
+    first_fp = strategy_loop_mod._signal_behavior_fingerprint_from_signal_dir(first_dir)
+
+    rows = [
+        {
+            "run_id": "unit_behavior_pareto",
+            "iteration": 1,
+            "candidate_path": "iter_01/candidate.json",
+            "candidate": {"candidate_type": "rank_profile", "name": "first", "rank_profile": {"top_k": 2}},
+            "score": 10.0,
+            "score_components": {"composite_score": 10.0},
+            "constraints_ok": True,
+            "research_metrics": {"profit_pct": 2.0, "profit_over_max_drawdown": 2.0, "trades": 12},
+            "freqtrade_metrics": {"profit_pct": 2.0, "profit_over_max_drawdown": 2.0, "trades": 12},
+            "window_metrics": {"validation": {"signal_dir": str(first_dir)}},
+        },
+        {
+            "run_id": "unit_behavior_pareto",
+            "iteration": 2,
+            "candidate_path": "iter_02/candidate.json",
+            "candidate": {"candidate_type": "rank_profile", "name": "same_path", "rank_profile": {"top_k": 3}},
+            "score": 20.0,
+            "score_components": {"composite_score": 20.0},
+            "constraints_ok": True,
+            "research_metrics": {"profit_pct": 3.0, "profit_over_max_drawdown": 3.0, "trades": 12},
+            "freqtrade_metrics": {"profit_pct": 3.0, "profit_over_max_drawdown": 3.0, "trades": 12},
+            "window_metrics": {"validation": {"signal_dir": str(second_dir)}},
+        },
+    ]
+
+    pool = build_pareto_pool(rows, size_per_axis=3)
+    excluded_pool = build_pareto_pool(rows, size_per_axis=3, excluded_signal_fingerprints=[first_fp])
+
+    assert [item["iteration"] for item in pool["finalists"]] == [2]
+    assert excluded_pool["finalists"] == []
+
+
+def test_runner_marks_validation_pass_signal_noop_not_pareto(tmp_path: Path) -> None:
+    prior_dir = tmp_path / "prior"
+    current_dir = tmp_path / "current"
+    _write_signal_behavior_fixture(prior_dir, weight=-1.0)
+    _write_signal_behavior_fixture(current_dir, weight=-0.5)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_behavior_gate",
+        run_id="unit_behavior_gate_run",
+        validation_protocol="triple_holdout",
+        promote_policy="final",
+    )
+    runner = StrategyLoopRunner(cfg)
+    runner.state.score_history = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 1,
+            "candidate_path": "iter_01/candidate.json",
+            "constraints_ok": True,
+            "window_metrics": {"validation": {"signal_dir": str(prior_dir)}},
+        }
+    ]
+    evaluation = {
+        "constraints_ok": True,
+        "violations": [],
+        "promotion_reason": "validation window passed selected hard gates",
+        "window_metrics": {"validation": {"signal_dir": str(current_dir)}},
+        "score_components": {},
+    }
+
+    runner._apply_behavior_novelty_gate(evaluation)
+
+    assert evaluation["pareto_eligible"] is False
+    assert evaluation["behavior_novelty"]["status"] == "no_op"
+    assert "excluded from Pareto/blind" in evaluation["promotion_reason"]
+    assert any("behavior_novelty" in item for item in evaluation["violations"])
+
+
 def test_iteration_failure_violations_are_truncated() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit_failure_truncate", run_id="unit_failure_truncate_run")
     runner = StrategyLoopRunner(cfg)

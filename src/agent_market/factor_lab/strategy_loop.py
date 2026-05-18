@@ -143,6 +143,8 @@ PARETO_AXES = (
     "best_research_robustness",
     "best_regime_stability",
 )
+BEHAVIOR_DUPLICATE_STATUSES = {"duplicate", "no_op", "near_duplicate"}
+SIGNAL_WEIGHT_EPSILON = 1e-10
 STRUCTURAL_RANK_KEYS = {
     "n",
     "candidate_state",
@@ -1230,6 +1232,9 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
         } if isinstance(row.get("window_metrics"), Mapping) else {},
         "verification_status": row.get("verification_status"),
         "promotion_eligible": row.get("promotion_eligible"),
+        "pareto_eligible": row.get("pareto_eligible"),
+        "behavior_novelty": row.get("behavior_novelty") or {},
+        "signal_fingerprints": row.get("signal_fingerprints") or {},
         "pareto_axes": row.get("pareto_axes") or [],
         "artifact_refs": row.get("artifact_refs") or {},
         "diagnostics": row.get("diagnostics") or (row.get("promotion") or {}).get("reason"),
@@ -1420,6 +1425,11 @@ def _axis_value(axis: str, row: Mapping[str, Any]) -> Optional[float]:
 
 
 def _pareto_row_eligible(row: Mapping[str, Any]) -> bool:
+    if row.get("pareto_eligible") is False:
+        return False
+    behavior = row.get("behavior_novelty") if isinstance(row.get("behavior_novelty"), Mapping) else {}
+    if str(behavior.get("status") or "").strip().lower() in BEHAVIOR_DUPLICATE_STATUSES:
+        return False
     status = str(row.get("verification_status") or "").strip().lower()
     if status == VERIFICATION_FAILED:
         return False
@@ -1438,10 +1448,17 @@ def build_pareto_pool(
     *,
     size_per_axis: int = 3,
     max_total: int = PARETO_MAX_TOTAL,
+    excluded_signal_fingerprints: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> dict[str, Any]:
     axis_rows: dict[str, list[dict[str, Any]]] = {}
     finalist_rows: dict[str, dict[str, Any]] = {}
     finalist_axes: dict[str, list[str]] = {}
+    selected_signal_fingerprints: list[dict[str, Any]] = [
+        dict(fp)
+        for fp in (excluded_signal_fingerprints or [])
+        if isinstance(fp, Mapping) and _coerce_int(fp.get("active_rows"), 0) > 0
+    ]
+    selected_signal_identities: set[str] = set()
     for axis in PARETO_AXES:
         scored: list[tuple[float, Mapping[str, Any]]] = []
         for row in rows:
@@ -1458,10 +1475,20 @@ def build_pareto_pool(
             ident = _row_identity(row)
             if ident in axis_seen:
                 continue
+            current_fp = _row_stage_signal_fingerprint(row, "validation")
+            if (
+                current_fp
+                and ident not in selected_signal_identities
+                and any(_signal_behavior_duplicate(current_fp, prior_fp) for prior_fp in selected_signal_fingerprints)
+            ):
+                continue
             axis_seen.add(ident)
             compact = _compact_leaderboard_row(row)
             compact["axis_value"] = value
             selected.append(compact)
+            if current_fp and ident not in selected_signal_identities:
+                selected_signal_fingerprints.append(current_fp)
+                selected_signal_identities.add(ident)
             if len(selected) >= int(size_per_axis):
                 break
         axis_rows[axis] = selected
@@ -2215,6 +2242,218 @@ def _signal_activity_summary_from_signal_dir(raw_signal_dir: Any) -> dict[str, A
         "active_rows": active_rows,
         "active_pairs": active_pairs,
         "top_pair_active_share": top_pair_share,
+    }
+
+
+def _stable_hash_payload(payload: Any) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _count_overlap(first: Mapping[str, Any], second: Mapping[str, Any]) -> float:
+    a = {str(k): _coerce_int(v, 0) for k, v in first.items()}
+    b = {str(k): _coerce_int(v, 0) for k, v in second.items()}
+    denom = max(sum(a.values()), sum(b.values()), 1)
+    overlap = sum(min(a.get(key, 0), b.get(key, 0)) for key in set(a) | set(b))
+    return float(overlap / denom)
+
+
+def _ratio_close(first: Any, second: Any) -> float:
+    a = abs(_coerce_finite_float(first, 0.0))
+    b = abs(_coerce_finite_float(second, 0.0))
+    denom = max(a, b, 1.0)
+    return float(min(a, b) / denom)
+
+
+def _signal_behavior_fingerprint_from_signal_dir(raw_signal_dir: Any) -> dict[str, Any]:
+    signal_path = _resolve_signal_file(raw_signal_dir)
+    if signal_path is None:
+        return {}
+    try:
+        import pandas as pd
+    except Exception:
+        return {}
+    try:
+        df = pd.read_feather(signal_path)
+    except Exception:
+        return {}
+    required = {"date", "pair", "rp_target_weight"}
+    if not required.issubset(set(df.columns)):
+        return {}
+    try:
+        df = df[["date", "pair", "rp_target_weight"]].copy()
+        df["date"] = pd.to_datetime(df["date"], utc=True)
+        df["pair"] = df["pair"].map(_normalize_pair_token)
+        df["rp_target_weight"] = pd.to_numeric(df["rp_target_weight"], errors="coerce").fillna(0.0)
+        df = df.dropna(subset=["date"])
+        df = df[df["pair"].astype(str) != ""]
+        if df.empty:
+            return {}
+        df = df.sort_values(["pair", "date"]).reset_index(drop=True)
+        df["weight_q"] = df["rp_target_weight"].round(8)
+        df["active"] = df["weight_q"].abs() > SIGNAL_WEIGHT_EPSILON
+        df["date_key"] = df["date"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        df["day_key"] = df["date"].dt.floor("D").dt.strftime("%Y-%m-%d")
+        previous = df.groupby("pair", sort=False)["weight_q"].shift().fillna(0.0)
+        df["weight_changed"] = (df["weight_q"] - previous).abs() > SIGNAL_WEIGHT_EPSILON
+    except Exception:
+        return {}
+
+    active = df[df["active"]]
+    total_rows = int(len(df))
+    total_days = int(df["day_key"].nunique())
+    active_rows = int(len(active))
+    active_days = int(active["day_key"].nunique()) if active_rows else 0
+    active_pairs = int(active["pair"].nunique()) if active_rows else 0
+    changed_rows = int(df["weight_changed"].sum())
+    active_changed_rows = int((df["weight_changed"] & df["active"]).sum())
+    pair_counts = (
+        {str(k): int(v) for k, v in active["pair"].value_counts(sort=False).sort_index().items()}
+        if active_rows
+        else {}
+    )
+    daily_active_counts = (
+        {str(k): int(v) for k, v in active["day_key"].value_counts(sort=False).sort_index().items()}
+        if active_rows
+        else {}
+    )
+    daily_change_counts = (
+        {str(k): int(v) for k, v in df[df["weight_changed"]]["day_key"].value_counts(sort=False).sort_index().items()}
+        if changed_rows
+        else {}
+    )
+
+    action_records: list[tuple[str, str, float]] = []
+    path_records: list[tuple[str, str, int]] = []
+    if active_rows:
+        for row in active[["date_key", "pair", "weight_q"]].itertuples(index=False):
+            weight = float(row.weight_q)
+            action_records.append((str(row.date_key), str(row.pair), round(weight, 8)))
+            path_records.append((str(row.date_key), str(row.pair), 1 if weight > 0.0 else -1))
+
+    distribution_payload = {
+        "active_rows": active_rows,
+        "active_days": active_days,
+        "active_pairs": active_pairs,
+        "target_weight_changed_rows": changed_rows,
+        "active_target_weight_changed_rows": active_changed_rows,
+        "pair_counts": pair_counts,
+        "daily_active_counts": daily_active_counts,
+        "daily_change_counts": daily_change_counts,
+    }
+    return {
+        "version": "signal-behavior-fingerprint-v1",
+        "signal_file": _as_repo_meta(signal_path),
+        "total_rows": total_rows,
+        "total_days": total_days,
+        "active_rows": active_rows,
+        "active_days": active_days,
+        "active_day_ratio": float(active_days / total_days) if total_days > 0 else 0.0,
+        "active_pairs": active_pairs,
+        "target_weight_changed_rows": changed_rows,
+        "active_target_weight_changed_rows": active_changed_rows,
+        "pair_counts": pair_counts,
+        "daily_active_counts": daily_active_counts,
+        "daily_change_counts": daily_change_counts,
+        "action_signature": _stable_hash_payload(action_records),
+        "path_signature": _stable_hash_payload(path_records),
+        "distribution_signature": _stable_hash_payload(distribution_payload),
+    }
+
+
+def _signal_behavior_duplicate(
+    current: Mapping[str, Any],
+    prior: Mapping[str, Any],
+    *,
+    min_similarity: float = 0.95,
+) -> Optional[dict[str, Any]]:
+    if not current or not prior:
+        return None
+    active_rows = _coerce_int(current.get("active_rows"), 0)
+    prior_active_rows = _coerce_int(prior.get("active_rows"), 0)
+    if active_rows <= 0 or prior_active_rows <= 0:
+        return None
+    if str(current.get("action_signature") or "") and current.get("action_signature") == prior.get("action_signature"):
+        return {"status": "duplicate", "reason": "exact target-weight action signature match", "similarity": 1.0}
+    if str(current.get("path_signature") or "") and current.get("path_signature") == prior.get("path_signature"):
+        return {"status": "no_op", "reason": "same active date/pair/side signal path", "similarity": 1.0}
+    if str(current.get("distribution_signature") or "") and current.get("distribution_signature") == prior.get("distribution_signature"):
+        return {"status": "near_duplicate", "reason": "same aggregate signal distribution", "similarity": 1.0}
+
+    row_ratio = _ratio_close(active_rows, prior_active_rows)
+    day_ratio = _ratio_close(current.get("active_days"), prior.get("active_days"))
+    pair_ratio = _ratio_close(current.get("active_pairs"), prior.get("active_pairs"))
+    change_ratio = _ratio_close(current.get("target_weight_changed_rows"), prior.get("target_weight_changed_rows"))
+    pair_overlap = _count_overlap(
+        current.get("pair_counts") if isinstance(current.get("pair_counts"), Mapping) else {},
+        prior.get("pair_counts") if isinstance(prior.get("pair_counts"), Mapping) else {},
+    )
+    daily_overlap = _count_overlap(
+        current.get("daily_active_counts") if isinstance(current.get("daily_active_counts"), Mapping) else {},
+        prior.get("daily_active_counts") if isinstance(prior.get("daily_active_counts"), Mapping) else {},
+    )
+    similarity = min(row_ratio, day_ratio, max(0.0, pair_ratio), change_ratio, pair_overlap, daily_overlap)
+    if (
+        similarity >= float(min_similarity)
+        and pair_overlap >= float(min_similarity)
+        and daily_overlap >= float(min_similarity)
+        and row_ratio >= float(min_similarity)
+    ):
+        return {
+            "status": "near_duplicate",
+            "reason": "near-identical active rows, active days, pair counts, and daily activity",
+            "similarity": float(similarity),
+            "components": {
+                "active_rows_ratio": row_ratio,
+                "active_days_ratio": day_ratio,
+                "active_pairs_ratio": pair_ratio,
+                "target_weight_changed_rows_ratio": change_ratio,
+                "pair_count_overlap": pair_overlap,
+                "daily_active_overlap": daily_overlap,
+            },
+        }
+    return None
+
+
+def _stage_signal_fingerprint_from_window(window: Mapping[str, Any]) -> dict[str, Any]:
+    existing = window.get("signal_fingerprint")
+    if isinstance(existing, Mapping) and existing:
+        return dict(existing)
+    return _signal_behavior_fingerprint_from_signal_dir(window.get("signal_dir"))
+
+
+def _row_stage_signal_fingerprint(row: Mapping[str, Any], stage: str = "validation") -> dict[str, Any]:
+    stored = row.get("signal_fingerprints") if isinstance(row.get("signal_fingerprints"), Mapping) else {}
+    if isinstance(stored.get(stage), Mapping) and stored.get(stage):
+        return dict(stored[stage])
+    windows = row.get("window_metrics") if isinstance(row.get("window_metrics"), Mapping) else {}
+    window = windows.get(stage) if isinstance(windows.get(stage), Mapping) else {}
+    if not window:
+        return {}
+    return _stage_signal_fingerprint_from_window(window)
+
+
+def _compact_signal_fingerprint(fp: Mapping[str, Any]) -> dict[str, Any]:
+    if not fp:
+        return {}
+    return {
+        key: fp.get(key)
+        for key in (
+            "version",
+            "signal_file",
+            "active_rows",
+            "active_days",
+            "active_day_ratio",
+            "active_pairs",
+            "target_weight_changed_rows",
+            "active_target_weight_changed_rows",
+            "pair_counts",
+            "daily_active_counts",
+            "action_signature",
+            "path_signature",
+            "distribution_signature",
+        )
+        if key in fp
     }
 
 
@@ -4217,6 +4456,9 @@ def build_iteration_manifest(
         },
         "artifact_refs": refs,
         "window_metrics": evaluation.get("window_metrics") or {},
+        "signal_fingerprints": evaluation.get("signal_fingerprints") or {},
+        "behavior_novelty": evaluation.get("behavior_novelty") or {},
+        "pareto_eligible": evaluation.get("pareto_eligible"),
         "backtest_shape": {
             "keys": sorted(backtest.keys()) if isinstance(backtest, Mapping) else [],
         },
@@ -5852,6 +6094,7 @@ class StrategyLoopRunner:
                     evaluation["lean_analysis"] = la
             # Apply LEAN score blend (0.7 LEAN + 0.3 rank by default)
             apply_lean_score_blend(evaluation, self.config)
+            self._apply_behavior_novelty_gate(evaluation)
             score = float(evaluation.get("score") or float("-inf"))
             promotion_candidate = (
                 score > self.state.best_score
@@ -5908,6 +6151,9 @@ class StrategyLoopRunner:
             "window_metrics": evaluation.get("window_metrics") or {},
             "verification_status": evaluation.get("verification_status") or VERIFICATION_PENDING,
             "promotion_eligible": evaluation.get("promotion_eligible"),
+            "pareto_eligible": evaluation.get("pareto_eligible", True),
+            "behavior_novelty": evaluation.get("behavior_novelty") or {},
+            "signal_fingerprints": evaluation.get("signal_fingerprints") or {},
             "artifact_refs": evaluation.get("artifact_refs") or {},
             "parameter_signature": evaluation.get("parameter_signature"),
             "violations": evaluation.get("violations"),
@@ -6208,8 +6454,136 @@ class StrategyLoopRunner:
             return
         write_json(manifest_path, build_run_manifest(self.config))
 
+    def _prior_blind_validation_fingerprints(self) -> list[dict[str, Any]]:
+        status = self.state.final_blind_status if isinstance(self.state.final_blind_status, Mapping) else {}
+        if not status:
+            status_path = loop_root(self.config.run_id) / "final_blind_status.json"
+            if status_path.exists():
+                loaded = load_json(status_path, {})
+                status = loaded if isinstance(loaded, Mapping) else {}
+        finalists = status.get("finalists") if isinstance(status.get("finalists"), list) else []
+        fingerprints: list[dict[str, Any]] = []
+        for item in finalists:
+            if not isinstance(item, Mapping):
+                continue
+            finalist = item.get("finalist") if isinstance(item.get("finalist"), Mapping) else {}
+            fp = _row_stage_signal_fingerprint(finalist, "validation")
+            if fp:
+                fingerprints.append(fp)
+        return fingerprints
+
+    def _signal_fingerprints_for_evaluation(self, evaluation: Mapping[str, Any]) -> dict[str, Any]:
+        windows = evaluation.get("window_metrics") if isinstance(evaluation.get("window_metrics"), Mapping) else {}
+        fingerprints: dict[str, Any] = {}
+        for stage in ("search", "validation"):
+            window = windows.get(stage) if isinstance(windows.get(stage), Mapping) else {}
+            fp = _stage_signal_fingerprint_from_window(window) if window else {}
+            if fp:
+                fingerprints[stage] = fp
+                try:
+                    window["signal_fingerprint"] = _compact_signal_fingerprint(fp)  # type: ignore[index]
+                except Exception:
+                    pass
+        return fingerprints
+
+    def _apply_behavior_novelty_gate(self, evaluation: dict[str, Any]) -> None:
+        if self.config.validation_protocol == VALIDATION_SINGLE:
+            return
+        fingerprints = self._signal_fingerprints_for_evaluation(evaluation)
+        if fingerprints:
+            evaluation["signal_fingerprints"] = {
+                stage: _compact_signal_fingerprint(fp)
+                for stage, fp in fingerprints.items()
+                if isinstance(fp, Mapping)
+            }
+        validation_fp = fingerprints.get("validation") if isinstance(fingerprints.get("validation"), Mapping) else {}
+        novelty: dict[str, Any] = {
+            "status": "recorded" if validation_fp else "unavailable",
+            "stage": "validation",
+            "reason": "validation signal fingerprint recorded" if validation_fp else "validation signal fingerprint unavailable",
+        }
+        if not validation_fp:
+            evaluation["behavior_novelty"] = novelty
+            evaluation.setdefault("pareto_eligible", True)
+            return
+        if not bool(evaluation.get("constraints_ok")):
+            novelty["status"] = "not_applicable"
+            novelty["reason"] = "validation hard gates did not pass"
+            evaluation["behavior_novelty"] = novelty
+            evaluation.setdefault("pareto_eligible", True)
+            return
+
+        prior_rows: list[Mapping[str, Any]] = []
+        for row in self.state.score_history:
+            if isinstance(row, Mapping) and bool(row.get("constraints_ok")):
+                prior_rows.append(row)
+        for fp in self._prior_blind_validation_fingerprints():
+            prior_rows.append(
+                {
+                    "iteration": "prior_blind_finalist",
+                    "candidate_path": "final_blind_status.json",
+                    "signal_fingerprints": {"validation": fp},
+                    "constraints_ok": True,
+                }
+            )
+
+        nearest: Optional[dict[str, Any]] = None
+        for prior in prior_rows:
+            prior_fp = _row_stage_signal_fingerprint(prior, "validation")
+            duplicate = _signal_behavior_duplicate(validation_fp, prior_fp)
+            if duplicate is None:
+                continue
+            nearest = {
+                **duplicate,
+                "iteration": prior.get("iteration"),
+                "candidate_path": prior.get("candidate_path"),
+                "active_rows": prior_fp.get("active_rows"),
+                "active_days": prior_fp.get("active_days"),
+                "active_pairs": prior_fp.get("active_pairs"),
+                "action_signature": prior_fp.get("action_signature"),
+                "path_signature": prior_fp.get("path_signature"),
+            }
+            break
+
+        if nearest is None:
+            novelty["status"] = "novel"
+            novelty["reason"] = "validation signal path differs from prior validation-passed and blind-finalist paths"
+            novelty["fingerprint"] = _compact_signal_fingerprint(validation_fp)
+            evaluation["behavior_novelty"] = novelty
+            evaluation["pareto_eligible"] = True
+            return
+
+        novelty = {
+            "status": str(nearest.get("status") or "near_duplicate"),
+            "stage": "validation",
+            "reason": nearest.get("reason") or "near-duplicate validation signal path",
+            "fingerprint": _compact_signal_fingerprint(validation_fp),
+            "nearest": nearest,
+        }
+        evaluation["behavior_novelty"] = novelty
+        evaluation["pareto_eligible"] = False
+        violation = (
+            "behavior_novelty: validation signal path near-duplicate "
+            f"of iteration {nearest.get('iteration')} ({novelty['reason']})"
+        )
+        violations = list(evaluation.get("violations") or [])
+        if violation not in violations:
+            violations.append(violation)
+        evaluation["violations"] = violations
+        prior_reason = str(evaluation.get("promotion_reason") or "").strip()
+        suffix = "excluded from Pareto/blind by behavior novelty gate"
+        evaluation["promotion_reason"] = f"{prior_reason}; {suffix}" if prior_reason else suffix
+        components = evaluation.setdefault("score_components", {})
+        if isinstance(components, dict):
+            components["behavior_novelty_status"] = novelty["status"]
+            components["behavior_novelty_reason"] = novelty["reason"]
+
     def _refresh_pareto_pool(self) -> dict[str, Any]:
-        pool = build_pareto_pool(self.state.score_history, size_per_axis=self.config.pareto_size_per_axis)
+        pool = build_pareto_pool(
+            self.state.score_history,
+            size_per_axis=self.config.pareto_size_per_axis,
+            excluded_signal_fingerprints=self._prior_blind_validation_fingerprints(),
+        )
         self.state.pareto_pool = pool
         write_json(loop_root(self.config.run_id) / "pareto_pool.json", pool)
         axes_by_identity: dict[str, list[str]] = {}
