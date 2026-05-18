@@ -76,6 +76,7 @@ class RiskConfig:
     pair_edge_very_strong_ic: float = 0.10
     pair_edge_weak_cap: float = 2.0
     pair_edge_min_entry_ic: float = 0.0
+    pair_edge_min_hold_ic: float = 0.0
     regime_mode: str = "off"
     regime_min_edge_ic: float = 0.0
     regime_min_pair_edge_ic: float = 0.0
@@ -124,6 +125,7 @@ class RiskConfig:
         pair_edge_very_strong_ic: Optional[float] = None,
         pair_edge_weak_cap: Optional[float] = None,
         pair_edge_min_entry_ic: Optional[float] = None,
+        pair_edge_min_hold_ic: Optional[float] = None,
         regime_mode: Optional[str] = None,
         regime_min_edge_ic: Optional[float] = None,
         regime_min_pair_edge_ic: Optional[float] = None,
@@ -182,6 +184,7 @@ class RiskConfig:
             "pair_edge_very_strong_ic": ("RP_PAIR_EDGE_VERY_STRONG_IC", float),
             "pair_edge_weak_cap": ("RP_PAIR_EDGE_WEAK_CAP", float),
             "pair_edge_min_entry_ic": ("RP_PAIR_EDGE_MIN_ENTRY_IC", float),
+            "pair_edge_min_hold_ic": ("RP_PAIR_EDGE_MIN_HOLD_IC", float),
             "regime_min_edge_ic": ("RP_REGIME_MIN_EDGE_IC", float),
             "regime_min_pair_edge_ic": ("RP_REGIME_MIN_PAIR_EDGE_IC", float),
             "regime_min_pair_count": ("RP_REGIME_MIN_PAIR_COUNT", int),
@@ -272,6 +275,8 @@ class RiskConfig:
             cfg.pair_edge_weak_cap = float(pair_edge_weak_cap)
         if pair_edge_min_entry_ic is not None:
             cfg.pair_edge_min_entry_ic = float(pair_edge_min_entry_ic)
+        if pair_edge_min_hold_ic is not None:
+            cfg.pair_edge_min_hold_ic = float(pair_edge_min_hold_ic)
         if regime_mode is not None:
             cfg.regime_mode = str(regime_mode).strip().lower()
         if regime_min_edge_ic is not None:
@@ -1326,6 +1331,13 @@ def _passes_entry_filters(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
 
 
 def _should_exit_held(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
+    min_pair_hold = float(max(0.0, getattr(cfg, "pair_edge_min_hold_ic", 0.0) or 0.0))
+    if min_pair_hold > 0.0 and _edge_mode(cfg) == "rolling_ic":
+        edge_sign = _safe_float(row.get("rp_edge_sign"), default=0.0)
+        pair_edge = _safe_float(row.get("rp_pair_edge_ic"), default=0.0)
+        if edge_sign == 0.0 or (pair_edge * edge_sign) < min_pair_hold:
+            return True
+
     if side < 0:
         mom24 = _optional_float(row.get("rp_mom_24h"))
         exit_24 = _optional_float(getattr(cfg, "short_exit_mom_24h", None))
@@ -1642,6 +1654,7 @@ def rank_export(
     pair_edge_very_strong_ic: Optional[float] = None,
     pair_edge_weak_cap: Optional[float] = None,
     pair_edge_min_entry_ic: Optional[float] = None,
+    pair_edge_min_hold_ic: Optional[float] = None,
     regime_mode: Optional[str] = None,
     regime_min_edge_ic: Optional[float] = None,
     regime_min_pair_edge_ic: Optional[float] = None,
@@ -1726,6 +1739,7 @@ def rank_export(
         pair_edge_very_strong_ic=pair_edge_very_strong_ic,
         pair_edge_weak_cap=pair_edge_weak_cap,
         pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=pair_edge_min_hold_ic,
         regime_mode=regime_mode,
         regime_min_edge_ic=regime_min_edge_ic,
         regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -1995,6 +2009,7 @@ def rank_backtest(
     pair_edge_very_strong_ic: Optional[float] = None,
     pair_edge_weak_cap: Optional[float] = None,
     pair_edge_min_entry_ic: Optional[float] = None,
+    pair_edge_min_hold_ic: Optional[float] = None,
     regime_mode: Optional[str] = None,
     regime_min_edge_ic: Optional[float] = None,
     regime_min_pair_edge_ic: Optional[float] = None,
@@ -2050,6 +2065,7 @@ def rank_backtest(
         pair_edge_very_strong_ic=pair_edge_very_strong_ic,
         pair_edge_weak_cap=pair_edge_weak_cap,
         pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=pair_edge_min_hold_ic,
         regime_mode=regime_mode,
         regime_min_edge_ic=regime_min_edge_ic,
         regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -2097,6 +2113,7 @@ def rank_backtest(
         pair_edge_very_strong_ic=pair_edge_very_strong_ic,
         pair_edge_weak_cap=pair_edge_weak_cap,
         pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=pair_edge_min_hold_ic,
         regime_mode=regime_mode,
         regime_min_edge_ic=regime_min_edge_ic,
         regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -2145,6 +2162,7 @@ def rank_backtest(
         "pair_edge_very_strong_ic": float(risk_cfg.pair_edge_very_strong_ic),
         "pair_edge_weak_cap": float(risk_cfg.pair_edge_weak_cap),
         "pair_edge_min_entry_ic": float(risk_cfg.pair_edge_min_entry_ic),
+        "pair_edge_min_hold_ic": float(risk_cfg.pair_edge_min_hold_ic),
         "regime_mode": risk_cfg.regime_mode,
         "regime_min_edge_ic": float(risk_cfg.regime_min_edge_ic),
         "regime_min_pair_edge_ic": float(risk_cfg.regime_min_pair_edge_ic),
@@ -2206,6 +2224,7 @@ def rank_sweep(
     pair_edge_very_strong_ic: Optional[float] = None,
     pair_edge_weak_cap: Optional[float] = None,
     pair_edge_min_entry_ic: Optional[float] = None,
+    pair_edge_min_hold_ic: Optional[float] = None,
     regime_mode: Optional[str] = None,
     regime_min_edge_ic: Optional[float] = None,
     regime_min_pair_edge_ic: Optional[float] = None,
@@ -2314,6 +2333,7 @@ def rank_sweep(
                             pair_edge_very_strong_ic=pair_edge_very_strong_ic,
                             pair_edge_weak_cap=pair_edge_weak_cap,
                             pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+                            pair_edge_min_hold_ic=pair_edge_min_hold_ic,
                             regime_mode=regime_mode,
                             regime_min_edge_ic=regime_min_edge_ic,
                             regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -2361,6 +2381,7 @@ def rank_sweep(
                             "pair_edge_very_strong_ic": float(risk_cfg.pair_edge_very_strong_ic),
                             "pair_edge_weak_cap": float(risk_cfg.pair_edge_weak_cap),
                             "pair_edge_min_entry_ic": float(risk_cfg.pair_edge_min_entry_ic),
+                            "pair_edge_min_hold_ic": float(risk_cfg.pair_edge_min_hold_ic),
                             "regime_mode": risk_cfg.regime_mode,
                             "regime_min_edge_ic": float(risk_cfg.regime_min_edge_ic),
                             "regime_min_pair_edge_ic": float(risk_cfg.regime_min_pair_edge_ic),

@@ -357,6 +357,7 @@ def _rank_gate_kwargs_from_args(args):
         "pair_edge_very_strong_ic": args.pair_edge_very_strong_ic,
         "pair_edge_weak_cap": args.pair_edge_weak_cap,
         "pair_edge_min_entry_ic": args.pair_edge_min_entry_ic,
+        "pair_edge_min_hold_ic": args.pair_edge_min_hold_ic,
         "regime_mode": args.regime_mode,
         "regime_min_edge_ic": args.regime_min_edge_ic,
         "regime_min_pair_edge_ic": args.regime_min_pair_edge_ic,
@@ -616,6 +617,7 @@ def cmd_rank_export(args):
         pair_edge_very_strong_ic=args.pair_edge_very_strong_ic,
         pair_edge_weak_cap=args.pair_edge_weak_cap,
         pair_edge_min_entry_ic=args.pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=args.pair_edge_min_hold_ic,
         regime_mode=args.regime_mode,
         regime_min_edge_ic=args.regime_min_edge_ic,
         regime_min_pair_edge_ic=args.regime_min_pair_edge_ic,
@@ -672,6 +674,7 @@ def cmd_rank_backtest(args):
         pair_edge_very_strong_ic=args.pair_edge_very_strong_ic,
         pair_edge_weak_cap=args.pair_edge_weak_cap,
         pair_edge_min_entry_ic=args.pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=args.pair_edge_min_hold_ic,
         regime_mode=args.regime_mode,
         regime_min_edge_ic=args.regime_min_edge_ic,
         regime_min_pair_edge_ic=args.regime_min_pair_edge_ic,
@@ -933,6 +936,7 @@ def cmd_rank_sweep(args):
         pair_edge_very_strong_ic=args.pair_edge_very_strong_ic,
         pair_edge_weak_cap=args.pair_edge_weak_cap,
         pair_edge_min_entry_ic=args.pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=args.pair_edge_min_hold_ic,
         regime_mode=args.regime_mode,
         regime_min_edge_ic=args.regime_min_edge_ic,
         regime_min_pair_edge_ic=args.regime_min_pair_edge_ic,
@@ -1330,6 +1334,8 @@ def build_parser():
     mlg.add_argument("--pair-edge-weak-cap", type=float, default=None)
     mlg.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
                      help="minimum aligned per-pair rolling IC required for new entries")
+    mlg.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                     help="minimum aligned per-pair rolling IC required to keep held positions")
     mlg.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true")
     mlg.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false")
     mlg.add_argument("--regime-mode", default=None, choices=["off", "hq"])
@@ -1510,6 +1516,8 @@ def build_parser():
                     help="max leverage when per-pair IC is weak or misaligned")
     rx.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
                     help="minimum aligned per-pair rolling IC required for new entries")
+    rx.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required to keep held positions")
     rx.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true",
                     help="enable per-pair rolling-IC dynamic leverage gating")
     rx.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false",
@@ -1589,6 +1597,8 @@ def build_parser():
                     help="max leverage when per-pair IC is weak or misaligned")
     rb.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
                     help="minimum aligned per-pair rolling IC required for new entries")
+    rb.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required to keep held positions")
     rb.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true",
                     help="enable per-pair rolling-IC dynamic leverage gating")
     rb.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false",
@@ -1828,6 +1838,8 @@ def build_parser():
                     help="max leverage when per-pair IC is weak or misaligned")
     rs.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
                     help="minimum aligned per-pair rolling IC required for new entries")
+    rs.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required to keep held positions")
     rs.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true",
                     help="enable per-pair rolling-IC dynamic leverage gating")
     rs.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false",

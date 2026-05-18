@@ -636,6 +636,20 @@ def test_pair_edge_min_entry_ic_blocks_weak_or_misaligned_entries() -> None:
     assert rp._passes_entry_filters(inverse_aligned, -1, cfg) is True
 
 
+def test_pair_edge_min_hold_ic_exits_when_pair_edge_deteriorates() -> None:
+    cfg = rp.RiskConfig(
+        edge_mode="rolling_ic",
+        pair_edge_min_hold_ic=0.03,
+    )
+    aligned = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": 0.04})
+    weak = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": 0.02})
+    misaligned = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": -0.04})
+
+    assert rp._should_exit_held(aligned, -1, cfg) is False
+    assert rp._should_exit_held(weak, -1, cfg) is True
+    assert rp._should_exit_held(misaligned, -1, cfg) is True
+
+
 def test_hq_regime_gate_blocks_entries_when_edge_threshold_not_met() -> None:
     pairs = [f"P{i}/USDT" for i in range(4)]
     dates = pd.date_range("2026-01-01", periods=5, freq="1h", tz="UTC")

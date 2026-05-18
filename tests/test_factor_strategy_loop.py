@@ -653,6 +653,7 @@ def test_candidate_schema_accepts_baseline_rank_profile_controls(tmp_path: Path)
                 "max_entry_atr_pct": 0.05,
                 "pair_edge_leverage": "false",
                 "pair_edge_min_entry_ic": 0.03,
+                "pair_edge_min_hold_ic": 0.02,
                 "min_pairs_for_top_k": 6,
                 "low_pair_top_k": 2,
             },
@@ -667,6 +668,7 @@ def test_candidate_schema_accepts_baseline_rank_profile_controls(tmp_path: Path)
     assert profile["short_max_mom_24h"] == 0.04
     assert profile["pair_edge_leverage"] is False
     assert profile["pair_edge_min_entry_ic"] == 0.03
+    assert profile["pair_edge_min_hold_ic"] == 0.02
     assert profile["min_pairs_for_top_k"] == 6
     assert profile["low_pair_top_k"] == 2
 
@@ -691,6 +693,7 @@ def test_rank_kwargs_inherits_optimized_baseline_controls() -> None:
                 "short_max_mom_72h": 0.10,
                 "max_entry_atr_pct": 0.05,
                 "pair_edge_min_entry_ic": 0.025,
+                "pair_edge_min_hold_ic": 0.015,
                 "min_pairs_for_top_k": 7,
                 "low_pair_top_k": 2,
             },
@@ -707,6 +710,7 @@ def test_rank_kwargs_inherits_optimized_baseline_controls() -> None:
     assert kwargs["short_max_mom_24h"] == 0.04
     assert kwargs["max_entry_atr_pct"] == 0.05
     assert kwargs["pair_edge_min_entry_ic"] == 0.025
+    assert kwargs["pair_edge_min_hold_ic"] == 0.015
     assert kwargs["min_pairs_for_top_k"] == 7
     assert kwargs["low_pair_top_k"] == 2
 
