@@ -111,6 +111,7 @@ LOOP_COMPLETED = "COMPLETED"
 LOOP_STOPPED_STAGNATED = "STOPPED_STAGNATED"
 STAGNATION_EXPLORE_AFTER = 15
 STAGNATION_STOP_AFTER = 30
+STAGNATION_RECOVERY_GRACE_CANDIDATES = 8
 
 DEFAULT_START = "2025-12-01"
 DEFAULT_END = "2026-04-12"
@@ -121,6 +122,25 @@ FAILED_ITERATION_SCORE = -1_000_000.0
 FIXED_FREQTRADE_STRATEGY = "ELRankPortfolioLeverageStrategy"
 FIXED_FREQTRADE_CONFIG = "user_data/config_okx_futures_rank_backtest.json"
 RECURSIVE_ANALYSIS_STARTUP_CANDLES = ("199", "499", "999")
+
+
+def _stagnation_grace_count() -> int:
+    return max(STAGNATION_EXPLORE_AFTER, STAGNATION_STOP_AFTER - STAGNATION_RECOVERY_GRACE_CANDIDATES)
+
+
+def _is_stagnation_recovery_candidate(evaluation: Mapping[str, Any]) -> bool:
+    candidate = evaluation.get("candidate")
+    if not isinstance(candidate, Mapping):
+        return False
+    metadata = candidate.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return False
+    if str(metadata.get("source") or "") != "controller_rank_profile_search_quality_repair":
+        return False
+    family = str(metadata.get("hypothesis_family") or "")
+    if "after_duplicate_paths" in family:
+        return True
+    return bool(metadata.get("behavior_feedback"))
 
 _VENUE_EXCHANGE: dict[str, str] = {
     "okx": "okx",
@@ -5153,6 +5173,7 @@ class StrategyLoopRunner:
     def __init__(self, config: StrategyLoopConfig) -> None:
         if not config.run_id:
             config.run_id = make_run_id(config.tag)
+        requested_max_iterations = int(config.max_iterations)
         self.config = config
         self.state = StrategyLoopState(run_id=config.run_id)
         if config.resume:
@@ -5186,6 +5207,15 @@ class StrategyLoopRunner:
             self.config = loaded_config
             self.state = loaded_state
             self.config.run_id = self.state.run_id
+            if self.state.status == LOOP_STOPPED_STAGNATED and requested_max_iterations > self.state.iteration:
+                if self.state.phase == PHASE_COMPLETE:
+                    self.state.iteration += 1
+                    self.state.phase = PHASE_PREPARE
+                self.state.status = LOOP_RUNNING
+                self.state.stopped_reason = ""
+                if self.state.no_composite_improvement_count >= STAGNATION_STOP_AFTER:
+                    self.state.no_composite_improvement_count = _stagnation_grace_count()
+                self.state.exploration_mode = "structured"
 
     def run(self) -> dict[str, Any]:
         root = loop_root(self.config.run_id)
@@ -6779,6 +6809,12 @@ class StrategyLoopRunner:
             self.state.no_composite_improvement_count = 0
             self.state.exploration_mode = "local"
             return
+        if (
+            _is_stagnation_recovery_candidate(evaluation)
+            and self.state.no_composite_improvement_count >= STAGNATION_STOP_AFTER - 1
+        ):
+            self.state.no_composite_improvement_count = _stagnation_grace_count()
+            self.state.exploration_mode = "structured"
         self.state.no_composite_improvement_count += 1
         if self.state.no_composite_improvement_count >= STAGNATION_EXPLORE_AFTER:
             self.state.exploration_mode = "structured"

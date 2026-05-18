@@ -138,6 +138,55 @@ def test_strategy_loop_checkpoint_roundtrip() -> None:
     assert loaded_state.candidate_paths == state.candidate_paths
 
 
+def test_resume_extended_stagnated_run_advances_with_grace() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit", run_id="unit_resume_stagnated", max_iterations=3)
+    state = StrategyLoopState(run_id=cfg.run_id, iteration=3, phase=PHASE_COMPLETE)
+    state.status = strategy_loop_mod.LOOP_STOPPED_STAGNATED
+    state.stopped_reason = "30 valid candidates without composite improvement"
+    state.no_composite_improvement_count = strategy_loop_mod.STAGNATION_STOP_AFTER
+    state.exploration_mode = "structured"
+    save_checkpoint(cfg, state)
+
+    resume_cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=cfg.run_id,
+        max_iterations=5,
+        resume=True,
+    )
+    runner = StrategyLoopRunner(resume_cfg)
+
+    assert runner.state.iteration == 4
+    assert runner.state.phase == strategy_loop_mod.PHASE_PREPARE
+    assert runner.state.status == strategy_loop_mod.LOOP_RUNNING
+    assert runner.state.stopped_reason == ""
+    assert runner.state.no_composite_improvement_count == strategy_loop_mod._stagnation_grace_count()
+    assert runner.state.exploration_mode == "structured"
+
+
+def test_stagnation_recovery_candidate_gets_grace_at_stop_threshold() -> None:
+    cfg = StrategyLoopConfig.from_args(tag="unit", run_id="unit_recovery_stagnation", max_iterations=3)
+    runner = StrategyLoopRunner(cfg)
+    runner.state.best_composite_score = 10.0
+    runner.state.no_composite_improvement_count = strategy_loop_mod.STAGNATION_STOP_AFTER - 1
+
+    runner._update_stagnation(
+        {
+            "score_components": {"composite_score": 1.0},
+            "candidate": {
+                "metadata": {
+                    "source": "controller_rank_profile_search_quality_repair",
+                    "hypothesis_family": "search_quality_entry_repair_after_duplicate_paths",
+                    "behavior_feedback": ["validation-pass repairs duplicated the baseline path"],
+                }
+            },
+        }
+    )
+
+    assert runner.state.status == strategy_loop_mod.LOOP_RUNNING
+    assert runner.state.no_composite_improvement_count == strategy_loop_mod._stagnation_grace_count() + 1
+    assert runner.state.exploration_mode == "structured"
+
+
 def test_candidate_schema_rejects_out_of_bounds_leverage(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate.json"
     _write_json(
