@@ -5347,9 +5347,12 @@ def _artifact_ref(path: Path) -> dict[str, Any]:
     return ref
 
 
-def _artifact_refs_for_iteration(idir: Path) -> dict[str, Any]:
+def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = None) -> dict[str, Any]:
+    excluded = exclude or set()
     refs: dict[str, Any] = {}
     for name in ("candidate.json", "signal_export.json", "backtest.json", "evaluation.json", "verification.json", "lean_gate.json", "manifest.json"):
+        if name in excluded:
+            continue
         path = idir / name
         if path.exists():
             refs[name] = _artifact_ref(path)
@@ -5500,7 +5503,7 @@ def build_iteration_manifest(
     evaluation: Mapping[str, Any],
 ) -> dict[str, Any]:
     backtest = load_json(idir / "backtest.json", {})
-    refs = _artifact_refs_for_iteration(idir)
+    refs = _artifact_refs_for_iteration(idir, exclude={"manifest.json"})
     return {
         "version": "factor-strategy-loop-iteration-manifest-v1",
         "created_at": time.time(),
@@ -5673,8 +5676,22 @@ def _doctor_artifact_refs_hash_status(refs: Any) -> dict[str, int]:
     files = 0
     hashed = 0
     missing_hash = 0
+    checked = 0
+    missing_file = 0
+    bytes_mismatch = 0
+    hash_mismatch = 0
+    errors = 0
     if not isinstance(refs, Mapping):
-        return {"files": files, "hashed": hashed, "missing_hash": missing_hash}
+        return {
+            "files": files,
+            "hashed": hashed,
+            "missing_hash": missing_hash,
+            "checked": checked,
+            "missing_file": missing_file,
+            "bytes_mismatch": bytes_mismatch,
+            "hash_mismatch": hash_mismatch,
+            "errors": errors,
+        }
     for ref in refs.values():
         if not isinstance(ref, Mapping):
             continue
@@ -5683,11 +5700,40 @@ def _doctor_artifact_refs_hash_status(refs: Any) -> dict[str, int]:
         if ref.get("missing"):
             continue
         files += 1
-        if ref.get("sha256"):
+        expected_hash = str(ref.get("sha256") or "").strip()
+        if expected_hash:
             hashed += 1
         else:
             missing_hash += 1
-    return {"files": files, "hashed": hashed, "missing_hash": missing_hash}
+        raw_path = str(ref.get("path") or "").strip()
+        if not raw_path:
+            missing_file += 1
+            continue
+        path = repo_paths.resolve_repo_path(raw_path)
+        if not path.is_file():
+            missing_file += 1
+            continue
+        expected_bytes = ref.get("bytes")
+        try:
+            actual_bytes = int(path.stat().st_size)
+            if expected_bytes is not None and int(expected_bytes) != actual_bytes:
+                bytes_mismatch += 1
+            if expected_hash:
+                checked += 1
+                if _sha256_file(path) != expected_hash:
+                    hash_mismatch += 1
+        except Exception:
+            errors += 1
+    return {
+        "files": files,
+        "hashed": hashed,
+        "missing_hash": missing_hash,
+        "checked": checked,
+        "missing_file": missing_file,
+        "bytes_mismatch": bytes_mismatch,
+        "hash_mismatch": hash_mismatch,
+        "errors": errors,
+    }
 
 
 def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
@@ -5756,8 +5802,21 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     manifest_hashes = [_doctor_manifest_hash_status(load_json(path, {})) for path in [*iteration_manifests, *blind_manifests]]
     missing_hash_total = sum(item.get("missing_hash", 0) for item in manifest_hashes)
     hashed_total = sum(item.get("hashed", 0) for item in manifest_hashes)
+    checked_total = sum(item.get("checked", 0) for item in manifest_hashes)
+    missing_file_total = sum(item.get("missing_file", 0) for item in manifest_hashes)
+    bytes_mismatch_total = sum(item.get("bytes_mismatch", 0) for item in manifest_hashes)
+    hash_mismatch_total = sum(item.get("hash_mismatch", 0) for item in manifest_hashes)
+    artifact_ref_errors_total = sum(item.get("errors", 0) for item in manifest_hashes)
     if iteration_manifests and missing_hash_total:
         findings.append(_doctor_finding("MEDIUM", "some manifest artifact refs are missing sha256 hashes", detail={"missing_hash": missing_hash_total}))
+    manifest_integrity_failures = {
+        "missing_file": missing_file_total,
+        "bytes_mismatch": bytes_mismatch_total,
+        "hash_mismatch": hash_mismatch_total,
+        "errors": artifact_ref_errors_total,
+    }
+    if any(manifest_integrity_failures.values()):
+        findings.append(_doctor_finding("BLOCKER", "manifest artifact refs failed integrity check", detail=manifest_integrity_failures))
 
     leaderboard = load_json(root / "leaderboard.json", {})
     rows = list(leaderboard.get("rows") or []) if isinstance(leaderboard, Mapping) else []
@@ -5790,6 +5849,14 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     detail={"missing_hash": status["missing_hash"]},
                 )
             )
+        integrity_failures = {
+            "missing_file": status.get("missing_file", 0),
+            "bytes_mismatch": status.get("bytes_mismatch", 0),
+            "hash_mismatch": status.get("hash_mismatch", 0),
+            "errors": status.get("errors", 0),
+        }
+        if any(integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", f"{label} source artifact refs failed integrity check", detail=integrity_failures))
 
     def record_promoted_artifacts(promotion_payload: Mapping[str, Any]) -> None:
         nonlocal promoted_artifact_files
@@ -5875,6 +5942,11 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             record_source_ref_status(f"Pareto finalist {idx}", finalist.get("artifact_refs"))
     source_missing_hash_total = sum(item.get("missing_hash", 0) for item in source_ref_hash_statuses)
     source_hashed_total = sum(item.get("hashed", 0) for item in source_ref_hash_statuses)
+    source_checked_total = sum(item.get("checked", 0) for item in source_ref_hash_statuses)
+    source_missing_file_total = sum(item.get("missing_file", 0) for item in source_ref_hash_statuses)
+    source_bytes_mismatch_total = sum(item.get("bytes_mismatch", 0) for item in source_ref_hash_statuses)
+    source_hash_mismatch_total = sum(item.get("hash_mismatch", 0) for item in source_ref_hash_statuses)
+    source_ref_errors_total = sum(item.get("errors", 0) for item in source_ref_hash_statuses)
 
     verification_files = sorted([*root.glob("iter_*/verification.json"), *root.glob("blind_*/verification.json")])
     verification_counts: dict[str, int] = {}
@@ -5930,8 +6002,18 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "blind_manifests": len(blind_manifests),
             "artifact_refs_hashed": hashed_total,
             "artifact_refs_missing_hash": missing_hash_total,
+            "artifact_refs_checked": checked_total,
+            "artifact_refs_missing_file": missing_file_total,
+            "artifact_refs_bytes_mismatch": bytes_mismatch_total,
+            "artifact_refs_hash_mismatch": hash_mismatch_total,
+            "artifact_refs_errors": artifact_ref_errors_total,
             "source_artifact_refs_hashed": source_hashed_total,
             "source_artifact_refs_missing_hash": source_missing_hash_total,
+            "source_artifact_refs_checked": source_checked_total,
+            "source_artifact_refs_missing_file": source_missing_file_total,
+            "source_artifact_refs_bytes_mismatch": source_bytes_mismatch_total,
+            "source_artifact_refs_hash_mismatch": source_hash_mismatch_total,
+            "source_artifact_refs_errors": source_ref_errors_total,
             "promoted_artifact_files": promoted_artifact_files,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
@@ -7487,12 +7569,9 @@ class StrategyLoopRunner:
                     "reason": f"score did not exceed current best ({self.state.best_score:.6g})",
                 }
             evaluation["promotion"] = promotion
+            evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir, exclude={"evaluation.json", "manifest.json"})
             write_json(out, evaluation)
-            artifact_refs = _artifact_refs_for_iteration(idir)
-            evaluation["artifact_refs"] = artifact_refs
             write_json(idir / "manifest.json", build_iteration_manifest(idir, self.config, candidate, evaluation))
-            evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-            write_json(out, evaluation)
             if score > self.state.best_score:
                 _copytree_replace(idir, loop_root(self.config.run_id) / "best")
 
@@ -8039,11 +8118,9 @@ class StrategyLoopRunner:
         evaluation["verification"] = verification
         evaluation["verification_status"] = status
         evaluation["promotion_eligible"] = False
-        evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
+        evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir, exclude={"evaluation.json", "manifest.json"})
         write_json(idir / "evaluation.json", evaluation)
         write_json(idir / "manifest.json", build_iteration_manifest(idir, self.config, evaluation.get("candidate") or {}, evaluation))
-        evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-        write_json(idir / "evaluation.json", evaluation)
         row["verification_status"] = status
         row["promotion_eligible"] = False
         row["artifact_refs"] = evaluation["artifact_refs"]
@@ -8321,11 +8398,9 @@ class StrategyLoopRunner:
         evaluation = dict(evaluation)
         if self._should_run_lean_gate("final", promotion_candidate=True) and not isinstance(evaluation.get("lean_gate"), Mapping):
             self._apply_lean_gate(best_dir, evaluation, stage="final", timerange=self.config.timerange)
-            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir)
+            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir, exclude={"evaluation.json", "manifest.json"})
             write_json(evaluation_path, evaluation)
             write_json(best_dir / "manifest.json", build_iteration_manifest(best_dir, self.config, candidate, evaluation))
-            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir)
-            write_json(evaluation_path, evaluation)
         promotion = promote_candidate(candidate, evaluation, self.config, iter_dir=best_dir, final=True)
         final_path = loop_root(self.config.run_id) / "final_promotion.json"
         write_json(final_path, promotion)
@@ -8452,11 +8527,9 @@ class StrategyLoopRunner:
                     f"verification={verification_status}; lean={lean_status or 'off'}"
                 )
             )
-            blind_eval["artifact_refs"] = _artifact_refs_for_iteration(blind_dir)
+            blind_eval["artifact_refs"] = _artifact_refs_for_iteration(blind_dir, exclude={"evaluation.json", "manifest.json"})
             write_json(blind_dir / "evaluation.json", blind_eval)
             write_json(blind_dir / "manifest.json", build_iteration_manifest(blind_dir, self.config, candidate, blind_eval))
-            blind_eval["artifact_refs"] = _artifact_refs_for_iteration(blind_dir)
-            write_json(blind_dir / "evaluation.json", blind_eval)
             final_rows.append(
                 {
                     "finalist": finalist,
@@ -8732,12 +8805,9 @@ def evaluate_candidate(
     ):
         runner._apply_lean_gate(idir, evaluation, stage="iteration", timerange=config.timerange)
     evaluation["promotion"] = promote_candidate(candidate, evaluation, config, iter_dir=idir)
-    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
+    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir, exclude={"evaluation.json", "manifest.json"})
+    write_json(idir / "evaluation.json", evaluation)
     write_json(idir / "manifest.json", build_iteration_manifest(idir, config, candidate, evaluation))
-    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-    write_json(idir / "evaluation.json", evaluation)
-    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-    write_json(idir / "evaluation.json", evaluation)
     return evaluation
 
 
