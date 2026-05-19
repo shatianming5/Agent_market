@@ -92,6 +92,58 @@ def _write_deepresearch_artifacts(run_id: str, *, final_status: dict | None = No
     }
 
 
+def _write_doctor_checkpoint(
+    root: Path,
+    cfg: StrategyLoopConfig,
+    rows: list[dict],
+    *,
+    pareto_pool: dict | None = None,
+    final_status: dict | None = None,
+    final_promotion: dict | None = None,
+    state_overrides: dict | None = None,
+    top_overrides: dict | None = None,
+) -> dict:
+    promotion = dict(final_promotion or {"promoted": False})
+    status = dict(final_status or {"selected": None, "finalists": [], "promotion": promotion, "promoted": False})
+    pool = dict(pareto_pool or {"finalists": []})
+    scored = [
+        row
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("score"), (int, float))
+    ]
+    best = max(scored, key=lambda item: float(item["score"])) if scored else None
+    candidate_paths = [
+        str(row.get("candidate_path"))
+        for row in rows
+        if isinstance(row, dict) and str(row.get("candidate_path") or "").strip()
+    ]
+    state = {
+        "run_id": cfg.run_id,
+        "iteration": len(rows) + 1,
+        "phase": "PREPARE",
+        "status": LOOP_COMPLETED,
+        "best_candidate": best,
+        "best_score": best.get("score") if best else None,
+        "score_history": rows,
+        "candidate_paths": list(dict.fromkeys(candidate_paths)),
+        "pareto_pool": pool,
+        "final_blind_status": status,
+        "final_promotion": promotion,
+    }
+    state.update(state_overrides or {})
+    payload = {
+        "version": "factor-strategy-loop-v1",
+        "run_id": cfg.run_id,
+        "config": cfg.__dict__,
+        "state": state,
+        "pareto_pool": pool,
+        "final_blind_status": status,
+    }
+    payload.update(top_overrides or {})
+    _write_json(root / "checkpoint.json", payload)
+    return payload
+
+
 def test_fixed_freqtrade_rank_config_supports_market_order_analysis() -> None:
     config_path = repo_paths.REPO_ROOT / strategy_loop_mod.FIXED_FREQTRADE_CONFIG
     payload = json.loads(config_path.read_text(encoding="utf-8"))
@@ -481,15 +533,9 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         promote_policy="final",
         lean_gate_mode="final",
     )
-    _write_json(
-        root / "checkpoint.json",
-        {
-            "config": cfg.__dict__,
-            "state": {"run_id": run_id, "iteration": 1},
-        },
-    )
     _write_json(root / "manifest.json", {"cli_args": cfg.__dict__})
-    _write_json(root / "final_promotion.json", {"promoted": False})
+    final_promotion = {"promoted": False}
+    _write_json(root / "final_promotion.json", final_promotion)
 
     iter_dir = root / "iter_01"
     blind_dir = root / "blind_1"
@@ -529,8 +575,9 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     pareto_axis_row = strategy_loop_mod._compact_leaderboard_row(leaderboard_row)
     pareto_axis_row["axis_value"] = strategy_loop_mod._axis_value(axis, leaderboard_row)
     pareto_finalist = dict(pareto_axis_row)
+    pareto_pool = {"axes": {axis: [pareto_axis_row]}, "finalists": [pareto_finalist]}
     _write_json(root / "leaderboard.json", {"rows": [leaderboard_row]})
-    _write_json(root / "pareto_pool.json", {"axes": {axis: [pareto_axis_row]}, "finalists": [pareto_finalist]})
+    _write_json(root / "pareto_pool.json", pareto_pool)
     candidate_ref = _write_json_ref(blind_dir / "candidate.json", candidate)
     verification = {"status": VERIFICATION_PASSED}
     verification_ref = _write_json_ref(blind_dir / "verification.json", verification)
@@ -588,6 +635,29 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         blind_dir / "manifest.json",
         {"artifact_refs": {"evaluation.json": evaluation_ref, "verification.json": verification_ref}},
     )
+    _write_json(
+        root / "checkpoint.json",
+        {
+            "version": "factor-strategy-loop-v1",
+            "run_id": run_id,
+            "config": cfg.__dict__,
+            "state": {
+                "run_id": run_id,
+                "iteration": 2,
+                "phase": "PREPARE",
+                "best_candidate": leaderboard_row,
+                "best_score": leaderboard_row["score"],
+                "score_history": [leaderboard_row],
+                "candidate_paths": [source_candidate_path],
+                "status": LOOP_COMPLETED,
+                "pareto_pool": pareto_pool,
+                "final_blind_status": final_status,
+                "final_promotion": final_promotion,
+            },
+            "pareto_pool": pareto_pool,
+            "final_blind_status": final_status,
+        },
+    )
 
     result = doctor_strategy_loop_run(run_id)
 
@@ -608,6 +678,20 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert result["summary"]["leaderboard_evaluation_binding_mismatches"] == 0
     assert result["summary"]["leaderboard_candidate_payload_bindings_checked"] == 1
     assert result["summary"]["leaderboard_candidate_payload_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_identity_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_identity_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_score_history_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_score_history_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_best_candidate_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_best_candidate_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_candidate_path_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_candidate_path_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_pareto_pool_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_pareto_pool_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_final_status_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_final_status_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_final_promotion_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_final_promotion_binding_mismatches"] == 0
     assert result["summary"]["pareto_axis_leaderboard_bindings_checked"] == 1
     assert result["summary"]["pareto_axis_leaderboard_binding_mismatches"] == 0
     assert result["summary"]["pareto_finalist_leaderboard_bindings_checked"] == 1
@@ -737,6 +821,232 @@ def test_strategy_loop_doctor_binds_leaderboard_candidate_to_artifact(tmp_path: 
     assert result["summary"]["leaderboard_candidate_payload_bindings_checked"] == 1
     assert result["summary"]["leaderboard_candidate_payload_binding_mismatches"] == 1
     assert "leaderboard candidate differs from candidate artifact" in messages
+
+
+def test_strategy_loop_doctor_binds_checkpoint_score_history_to_leaderboard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_checkpoint_score_history_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    iter_dir = root / "iter_01"
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    candidate_ref = _write_json_ref(iter_dir / "candidate.json", candidate)
+    evaluation = {
+        "iteration": 1,
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json",
+        "score": 1.0,
+        "score_components": {"composite_score": 1.0},
+        "constraints_ok": True,
+        "metrics": {},
+        "research_metrics": {},
+        "freqtrade_metrics": {},
+        "window_metrics": {},
+        "verification_status": VERIFICATION_PASSED,
+        "promotion_eligible": False,
+        "pareto_eligible": True,
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+        "promotion": {"promoted": False},
+    }
+    _write_json(iter_dir / "evaluation.json", evaluation)
+    evaluation_ref = strategy_loop_mod._artifact_ref(iter_dir / "evaluation.json")
+    _write_json(iter_dir / "manifest.json", {"artifact_refs": {"candidate.json": candidate_ref, "evaluation.json": evaluation_ref}})
+    row = strategy_loop_mod._leaderboard_row_from_evaluation(evaluation, run_id, iteration=1)
+    promotion = {"promoted": False}
+    final_status = {"selected": None, "finalists": [], "promotion": promotion, "promoted": False}
+    pareto_pool = {"finalists": []}
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [row]})
+    _write_json(root / "pareto_pool.json", pareto_pool)
+    _write_json(root / "final_blind_status.json", final_status)
+    _write_json(root / "final_promotion.json", promotion)
+    _write_doctor_checkpoint(
+        root,
+        cfg,
+        [row],
+        pareto_pool=pareto_pool,
+        final_status=final_status,
+        final_promotion=promotion,
+        state_overrides={"score_history": [{**row, "score": 2.0}]},
+    )
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["checkpoint_score_history_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_score_history_binding_mismatches"] == 1
+    assert result["summary"]["checkpoint_best_candidate_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_candidate_path_binding_mismatches"] == 0
+    assert "checkpoint score_history differs from leaderboard rows" in messages
+
+
+def test_strategy_loop_doctor_binds_checkpoint_best_and_candidate_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_checkpoint_best_candidate_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    rows: list[dict] = []
+    for iteration, top_k, score in ((1, 1, 1.0), (2, 2, 3.0)):
+        idir = root / f"iter_{iteration:02d}"
+        candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": top_k}}
+        candidate_ref = _write_json_ref(idir / "candidate.json", candidate)
+        evaluation = {
+            "iteration": iteration,
+            "candidate": candidate,
+            "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_{iteration:02d}/candidate.json",
+            "score": score,
+            "score_components": {"composite_score": score},
+            "constraints_ok": True,
+            "metrics": {},
+            "research_metrics": {},
+            "freqtrade_metrics": {},
+            "window_metrics": {},
+            "verification_status": VERIFICATION_PASSED,
+            "promotion_eligible": False,
+            "pareto_eligible": True,
+            "parameter_signature": f"unit-signature-{iteration}",
+            "artifact_refs": {"candidate.json": candidate_ref},
+            "promotion": {"promoted": False},
+        }
+        _write_json(idir / "evaluation.json", evaluation)
+        evaluation_ref = strategy_loop_mod._artifact_ref(idir / "evaluation.json")
+        _write_json(idir / "manifest.json", {"artifact_refs": {"candidate.json": candidate_ref, "evaluation.json": evaluation_ref}})
+        rows.append(strategy_loop_mod._leaderboard_row_from_evaluation(evaluation, run_id, iteration=iteration))
+    promotion = {"promoted": False}
+    final_status = {"selected": None, "finalists": [], "promotion": promotion, "promoted": False}
+    pareto_pool = {"finalists": []}
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": rows})
+    _write_json(root / "pareto_pool.json", pareto_pool)
+    _write_json(root / "final_blind_status.json", final_status)
+    _write_json(root / "final_promotion.json", promotion)
+    _write_doctor_checkpoint(
+        root,
+        cfg,
+        rows,
+        pareto_pool=pareto_pool,
+        final_status=final_status,
+        final_promotion=promotion,
+        state_overrides={
+            "best_candidate": rows[0],
+            "best_score": 99.0,
+            "candidate_paths": ["artifacts/factor_strategy_loop/other_run/iter_01/candidate.json"],
+        },
+    )
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["checkpoint_score_history_binding_mismatches"] == 0
+    assert result["summary"]["checkpoint_best_candidate_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_best_candidate_binding_mismatches"] == 2
+    assert result["summary"]["checkpoint_candidate_path_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_candidate_path_binding_mismatches"] == 1
+    assert "checkpoint best_candidate differs from highest-scoring leaderboard row" in messages
+    assert "checkpoint best_score differs from highest-scoring leaderboard row" in messages
+    assert "checkpoint candidate_paths differ from leaderboard candidate paths" in messages
+
+
+def test_strategy_loop_doctor_binds_checkpoint_final_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_checkpoint_final_artifact_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    iter_dir = root / "iter_01"
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    candidate_ref = _write_json_ref(iter_dir / "candidate.json", candidate)
+    evaluation = {
+        "iteration": 1,
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json",
+        "score": 1.0,
+        "score_components": {"composite_score": 1.0},
+        "constraints_ok": True,
+        "metrics": {},
+        "research_metrics": {},
+        "freqtrade_metrics": {},
+        "window_metrics": {},
+        "verification_status": VERIFICATION_PASSED,
+        "promotion_eligible": False,
+        "pareto_eligible": True,
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+        "promotion": {"promoted": False},
+    }
+    _write_json(iter_dir / "evaluation.json", evaluation)
+    evaluation_ref = strategy_loop_mod._artifact_ref(iter_dir / "evaluation.json")
+    _write_json(iter_dir / "manifest.json", {"artifact_refs": {"candidate.json": candidate_ref, "evaluation.json": evaluation_ref}})
+    row = strategy_loop_mod._leaderboard_row_from_evaluation(evaluation, run_id, iteration=1)
+    promotion = {"promoted": False}
+    final_status = {"selected": None, "finalists": [], "promotion": promotion, "promoted": False}
+    pareto_pool = {"finalists": []}
+    stale_status = {"selected": None, "finalists": [], "promotion": {"promoted": True}, "promoted": True}
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [row]})
+    _write_json(root / "pareto_pool.json", pareto_pool)
+    _write_json(root / "final_blind_status.json", final_status)
+    _write_json(root / "final_promotion.json", promotion)
+    _write_doctor_checkpoint(
+        root,
+        cfg,
+        [row],
+        pareto_pool=pareto_pool,
+        final_status=final_status,
+        final_promotion=promotion,
+        state_overrides={
+            "final_blind_status": stale_status,
+            "final_promotion": {"promoted": True},
+        },
+        top_overrides={"final_blind_status": stale_status},
+    )
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["checkpoint_final_status_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_final_status_binding_mismatches"] == 2
+    assert result["summary"]["checkpoint_final_promotion_bindings_checked"] == 1
+    assert result["summary"]["checkpoint_final_promotion_binding_mismatches"] == 1
+    assert "checkpoint state final_blind_status differs from final_blind_status.json" in messages
+    assert "checkpoint top-level final_blind_status differs from final_blind_status.json" in messages
+    assert "checkpoint state final_promotion differs from final_promotion.json" in messages
 
 
 def test_strategy_loop_doctor_binds_pareto_pool_rows_to_leaderboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

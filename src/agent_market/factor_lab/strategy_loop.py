@@ -5864,6 +5864,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     leaderboard = load_json(root / "leaderboard.json", {})
     rows = list(leaderboard.get("rows") or []) if isinstance(leaderboard, Mapping) else []
+    checkpoint = load_json(root / "checkpoint.json", {})
+    checkpoint_state = checkpoint.get("state") if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("state"), Mapping) else {}
     non_blind_eligible = [
         row for row in rows
         if isinstance(row, Mapping) and row.get("promotion_eligible") is True and not bool(row.get("blind_final"))
@@ -5898,6 +5900,20 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     leaderboard_evaluation_binding_mismatches = 0
     leaderboard_candidate_payload_bindings_checked = 0
     leaderboard_candidate_payload_binding_mismatches = 0
+    checkpoint_identity_bindings_checked = 0
+    checkpoint_identity_binding_mismatches = 0
+    checkpoint_score_history_bindings_checked = 0
+    checkpoint_score_history_binding_mismatches = 0
+    checkpoint_best_candidate_bindings_checked = 0
+    checkpoint_best_candidate_binding_mismatches = 0
+    checkpoint_candidate_path_bindings_checked = 0
+    checkpoint_candidate_path_binding_mismatches = 0
+    checkpoint_pareto_pool_bindings_checked = 0
+    checkpoint_pareto_pool_binding_mismatches = 0
+    checkpoint_final_status_bindings_checked = 0
+    checkpoint_final_status_binding_mismatches = 0
+    checkpoint_final_promotion_bindings_checked = 0
+    checkpoint_final_promotion_binding_mismatches = 0
     pareto_axis_leaderboard_bindings_checked = 0
     pareto_axis_leaderboard_binding_mismatches = 0
     pareto_finalist_leaderboard_bindings_checked = 0
@@ -6289,6 +6305,113 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     )
                 )
 
+    def state_row_payload(payload: Any) -> Any:
+        if not isinstance(payload, Mapping):
+            return payload
+        data = dict(payload)
+        data.pop("final_promotion", None)
+        return data
+
+    def record_checkpoint_state_bindings() -> None:
+        nonlocal checkpoint_identity_bindings_checked, checkpoint_identity_binding_mismatches
+        nonlocal checkpoint_score_history_bindings_checked, checkpoint_score_history_binding_mismatches
+        nonlocal checkpoint_best_candidate_bindings_checked, checkpoint_best_candidate_binding_mismatches
+        nonlocal checkpoint_candidate_path_bindings_checked, checkpoint_candidate_path_binding_mismatches
+        nonlocal checkpoint_pareto_pool_bindings_checked, checkpoint_pareto_pool_binding_mismatches
+        nonlocal checkpoint_final_status_bindings_checked, checkpoint_final_status_binding_mismatches
+        nonlocal checkpoint_final_promotion_bindings_checked, checkpoint_final_promotion_binding_mismatches
+        if not isinstance(checkpoint, Mapping) or not checkpoint:
+            return
+        checkpoint_identity_bindings_checked += 1
+        if str(checkpoint.get("run_id") or "") != str(run_id):
+            checkpoint_identity_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "checkpoint run_id differs from run", detail={"checkpoint_run_id": checkpoint.get("run_id"), "run_id": str(run_id)}))
+        if str(checkpoint_state.get("run_id") or "") != str(run_id):
+            checkpoint_identity_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "checkpoint state run_id differs from run", detail={"checkpoint_state_run_id": checkpoint_state.get("run_id"), "run_id": str(run_id)}))
+
+        state_history = checkpoint_state.get("score_history") if isinstance(checkpoint_state.get("score_history"), list) else []
+        if rows or state_history:
+            checkpoint_score_history_bindings_checked += 1
+            if [state_row_payload(item) for item in state_history] != [dict(row) for row in rows if isinstance(row, Mapping)]:
+                checkpoint_score_history_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint score_history differs from leaderboard rows"))
+
+        scored_rows: list[tuple[float, Mapping[str, Any]]] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            score = float_or_none(row.get("score"))
+            if score is not None and math.isfinite(score):
+                scored_rows.append((score, row))
+        state_best = checkpoint_state.get("best_candidate") if isinstance(checkpoint_state.get("best_candidate"), Mapping) else {}
+        if scored_rows or state_best:
+            checkpoint_best_candidate_bindings_checked += 1
+            expected_best = max(scored_rows, key=lambda item: item[0])[1] if scored_rows else {}
+            if not state_best or not expected_best or state_row_payload(state_best) != dict(expected_best):
+                checkpoint_best_candidate_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint best_candidate differs from highest-scoring leaderboard row"))
+            state_best_score = float_or_none(checkpoint_state.get("best_score"))
+            expected_score = float_or_none(expected_best.get("score")) if isinstance(expected_best, Mapping) else None
+            if state_best_score is None or expected_score is None or not math.isclose(state_best_score, expected_score, rel_tol=1e-12, abs_tol=1e-12):
+                checkpoint_best_candidate_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "checkpoint best_score differs from highest-scoring leaderboard row",
+                        detail={"checkpoint_best_score": checkpoint_state.get("best_score"), "expected_best_score": expected_score},
+                    )
+                )
+
+        expected_candidate_paths = [
+            str(row.get("candidate_path"))
+            for row in rows
+            if isinstance(row, Mapping) and str(row.get("candidate_path") or "").strip()
+        ]
+        expected_candidate_paths = list(dict.fromkeys(expected_candidate_paths))
+        raw_candidate_paths = checkpoint_state.get("candidate_paths")
+        state_candidate_paths = [str(item) for item in raw_candidate_paths] if isinstance(raw_candidate_paths, list) else []
+        if expected_candidate_paths or state_candidate_paths:
+            checkpoint_candidate_path_bindings_checked += 1
+            if state_candidate_paths != expected_candidate_paths:
+                checkpoint_candidate_path_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "checkpoint candidate_paths differ from leaderboard candidate paths",
+                        detail={"actual": state_candidate_paths, "expected": expected_candidate_paths},
+                    )
+                )
+
+        state_pareto = checkpoint_state.get("pareto_pool") if isinstance(checkpoint_state.get("pareto_pool"), Mapping) else {}
+        top_pareto = checkpoint.get("pareto_pool") if isinstance(checkpoint.get("pareto_pool"), Mapping) else {}
+        if pareto_pool or state_pareto or top_pareto:
+            checkpoint_pareto_pool_bindings_checked += 1
+            if dict(state_pareto) != dict(pareto_pool):
+                checkpoint_pareto_pool_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint state pareto_pool differs from pareto_pool.json"))
+            if dict(top_pareto) != dict(pareto_pool):
+                checkpoint_pareto_pool_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint top-level pareto_pool differs from pareto_pool.json"))
+
+        state_final_status = checkpoint_state.get("final_blind_status") if isinstance(checkpoint_state.get("final_blind_status"), Mapping) else {}
+        top_final_status = checkpoint.get("final_blind_status") if isinstance(checkpoint.get("final_blind_status"), Mapping) else {}
+        if final_status or state_final_status or top_final_status:
+            checkpoint_final_status_bindings_checked += 1
+            if dict(state_final_status) != dict(final_status):
+                checkpoint_final_status_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint state final_blind_status differs from final_blind_status.json"))
+            if dict(top_final_status) != dict(final_status):
+                checkpoint_final_status_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint top-level final_blind_status differs from final_blind_status.json"))
+
+        state_final_promotion = checkpoint_state.get("final_promotion") if isinstance(checkpoint_state.get("final_promotion"), Mapping) else {}
+        if root_promotion or state_final_promotion:
+            checkpoint_final_promotion_bindings_checked += 1
+            if dict(state_final_promotion) != dict(root_promotion):
+                checkpoint_final_promotion_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint state final_promotion differs from final_promotion.json"))
+
     def record_pareto_pool_bindings() -> None:
         nonlocal pareto_axis_leaderboard_bindings_checked, pareto_axis_leaderboard_binding_mismatches
         nonlocal pareto_finalist_leaderboard_bindings_checked, pareto_finalist_leaderboard_binding_mismatches
@@ -6507,6 +6630,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         record_leaderboard_iteration_bindings()
+        record_checkpoint_state_bindings()
         record_pareto_pool_bindings()
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
@@ -6748,6 +6872,20 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "leaderboard_evaluation_binding_mismatches": leaderboard_evaluation_binding_mismatches,
             "leaderboard_candidate_payload_bindings_checked": leaderboard_candidate_payload_bindings_checked,
             "leaderboard_candidate_payload_binding_mismatches": leaderboard_candidate_payload_binding_mismatches,
+            "checkpoint_identity_bindings_checked": checkpoint_identity_bindings_checked,
+            "checkpoint_identity_binding_mismatches": checkpoint_identity_binding_mismatches,
+            "checkpoint_score_history_bindings_checked": checkpoint_score_history_bindings_checked,
+            "checkpoint_score_history_binding_mismatches": checkpoint_score_history_binding_mismatches,
+            "checkpoint_best_candidate_bindings_checked": checkpoint_best_candidate_bindings_checked,
+            "checkpoint_best_candidate_binding_mismatches": checkpoint_best_candidate_binding_mismatches,
+            "checkpoint_candidate_path_bindings_checked": checkpoint_candidate_path_bindings_checked,
+            "checkpoint_candidate_path_binding_mismatches": checkpoint_candidate_path_binding_mismatches,
+            "checkpoint_pareto_pool_bindings_checked": checkpoint_pareto_pool_bindings_checked,
+            "checkpoint_pareto_pool_binding_mismatches": checkpoint_pareto_pool_binding_mismatches,
+            "checkpoint_final_status_bindings_checked": checkpoint_final_status_bindings_checked,
+            "checkpoint_final_status_binding_mismatches": checkpoint_final_status_binding_mismatches,
+            "checkpoint_final_promotion_bindings_checked": checkpoint_final_promotion_bindings_checked,
+            "checkpoint_final_promotion_binding_mismatches": checkpoint_final_promotion_binding_mismatches,
             "pareto_axis_leaderboard_bindings_checked": pareto_axis_leaderboard_bindings_checked,
             "pareto_axis_leaderboard_binding_mismatches": pareto_axis_leaderboard_binding_mismatches,
             "pareto_finalist_leaderboard_bindings_checked": pareto_finalist_leaderboard_bindings_checked,
