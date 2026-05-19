@@ -5572,6 +5572,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     final_status = load_json(root / "final_blind_status.json", {})
     selected = final_status.get("selected") if isinstance(final_status, Mapping) and isinstance(final_status.get("selected"), Mapping) else {}
+    final_blind_finalists = final_status.get("finalists") if isinstance(final_status, Mapping) and isinstance(final_status.get("finalists"), list) else []
     promotion = final_status.get("promotion") if isinstance(final_status, Mapping) and isinstance(final_status.get("promotion"), Mapping) else {}
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         if not final_status:
@@ -5596,7 +5597,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
         payload = load_json(path, {})
         status = str(payload.get("status") or VERIFICATION_PENDING).lower() if isinstance(payload, Mapping) else VERIFICATION_INCONCLUSIVE
         verification_counts[status] = verification_counts.get(status, 0) + 1
-    if verify_policy != VERIFY_NONE and not verification_files and (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal):
+    needs_final_verification = bool(selected) or bool(final_blind_finalists) or bool(blind_manifests)
+    if verify_policy != VERIFY_NONE and needs_final_verification and not verification_files and (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal):
         findings.append(_doctor_finding("BLOCKER", "verify_policy requires lookahead/recursive artifacts but no verification.json files were found"))
 
     lean_gate_files = sorted([*root.glob("iter_*/lean_gate.json"), *root.glob("blind_*/lean_gate.json"), *root.glob("best/lean_gate.json")])
@@ -5610,7 +5612,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     deepresearch = final_status.get("deepresearch") if isinstance(final_status, Mapping) and isinstance(final_status.get("deepresearch"), Mapping) else {}
     deep_artifacts = deepresearch.get("artifacts") if isinstance(deepresearch.get("artifacts"), Mapping) else {}
-    if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+    if (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal) and (bool(selected) or bool(final_blind_finalists)):
         for key in ("context", "sources"):
             raw = str(deep_artifacts.get(key) or "").strip()
             if not raw:

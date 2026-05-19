@@ -527,6 +527,35 @@ def test_strategy_loop_doctor_flags_stale_run_git_commit(tmp_path: Path, monkeyp
     assert any("git commit differs" in item["message"] for item in result["findings"])
 
 
+def test_strategy_loop_doctor_no_finalists_does_not_require_final_sidecars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_no_finalists"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False, "constraints_ok": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+    _write_json(root / "iter_01" / "manifest.json", {"artifact_refs": {"evaluation.json": {"path": "x", "sha256": "abc", "bytes": 1}}})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert "no selected blind finalist" in messages
+    assert not any("verification.json files" in message for message in messages)
+    assert not any("deepresearch artifact missing" in message for message in messages)
+
+
 def test_strategy_loop_doctor_persists_and_cli_fails_on_blockers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "doctor_formal_blocked"
