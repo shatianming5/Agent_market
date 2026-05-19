@@ -5461,6 +5461,13 @@ _CANDIDATE_INPUT_ARTIFACT_REF_KEYS = {
     "rank_profile_candidate_state",
     "metadata_baseline_profile",
 }
+_RANK_PORTFOLIO_SIDECAR_ARTIFACTS = (
+    "rank_export.json",
+    "backtest.json",
+    "selected_factors.json",
+    "sweep.json",
+    "optimized_profile.json",
+)
 
 
 def _maybe_artifact_ref_for_existing_file(raw: Any) -> Optional[dict[str, Any]]:
@@ -5471,6 +5478,84 @@ def _maybe_artifact_ref_for_existing_file(raw: Any) -> Optional[dict[str, Any]]:
     if not path.is_file():
         return None
     return _artifact_ref(path)
+
+
+def _artifact_key_token(raw: Any) -> str:
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(raw or "").strip()).strip("_")
+    return token or "unknown"
+
+
+def _rank_sidecar_key_name(name: str) -> str:
+    stem = name.removesuffix(".json")
+    return stem.removeprefix("rank_")
+
+
+def _rank_payload_signal_paths(payload: Mapping[str, Any]) -> dict[str, Path]:
+    signals = payload.get("signals")
+    paths: dict[str, Path] = {}
+    if isinstance(signals, Mapping):
+        if signals.get("all"):
+            paths["signals"] = repo_paths.resolve_repo_path(str(signals["all"]))
+        per_pair = signals.get("per_pair") if isinstance(signals.get("per_pair"), Mapping) else {}
+        for pair, raw in sorted(per_pair.items(), key=lambda item: str(item[0])):
+            if not raw:
+                continue
+            path = repo_paths.resolve_repo_path(str(raw))
+            token = _artifact_key_token(pair) if pair else _artifact_key_token(path.stem)
+            paths[f"signal_file_{token}"] = path
+    elif isinstance(signals, str) and signals.strip():
+        paths["signals"] = repo_paths.resolve_repo_path(signals)
+    return paths
+
+
+def _rank_payload_roots(payload: Mapping[str, Any], signal_paths: Mapping[str, Path]) -> list[Path]:
+    roots: list[Path] = []
+
+    def add_root(path: Path) -> None:
+        key = _as_repo_meta(path)
+        if key not in {_as_repo_meta(item) for item in roots}:
+            roots.append(path)
+
+    selected_ref = _maybe_artifact_ref_for_existing_file(payload.get("selected_factors"))
+    if selected_ref is not None:
+        raw = str(selected_ref.get("path") or "").strip()
+        if raw:
+            add_root(repo_paths.resolve_repo_path(raw).parent)
+    for path in signal_paths.values():
+        parent = path.parent
+        if parent.name == "signals":
+            add_root(parent.parent)
+        else:
+            add_root(parent)
+    return roots
+
+
+def _add_rank_payload_artifact_refs(refs: dict[str, Any], prefix: str, payload: Mapping[str, Any]) -> None:
+    signal_paths = _rank_payload_signal_paths(payload)
+    all_signal = signal_paths.get("signals")
+    if all_signal is not None:
+        refs[f"{prefix}_signals"] = _artifact_ref(all_signal)
+        refs[f"{prefix}_signal_dir"] = {"path": _as_repo_meta(all_signal.parent), "kind": "directory"}
+    for key, path in signal_paths.items():
+        if key == "signals":
+            continue
+        refs[f"{prefix}_{key}"] = _artifact_ref(path)
+
+    for root in _rank_payload_roots(payload, signal_paths):
+        refs[f"{prefix}_rank_dir"] = {"path": _as_repo_meta(root), "kind": "directory"}
+        for name in _RANK_PORTFOLIO_SIDECAR_ARTIFACTS:
+            path = root / name
+            if path.is_file():
+                refs[f"{prefix}_rank_{_rank_sidecar_key_name(name)}"] = _artifact_ref(path)
+
+
+def _is_rank_portfolio_artifact_ref_key(key: str) -> bool:
+    rank_sidecar_suffixes = tuple(f"_rank_{_rank_sidecar_key_name(name)}" for name in _RANK_PORTFOLIO_SIDECAR_ARTIFACTS)
+    return (
+        key.endswith(rank_sidecar_suffixes)
+        or key.endswith("_rank_dir")
+        or "_signal_file_" in key
+    )
 
 
 def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = None) -> dict[str, Any]:
@@ -5527,6 +5612,9 @@ def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = No
             refs[f"verification_{key}"] = _artifact_ref(path)
     if verification_artifacts.get("dir"):
         refs["verification_dir"] = {"path": str(verification_artifacts["dir"]), "kind": "directory"}
+    signal_export = load_json(idir / "signal_export.json", {})
+    if isinstance(signal_export, Mapping):
+        _add_rank_payload_artifact_refs(refs, "signal_export", signal_export)
     backtest = load_json(idir / "backtest.json", {})
     stage_sources: list[tuple[str, Mapping[str, Any]]] = []
     if isinstance(backtest, Mapping):
@@ -5537,16 +5625,7 @@ def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = No
         if not stage_sources:
             stage_sources.append(("single", backtest))
     for stage_name, payload in stage_sources:
-        signals = payload.get("signals")
-        all_signal: Optional[str] = None
-        if isinstance(signals, Mapping) and signals.get("all"):
-            all_signal = str(signals.get("all"))
-        elif isinstance(signals, str):
-            all_signal = signals
-        if all_signal:
-            signal_path = repo_paths.resolve_repo_path(all_signal)
-            refs[f"{stage_name}_signals"] = _artifact_ref(signal_path)
-            refs[f"{stage_name}_signal_dir"] = {"path": _as_repo_meta(signal_path.parent), "kind": "directory"}
+        _add_rank_payload_artifact_refs(refs, stage_name, payload)
         freqtrade = payload.get("freqtrade_backtest") if isinstance(payload.get("freqtrade_backtest"), Mapping) else {}
         metrics = freqtrade.get("metrics") if isinstance(freqtrade.get("metrics"), Mapping) else {}
         if metrics.get("backtest_zip"):
@@ -5696,6 +5775,11 @@ def build_iteration_manifest(
             key: refs[key]
             for key in sorted(_CANDIDATE_INPUT_ARTIFACT_REF_KEYS)
             if key in refs
+        },
+        "rank_portfolio_artifacts": {
+            key: ref
+            for key, ref in sorted(refs.items())
+            if _is_rank_portfolio_artifact_ref_key(key)
         },
         "lean_gate": {
             "status": (evaluation.get("lean_gate") or {}).get("status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,

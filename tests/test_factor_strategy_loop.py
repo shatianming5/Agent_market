@@ -6682,6 +6682,23 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     idir = tmp_path / "iter_01"
     candidate_state = tmp_path / "state_0010.json"
     baseline_profile = tmp_path / "optimized_profile.json"
+    rank_root = tmp_path / "rank_portfolio" / "unit_manifest_iter_01"
+    rank_signal_dir = rank_root / "signals"
+    rank_signal_dir.mkdir(parents=True)
+    all_signals = rank_signal_dir / "all.feather"
+    btc_signals = rank_signal_dir / "BTC_USDT_USDT.feather"
+    all_signals.write_bytes(b"fake feather")
+    btc_signals.write_bytes(b"fake btc feather")
+    selected_factors = rank_root / "selected_factors.json"
+    _write_json(selected_factors, {"version": "rank-portfolio-v1", "factors": []})
+    _write_json(
+        rank_root / "rank_export.json",
+        {
+            "selected_factors": str(selected_factors),
+            "signals": {"all": str(all_signals), "per_pair": {"BTC/USDT:USDT": str(btc_signals)}},
+        },
+    )
+    _write_json(rank_root / "backtest.json", {"trades": 1, "signals": str(all_signals)})
     _write_json(candidate_state, {"candidates": []})
     _write_json(baseline_profile, {"rank_profile": {"top_k": 2}})
     _write_json(
@@ -6692,7 +6709,12 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
             "metadata": {"baseline_profile": str(baseline_profile)},
         },
     )
-    _write_json(idir / "backtest.json", {"signals": str(idir / "signals" / "all.feather")})
+    rank_payload = {
+        "selected_factors": str(selected_factors),
+        "signals": {"all": str(all_signals), "per_pair": {"BTC/USDT:USDT": str(btc_signals)}},
+    }
+    _write_json(idir / "signal_export.json", rank_payload)
+    _write_json(idir / "backtest.json", rank_payload)
     _write_json(idir / "context" / "prepare.json", {"prompt": "full prompt context"})
     (idir / "agent_response.txt").write_text("assistant response text", encoding="utf-8")
     (idir / "analysis.md").write_text("# Analysis\n", encoding="utf-8")
@@ -6718,8 +6740,6 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
             },
         },
     )
-    (idir / "signals").mkdir()
-    (idir / "signals" / "all.feather").write_bytes(b"fake feather")
     candidate = validate_candidate(idir / "candidate.json")
     evaluation = {"iteration": 1, "parameter_signature": "abc", "window_metrics": {"single": {"score": 1.0}}}
 
@@ -6737,6 +6757,12 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     assert "sha256" in manifest["artifact_refs"]["lean_analysis.md"]
     assert "sha256" in manifest["artifact_refs"]["rank_profile_candidate_state"]
     assert "sha256" in manifest["artifact_refs"]["metadata_baseline_profile"]
+    assert "sha256" in manifest["artifact_refs"]["single_rank_export"]
+    assert "sha256" in manifest["artifact_refs"]["single_rank_backtest"]
+    assert "sha256" in manifest["artifact_refs"]["single_rank_selected_factors"]
+    assert "sha256" in manifest["artifact_refs"]["single_signal_file_BTC_USDT_USDT"]
+    assert "sha256" in manifest["artifact_refs"]["signal_export_rank_export"]
+    assert "sha256" in manifest["artifact_refs"]["signal_export_rank_selected_factors"]
     assert "sha256" in manifest["artifact_refs"]["verification_freqtrade_override"]
     assert "sha256" in manifest["artifact_refs"]["verification_lookahead_csv"]
     assert "sha256" in manifest["artifact_refs"]["verification_lookahead_log"]
@@ -6744,6 +6770,8 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     assert manifest["lookahead_recursive_artifacts"]["lookahead_csv"] == manifest["artifact_refs"]["verification_lookahead_csv"]
     assert manifest["candidate_input_artifacts"]["rank_profile_candidate_state"] == manifest["artifact_refs"]["rank_profile_candidate_state"]
     assert manifest["candidate_input_artifacts"]["metadata_baseline_profile"] == manifest["artifact_refs"]["metadata_baseline_profile"]
+    assert manifest["rank_portfolio_artifacts"]["single_rank_export"] == manifest["artifact_refs"]["single_rank_export"]
+    assert manifest["rank_portfolio_artifacts"]["signal_export_rank_export"] == manifest["artifact_refs"]["signal_export_rank_export"]
     assert "fake feather" not in json.dumps(manifest)
 
 
