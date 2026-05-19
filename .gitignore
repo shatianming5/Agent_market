@@ -17,6 +17,7 @@ user_data/llm_raw/
 user_data/llm_feedback/
 user_data/data/
 user_data/agent_logs/
+user_data/backtest_results/
 user_data/backtest_results/*.zip
 user_data/backtest_results/*.meta.json
 user_data/logs/
