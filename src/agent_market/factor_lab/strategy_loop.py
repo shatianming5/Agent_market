@@ -6133,6 +6133,26 @@ def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
     return _doctor_artifact_refs_hash_status(manifest.get("artifact_refs"))
 
 
+def _lean_audit_expected_artifact_refs(lean_gate_payload: Mapping[str, Any]) -> dict[str, Any]:
+    artifacts = (
+        lean_gate_payload.get("artifacts")
+        if isinstance(lean_gate_payload.get("artifacts"), Mapping)
+        else {}
+    )
+    refs: dict[str, Any] = {}
+    raw_project = artifacts.get("lean_project")
+    if raw_project:
+        project = repo_paths.resolve_repo_path(str(raw_project))
+        refs["lean_lean_project"] = {"path": _as_repo_meta(project), "kind": "directory"}
+        _add_lean_project_artifact_refs(refs, raw_project)
+    raw_result = artifacts.get("lean_result")
+    if raw_result:
+        result = repo_paths.resolve_repo_path(str(raw_result))
+        refs["lean_lean_result"] = _artifact_ref(result)
+        _add_lean_result_artifact_refs(refs, raw_result)
+    return refs
+
+
 def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: bool = True) -> dict[str, Any]:
     """Audit a factor strategy-loop run and optionally persist doctor_latest.json."""
     root = loop_root(str(run_id))
@@ -6247,6 +6267,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     best_manifest_local_ref_binding_mismatches = 0
     candidate_input_ref_bindings_checked = 0
     candidate_input_ref_binding_mismatches = 0
+    lean_audit_ref_bindings_checked = 0
+    lean_audit_ref_binding_mismatches = 0
     best_dir = root / "best"
     best_dir_resolved = best_dir.resolve()
     all_iteration_like_manifests = [*iteration_manifests, *blind_manifests, *best_manifests]
@@ -6281,6 +6303,36 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     for manifest_path in all_iteration_like_manifests:
         manifest_payload = load_json(manifest_path, {})
         refs = manifest_payload.get("artifact_refs") if isinstance(manifest_payload, Mapping) and isinstance(manifest_payload.get("artifact_refs"), Mapping) else {}
+        lean_gate_payload = load_json(manifest_path.parent / "lean_gate.json", {})
+        expected_lean_refs = _lean_audit_expected_artifact_refs(lean_gate_payload) if isinstance(lean_gate_payload, Mapping) else {}
+        for ref_key, expected_ref in expected_lean_refs.items():
+            if not isinstance(expected_ref, Mapping):
+                continue
+            expected_raw = str(expected_ref.get("path") or "").strip()
+            if not expected_raw:
+                continue
+            lean_audit_ref_bindings_checked += 1
+            expected_path = repo_paths.resolve_repo_path(expected_raw)
+            expected_exists = expected_path.is_dir() if expected_ref.get("kind") == "directory" else expected_path.is_file()
+            ref = refs.get(ref_key) if isinstance(refs.get(ref_key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            detail = {
+                "manifest": _as_repo_meta(manifest_path),
+                "ref_key": ref_key,
+                "expected_path": _as_repo_meta(expected_path),
+                "ref_path": ref_raw,
+            }
+            if not expected_exists:
+                lean_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "LEAN audit artifact path does not exist", path=expected_raw, detail=detail))
+                continue
+            if not ref_raw:
+                lean_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "LEAN audit artifact ref missing from manifest", path=_as_repo_meta(manifest_path), detail=detail))
+                continue
+            if _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(expected_path):
+                lean_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "LEAN audit artifact ref path differs from lean_gate artifact", path=ref_raw, detail=detail))
         candidate_ref = refs.get("candidate.json") if isinstance(refs.get("candidate.json"), Mapping) else {}
         candidate_ref_raw = str(candidate_ref.get("path") or "").strip() if isinstance(candidate_ref, Mapping) else ""
         if not candidate_ref_raw:
@@ -7547,6 +7599,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "best_manifest_local_ref_binding_mismatches": best_manifest_local_ref_binding_mismatches,
             "candidate_input_ref_bindings_checked": candidate_input_ref_bindings_checked,
             "candidate_input_ref_binding_mismatches": candidate_input_ref_binding_mismatches,
+            "lean_audit_ref_bindings_checked": lean_audit_ref_bindings_checked,
+            "lean_audit_ref_binding_mismatches": lean_audit_ref_binding_mismatches,
             "run_manifest_structure_bindings_checked": run_manifest_structure_bindings_checked,
             "run_manifest_structure_binding_mismatches": run_manifest_structure_binding_mismatches,
             "checkpoint_identity_bindings_checked": checkpoint_identity_bindings_checked,

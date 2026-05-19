@@ -6912,6 +6912,71 @@ def test_strategy_loop_doctor_requires_candidate_input_artifact_refs(
     assert "candidate input artifact ref missing from manifest" in messages
 
 
+def test_strategy_loop_doctor_requires_lean_audit_artifact_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_lean_audit_refs"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    iter_dir = root / "iter_01"
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    candidate_ref = _write_json_ref(iter_dir / "candidate.json", {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}})
+    lean_project = iter_dir / "lean_gate" / "iteration" / "project"
+    lean_result_dir = lean_project / "backtests" / "unit"
+    (lean_project / "data" / "ohlcv").mkdir(parents=True)
+    lean_result_dir.mkdir(parents=True)
+    (lean_project / "main.py").write_text("print('lean')\n", encoding="utf-8")
+    _write_json(lean_project / "config.json", {"algorithm-language": "Python"})
+    _write_json(lean_project / "manifest.json", {"local_only": True})
+    _write_json(lean_project / "lean_backtest_run.json", {"returncode": 0})
+    (lean_project / "data" / "signals.csv").write_text("time,symbol,lean_target_weight\n", encoding="utf-8")
+    (lean_project / "data" / "funding.csv").write_text("time,pair,rate\n", encoding="utf-8")
+    (lean_project / "data" / "ohlcv" / "BTCUSDT.csv").write_text("time,open,high,low,close,volume\n", encoding="utf-8")
+    lean_result = lean_result_dir / "123-summary.json"
+    _write_json(lean_result, {"total-return": 0.1})
+    _write_json(lean_result_dir / "123-order-events.json", [])
+    (lean_result_dir / "log.txt").write_text("lean log\n", encoding="utf-8")
+    _write_json(
+        iter_dir / "lean_gate.json",
+        {
+            "artifacts": {
+                "lean_project": str(lean_project),
+                "lean_result": str(lean_result),
+            },
+        },
+    )
+    _write_json(
+        iter_dir / "manifest.json",
+        {
+            "artifact_refs": {
+                "candidate.json": candidate_ref,
+                "lean_lean_project": {"path": strategy_loop_mod._as_repo_meta(lean_project), "kind": "directory"},
+            },
+        },
+    )
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["summary"]["lean_audit_ref_bindings_checked"] >= 8
+    assert result["summary"]["lean_audit_ref_binding_mismatches"] >= 7
+    assert "LEAN audit artifact ref missing from manifest" in messages
+
+
 def test_best_snapshot_rewrites_artifact_refs_to_best_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "best_snapshot_refs"
