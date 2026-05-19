@@ -5497,14 +5497,20 @@ def _rank_payload_signal_paths(payload: Mapping[str, Any]) -> dict[str, Path]:
         if signals.get("all"):
             paths["signals"] = repo_paths.resolve_repo_path(str(signals["all"]))
         per_pair = signals.get("per_pair") if isinstance(signals.get("per_pair"), Mapping) else {}
-        for pair, raw in sorted(per_pair.items(), key=lambda item: str(item[0])):
+        for _pair, raw in sorted(per_pair.items(), key=lambda item: str(item[0])):
             if not raw:
                 continue
             path = repo_paths.resolve_repo_path(str(raw))
-            token = _artifact_key_token(pair) if pair else _artifact_key_token(path.stem)
+            token = _artifact_key_token(path.stem)
             paths[f"signal_file_{token}"] = path
     elif isinstance(signals, str) and signals.strip():
         paths["signals"] = repo_paths.resolve_repo_path(signals)
+    all_signal = paths.get("signals")
+    if all_signal is not None and all_signal.parent.is_dir():
+        for path in sorted(all_signal.parent.glob("*.feather")):
+            if path.name == all_signal.name:
+                continue
+            paths.setdefault(f"signal_file_{_artifact_key_token(path.stem)}", path)
     return paths
 
 

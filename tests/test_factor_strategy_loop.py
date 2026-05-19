@@ -6709,12 +6709,12 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
             "metadata": {"baseline_profile": str(baseline_profile)},
         },
     )
-    rank_payload = {
+    signal_export_payload = {
         "selected_factors": str(selected_factors),
         "signals": {"all": str(all_signals), "per_pair": {"BTC/USDT:USDT": str(btc_signals)}},
     }
-    _write_json(idir / "signal_export.json", rank_payload)
-    _write_json(idir / "backtest.json", rank_payload)
+    _write_json(idir / "signal_export.json", signal_export_payload)
+    _write_json(idir / "backtest.json", {"selected_factors": str(selected_factors), "signals": str(all_signals)})
     _write_json(idir / "context" / "prepare.json", {"prompt": "full prompt context"})
     (idir / "agent_response.txt").write_text("assistant response text", encoding="utf-8")
     (idir / "analysis.md").write_text("# Analysis\n", encoding="utf-8")
