@@ -5840,6 +5840,9 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_candidate_path_missing = 0
     selected_candidate_payload_bindings_checked = 0
     selected_candidate_payload_binding_mismatches = 0
+    selected_finalist_bindings_checked = 0
+    selected_finalist_binding_mismatches = 0
+    selected_finalist_best_rank_mismatches = 0
     optimized_profile_eval_bindings_checked = 0
     optimized_profile_eval_binding_mismatches = 0
     deepresearch_context_final_bindings_checked = 0
@@ -5867,6 +5870,12 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             except Exception:
                 data["rank_profile"] = dict(profile)
         return data
+
+    def float_or_none(value: Any) -> Optional[float]:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -6005,6 +6014,44 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             selected_eval_binding_mismatches += 1
             findings.append(_doctor_finding("BLOCKER", "selected blind finalist differs from blind evaluation artifact", path=_as_repo_meta(evaluation_path)))
 
+    def record_selected_finalist_binding(selected_payload: Mapping[str, Any]) -> None:
+        nonlocal selected_finalist_bindings_checked, selected_finalist_binding_mismatches, selected_finalist_best_rank_mismatches
+        selected_finalist_bindings_checked += 1
+        if not final_blind_finalists:
+            selected_finalist_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is not represented in final_blind_status finalists"))
+            return
+        matched = False
+        eligible_scores: list[float] = []
+        for row in final_blind_finalists:
+            if not isinstance(row, Mapping):
+                continue
+            evaluation = row.get("evaluation") if isinstance(row.get("evaluation"), Mapping) else {}
+            if evaluation and dict(evaluation) == dict(selected_payload):
+                matched = True
+            row_eligible = bool(row.get("promotion_eligible")) or bool(evaluation.get("promotion_eligible") if isinstance(evaluation, Mapping) else False)
+            if row_eligible:
+                row_score = float_or_none(row.get("score"))
+                if row_score is None and isinstance(evaluation, Mapping):
+                    row_score = float_or_none(evaluation.get("score"))
+                if row_score is not None:
+                    eligible_scores.append(row_score)
+        if not matched:
+            selected_finalist_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is not represented in final_blind_status finalists"))
+        selected_score = float_or_none(selected_payload.get("score"))
+        if bool(selected_payload.get("promotion_eligible")) and selected_score is not None and eligible_scores:
+            best_score = max(eligible_scores)
+            if best_score > selected_score:
+                selected_finalist_best_rank_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "selected blind finalist is not highest-scoring promotion eligible finalist",
+                        detail={"selected_score": selected_score, "best_score": best_score},
+                    )
+                )
+
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
@@ -6014,6 +6061,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             record_source_ref_status("selected blind finalist", selected.get("artifact_refs"))
             if promotion.get("promoted") or selected.get("candidate_path"):
                 record_selected_evaluation_binding(selected)
+            record_selected_finalist_binding(selected)
             if not bool(selected.get("blind_final")):
                 findings.append(_doctor_finding("BLOCKER", "selected candidate is not marked blind_final"))
             if selected.get("promotion_eligible") and str(selected.get("verification_status") or "").lower() != VERIFICATION_PASSED:
@@ -6225,6 +6273,9 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_candidate_path_missing": selected_candidate_path_missing,
             "selected_candidate_payload_bindings_checked": selected_candidate_payload_bindings_checked,
             "selected_candidate_payload_binding_mismatches": selected_candidate_payload_binding_mismatches,
+            "selected_finalist_bindings_checked": selected_finalist_bindings_checked,
+            "selected_finalist_binding_mismatches": selected_finalist_binding_mismatches,
+            "selected_finalist_best_rank_mismatches": selected_finalist_best_rank_mismatches,
             "optimized_profile_eval_bindings_checked": optimized_profile_eval_bindings_checked,
             "optimized_profile_eval_binding_mismatches": optimized_profile_eval_binding_mismatches,
             "deepresearch_context_final_bindings_checked": deepresearch_context_final_bindings_checked,
