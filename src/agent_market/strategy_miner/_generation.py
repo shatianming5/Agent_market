@@ -365,6 +365,33 @@ def phase_strategy_gen(
         global_factor_memory_path = str(paths.global_factor_memory_path())
     seen_factor_paths: set[str] = set()
 
+    def _apply_generated_strategy_compliance(
+        strategy_path: Path, candidate_idx: int, stage: str
+    ) -> str | None:
+        try:
+            did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
+                strategy_path,
+                timeframe=compliance_timeframe,
+                enforce_can_short_false=enforce_can_short_false,
+            )
+            if not did_comp:
+                return None
+            logger.info(
+                "Compliance auto-fix applied (%s) for candidate %d: %s",
+                stage,
+                candidate_idx,
+                ",".join(comp_fixes),
+            )
+            return strategy_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            logger.debug(
+                "Compliance auto-fix failed (%s) for candidate %d",
+                stage,
+                candidate_idx,
+                exc_info=True,
+            )
+            return None
+
     def _load_factor_store(raw_path: str) -> None:
         raw = str(raw_path or "").strip()
         if not raw:
@@ -863,17 +890,11 @@ def phase_strategy_gen(
                     logger.info("Candidate %d normalized: %s", candidate_idx, ",".join(fixes))
 
                 # Ensure freqtrade sanity settings (order_types/time_in_force/can_short).
-                try:
-                    did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
-                        norm_path,
-                        timeframe=compliance_timeframe,
-                        enforce_can_short_false=enforce_can_short_false,
-                    )
-                    if did_comp:
-                        code = norm_path.read_text(encoding="utf-8", errors="replace")
-                        logger.info("Compliance auto-fix applied (gen) for candidate %d: %s", candidate_idx, ",".join(comp_fixes))
-                except Exception:
-                    logger.debug("Compliance auto-fix failed (gen) for candidate %d", candidate_idx, exc_info=True)
+                fixed_code = _apply_generated_strategy_compliance(
+                    norm_path, candidate_idx, "gen"
+                )
+                if fixed_code is not None:
+                    code = fixed_code
 
                 cand = StrategyCandidate(
                     name=name,
@@ -1152,17 +1173,9 @@ def phase_strategy_gen(
             logger.info("Candidate %d normalized: %s", candidate_idx, ",".join(fixes))
 
         # Ensure freqtrade sanity settings before reviewer/backtester prompts.
-        try:
-            did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
-                norm_path,
-                timeframe=compliance_timeframe,
-                enforce_can_short_false=enforce_can_short_false,
-            )
-            if did_comp:
-                code = norm_path.read_text(encoding="utf-8", errors="replace")
-                logger.info("Compliance auto-fix applied (gen) for candidate %d: %s", candidate_idx, ",".join(comp_fixes))
-        except Exception:
-            logger.debug("Compliance auto-fix failed (gen) for candidate %d", candidate_idx, exc_info=True)
+        fixed_code = _apply_generated_strategy_compliance(norm_path, candidate_idx, "gen")
+        if fixed_code is not None:
+            code = fixed_code
 
         def _try_parse_json(text_blob: str) -> dict[str, Any] | None:
             if not isinstance(text_blob, str) or not text_blob.strip():
@@ -1319,17 +1332,11 @@ def phase_strategy_gen(
                 logger.debug("Applying reviewer fixed_code failed", exc_info=True)
 
         # Ensure freqtrade sanity settings after reviewer edits.
-        try:
-            did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
-                norm_path,
-                timeframe=compliance_timeframe,
-                enforce_can_short_false=enforce_can_short_false,
-            )
-            if did_comp:
-                code = norm_path.read_text(encoding="utf-8", errors="replace")
-                logger.info("Compliance auto-fix applied (post-review) for candidate %d: %s", candidate_idx, ",".join(comp_fixes))
-        except Exception:
-            logger.debug("Compliance auto-fix failed (post-review) for candidate %d", candidate_idx, exc_info=True)
+        fixed_code = _apply_generated_strategy_compliance(
+            norm_path, candidate_idx, "post-review"
+        )
+        if fixed_code is not None:
+            code = fixed_code
 
         cand = StrategyCandidate(
             name=name,
