@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List
 
 
 LOB_STATE_COLUMNS: List[str] = [
