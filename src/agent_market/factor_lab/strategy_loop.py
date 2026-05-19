@@ -5669,11 +5669,12 @@ def _doctor_window_order(config_payload: Mapping[str, Any]) -> tuple[bool, dict[
         return False, {"error": str(exc)}
 
 
-def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
-    refs = manifest.get("artifact_refs") if isinstance(manifest.get("artifact_refs"), Mapping) else {}
+def _doctor_artifact_refs_hash_status(refs: Any) -> dict[str, int]:
     files = 0
     hashed = 0
     missing_hash = 0
+    if not isinstance(refs, Mapping):
+        return {"files": files, "hashed": hashed, "missing_hash": missing_hash}
     for ref in refs.values():
         if not isinstance(ref, Mapping):
             continue
@@ -5687,6 +5688,10 @@ def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
         else:
             missing_hash += 1
     return {"files": files, "hashed": hashed, "missing_hash": missing_hash}
+
+
+def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
+    return _doctor_artifact_refs_hash_status(manifest.get("artifact_refs"))
 
 
 def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: bool = True) -> dict[str, Any]:
@@ -5767,12 +5772,29 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected = final_status.get("selected") if isinstance(final_status, Mapping) and isinstance(final_status.get("selected"), Mapping) else {}
     final_blind_finalists = final_status.get("finalists") if isinstance(final_status, Mapping) and isinstance(final_status.get("finalists"), list) else []
     promotion = final_status.get("promotion") if isinstance(final_status, Mapping) and isinstance(final_status.get("promotion"), Mapping) else {}
+    source_ref_hash_statuses: list[dict[str, Any]] = []
+
+    def record_source_ref_status(label: str, refs: Any) -> None:
+        status = _doctor_artifact_refs_hash_status(refs)
+        source_ref_hash_statuses.append({"label": label, **status})
+        if status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", f"{label} is missing source artifact refs"))
+        elif status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    f"{label} has source artifact refs without sha256 hashes",
+                    detail={"missing_hash": status["missing_hash"]},
+                )
+            )
+
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
         elif not selected:
             findings.append(_doctor_finding("HIGH", "no selected blind finalist"))
         else:
+            record_source_ref_status("selected blind finalist", selected.get("artifact_refs"))
             if not bool(selected.get("blind_final")):
                 findings.append(_doctor_finding("BLOCKER", "selected candidate is not marked blind_final"))
             if selected.get("promotion_eligible") and str(selected.get("verification_status") or "").lower() != VERIFICATION_PASSED:
@@ -5783,6 +5805,15 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted but selected candidate is not promotion_eligible"))
         if promotion.get("promoted") and lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(selected) != VERIFICATION_PASSED:
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted without a passed LEAN gate"))
+
+    for idx, item in enumerate(final_blind_finalists, start=1):
+        if not isinstance(item, Mapping):
+            continue
+        finalist = item.get("finalist") if isinstance(item.get("finalist"), Mapping) else {}
+        if finalist:
+            record_source_ref_status(f"Pareto finalist {idx}", finalist.get("artifact_refs"))
+    source_missing_hash_total = sum(item.get("missing_hash", 0) for item in source_ref_hash_statuses)
+    source_hashed_total = sum(item.get("hashed", 0) for item in source_ref_hash_statuses)
 
     verification_files = sorted([*root.glob("iter_*/verification.json"), *root.glob("blind_*/verification.json")])
     verification_counts: dict[str, int] = {}
@@ -5838,6 +5869,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "blind_manifests": len(blind_manifests),
             "artifact_refs_hashed": hashed_total,
             "artifact_refs_missing_hash": missing_hash_total,
+            "source_artifact_refs_hashed": source_hashed_total,
+            "source_artifact_refs_missing_hash": source_missing_hash_total,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
             "lean_gate_files": len(lean_gate_files),
