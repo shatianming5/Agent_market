@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 from agent_market import paths
 from agent_market.flow_ext.step_spec import STEP_ORDER
 
-_LEGACY_EXPORTS = {
+_LEGACY_EXPORTS = (
     "get_freqtrade_version",
     "run_backtest",
     "run_capture",
@@ -32,7 +32,14 @@ _LEGACY_EXPORTS = {
     "run_rl_training",
     "run_strategy_miner_step",
     "run_tca",
-}
+)
+
+_HELPER_EXPORTS = (
+    "STEP_ORDER",
+    "merge_artifacts",
+    "run_dir_for_run_id",
+    "step_out_dir",
+)
 
 
 def __getattr__(name: str) -> Any:
@@ -59,24 +66,4 @@ def merge_artifacts(existing: Dict[str, Optional[str]], updates: Dict[str, Optio
     return out
 
 
-__all__ = [
-    "STEP_ORDER",
-    "merge_artifacts",
-    "run_backtest",
-    "run_capture",
-    "run_command",
-    "run_dir_for_run_id",
-    "run_expression_generation",
-    "run_factor_compile",
-    "run_factor_eval",
-    "run_feature_generation",
-    "get_freqtrade_version",
-    "run_lob_rebuild",
-    "run_micro_feature",
-    "run_ml_training",
-    "run_report_bundle",
-    "run_rl_training",
-    "run_tca",
-    "run_strategy_miner_step",
-    "step_out_dir",
-]
+__all__ = [*_HELPER_EXPORTS, *_LEGACY_EXPORTS]
