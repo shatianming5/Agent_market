@@ -106,7 +106,7 @@ pytest -q
 ## 10. 仍未收敛的项（不要在不知情时挑战）
 
 - `python scripts/wq_brain.py pool resubmit-all` 与 `python scripts/wq_brain.py scan --auto-submit` 已被 R2 review gate (`--legacy-unsafe`) 锁住：默认拒绝执行，必须显式加 `--legacy-unsafe` 才会走旧代码（无 quota / 无 local-jaccard / 无 self-corr / 无持久化）。生产请用 `python scripts/wq_brain.py pool submit-worker`。
-- `src/agent_market/wq_brain/vendor_quantgpt/mcp_server.py` 包含直接 `submit_alpha` / `auto_submit` 调用，**但当前仓库内无任何模块 import 它**（已 grep 验证），属于 dead vendored snapshot；如未来要启用 MCP，必须先把同样的 `--legacy-unsafe` 门类应用到 mcp_server。
+- 旧 `src/agent_market/wq_brain/vendor_quantgpt/` dead vendored snapshot 已移除；如未来重新引入 MCP / upstream QuantGPT 代码，必须先证明 import 边界，并把 `--legacy-unsafe` 门类应用到任何直接 submit / auto-submit 路径。
 - `src/agent_market/` 顶层 14 个平铺模块 + 11 个子包未分层（core / flow / domain），任何重排都需先扫所有 import 路径。
 - 计划口径双轨（`docs/proposals/agent_market_proposal.md` 是 Proposal vs `docs/plan.md` MVP），通过根 `plan.md` 兼容性指针引导；未来可能合并。
 
