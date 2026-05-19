@@ -6,7 +6,7 @@ Each merger backs up original feather once at *.pre_<kind>.bak.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd

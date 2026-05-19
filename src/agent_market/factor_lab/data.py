@@ -10,7 +10,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence
+from typing import Dict, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
