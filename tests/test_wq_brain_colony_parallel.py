@@ -4,14 +4,12 @@ from __future__ import annotations
 import json
 import threading
 import time
-from pathlib import Path
 
 import pytest
 
 from agent_market.wq_brain.colony import (
     ColonyConfig,
     PanelSpec,
-    colony_run_dir,
     run_colony,
     telemetry_path,
 )

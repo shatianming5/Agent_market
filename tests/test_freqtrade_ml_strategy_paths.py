@@ -4,7 +4,6 @@ import importlib
 import json
 import sys
 import types
-from pathlib import Path
 
 
 def _import_strategy_module():
@@ -82,4 +81,3 @@ def test_load_model_uses_local_artifacts_when_summary_paths_are_stale(tmp_path, 
     assert strategy._feature_cfg == {"features": ["close"]}
     assert strategy._expression_specs[1] == str(model_dir / "expressions_snapshot.json")
     assert strategy._model.model_file == str(model_dir / "lightgbm_model.txt")
-

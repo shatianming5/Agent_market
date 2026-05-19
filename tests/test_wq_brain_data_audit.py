@@ -8,8 +8,6 @@ import pytest
 pd = pytest.importorskip("pandas")
 
 from agent_market.wq_brain.data_audit import (
-    AuditFinding,
-    AuditReport,
     check_ohlc_invariant,
     check_outliers,
     check_split_sanity,

@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from agent_market.wq_brain.dtypes import AlphaSettings, SimulationResult
+from agent_market.wq_brain.dtypes import SimulationResult
 from agent_market.wq_brain.scan_runner import ScanConfig, run_scan
 
 

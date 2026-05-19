@@ -1,10 +1,6 @@
 """Edit-altitude classifier + taxonomy + distribution-hint tests."""
 from __future__ import annotations
 
-import time
-
-import pytest
-
 from agent_market.wq_brain.prompt_builder import (
     _altitude_taxonomy_block,
     _classify_edit_altitude,

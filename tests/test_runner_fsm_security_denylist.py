@@ -7,8 +7,6 @@ compromised LLM agent would attempt.
 """
 from __future__ import annotations
 
-import pytest
-
 from runner_fsm.utils.security import cmd_allowed
 
 

@@ -1,8 +1,6 @@
 """LLMOutputValidator tests — expression / CLI / JSON validation."""
 from __future__ import annotations
 
-import pytest
-
 from agent_market.wq_brain.llm_validator import (
     KNOWN_SUBCOMMANDS,
     ValidationResult,

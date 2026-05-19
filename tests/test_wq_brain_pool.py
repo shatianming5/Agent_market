@@ -4,8 +4,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from agent_market.wq_brain.dtypes import (
     AlphaCandidate,
     AlphaPoolEntry,

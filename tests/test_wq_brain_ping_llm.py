@@ -4,7 +4,6 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
-import sys
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch

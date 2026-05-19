@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from agent_market.wq_brain.prompt_builder import (
     _FIELD_EXAMPLES,
     _OP_EXAMPLES,

@@ -1,8 +1,6 @@
 """Tests for ready-to-paste simulate commands in mutation/crossover blocks."""
 from __future__ import annotations
 
-import pytest
-
 from agent_market.wq_brain.crossover import (
     Segment,
     extract_top_segments,

@@ -4,7 +4,6 @@ from __future__ import annotations
 import pytest
 
 from agent_market.wq_brain.expr_parser import (
-    MAX_EXPRESSION_LENGTH,
     MAX_NESTING_DEPTH,
     ParseError,
     count_nesting,

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from agent_market.wq_brain.operators import (
-    ALL_FIELDS,
     ALL_OPERATORS,
     FIELDS_FUNDAMENTAL_UNAVAILABLE,
     FIELDS_PRICE_VOLUME,

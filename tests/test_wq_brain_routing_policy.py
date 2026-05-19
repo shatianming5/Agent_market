@@ -4,7 +4,6 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
-import time
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -23,12 +22,10 @@ from agent_market.wq_brain.routing_policy import (
     LearnedPolicy,
     featurise,
     hybrid_decide,
-    policy_path,
     samples_from_history,
 )
 from agent_market.wq_brain.tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,
-    ALTITUDE_L2_OP_FAMILY,
     ALTITUDE_L3_SLOT_PARAM,
     ALTITUDE_L4_NUMERIC_TWEAK,
 )

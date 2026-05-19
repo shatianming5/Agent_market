@@ -19,7 +19,6 @@ from agent_market.wq_brain.endpoint_probe import (
     load_candidates_from_env,
     load_candidates_from_file,
     probe_candidate,
-    probe_candidates,
     write_env_local,
 )
 

@@ -7,12 +7,10 @@ import json
 import time
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from agent_market.wq_brain.colony_state import (
-    BestSoFar,
     best_so_far_path,
     list_panel_bests,
     read_best_so_far,

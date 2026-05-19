@@ -4,9 +4,7 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from agent_market.factor_memory import build_factor_memory_artifacts
 from agent_market.strategy_miner.dtypes import MinerConfig, MinerState, Phase, StrategyCandidate

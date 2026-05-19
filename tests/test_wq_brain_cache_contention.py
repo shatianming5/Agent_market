@@ -5,21 +5,14 @@ import json
 import multiprocessing as mp
 import os
 import time
-from pathlib import Path
 
 import pytest
 
 from agent_market.wq_brain.pheromone_cache import (
     CACHE_VERSION,
     CAPACITY,
-    PheromoneLink,
     cache_path,
     read_cache,
-    write_links,
-)
-from agent_market.wq_brain.tried_log import (
-    ALTITUDE_L1_REGION_UNIVERSE,
-    ALTITUDE_L2_OP_FAMILY,
 )
 
 

@@ -25,13 +25,11 @@ import pytest
 from agent_market.wq_brain.colony import (
     ColonyConfig,
     PanelSpec,
-    colony_run_dir,
     run_colony,
     routing_advisory_path,
     telemetry_path,
 )
 from agent_market.wq_brain.colony_state import (
-    best_so_far_path,
     read_best_so_far,
 )
 from agent_market.wq_brain.paths import tried_exprs_path

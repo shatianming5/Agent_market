@@ -1,9 +1,6 @@
 """逐一测试 external_data 各模块：cache / aligner / providers / feature_builder。"""
 from __future__ import annotations
 
-import json
-import tempfile
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

@@ -198,7 +198,6 @@ def test_colony_run_cli_invokes_each_panel(isolated_artifacts, monkeypatch):
     """End-to-end CLI smoke: ``wq_brain colony run`` parses panels + spawns ants."""
     import importlib.util
     import io
-    import sys
     from contextlib import redirect_stdout
     from unittest.mock import patch
 

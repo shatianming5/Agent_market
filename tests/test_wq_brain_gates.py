@@ -8,7 +8,7 @@ import time
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -23,7 +23,6 @@ from agent_market.wq_brain.pheromone_cache import PheromoneLink
 from agent_market.wq_brain.tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,
     ALTITUDE_L2_OP_FAMILY,
-    ALTITUDE_L3_SLOT_PARAM,
     ALTITUDE_L4_NUMERIC_TWEAK,
 )
 

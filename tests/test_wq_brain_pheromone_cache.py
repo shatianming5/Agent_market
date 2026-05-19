@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import json
 import time
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -12,10 +10,7 @@ from agent_market.wq_brain.pheromone_cache import (
     CACHE_VERSION,
     CAPACITY,
     PheromoneLink,
-    SCORE_ALPHA_DELTA_U,
-    SCORE_BETA_SUPPORT,
     SCORE_DELTA_CONFLICT,
-    SCORE_GAMMA_RECENCY,
     TTL_SECONDS,
     cache_path,
     read_cache,
@@ -27,7 +22,6 @@ from agent_market.wq_brain.pheromone_cache import (
 from agent_market.wq_brain.tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,
     ALTITUDE_L2_OP_FAMILY,
-    ALTITUDE_L3_SLOT_PARAM,
     ALTITUDE_L4_NUMERIC_TWEAK,
 )
 

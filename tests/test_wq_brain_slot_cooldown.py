@@ -1,8 +1,6 @@
 """Slot cool-down (anti-flip) hint + find_recent_revisits primitive tests."""
 from __future__ import annotations
 
-import pytest
-
 from agent_market.wq_brain.prompt_builder import (
     _record_slot_key,
     _slot_cooldown_hint,

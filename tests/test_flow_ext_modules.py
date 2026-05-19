@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-from pathlib import Path
 
 
 def test_flow_ext_package_import_is_lazy() -> None:

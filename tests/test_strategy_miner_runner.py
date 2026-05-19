@@ -7,8 +7,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from agent_market import paths
 from agent_market.strategy_miner.dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
 from agent_market.strategy_miner.knowledge_base import KnowledgeBase

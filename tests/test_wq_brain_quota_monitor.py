@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
 from agent_market.wq_brain.quota_monitor import (
-    QuotaUsage,
     check_quota,
     get_usage,
     quota_path,
