@@ -59,21 +59,30 @@ def _write_json_ref(path: Path, payload: dict) -> dict:
     return strategy_loop_mod._artifact_ref(path)
 
 
-def _write_deepresearch_artifacts(run_id: str) -> dict:
+def _write_deepresearch_artifacts(run_id: str, *, final_status: dict | None = None, status: str = VERIFICATION_PASSED) -> dict:
     deep_root = repo_paths.artifacts_root() / "strategy_deepresearch" / run_id
-    _write_json(deep_root / "context.json", {"run_id": run_id})
+    findings: list[dict] = []
+    _write_json(
+        deep_root / "context.json",
+        {
+            "run_id": run_id,
+            "status": status,
+            "findings": findings,
+            "final_status": final_status or {},
+        },
+    )
     _write_json(deep_root / "sources.json", {"sources": []})
     (deep_root / "strategy_research_review.md").write_text("# Review\n", encoding="utf-8")
     (deep_root / "validation_protocol.md").write_text("# Protocol\n", encoding="utf-8")
     return {
-        "status": VERIFICATION_PASSED,
+        "status": status,
         "artifacts": {
             "context": f"artifacts/strategy_deepresearch/{run_id}/context.json",
             "sources": f"artifacts/strategy_deepresearch/{run_id}/sources.json",
             "review": f"artifacts/strategy_deepresearch/{run_id}/strategy_research_review.md",
             "protocol": f"artifacts/strategy_deepresearch/{run_id}/validation_protocol.md",
         },
-        "findings": [],
+        "findings": findings,
     }
 
 
@@ -478,7 +487,6 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     _write_json(root / "pareto_pool.json", {"finalists": []})
     _write_json(root / "final_promotion.json", {"promoted": False})
 
-    deepresearch = _write_deepresearch_artifacts(run_id)
     blind_dir = root / "blind_1"
     evaluation_ref = _write_json_ref(blind_dir / "evaluation.json", {"status": "selected"})
     verification_ref = _write_json_ref(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
@@ -489,13 +497,15 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"},
         "artifact_refs": {"evaluation.json": evaluation_ref},
     }
+    final_status = {
+        "selected": selected,
+        "promotion": {"promoted": False},
+        "promoted": False,
+    }
+    final_status["deepresearch"] = _write_deepresearch_artifacts(run_id, final_status=final_status)
     _write_json(
         root / "final_blind_status.json",
-        {
-            "selected": selected,
-            "promotion": {"promoted": False},
-            "deepresearch": deepresearch,
-        },
+        final_status,
     )
     _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok"})
     _write_json(
@@ -674,6 +684,55 @@ def test_strategy_loop_doctor_rejects_deepresearch_artifacts_outside_run(tmp_pat
 
     assert result["ok"] is False
     assert "deepresearch artifact path is outside run artifacts: context" in messages
+
+
+def test_strategy_loop_doctor_rejects_stale_deepresearch_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_stale_deepresearch_context"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    promotion = {"promoted": False, "artifacts": {}, "reason": "final decision"}
+    _write_json(root / "final_promotion.json", promotion)
+    blind_dir = root / "blind_1"
+    evaluation_ref = _write_json_ref(blind_dir / "evaluation.json", {"status": "selected"})
+    verification_ref = _write_json_ref(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok"})
+    _write_json(blind_dir / "manifest.json", {"artifact_refs": {"evaluation.json": evaluation_ref, "verification.json": verification_ref}})
+    selected = {
+        "blind_final": True,
+        "promotion_eligible": True,
+        "verification_status": VERIFICATION_PASSED,
+        "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"},
+        "candidate_path": "artifacts/factor_strategy_loop/doctor_formal_stale_deepresearch_context/blind_1/candidate.json",
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"evaluation.json": evaluation_ref},
+    }
+    stale_context_status = {
+        "promoted": False,
+        "selected": selected,
+        "promotion": {"promoted": False, "artifacts": {}, "reason": "pending deepresearch audit"},
+    }
+    final_status = {"promoted": False, "selected": selected, "promotion": promotion}
+    final_status["deepresearch"] = _write_deepresearch_artifacts(run_id, final_status=stale_context_status)
+    _write_json(root / "final_blind_status.json", final_status)
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert "deepresearch context promotion differs from final_blind_status" in messages
 
 
 def test_strategy_loop_doctor_requires_hashed_finalist_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1205,6 +1264,8 @@ def test_deepresearch_sidecar_writes_under_artifacts_not_repo_docs(tmp_path: Pat
         lean_gate_mode="final",
     )
     final_status = {
+        "promoted": True,
+        "promotion": {"promoted": True, "artifacts": {"optimized_profile": "artifacts/rank_portfolio/unit/optimized_profile.json"}},
         "selected": {
             "verification_status": VERIFICATION_PASSED,
             "blind_final": True,
@@ -1218,6 +1279,9 @@ def test_deepresearch_sidecar_writes_under_artifacts_not_repo_docs(tmp_path: Pat
     for key in ("context", "sources", "review", "protocol"):
         assert artifacts[key].startswith(f"artifacts/strategy_deepresearch/{run_id}/")
         assert repo_paths.resolve_repo_path(artifacts[key]).exists()
+    context = json.loads(repo_paths.resolve_repo_path(artifacts["context"]).read_text(encoding="utf-8"))
+    assert context["final_status"]["promotion"] == final_status["promotion"]
+    assert context["final_status"]["promoted"] is True
     after = {path: path.read_bytes() if path.exists() else None for path in watched_docs}
     assert after == before
 

@@ -5973,6 +5973,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
         if str(deepresearch.get("status") or "").lower() != VERIFICATION_PASSED:
             findings.append(_doctor_finding("BLOCKER", "deepresearch status is not passed"))
         expected_deep_dir = (repo_paths.artifacts_root() / "strategy_deepresearch" / str(run_id)).resolve()
+        deep_paths: dict[str, Path] = {}
         for key in ("context", "sources", "review", "protocol"):
             raw = str(deep_artifacts.get(key) or "").strip()
             if not raw:
@@ -5982,6 +5983,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             if not path.exists():
                 findings.append(_doctor_finding("HIGH", f"deepresearch artifact path does not exist: {key}", path=raw))
                 continue
+            deep_paths[key] = path
             try:
                 path.resolve().relative_to(expected_deep_dir)
             except Exception:
@@ -5993,6 +5995,50 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                         detail={"expected_dir": _as_repo_meta(expected_deep_dir)},
                     )
                 )
+        context_path = deep_paths.get("context")
+        if context_path is not None and context_path.exists():
+            context = load_json(context_path, {})
+            if not isinstance(context, Mapping):
+                findings.append(_doctor_finding("BLOCKER", "deepresearch context is not a JSON object", path=_as_repo_meta(context_path)))
+            else:
+                if context.get("run_id") != str(run_id):
+                    findings.append(
+                        _doctor_finding(
+                            "BLOCKER",
+                            "deepresearch context run_id does not match run",
+                            path=_as_repo_meta(context_path),
+                            detail={"context_run_id": context.get("run_id"), "run_id": str(run_id)},
+                        )
+                    )
+                if str(context.get("status") or "").lower() != str(deepresearch.get("status") or "").lower():
+                    findings.append(_doctor_finding("BLOCKER", "deepresearch context status differs from final_blind_status", path=_as_repo_meta(context_path)))
+                if list(context.get("findings") or []) != list(deepresearch.get("findings") or []):
+                    findings.append(_doctor_finding("BLOCKER", "deepresearch context findings differ from final_blind_status", path=_as_repo_meta(context_path)))
+                context_final = context.get("final_status") if isinstance(context.get("final_status"), Mapping) else {}
+                if not context_final:
+                    findings.append(_doctor_finding("BLOCKER", "deepresearch context is missing final_status", path=_as_repo_meta(context_path)))
+                else:
+                    context_promotion = context_final.get("promotion") if isinstance(context_final.get("promotion"), Mapping) else {}
+                    if dict(context_promotion) != dict(promotion):
+                        findings.append(_doctor_finding("BLOCKER", "deepresearch context promotion differs from final_blind_status", path=_as_repo_meta(context_path)))
+                    if bool(context_final.get("promoted")) != bool(final_status.get("promoted")):
+                        findings.append(_doctor_finding("BLOCKER", "deepresearch context promoted flag differs from final_blind_status", path=_as_repo_meta(context_path)))
+
+                    def selected_binding(payload: Any) -> dict[str, Any]:
+                        item = payload if isinstance(payload, Mapping) else {}
+                        lean_gate = item.get("lean_gate") if isinstance(item.get("lean_gate"), Mapping) else {}
+                        return {
+                            "candidate_path": item.get("candidate_path"),
+                            "parameter_signature": item.get("parameter_signature"),
+                            "blind_final": bool(item.get("blind_final")),
+                            "promotion_eligible": bool(item.get("promotion_eligible")),
+                            "verification_status": str(item.get("verification_status") or "").lower(),
+                            "lean_gate_status": str(lean_gate.get("status") or "").lower(),
+                            "lean_comparison_status": str(lean_gate.get("comparison_status") or "").lower(),
+                        }
+
+                    if selected_binding(context_final.get("selected")) != selected_binding(selected):
+                        findings.append(_doctor_finding("BLOCKER", "deepresearch context selected finalist differs from final_blind_status", path=_as_repo_meta(context_path)))
 
     severity_rank = {"BLOCKER": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
     worst = max((severity_rank.get(str(item.get("severity")), 0) for item in findings), default=0)
@@ -8583,7 +8629,6 @@ class StrategyLoopRunner:
             "finalists": final_rows,
         }
         audit = self._deepresearch_sidecar(final_status)
-        final_status["deepresearch"] = audit
         if selected and audit.get("status") == VERIFICATION_PASSED:
             selected_eval = selected["evaluation"]
             selected_candidate = selected_eval["candidate"]
@@ -8593,6 +8638,7 @@ class StrategyLoopRunner:
         elif selected:
             final_status["promotion"] = {"promoted": False, "artifacts": {}, "reason": "deepresearch BLOCKER/HIGH finding blocks promotion"}
             final_status["promoted"] = False
+        final_status["deepresearch"] = self._deepresearch_sidecar(final_status)
         self.state.final_blind_status = final_status
         write_json(loop_root(self.config.run_id) / "final_blind_status.json", final_status)
         write_json(loop_root(self.config.run_id) / "final_promotion.json", final_status["promotion"])
