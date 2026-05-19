@@ -496,7 +496,9 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     blind_dir = root / "blind_1"
     candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
     candidate_ref = _write_json_ref(blind_dir / "candidate.json", candidate)
-    verification_ref = _write_json_ref(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    verification = {"status": VERIFICATION_PASSED}
+    verification_ref = _write_json_ref(blind_dir / "verification.json", verification)
+    lean_gate = {"status": VERIFICATION_PASSED, "comparison_status": "ok"}
     selected_candidate = {
         **candidate,
         "description": "",
@@ -511,7 +513,8 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         "blind_final": True,
         "promotion_eligible": True,
         "verification_status": VERIFICATION_PASSED,
-        "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"},
+        "verification": verification,
+        "lean_gate": lean_gate,
         "candidate": selected_candidate,
         "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/blind_1/candidate.json",
         "parameter_signature": "unit-signature",
@@ -530,7 +533,7 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         root / "final_blind_status.json",
         final_status,
     )
-    _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok"})
+    _write_json(blind_dir / "lean_gate.json", lean_gate)
     _write_json(
         blind_dir / "manifest.json",
         {"artifact_refs": {"evaluation.json": evaluation_ref, "verification.json": verification_ref}},
@@ -547,6 +550,10 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert result["summary"]["selected_finalist_bindings_checked"] == 1
     assert result["summary"]["selected_finalist_binding_mismatches"] == 0
     assert result["summary"]["selected_finalist_best_rank_mismatches"] == 0
+    assert result["summary"]["selected_verification_payload_bindings_checked"] == 1
+    assert result["summary"]["selected_verification_payload_binding_mismatches"] == 0
+    assert result["summary"]["selected_lean_gate_payload_bindings_checked"] == 1
+    assert result["summary"]["selected_lean_gate_payload_binding_mismatches"] == 0
     assert result["summary"]["verification_counts"][VERIFICATION_PASSED] == 1
     assert result["findings"] == []
     persisted = json.loads((root / "doctor_latest.json").read_text(encoding="utf-8"))
@@ -966,6 +973,142 @@ def test_strategy_loop_doctor_binds_selected_candidate_to_candidate_artifact(tmp
     assert result["summary"]["selected_candidate_payload_bindings_checked"] == 1
     assert result["summary"]["selected_candidate_payload_binding_mismatches"] == 1
     assert "selected blind finalist candidate differs from candidate artifact" in messages
+
+
+def test_strategy_loop_doctor_binds_selected_verification_and_lean_payloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_selected_gate_payload_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+    blind_dir = root / "blind_1"
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    candidate_ref = _write_json_ref(blind_dir / "candidate.json", candidate)
+    verification_ref = _write_json_ref(blind_dir / "verification.json", {"status": VERIFICATION_PASSED, "source": "artifact"})
+    selected = {
+        "score": 10.0,
+        "blind_final": True,
+        "promotion_eligible": True,
+        "verification_status": VERIFICATION_PASSED,
+        "verification": {"status": VERIFICATION_PASSED, "source": "embedded"},
+        "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok", "source": "embedded"},
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/blind_1/candidate.json",
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+    }
+    _write_json(blind_dir / "evaluation.json", selected)
+    evaluation_ref = strategy_loop_mod._artifact_ref(blind_dir / "evaluation.json")
+    _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok", "source": "artifact"})
+    _write_json(blind_dir / "manifest.json", {"artifact_refs": {"evaluation.json": evaluation_ref, "verification.json": verification_ref}})
+    final_status = {
+        "promoted": False,
+        "selected": selected,
+        "finalists": [{"evaluation": selected, "score": selected["score"], "promotion_eligible": True, "blind_final": True}],
+        "promotion": {"promoted": False},
+    }
+    final_status["deepresearch"] = _write_deepresearch_artifacts(run_id, final_status=final_status)
+    _write_json(root / "final_blind_status.json", final_status)
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["selected_verification_payload_bindings_checked"] == 1
+    assert result["summary"]["selected_verification_payload_binding_mismatches"] == 1
+    assert result["summary"]["selected_lean_gate_payload_bindings_checked"] == 1
+    assert result["summary"]["selected_lean_gate_payload_binding_mismatches"] == 1
+    assert "selected blind finalist verification differs from verification artifact" in messages
+    assert "selected blind finalist LEAN gate differs from LEAN gate artifact" in messages
+
+
+def test_strategy_loop_doctor_requires_promoted_selected_gate_payloads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_promoted_missing_selected_gate_payloads"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag=run_id,
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    profile = {"candidate_state": "state.json", "top_k": 1, "side_mode": "short"}
+    candidate = {"candidate_type": "rank_profile", "rank_profile": profile}
+    blind_dir = root / "blind_1"
+    candidate_ref = _write_json_ref(blind_dir / "candidate.json", candidate)
+    verification_ref = _write_json_ref(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    lean_gate = {"status": VERIFICATION_PASSED, "comparison_status": "ok"}
+    selected = {
+        "score": 10.0,
+        "blind_final": True,
+        "promotion_eligible": True,
+        "verification_status": VERIFICATION_PASSED,
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/blind_1/candidate.json",
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+    }
+    _write_json(blind_dir / "evaluation.json", selected)
+    evaluation_ref = strategy_loop_mod._artifact_ref(blind_dir / "evaluation.json")
+    _write_json(blind_dir / "lean_gate.json", lean_gate)
+    _write_json(blind_dir / "manifest.json", {"artifact_refs": {"evaluation.json": evaluation_ref, "verification.json": verification_ref}})
+    optimized_profile_path = repo_paths.artifacts_root() / "rank_portfolio" / run_id / "optimized_profile.json"
+    _write_json(
+        optimized_profile_path,
+        {
+            "version": "factor-strategy-loop-optimized-profile-v1",
+            "run_id": run_id,
+            "final_promotion": True,
+            "candidate": candidate,
+            "rank_profile": profile,
+            "evaluation": selected,
+        },
+    )
+    promotion = {
+        "promoted": True,
+        "artifacts": {"optimized_profile": f"artifacts/rank_portfolio/{run_id}/optimized_profile.json"},
+        "artifact_refs": {"optimized_profile": strategy_loop_mod._artifact_ref(optimized_profile_path)},
+        "reason": "rank profile passed full holdout and was written as optimized_profile.json",
+    }
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_promotion.json", promotion)
+    final_status = {
+        "promoted": True,
+        "selected": selected,
+        "finalists": [{"evaluation": selected, "score": selected["score"], "promotion_eligible": True, "blind_final": True}],
+        "promotion": promotion,
+    }
+    final_status["deepresearch"] = _write_deepresearch_artifacts(run_id, final_status=final_status)
+    _write_json(root / "final_blind_status.json", final_status)
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["selected_verification_payload_bindings_checked"] == 0
+    assert result["summary"]["selected_verification_payload_binding_mismatches"] == 1
+    assert result["summary"]["selected_lean_gate_payload_bindings_checked"] == 0
+    assert result["summary"]["selected_lean_gate_payload_binding_mismatches"] == 1
+    assert "selected blind finalist is missing embedded verification payload" in messages
+    assert "selected blind finalist is missing embedded LEAN gate payload" in messages
 
 
 def test_strategy_loop_doctor_requires_selected_to_be_represented_in_finalists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

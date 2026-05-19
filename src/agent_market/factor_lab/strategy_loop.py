@@ -5844,6 +5844,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_finalist_bindings_checked = 0
     selected_finalist_binding_mismatches = 0
     selected_finalist_best_rank_mismatches = 0
+    selected_verification_payload_bindings_checked = 0
+    selected_verification_payload_binding_mismatches = 0
+    selected_lean_gate_payload_bindings_checked = 0
+    selected_lean_gate_payload_binding_mismatches = 0
     optimized_profile_eval_bindings_checked = 0
     optimized_profile_eval_binding_mismatches = 0
     deepresearch_context_final_bindings_checked = 0
@@ -5996,6 +6000,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     def record_selected_evaluation_binding(selected_payload: Mapping[str, Any]) -> None:
         nonlocal selected_eval_bindings_checked, selected_eval_binding_mismatches, selected_candidate_path_missing
         nonlocal selected_candidate_payload_bindings_checked, selected_candidate_payload_binding_mismatches
+        nonlocal selected_verification_payload_bindings_checked, selected_verification_payload_binding_mismatches
+        nonlocal selected_lean_gate_payload_bindings_checked, selected_lean_gate_payload_binding_mismatches
         raw_candidate = str(selected_payload.get("candidate_path") or "").strip()
         if not raw_candidate:
             selected_candidate_path_missing += 1
@@ -6040,6 +6046,37 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
         ):
             selected_candidate_payload_binding_mismatches += 1
             findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate differs from candidate artifact", path=raw_candidate))
+        verification_payload = selected_payload.get("verification") if isinstance(selected_payload.get("verification"), Mapping) else {}
+        if verification_payload:
+            verification_path = candidate_path.parent / "verification.json"
+            if not verification_path.exists():
+                selected_verification_payload_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "selected blind finalist verification artifact does not exist", path=_as_repo_meta(verification_path)))
+            else:
+                selected_verification_payload_bindings_checked += 1
+                verification_artifact = load_json(verification_path, {})
+                if not isinstance(verification_artifact, Mapping) or dict(verification_artifact) != dict(verification_payload):
+                    selected_verification_payload_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "selected blind finalist verification differs from verification artifact", path=_as_repo_meta(verification_path)))
+        elif promotion.get("promoted") and verify_policy != VERIFY_NONE:
+            selected_verification_payload_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is missing embedded verification payload", path=raw_candidate))
+        lean_gate_payload = selected_payload.get("lean_gate") if isinstance(selected_payload.get("lean_gate"), Mapping) else {}
+        if lean_gate_mode != LEAN_GATE_OFF:
+            if lean_gate_payload:
+                lean_gate_path = candidate_path.parent / "lean_gate.json"
+                if not lean_gate_path.exists():
+                    selected_lean_gate_payload_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "selected blind finalist LEAN gate artifact does not exist", path=_as_repo_meta(lean_gate_path)))
+                else:
+                    selected_lean_gate_payload_bindings_checked += 1
+                    lean_gate_artifact = load_json(lean_gate_path, {})
+                    if not isinstance(lean_gate_artifact, Mapping) or dict(lean_gate_artifact) != dict(lean_gate_payload):
+                        selected_lean_gate_payload_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "selected blind finalist LEAN gate differs from LEAN gate artifact", path=_as_repo_meta(lean_gate_path)))
+            elif promotion.get("promoted"):
+                selected_lean_gate_payload_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "selected blind finalist is missing embedded LEAN gate payload", path=raw_candidate))
         evaluation_path = candidate_path.parent / "evaluation.json"
         if not evaluation_path.exists():
             selected_eval_binding_mismatches += 1
@@ -6320,6 +6357,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_finalist_bindings_checked": selected_finalist_bindings_checked,
             "selected_finalist_binding_mismatches": selected_finalist_binding_mismatches,
             "selected_finalist_best_rank_mismatches": selected_finalist_best_rank_mismatches,
+            "selected_verification_payload_bindings_checked": selected_verification_payload_bindings_checked,
+            "selected_verification_payload_binding_mismatches": selected_verification_payload_binding_mismatches,
+            "selected_lean_gate_payload_bindings_checked": selected_lean_gate_payload_bindings_checked,
+            "selected_lean_gate_payload_binding_mismatches": selected_lean_gate_payload_binding_mismatches,
             "optimized_profile_eval_bindings_checked": optimized_profile_eval_bindings_checked,
             "optimized_profile_eval_binding_mismatches": optimized_profile_eval_binding_mismatches,
             "deepresearch_context_final_bindings_checked": deepresearch_context_final_bindings_checked,
