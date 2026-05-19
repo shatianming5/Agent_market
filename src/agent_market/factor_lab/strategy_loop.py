@@ -5840,6 +5840,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_candidate_path_missing = 0
     optimized_profile_eval_bindings_checked = 0
     optimized_profile_eval_binding_mismatches = 0
+    deepresearch_context_final_bindings_checked = 0
+    deepresearch_context_final_binding_mismatches = 0
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -6030,6 +6032,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     deep_artifacts = deepresearch.get("artifacts") if isinstance(deepresearch.get("artifacts"), Mapping) else {}
     deep_ref_status = _doctor_artifact_refs_hash_status(deepresearch.get("artifact_refs") if isinstance(deepresearch, Mapping) else None)
     if (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal) and (bool(selected) or bool(final_blind_finalists)):
+        expected_context_final_status = dict(final_status)
+        expected_context_final_status.pop("deepresearch", None)
         if str(deepresearch.get("status") or "").lower() != VERIFICATION_PASSED:
             findings.append(_doctor_finding("BLOCKER", "deepresearch status is not passed"))
         expected_deep_dir = (repo_paths.artifacts_root() / "strategy_deepresearch" / str(run_id)).resolve()
@@ -6112,6 +6116,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 if not context_final:
                     findings.append(_doctor_finding("BLOCKER", "deepresearch context is missing final_status", path=_as_repo_meta(context_path)))
                 else:
+                    deepresearch_context_final_bindings_checked += 1
+                    if dict(context_final) != expected_context_final_status:
+                        deepresearch_context_final_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "deepresearch context final_status differs from final_blind_status", path=_as_repo_meta(context_path)))
                     context_promotion = context_final.get("promotion") if isinstance(context_final.get("promotion"), Mapping) else {}
                     if dict(context_promotion) != dict(promotion):
                         findings.append(_doctor_finding("BLOCKER", "deepresearch context promotion differs from final_blind_status", path=_as_repo_meta(context_path)))
@@ -6181,6 +6189,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_candidate_path_missing": selected_candidate_path_missing,
             "optimized_profile_eval_bindings_checked": optimized_profile_eval_bindings_checked,
             "optimized_profile_eval_binding_mismatches": optimized_profile_eval_binding_mismatches,
+            "deepresearch_context_final_bindings_checked": deepresearch_context_final_bindings_checked,
+            "deepresearch_context_final_binding_mismatches": deepresearch_context_final_binding_mismatches,
             "promoted_artifact_files": promoted_artifact_files,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
