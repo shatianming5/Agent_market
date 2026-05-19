@@ -15,8 +15,6 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
 from agent_market import paths
-from agent_market.agents.executor import OpenAIChatExecutor
-from agent_market.strategy_miner import research as research_mod
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +140,8 @@ def check_nonempty_value(name: str, value: Any, *, detail: str) -> dict[str, Any
 
 
 def _normalize_base_url(raw: str) -> str:
+    from agent_market.agents.executor import OpenAIChatExecutor
+
     return OpenAIChatExecutor._normalize_base_url(raw or "")
 
 
@@ -251,6 +251,8 @@ def _resolve_executable(name_or_path: str, *, env_var: str | None = None) -> Opt
 
 
 def check_opencli() -> dict[str, Any]:
+    from agent_market.strategy_miner import research as research_mod
+
     ok = bool(research_mod._opencli_available())
     detail = "opencli ready" if ok else "opencli unavailable; web research will be disabled"
     return _check(

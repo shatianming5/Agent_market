@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import zipfile
@@ -8,6 +9,31 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_market.agent_flow import AgentFlow, AgentFlowConfig
+
+
+def test_runtime_preflight_import_defers_optional_llm_modules() -> None:
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import agent_market.runtime_preflight; "
+                "assert 'agent_market.agents.executor' not in sys.modules; "
+                "assert 'agent_market.strategy_miner.research' not in sys.modules; "
+                "print('ok')"
+            ),
+        ],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert proc.stdout.strip() == "ok"
 
 
 def _prepare_env(monkeypatch, tmp_path: Path) -> None:
