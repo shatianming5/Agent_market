@@ -441,6 +441,58 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert persisted["artifacts"]["doctor_latest.json"].endswith("/doctor_latest.json")
 
 
+def test_strategy_loop_doctor_flags_stale_run_git_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_stale_git"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": {"commit": "old-controller-sha", "dirty_files": []}})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    deep_root = repo_paths.artifacts_root() / "strategy_deepresearch" / run_id
+    _write_json(deep_root / "context.json", {"run_id": run_id})
+    _write_json(deep_root / "sources.json", {"sources": []})
+    _write_json(
+        root / "final_blind_status.json",
+        {
+            "selected": {
+                "blind_final": True,
+                "promotion_eligible": True,
+                "verification_status": VERIFICATION_PASSED,
+                "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"},
+            },
+            "promotion": {"promoted": False},
+            "deepresearch": {
+                "artifacts": {
+                    "context": f"artifacts/strategy_deepresearch/{run_id}/context.json",
+                    "sources": f"artifacts/strategy_deepresearch/{run_id}/sources.json",
+                }
+            },
+        },
+    )
+    blind_dir = root / "blind_1"
+    _write_json(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok"})
+    _write_json(blind_dir / "manifest.json", {"artifact_refs": {"verification.json": {"path": "x", "sha256": "abc", "bytes": 1}}})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+
+    assert result["ok"] is False
+    assert result["summary"]["run_manifest_commit"] == "old-controller-sha"
+    assert any("git commit differs" in item["message"] for item in result["findings"])
+
+
 def test_strategy_loop_doctor_persists_and_cli_fails_on_blockers(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "doctor_formal_blocked"

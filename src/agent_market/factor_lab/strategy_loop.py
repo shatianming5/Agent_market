@@ -5213,6 +5213,13 @@ def _run_capture(cmd: Sequence[str], *, cwd: Optional[Path] = None, timeout: flo
     return {"ok": proc.returncode == 0, "returncode": proc.returncode, "stdout": (proc.stdout or "").strip(), "command": list(cmd)}
 
 
+def _git_provenance() -> dict[str, Any]:
+    return {
+        "commit": _run_capture(["git", "rev-parse", "HEAD"], timeout=5.0).get("stdout"),
+        "dirty_files": (_run_capture(["git", "status", "--short"], timeout=5.0).get("stdout") or "").splitlines(),
+    }
+
+
 def _pair_universe_from_config(config_path: Path) -> list[str]:
     payload = load_json(config_path, {})
     if not isinstance(payload, Mapping):
@@ -5267,10 +5274,7 @@ def build_run_manifest(config: StrategyLoopConfig) -> dict[str, Any]:
         "version": "factor-strategy-loop-run-manifest-v1",
         "created_at": time.time(),
         "run_id": config.run_id,
-        "git": {
-            "commit": _run_capture(["git", "rev-parse", "HEAD"], timeout=5.0).get("stdout"),
-            "dirty_files": (_run_capture(["git", "status", "--short"], timeout=5.0).get("stdout") or "").splitlines(),
-        },
+        "git": _git_provenance(),
         "cli_args": asdict(config),
         "validation_protocol": validation_protocol_summary(config),
         "lean_gate": {
@@ -5307,6 +5311,7 @@ def build_iteration_manifest(
         "created_at": time.time(),
         "run_id": config.run_id,
         "iteration": evaluation.get("iteration"),
+        "git": _git_provenance(),
         "candidate_signature": evaluation.get("parameter_signature"),
         "timeframe": config.timeframe,
         "data_venue": config.data_venue,
@@ -5499,6 +5504,24 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     if protocol in {VALIDATION_TRIPLE_HOLDOUT, VALIDATION_WALKFORWARD} and not windows_ok:
         findings.append(_doctor_finding("BLOCKER", "search/validation/blind windows are missing, invalid, or overlapping", detail=windows_detail))
 
+    run_manifest = load_json(root / "manifest.json", {})
+    manifest_git = run_manifest.get("git") if isinstance(run_manifest, Mapping) and isinstance(run_manifest.get("git"), Mapping) else {}
+    manifest_commit = str(manifest_git.get("commit") or "").strip()
+    current_git = _git_provenance()
+    current_commit = str(current_git.get("commit") or "").strip()
+    if strict_formal and manifest_commit and current_commit and manifest_commit != current_commit:
+        findings.append(
+            _doctor_finding(
+                "HIGH",
+                "run manifest git commit differs from current controller code; start a fresh formal run before promotion",
+                detail={
+                    "run_manifest_commit": manifest_commit,
+                    "current_commit": current_commit,
+                    "current_dirty_files": current_git.get("dirty_files") or [],
+                },
+            )
+        )
+
     required_root_files = ("manifest.json", "checkpoint.json", "leaderboard.json")
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         required_root_files = (*required_root_files, "pareto_pool.json", "final_blind_status.json", "final_promotion.json")
@@ -5604,6 +5627,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "lean_gate_files": len(lean_gate_files),
             "lean_gate_counts": lean_gate_counts,
             "final_promoted": bool(promotion.get("promoted")) if promotion else False,
+            "run_manifest_commit": manifest_commit,
+            "current_commit": current_commit,
         },
         "findings": findings,
     }
