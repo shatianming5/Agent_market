@@ -121,6 +121,8 @@ def test_export_project_from_rank_artifact_writes_lean_files(tmp_path) -> None:
     assert "self.SetBenchmark(first_symbol)" in main_py
     assert "self.SetBenchmark(lambda _: 0)" in main_py
     assert "LocalFuturesOhlcv" in main_py
+    assert "SetMarketPrice(point)" in main_py
+    assert "def OnEndOfAlgorithm(self):\n        self.Debug" in main_py
     assert "Bridge Exposure" in main_py
 
 
@@ -210,6 +212,74 @@ def test_normalize_signal_targets_holds_until_exit_liq_or_kill(tmp_path) -> None
     assert out["lean_target_weight"].tolist() == [0.5, 0.5, 0.0, 0.4, 0.0, 0.3, 0.0]
     assert out["lean_force_flat"].tolist() == [False, False, True, False, True, False, True]
     assert out["lean_action"].tolist() == [True, False, True, True, True, True, True]
+
+
+def test_normalize_signal_targets_does_not_trade_same_target_rebalance(tmp_path) -> None:
+    dates = _dates(periods=3)
+    signals = pd.DataFrame(
+        {
+            "date": dates,
+            "pair": ["BTC/USDT"] * len(dates),
+            "rp_target_weight": [0.5, 0.5, 0.0],
+            "rp_rebalance": [True, True, True],
+            "rp_exit_long": [False, False, False],
+            "rp_exit_short": [False, False, False],
+            "rp_liq_reject": [False, False, False],
+            "rp_kill_mode": ["normal", "normal", "normal"],
+        }
+    )
+
+    out = lean_bridge.normalize_signal_targets(lean_bridge.load_signals(_write_rank_artifact(tmp_path, signals)[1]))
+
+    assert out["lean_target_weight"].tolist() == [0.5, 0.5, 0.0]
+    assert out["lean_target_delta"].tolist() == [0.5, 0.0, -0.5]
+    assert out["lean_action"].tolist() == [True, False, True]
+
+
+def test_export_project_includes_next_execution_bar(tmp_path) -> None:
+    dates = _dates(periods=4)
+    data_root = tmp_path / "okx"
+    _write_okx_feather(data_root, "BTC/USDT", dates)
+    signals = _signal_frame(dates[:3]).loc[lambda df: df["pair"] == "BTC/USDT"].copy()
+    artifact_path, _ = _write_rank_artifact(tmp_path, signals)
+
+    lean_bridge.export_project(
+        rank_artifact=artifact_path,
+        output=tmp_path / "lean" / "next_bar_unit",
+        data_root=data_root,
+    )
+
+    ohlcv_csv = pd.read_csv(tmp_path / "lean" / "next_bar_unit" / "data" / "ohlcv" / "BTCUSDT.csv")
+    assert ohlcv_csv["time"].tolist() == [
+        "2026-01-01 00:00:00",
+        "2026-01-01 01:00:00",
+        "2026-01-01 02:00:00",
+        "2026-01-01 03:00:00",
+    ]
+
+
+def test_research_execution_stats_ignore_terminal_signal_without_next_bar(tmp_path) -> None:
+    dates = _dates(periods=3)
+    signals = pd.DataFrame(
+        {
+            "date": dates,
+            "pair": ["BTC/USDT"] * len(dates),
+            "rp_target_weight": [0.0, 0.5, 0.0],
+            "rp_rebalance": [True, True, True],
+            "rp_exit_long": [False, False, False],
+            "rp_exit_short": [False, False, False],
+            "rp_liq_reject": [False, False, False],
+            "rp_kill_mode": ["normal", "normal", "normal"],
+        }
+    )
+    loaded = lean_bridge.load_signals(_write_rank_artifact(tmp_path, signals)[1])
+
+    stats = lean_bridge._signal_turnover_stats(loaded, RiskConfig(timeframe="1h"))  # noqa: SLF001
+
+    assert stats["orders"] == 1.0
+    assert stats["entries"] == 1.0
+    assert stats["exits"] == 0.0
+    assert stats["turnover"] == 0.5
 
 
 def test_compare_results_writes_status_ok_for_matching_metrics(tmp_path) -> None:

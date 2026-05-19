@@ -322,7 +322,7 @@ def normalize_signal_targets(signals: pd.DataFrame) -> pd.DataFrame:
                 target = 0.0
             delta = float(target) - float(previous_before)
             is_rebalance = bool(row.get("rp_rebalance", True))
-            action = abs(delta) > 1e-12 or (is_rebalance and abs(target) > 1e-9 and not force_flat)
+            action = abs(delta) > 1e-12 or (force_flat and abs(previous_before) > 1e-9)
             out.at[row_idx, "lean_target_weight"] = float(target)
             out.at[row_idx, "lean_previous_target_weight"] = float(previous_before)
             out.at[row_idx, "lean_target_delta"] = float(delta)
@@ -537,9 +537,10 @@ def _write_one_ohlcv(
 ) -> tuple[str, str]:
     start = pair_signals["date"].min()
     end = pair_signals["date"].max()
+    end_with_execution_bar = end + pd.Timedelta(minutes=timeframe_minutes(timeframe))
     source = futures_ohlcv_path(pair, timeframe, venue=venue, data_root=data_root)
     ohlcv = _read_ohlcv(source, pair=pair)
-    ohlcv = ohlcv.loc[(ohlcv["date"] >= start) & (ohlcv["date"] <= end)].copy()
+    ohlcv = ohlcv.loc[(ohlcv["date"] >= start) & (ohlcv["date"] <= end_with_execution_bar)].copy()
     ohlcv["time"] = ohlcv["date"].map(_format_time)
     path = output_dir / f"{lean_symbol(pair)}.csv"
     ohlcv.loc[:, ["time", "open", "high", "low", "close", "volume"]].to_csv(path, index=False)
@@ -771,6 +772,24 @@ class LeanBridgeAlgorithm(QCAlgorithm):
             for row in csv.DictReader(handle):
                 stamp = datetime.strptime(row["time"], "%Y-%m-%d %H:%M:%S")
                 self.signals.setdefault(stamp, []).append(row)
+        self._ohlcv_by_pair = {}
+        for item in self.manifest.get("pairs", []):
+            pair = item["pair"]
+            path = os.path.join(root, "data", "ohlcv", f"{item['symbol']}.csv")
+            bars = {}
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as handle:
+                    for brow in csv.DictReader(handle):
+                        stamp = datetime.strptime(brow["time"], "%Y-%m-%d %H:%M:%S")
+                        bars[stamp] = {
+                            "open": float(brow["open"]),
+                            "high": float(brow["high"]),
+                            "low": float(brow["low"]),
+                            "close": float(brow["close"]),
+                            "volume": float(brow["volume"]),
+                        }
+            self._ohlcv_by_pair[pair] = bars
+        self._current_ohlcv = {}
         self.previous_targets = {}
         self._risk_state = _RiskState(self.risk)
         self._entry_prices = {}   # symbol -> entry price
@@ -793,6 +812,22 @@ class LeanBridgeAlgorithm(QCAlgorithm):
         start_cash = 100000.0
         return total / start_cash if start_cash > 0 else 1.0
 
+    def _set_symbol_price_at_open(self, pair, symbol, stamp):
+        bar = self._ohlcv_by_pair.get(pair, {}).get(stamp)
+        if bar is None:
+            return None
+        point = LocalFuturesOhlcv()
+        point.Symbol = symbol
+        point.Time = stamp
+        point.EndTime = stamp + timedelta(minutes=int(LocalFuturesOhlcv.TimeframeMinutes))
+        point.Value = float(bar["open"])
+        point.high = float(bar["high"])
+        point.low = float(bar["low"])
+        point.close = float(bar["close"])
+        point.volume = float(bar["volume"])
+        self.Securities[symbol].SetMarketPrice(point)
+        return bar
+
     def _check_stop_losses(self, data=None):
         for sym, entry_price in list(self._entry_prices.items()):
             if entry_price <= 0:
@@ -804,7 +839,12 @@ class LeanBridgeAlgorithm(QCAlgorithm):
                 continue
             side = self._entry_side.get(sym, 1)
             check_price = 0.0
-            if data is not None:
+            current_bar = self._current_ohlcv.get(sym)
+            if current_bar is not None:
+                raw = float(current_bar["low"] if side == 1 else current_bar["high"])
+                if raw > 0:
+                    check_price = raw
+            if check_price <= 0 and data is not None:
                 try:
                     if sym in data:
                         bd = data[sym]
@@ -835,6 +875,13 @@ class LeanBridgeAlgorithm(QCAlgorithm):
     def OnData(self, data):
         if self._halted:
             return
+
+        current_stamp = self.Time.replace(tzinfo=None)
+        self._current_ohlcv = {}
+        for pair, symbol in self.symbol_by_pair.items():
+            bar = self._set_symbol_price_at_open(pair, symbol, current_stamp)
+            if bar is not None:
+                self._current_ohlcv[symbol] = bar
 
         eq_frac = self._portfolio_equity_frac()
         # Halt if equity effectively wiped out (< 2% of start)
@@ -890,6 +937,8 @@ class LeanBridgeAlgorithm(QCAlgorithm):
             symbol = self.symbol_by_pair.get(pair)
             if symbol is None:
                 continue
+            if symbol not in self._current_ohlcv:
+                continue
             prev_target = float(self.previous_targets.get(pair, 0.0))
             is_increase = abs(new_target) > abs(prev_target) + 1e-9
             if is_increase and not allow_new:
@@ -907,7 +956,6 @@ class LeanBridgeAlgorithm(QCAlgorithm):
         self._plot_bridge_metrics()
 
     def OnEndOfAlgorithm(self):
-        self.Liquidate()
         self.Debug(f"Total funding paid: {self._total_funding_paid:.6f} USD")
 '''
 
@@ -1545,7 +1593,15 @@ def _signal_turnover_stats(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, 
     entries = 0
     exits = 0
     target_change_dates = 0
+    executable_dates = pd.DatetimeIndex(pd.to_datetime(targets["date"], utc=True).drop_duplicates().sort_values())
+    terminal_date = executable_dates[-1] if len(executable_dates) else None
     for _, group in targets.groupby("date", sort=True):
+        group_date = pd.Timestamp(group["date"].iloc[0])
+        if terminal_date is not None and group_date == terminal_date:
+            # A signal stamped at T executes at T+1 open. The terminal signal
+            # row has no following bar in the exported signal grid, so LEAN and
+            # Freqtrade cannot submit that target-change instruction.
+            continue
         now = {str(row["pair"]): float(row["lean_target_weight"]) for _, row in group.iterrows()}
         pairs = set(previous) | set(now)
         turnover = sum(abs(now.get(pair, 0.0) - previous.get(pair, 0.0)) for pair in pairs)
@@ -1640,12 +1696,13 @@ def research_metrics_from_artifact(
     if result_turnover is None:
         result_turnover = stats["turnover"]
     result_trades = _as_float(result.get("trades"))
+    comparison_trades = stats["entries"] if signals is not None else result_trades
     metrics = {
         "final_equity": float(final_equity if final_equity is not None else 0.0),
         "total_return": float(total_return if total_return is not None else 0.0),
         "max_drawdown": float(max_drawdown if max_drawdown is not None else 0.0),
         "profit_over_max_drawdown": float(_as_float(result.get("profit_over_max_drawdown")) or 0.0),
-        "trades": float(result_trades if result_trades is not None else stats["trades"]),
+        "trades": float(comparison_trades if comparison_trades is not None else stats["trades"]),
         "orders": float(stats["orders"]) if stats["orders"] is not None else None,
         "turnover": float(result_turnover),
         "avg_gross": float(_as_float(result.get("avg_gross")) or stats["avg_gross"]),

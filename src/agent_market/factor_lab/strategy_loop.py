@@ -5134,8 +5134,9 @@ def _lean_required_statuses(config: StrategyLoopConfig) -> set[str]:
         return {"ok", "partial", "drift"}
     statuses = {item.strip().lower() for item in raw.split(",") if item.strip()}
     result = statuses or {"ok"}
-    # skip_signal_load=True always produces "partial" (orders field unavailable);
-    # treat partial as equivalent to ok unless caller explicitly excluded it.
+    # Historical LEAN comparisons may be partial when order-level research
+    # stats are unavailable; treat partial as equivalent to ok unless caller
+    # explicitly excluded it.
     if "ok" in result:
         result = result | {"partial"}
     return result
@@ -7243,7 +7244,7 @@ class StrategyLoopRunner:
                 lean_result=result_path,
                 output=comparison_path,
                 timeframe=self.config.timeframe,
-                skip_signal_load=True,
+                skip_signal_load=False,
             )
         except Exception as exc:
             return _fail(
