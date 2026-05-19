@@ -5850,6 +5850,12 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_verification_payload_binding_mismatches = 0
     selected_lean_gate_payload_bindings_checked = 0
     selected_lean_gate_payload_binding_mismatches = 0
+    pareto_axis_leaderboard_bindings_checked = 0
+    pareto_axis_leaderboard_binding_mismatches = 0
+    pareto_finalist_leaderboard_bindings_checked = 0
+    pareto_finalist_leaderboard_binding_mismatches = 0
+    pareto_finalist_axis_bindings_checked = 0
+    pareto_finalist_axis_binding_mismatches = 0
     final_blind_pareto_bindings_checked = 0
     final_blind_pareto_binding_mismatches = 0
     final_blind_evaluation_bindings_checked = 0
@@ -5899,6 +5905,9 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
         for item in items:
             counts[item] = counts.get(item, 0) + 1
         return counts
+
+    def pareto_identity(payload: Mapping[str, Any]) -> str:
+        return str(payload.get("parameter_signature") or payload.get("candidate_path") or payload.get("iteration") or "").strip()
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -6144,6 +6153,117 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     )
                 )
 
+    def record_pareto_pool_bindings() -> None:
+        nonlocal pareto_axis_leaderboard_bindings_checked, pareto_axis_leaderboard_binding_mismatches
+        nonlocal pareto_finalist_leaderboard_bindings_checked, pareto_finalist_leaderboard_binding_mismatches
+        nonlocal pareto_finalist_axis_bindings_checked, pareto_finalist_axis_binding_mismatches
+        leaderboard_rows_by_identity: dict[str, list[Mapping[str, Any]]] = {}
+        leaderboard_compacts_by_identity: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            compact = _compact_leaderboard_row(row)
+            ident = pareto_identity(compact)
+            if not ident:
+                continue
+            leaderboard_rows_by_identity.setdefault(ident, []).append(row)
+            leaderboard_compacts_by_identity.setdefault(ident, []).append(compact)
+
+        axis_membership: dict[str, list[str]] = {}
+        axis_values: dict[tuple[str, str], Any] = {}
+        axes = pareto_pool.get("axes") if isinstance(pareto_pool, Mapping) and isinstance(pareto_pool.get("axes"), Mapping) else {}
+        for axis, axis_rows in axes.items():
+            axis_name = str(axis)
+            if axis_name not in PARETO_AXES:
+                pareto_axis_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool contains unknown axis", detail={"axis": axis_name}))
+            if not isinstance(axis_rows, list):
+                pareto_axis_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool axis rows are not a list", detail={"axis": axis_name}))
+                continue
+            for idx, axis_row in enumerate(axis_rows, start=1):
+                if not isinstance(axis_row, Mapping):
+                    pareto_axis_leaderboard_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "pareto_pool axis row is not an object", detail={"axis": axis_name, "index": idx}))
+                    continue
+                ident = pareto_identity(axis_row)
+                if ident:
+                    if axis_name not in axis_membership.get(ident, []):
+                        axis_membership.setdefault(ident, []).append(axis_name)
+                    axis_values[(ident, axis_name)] = axis_row.get("axis_value")
+                pareto_axis_leaderboard_bindings_checked += 1
+                candidate_rows = leaderboard_rows_by_identity.get(ident or "", [])
+                candidate_compacts = leaderboard_compacts_by_identity.get(ident or "", [])
+                if not candidate_rows or not candidate_compacts:
+                    pareto_axis_leaderboard_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "pareto_pool axis row is missing from leaderboard", detail={"axis": axis_name, "index": idx}))
+                    continue
+                matched = False
+                axis_value_valid = False
+                for leaderboard_row, compact in zip(candidate_rows, candidate_compacts):
+                    expected_value = _axis_value(axis_name, leaderboard_row)
+                    if expected_value is None or not math.isfinite(float(expected_value)):
+                        continue
+                    expected = dict(compact)
+                    expected["axis_value"] = float(expected_value)
+                    actual = dict(axis_row)
+                    axis_value_valid = True
+                    actual_value = float_or_none(actual.get("axis_value"))
+                    if actual_value is not None and math.isclose(actual_value, float(expected_value), rel_tol=1e-12, abs_tol=1e-12):
+                        actual["axis_value"] = float(expected_value)
+                    if actual == expected:
+                        matched = True
+                        break
+                if not matched:
+                    pareto_axis_leaderboard_binding_mismatches += 1
+                    message = "pareto_pool axis row has invalid axis_value" if not axis_value_valid else "pareto_pool axis row differs from leaderboard compact row"
+                    findings.append(_doctor_finding("BLOCKER", message, detail={"axis": axis_name, "index": idx}))
+
+        for idx, finalist in enumerate(pareto_finalists, start=1):
+            if not isinstance(finalist, Mapping):
+                pareto_finalist_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool finalist row is not an object", detail={"index": idx}))
+                continue
+            ident = pareto_identity(finalist)
+            pareto_finalist_leaderboard_bindings_checked += 1
+            candidate_compacts = leaderboard_compacts_by_identity.get(ident or "", [])
+            expected_axes = axis_membership.get(ident or "", [])
+            if not candidate_compacts:
+                pareto_finalist_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool finalist is missing from leaderboard", detail={"index": idx}))
+            else:
+                actual = dict(finalist)
+                actual_axis_value = actual.pop("axis_value", None)
+                if not any(actual == dict(compact) for compact in candidate_compacts):
+                    pareto_finalist_leaderboard_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "pareto_pool finalist differs from leaderboard compact row", detail={"index": idx}))
+                finalist_axes = list(finalist.get("pareto_axes") or [])
+                axis_for_value = expected_axes[0] if expected_axes else (str(finalist_axes[0]) if finalist_axes else "")
+                if axis_for_value:
+                    first_axis_value = axis_values.get((ident, axis_for_value))
+                    actual_value = float_or_none(actual_axis_value)
+                    expected_value = float_or_none(first_axis_value)
+                    if actual_value is None or expected_value is None or not math.isclose(actual_value, expected_value, rel_tol=1e-12, abs_tol=1e-12):
+                        pareto_finalist_leaderboard_binding_mismatches += 1
+                        findings.append(
+                            _doctor_finding(
+                                "BLOCKER",
+                                "pareto_pool finalist axis_value differs from first Pareto axis row",
+                                detail={"index": idx, "axis": axis_for_value},
+                            )
+                        )
+            pareto_finalist_axis_bindings_checked += 1
+            actual_axes = list(finalist.get("pareto_axes") or [])
+            if actual_axes != expected_axes:
+                pareto_finalist_axis_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "pareto_pool finalist axes differ from axis membership",
+                        detail={"index": idx, "actual": actual_axes, "expected": expected_axes},
+                    )
+                )
+
     def record_final_blind_finalist_bindings() -> None:
         nonlocal final_blind_pareto_bindings_checked, final_blind_pareto_binding_mismatches
         nonlocal final_blind_evaluation_bindings_checked, final_blind_evaluation_binding_mismatches
@@ -6250,6 +6370,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             findings.append(_doctor_finding("BLOCKER", "pareto_pool finalists are missing from final_blind_status finalists", detail={"missing_count": missing_pareto}))
 
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        record_pareto_pool_bindings()
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
         elif not selected:
@@ -6486,6 +6607,12 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_verification_payload_binding_mismatches": selected_verification_payload_binding_mismatches,
             "selected_lean_gate_payload_bindings_checked": selected_lean_gate_payload_bindings_checked,
             "selected_lean_gate_payload_binding_mismatches": selected_lean_gate_payload_binding_mismatches,
+            "pareto_axis_leaderboard_bindings_checked": pareto_axis_leaderboard_bindings_checked,
+            "pareto_axis_leaderboard_binding_mismatches": pareto_axis_leaderboard_binding_mismatches,
+            "pareto_finalist_leaderboard_bindings_checked": pareto_finalist_leaderboard_bindings_checked,
+            "pareto_finalist_leaderboard_binding_mismatches": pareto_finalist_leaderboard_binding_mismatches,
+            "pareto_finalist_axis_bindings_checked": pareto_finalist_axis_bindings_checked,
+            "pareto_finalist_axis_binding_mismatches": pareto_finalist_axis_binding_mismatches,
             "final_blind_pareto_bindings_checked": final_blind_pareto_bindings_checked,
             "final_blind_pareto_binding_mismatches": final_blind_pareto_binding_mismatches,
             "final_blind_evaluation_bindings_checked": final_blind_evaluation_bindings_checked,
