@@ -130,6 +130,30 @@ def test_agent_flow_module_help_uses_package_cli():
     assert "--log-dir" in proc.stdout
 
 
+def test_agent_flow_import_does_not_load_runtime_preflight():
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import agent_market.agent_flow; "
+                "assert 'agent_market.runtime_preflight' not in sys.modules; "
+                "print('ok')"
+            ),
+        ],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert proc.stdout.strip() == "ok"
+
+
 # ---------------------------------------------------------------------------
 # helper: _extract_flag_value
 # ---------------------------------------------------------------------------

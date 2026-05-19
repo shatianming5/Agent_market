@@ -10,6 +10,13 @@
 """
 from __future__ import annotations
 
-from . import artifacts, steps
+from importlib import import_module
+from types import ModuleType
+
+
+def __getattr__(name: str) -> ModuleType:
+    if name in __all__:
+        return import_module(f"{__name__}.{name}")
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = ["artifacts", "steps"]

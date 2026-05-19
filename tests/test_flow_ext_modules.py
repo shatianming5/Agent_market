@@ -1,6 +1,19 @@
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
+
+
+def test_flow_ext_package_import_is_lazy() -> None:
+    sys.modules.pop("agent_market.flow_ext", None)
+    sys.modules.pop("agent_market.flow_ext.artifacts", None)
+    sys.modules.pop("agent_market.flow_ext.steps", None)
+
+    importlib.import_module("agent_market.flow_ext")
+
+    assert "agent_market.flow_ext.artifacts" not in sys.modules
+    assert "agent_market.flow_ext.steps" not in sys.modules
 
 
 def test_flow_ext_modules_import_and_basic_helpers() -> None:
@@ -16,4 +29,3 @@ def test_flow_ext_modules_import_and_basic_helpers() -> None:
     ap = artifacts.artifact_paths("deadbeef")
     assert ap.run_id == "deadbeef"
     assert ap.run_dir.name == "deadbeef"
-

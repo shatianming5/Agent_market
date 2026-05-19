@@ -17,10 +17,15 @@ from agent_market.flow_ext import steps as flow_steps
 from agent_market.flow_ext.step_dispatch import STEP_HANDLERS, StepContext
 from agent_market.run_artifacts import RunArtifacts
 from agent_market import paths
-from agent_market.runtime_preflight import run_agent_flow_preflight
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = paths.REPO_ROOT
+
+
+def run_agent_flow_preflight(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    from agent_market.runtime_preflight import run_agent_flow_preflight as _run_agent_flow_preflight
+
+    return _run_agent_flow_preflight(*args, **kwargs)
 
 
 def _relpath(path: Path) -> str:
