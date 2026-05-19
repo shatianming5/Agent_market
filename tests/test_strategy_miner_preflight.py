@@ -1,8 +1,36 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from agent_market.strategy_miner.dtypes import MinerConfig, Phase
+
+
+def test_strategy_miner_preflight_import_defers_optional_modules() -> None:
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import agent_market.strategy_miner.preflight; "
+                "assert 'agent_market.agents.executor' not in sys.modules; "
+                "assert 'agent_market.strategy_miner.research' not in sys.modules; "
+                "print('ok')"
+            ),
+        ],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert proc.stdout.strip() == "ok"
 
 
 def _prepare_env(monkeypatch, tmp_path: Path) -> None:
@@ -14,6 +42,7 @@ def _prepare_env(monkeypatch, tmp_path: Path) -> None:
 
 def test_preflight_sets_dummy_key_for_internal_proxy(monkeypatch, tmp_path: Path) -> None:
     from agent_market.strategy_miner import preflight
+    from agent_market import runtime_preflight
 
     _prepare_env(monkeypatch, tmp_path)
     ft_cfg = tmp_path / "freqtrade.json"
@@ -39,7 +68,7 @@ def test_preflight_sets_dummy_key_for_internal_proxy(monkeypatch, tmp_path: Path
         calls.append((url, api_key))
         return True, {"data": [{"id": "gpt-5.2"}]}, ""
 
-    monkeypatch.setattr(preflight, "_request_json", _fake_request_json)
+    monkeypatch.setattr(runtime_preflight, "_request_json", _fake_request_json)
 
     report = preflight.run_startup_preflight(
         MinerConfig(

@@ -4,90 +4,23 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
-import sys
-import time
-import urllib.error
-import urllib.request
-import uuid
 from pathlib import Path
 from typing import Any, Optional
 
 from agent_market import paths
-from agent_market.agents.executor import OpenAIChatExecutor
+from agent_market.runtime_preflight import (
+    _check,
+    _iso_now,
+    check_freqtrade_cli as _check_freqtrade_cli,
+    check_openai_compatible as _shared_check_openai_compatible,
+    check_opencli as _check_opencli,
+    check_writable_dir as _check_writable_dir,
+)
 
-from . import research as research_mod
 from ._helpers import _load_freqtrade_payload
 from .dtypes import MinerConfig, Phase
 
 logger = logging.getLogger(__name__)
-
-
-def _iso_now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def _check(
-    name: str,
-    *,
-    ok: bool,
-    severity: str,
-    detail: str,
-    data: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
-    payload = {
-        "name": str(name),
-        "ok": bool(ok),
-        "severity": str(severity),
-        "detail": str(detail),
-    }
-    if data:
-        payload["data"] = dict(data)
-    return payload
-
-
-def _touch_directory(path: Path) -> tuple[bool, str]:
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        probe = path / f".agent_market_touch_{os.getpid()}_{uuid.uuid4().hex[:8]}"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink()
-        return True, "writable"
-    except Exception as exc:
-        return False, str(exc)
-
-
-def _check_writable_dir(name: str, path: Path) -> dict[str, Any]:
-    ok, detail = _touch_directory(path)
-    severity = "info" if ok else "error"
-    suffix = "touch ok" if ok else f"touch failed: {detail}"
-    return _check(name, ok=ok, severity=severity, detail=f"{path} — {suffix}", data={"path": str(path.resolve())})
-
-
-def _normalize_base_url(raw: str) -> str:
-    return OpenAIChatExecutor._normalize_base_url(raw or "")
-
-
-def _request_json(url: str, *, api_key: str, timeout: float = 5.0) -> tuple[bool, Any, str]:
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-    }
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-            body = resp.read().decode("utf-8", errors="replace")
-        return True, json.loads(body), ""
-    except urllib.error.HTTPError as exc:
-        try:
-            detail = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            detail = str(exc)
-        return False, None, f"http_{exc.code}: {detail[:300]}"
-    except urllib.error.URLError as exc:
-        return False, None, f"url_error: {exc.reason}"
-    except Exception as exc:
-        return False, None, str(exc)
 
 
 def _check_openai_compatible(config: MinerConfig, applied_env: dict[str, str]) -> dict[str, Any]:
@@ -100,69 +33,12 @@ def _check_openai_compatible(config: MinerConfig, applied_env: dict[str, str]) -
         or "https://api.openai.com/v1"
     ).strip()
     api_key = str(os.environ.get("LLM_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
-
-    if not model:
-        return _check(
-            "llm.openai_compatible",
-            ok=False,
-            severity="error",
-            detail="Missing model for openai_compatible provider",
-        )
-
-    models_url = _normalize_base_url(base_url).rstrip("/") + "/models"
-    api_key_source = "environment"
-    if not api_key:
-        ok, payload, err = _request_json(models_url, api_key="_")
-        if ok:
-            api_key = "_"
-            os.environ.setdefault("LLM_API_KEY", api_key)
-            applied_env["LLM_API_KEY"] = api_key
-            api_key_source = "preflight_dummy"
-            models = payload.get("data") if isinstance(payload, dict) else []
-            model_ids = [str(item.get("id") or "") for item in models if isinstance(item, dict)]
-            listed = model in model_ids
-            detail = f"models probe ok via placeholder key; model={'listed' if listed else 'not_listed'}"
-            severity = "info" if listed else "warning"
-            return _check(
-                "llm.openai_compatible",
-                ok=True,
-                severity=severity,
-                detail=detail,
-                data={"base_url": base_url, "model": model, "api_key_source": api_key_source},
-            )
-        return _check(
-            "llm.openai_compatible",
-            ok=False,
-            severity="error",
-            detail=f"Missing api_key and placeholder probe failed at {models_url}: {err}",
-            data={"base_url": base_url, "model": model},
-        )
-
-    ok, payload, err = _request_json(models_url, api_key=api_key)
-    if not ok:
-        severity = "warning" if err.startswith("http_404") else "error"
-        return _check(
-            "llm.openai_compatible",
-            ok=severity != "error",
-            severity=severity,
-            detail=f"models probe failed at {models_url}: {err}",
-            data={"base_url": base_url, "model": model, "api_key_source": api_key_source},
-        )
-
-    models = payload.get("data") if isinstance(payload, dict) else []
-    model_ids = [str(item.get("id") or "") for item in models if isinstance(item, dict)]
-    listed = model in model_ids
-    detail = "models probe ok"
-    severity = "info"
-    if model_ids and not listed:
-        detail = f"models probe ok but configured model `{model}` not listed"
-        severity = "warning"
-    return _check(
-        "llm.openai_compatible",
-        ok=True,
-        severity=severity,
-        detail=detail,
-        data={"base_url": base_url, "model": model, "api_key_source": api_key_source},
+    return _shared_check_openai_compatible(
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+        applied_env=applied_env,
+        env_key_name="LLM_API_KEY",
     )
 
 
@@ -217,57 +93,6 @@ def _check_provider(config: MinerConfig, applied_env: dict[str, str]) -> list[di
             )
         )
     return checks
-
-
-def _check_opencli() -> dict[str, Any]:
-    ok = bool(research_mod._opencli_available())
-    detail = "opencli ready" if ok else "opencli unavailable; web research will be disabled"
-    data = {
-        "command": list(research_mod._OPENCLI_COMMAND or []),
-        "path_prefix": str(research_mod._OPENCLI_PATH_PREFIX or ""),
-    }
-    return _check("system.opencli", ok=ok, severity="info" if ok else "warning", detail=detail, data=data)
-
-
-def _check_freqtrade_cli() -> dict[str, Any]:
-    wrapper = paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"
-    cmd = [sys.executable, str(wrapper), "--version"]
-    try:
-        proc = subprocess.run(  # noqa: S603
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=20,
-            cwd=str(paths.REPO_ROOT),
-        )
-    except Exception as exc:
-        return _check(
-            "system.freqtrade",
-            ok=False,
-            severity="error",
-            detail=f"freqtrade wrapper probe failed: {exc}",
-            data={"command": cmd},
-        )
-
-    if proc.returncode != 0:
-        blob = (proc.stderr or proc.stdout or "").strip()
-        return _check(
-            "system.freqtrade",
-            ok=False,
-            severity="error",
-            detail=f"freqtrade unavailable: {blob[:300]}",
-            data={"command": cmd, "returncode": proc.returncode},
-        )
-
-    detail = (proc.stdout or proc.stderr or "freqtrade ok").strip().splitlines()
-    version = detail[0] if detail else "freqtrade ok"
-    return _check(
-        "system.freqtrade",
-        ok=True,
-        severity="info",
-        detail=version,
-        data={"command": cmd},
-    )
 
 
 def _check_freqtrade_config(config: MinerConfig) -> list[dict[str, Any]]:
