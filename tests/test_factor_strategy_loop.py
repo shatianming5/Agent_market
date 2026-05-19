@@ -533,7 +533,16 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         promote_policy="final",
         lean_gate_mode="final",
     )
-    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__})
+    config_ref = _write_json_ref(root / "manifest_config_snapshot.json", {"unit": True})
+    strategy_ref = _write_json_ref(root / "manifest_strategy_snapshot.py", {"class": "Unit"})
+    _write_json(
+        root / "manifest.json",
+        {
+            "cli_args": cfg.__dict__,
+            "config_path": config_ref,
+            "strategy_path": strategy_ref,
+        },
+    )
     final_promotion = {"promoted": False}
     _write_json(root / "final_promotion.json", final_promotion)
 
@@ -672,6 +681,8 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     result = doctor_strategy_loop_run(run_id)
 
     assert result["ok"] is True
+    assert result["summary"]["run_manifest_artifact_refs_checked"] == 2
+    assert result["summary"]["run_manifest_artifact_refs_hash_mismatch"] == 0
     assert result["summary"]["artifact_refs_hash_mismatch"] == 0
     assert result["summary"]["source_artifact_refs_hash_mismatch"] == 0
     assert result["summary"]["deepresearch_artifact_refs_hash_mismatch"] == 0
@@ -1158,6 +1169,71 @@ def test_strategy_loop_doctor_binds_run_registry_to_final_artifacts(
     assert result["summary"]["run_registry_bindings_checked"] == 1
     assert result["summary"]["run_registry_binding_mismatches"] == 3
     assert "run registry entry differs from run artifacts" in messages
+
+
+def test_strategy_loop_doctor_checks_run_manifest_artifact_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_run_manifest_hash_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    config_ref = _write_json_ref(root / "config_snapshot.json", {"unit": True})
+    bad_config_ref = dict(config_ref)
+    bad_config_ref["sha256"] = "0" * 64
+    strategy_ref = _write_json_ref(root / "strategy_snapshot.py", {"class": "Unit"})
+    promotion = {"promoted": False}
+    final_status = {"selected": None, "finalists": [], "promotion": promotion, "promoted": False}
+    pareto_pool = {"finalists": []}
+    _write_json(
+        root / "manifest.json",
+        {
+            "cli_args": cfg.__dict__,
+            "git": strategy_loop_mod._git_provenance(),
+            "config_path": bad_config_ref,
+            "strategy_path": strategy_ref,
+        },
+    )
+    _write_json(
+        root / "checkpoint.json",
+        {
+            "version": "factor-strategy-loop-v1",
+            "run_id": run_id,
+            "config": cfg.__dict__,
+            "state": {
+                "run_id": run_id,
+                "iteration": 1,
+                "phase": "PREPARE",
+                "status": LOOP_COMPLETED,
+                "pareto_pool": pareto_pool,
+                "final_blind_status": final_status,
+                "final_promotion": promotion,
+            },
+            "pareto_pool": pareto_pool,
+            "final_blind_status": final_status,
+        },
+    )
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", pareto_pool)
+    _write_json(root / "final_blind_status.json", final_status)
+    _write_json(root / "final_promotion.json", promotion)
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["run_manifest_artifact_refs_checked"] == 2
+    assert result["summary"]["run_manifest_artifact_refs_hash_mismatch"] == 1
+    assert "run manifest artifact refs failed integrity check" in messages
 
 
 def test_strategy_loop_doctor_binds_pareto_pool_rows_to_leaderboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

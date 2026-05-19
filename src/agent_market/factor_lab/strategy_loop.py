@@ -1215,6 +1215,7 @@ def _load_optimized_baseline(config: StrategyLoopConfig) -> dict[str, Any]:
     return {
         "available": True,
         "path": _as_repo_meta(path),
+        "artifact_ref": _artifact_ref(path),
         "label": "state_0149 + no_corr_recompute + filters" if "state_0149" in str(rank_profile.get("candidate_state", "")) else "optimized_profile.json",
         "rank_profile": rank_profile,
         "expected_research": payload.get("research_backtest") if isinstance(payload.get("research_backtest"), Mapping) else {},
@@ -5780,6 +5781,27 @@ def _doctor_artifact_refs_hash_status(refs: Any) -> dict[str, int]:
     }
 
 
+def _doctor_run_manifest_artifact_refs(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    refs: dict[str, Any] = {}
+    for key in ("config_path", "strategy_path"):
+        value = manifest.get(key)
+        if isinstance(value, Mapping):
+            refs[key] = value
+    data_files = manifest.get("data_files")
+    if isinstance(data_files, list):
+        for idx, ref in enumerate(data_files):
+            if isinstance(ref, Mapping):
+                refs[f"data_files[{idx}]"] = ref
+    baseline = manifest.get("baseline_profile") if isinstance(manifest.get("baseline_profile"), Mapping) else {}
+    if baseline:
+        baseline_ref = baseline.get("artifact_ref") if isinstance(baseline.get("artifact_ref"), Mapping) else {}
+        if baseline_ref:
+            refs["baseline_profile"] = baseline_ref
+        elif baseline.get("available") and baseline.get("path"):
+            refs["baseline_profile"] = {"path": baseline.get("path")}
+    return refs
+
+
 def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
     return _doctor_artifact_refs_hash_status(manifest.get("artifact_refs"))
 
@@ -5821,6 +5843,9 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     manifest_git = run_manifest.get("git") if isinstance(run_manifest, Mapping) and isinstance(run_manifest.get("git"), Mapping) else {}
     manifest_commit = str(manifest_git.get("commit") or "").strip()
     current_commit = str(_git_provenance().get("commit") or "").strip()
+    root_manifest_artifact_ref_status = _doctor_artifact_refs_hash_status(
+        _doctor_run_manifest_artifact_refs(run_manifest) if isinstance(run_manifest, Mapping) else {}
+    )
     stale_git_detail = _stale_run_manifest_git_detail(str(run_id))
     if strict_formal and stale_git_detail:
         findings.append(
@@ -5840,6 +5865,32 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
         root_artifacts[name] = _as_repo_meta(path)
         if not path.exists():
             findings.append(_doctor_finding("BLOCKER", f"missing root artifact: {name}", path=_as_repo_meta(path)))
+
+    if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        for key in ("config_path", "strategy_path"):
+            ref = run_manifest.get(key) if isinstance(run_manifest, Mapping) else {}
+            if not isinstance(ref, Mapping) or not str(ref.get("path") or "").strip():
+                findings.append(_doctor_finding("BLOCKER", f"run manifest missing artifact ref: {key}"))
+            elif ref.get("missing"):
+                findings.append(_doctor_finding("BLOCKER", f"run manifest artifact is marked missing: {key}", path=str(ref.get("path") or "")))
+        if root_manifest_artifact_ref_status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", "run manifest has no file artifact refs"))
+        elif root_manifest_artifact_ref_status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run manifest artifact refs have entries without sha256 hashes",
+                    detail={"missing_hash": root_manifest_artifact_ref_status["missing_hash"]},
+                )
+            )
+        root_manifest_integrity_failures = {
+            "missing_file": root_manifest_artifact_ref_status.get("missing_file", 0),
+            "bytes_mismatch": root_manifest_artifact_ref_status.get("bytes_mismatch", 0),
+            "hash_mismatch": root_manifest_artifact_ref_status.get("hash_mismatch", 0),
+            "errors": root_manifest_artifact_ref_status.get("errors", 0),
+        }
+        if any(root_manifest_integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", "run manifest artifact refs failed integrity check", detail=root_manifest_integrity_failures))
 
     iteration_manifests = sorted(root.glob("iter_*/manifest.json"))
     blind_manifests = sorted(root.glob("blind_*/manifest.json"))
@@ -6935,6 +6986,13 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "leaderboard_rows": len(rows),
             "iteration_manifests": len(iteration_manifests),
             "blind_manifests": len(blind_manifests),
+            "run_manifest_artifact_refs_hashed": root_manifest_artifact_ref_status.get("hashed", 0),
+            "run_manifest_artifact_refs_missing_hash": root_manifest_artifact_ref_status.get("missing_hash", 0),
+            "run_manifest_artifact_refs_checked": root_manifest_artifact_ref_status.get("checked", 0),
+            "run_manifest_artifact_refs_missing_file": root_manifest_artifact_ref_status.get("missing_file", 0),
+            "run_manifest_artifact_refs_bytes_mismatch": root_manifest_artifact_ref_status.get("bytes_mismatch", 0),
+            "run_manifest_artifact_refs_hash_mismatch": root_manifest_artifact_ref_status.get("hash_mismatch", 0),
+            "run_manifest_artifact_refs_errors": root_manifest_artifact_ref_status.get("errors", 0),
             "artifact_refs_hashed": hashed_total,
             "artifact_refs_missing_hash": missing_hash_total,
             "artifact_refs_checked": checked_total,
