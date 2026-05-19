@@ -496,9 +496,9 @@ def _step_strategy_miner(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepConte
 # Dispatch table
 # ---------------------------------------------------------------------------
 STEP_HANDLERS: Dict[str, Any] = {
-    "feature": _step_feature,
     "capture": _step_capture,
     "lob_rebuild": _step_lob_rebuild,
+    "feature": _step_feature,
     "micro_feature": _step_micro_feature,
     "portfolio": _step_portfolio,
     "expression": _step_expression,
@@ -508,6 +508,6 @@ STEP_HANDLERS: Dict[str, Any] = {
     "rl": _step_rl,
     "backtest": _step_backtest,
     "tca": _step_tca,
-    "report": _step_report,
     "strategy_miner": _step_strategy_miner,
+    "report": _step_report,
 }

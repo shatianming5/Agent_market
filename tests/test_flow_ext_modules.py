@@ -17,9 +17,13 @@ def test_flow_ext_package_import_is_lazy() -> None:
 
 
 def test_flow_ext_modules_import_and_basic_helpers() -> None:
+    from agent_market.flow_ext.step_dispatch import STEP_HANDLERS
+    from agent_market.flow_ext.step_spec import STEP_ORDER
     from agent_market.flow_ext import artifacts, steps
 
     assert isinstance(steps.STEP_ORDER, list)
+    assert steps.STEP_ORDER == STEP_ORDER
+    assert list(STEP_HANDLERS) == STEP_ORDER
     for key in ["feature", "expression", "ml", "backtest", "tca"]:
         assert key in steps.STEP_ORDER
 

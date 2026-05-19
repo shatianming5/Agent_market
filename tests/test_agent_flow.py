@@ -235,12 +235,15 @@ def test_config_snapshot_info_missing_file():
 
 def test_step_order():
     from agent_market.agent_flow import AgentFlow
+    from agent_market.flow_ext.step_spec import STEP_ORDER
 
+    assert AgentFlow.STEP_ORDER == STEP_ORDER
     assert "feature" in AgentFlow.STEP_ORDER
     assert "backtest" in AgentFlow.STEP_ORDER
     assert "tca" in AgentFlow.STEP_ORDER
     assert AgentFlow.STEP_ORDER.index("feature") < AgentFlow.STEP_ORDER.index("backtest")
     assert AgentFlow.STEP_ORDER.index("capture") < AgentFlow.STEP_ORDER.index("lob_rebuild")
+    assert AgentFlow.STEP_ORDER.index("strategy_miner") < AgentFlow.STEP_ORDER.index("report")
 
 
 # ---------------------------------------------------------------------------

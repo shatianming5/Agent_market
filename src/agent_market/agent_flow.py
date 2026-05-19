@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from agent_market.utils import sha256_bytes
 from agent_market.flow_ext import steps as flow_steps
+from agent_market.flow_ext.step_spec import STEP_CONFIG_FIELDS, STEP_ORDER
 from agent_market.flow_ext.step_dispatch import STEP_HANDLERS, StepContext
 from agent_market.run_artifacts import RunArtifacts
 from agent_market import paths
@@ -202,22 +203,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
 
 class AgentFlow:
-    STEP_ORDER = [
-        "capture",
-        "lob_rebuild",
-        "feature",
-        "micro_feature",
-        "portfolio",
-        "expression",
-        "factor_compile",
-        "factor_eval",
-        "ml",
-        "rl",
-        "backtest",
-        "tca",
-        "strategy_miner",
-        "report",
-    ]
+    STEP_ORDER = list(STEP_ORDER)
 
     def __init__(
         self,
@@ -248,20 +234,7 @@ class AgentFlow:
             requested = [step for step in requested if step in self.STEP_ORDER]
 
         sequence: list[tuple[str, Optional[Dict[str, Any]]]] = [
-            ("capture", self.config.capture),
-            ("lob_rebuild", self.config.lob_rebuild),
-            ("feature", self.config.feature),
-            ("micro_feature", self.config.micro_feature),
-            ("portfolio", self.config.portfolio),
-            ("expression", self.config.expression),
-            ("factor_compile", self.config.factor_compile),
-            ("factor_eval", self.config.factor_eval),
-            ("ml", self.config.ml_training),
-            ("rl", self.config.rl_training),
-            ("backtest", self.config.backtest),
-            ("tca", self.config.tca),
-            ("strategy_miner", self.config.strategy_miner),
-            ("report", self.config.report),
+            (name, getattr(self.config, field)) for name, field in STEP_CONFIG_FIELDS
         ]
 
         logger.info("[FLOW] RUN_ID %s", run_id)

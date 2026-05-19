@@ -14,23 +14,7 @@ from typing import Any, Dict, Optional
 
 from agent_market import flow_steps as _legacy
 from agent_market import paths
-
-STEP_ORDER: list[str] = [
-    "capture",
-    "lob_rebuild",
-    "feature",
-    "micro_feature",
-    "portfolio",
-    "expression",
-    "factor_compile",
-    "factor_eval",
-    "ml",
-    "rl",
-    "backtest",
-    "tca",
-    "report",
-    "strategy_miner",
-]
+from agent_market.flow_ext.step_spec import STEP_ORDER
 
 # Legacy step runners (canonical behavior lives in agent_market.flow_steps).
 run_command = _legacy.run_command
