@@ -43,7 +43,7 @@ def _pair_token(pair: str) -> str:
 class ELRankPortfolioLeverageStrategy(IStrategy):
     """Signal-file driven rank portfolio strategy for OKX isolated futures."""
 
-    timeframe = "1h"
+    timeframe = (os.environ.get("RP_TIMEFRAME") or "1h").strip() or "1h"
     can_short = True
     minimal_roi = {"0": 0.50, "2880": -1}
     stoploss = -0.30

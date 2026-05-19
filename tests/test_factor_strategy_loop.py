@@ -2059,9 +2059,14 @@ def test_freqtrade_window_backtest_exports_stage_signals(tmp_path: Path, monkeyp
 def test_fixed_freqtrade_backtest_accepts_signal_mapping(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     signal_dir = tmp_path / "signals"
     signal_dir.mkdir()
-    signal_file = signal_dir / "all.feather"
+    signal_file = signal_dir / "BTC_USDT_USDT.feather"
     signal_file.write_bytes(b"unit")
-    cfg = StrategyLoopConfig.from_args(tag="unit_signal_mapping", run_id="unit_signal_mapping_run")
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_signal_mapping",
+        run_id="unit_signal_mapping_run",
+        venue="binance",
+        timeframe="4h",
+    )
     runner = StrategyLoopRunner(cfg)
 
     monkeypatch.setattr(strategy_loop_mod.repo_paths, "resolve_repo_path", lambda raw: tmp_path / "config.json")
@@ -2076,6 +2081,7 @@ def test_fixed_freqtrade_backtest_accepts_signal_mapping(tmp_path: Path, monkeyp
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env")
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"strategy": {}}))
 
     monkeypatch.setattr(strategy_loop_mod.subprocess, "run", fake_run)
@@ -2091,6 +2097,15 @@ def test_fixed_freqtrade_backtest_accepts_signal_mapping(tmp_path: Path, monkeyp
     assert str(result["error"]).startswith("no Freqtrade backtest result zip")
     assert result["signal_dir"].endswith("signals")
     assert "--timerange" in captured["cmd"]
+    assert isinstance(captured["env"], dict)
+    assert captured["env"]["RP_TIMEFRAME"] == "4h"
+    override_paths = [Path(str(item)) for item in captured["cmd"] if str(item).endswith("freqtrade_override_validation.json")]
+    assert override_paths
+    override = json.loads(override_paths[0].read_text(encoding="utf-8"))
+    assert override["timeframe"] == "4h"
+    assert override["datadir"] == "user_data/data/binance"
+    assert override["exchange"]["name"] == "binance"
+    assert override["exchange"]["pair_whitelist"] == ["BTC/USDT:USDT"]
 
 
 def test_promote_policy_final_defers_global_optimized_profile(tmp_path: Path) -> None:

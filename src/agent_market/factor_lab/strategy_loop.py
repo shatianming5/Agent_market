@@ -156,6 +156,41 @@ _VENUE_DATADIR: dict[str, str] = {
     "kucoin": "user_data/data/kucoin",
 }
 PARETO_MAX_TOTAL = 12
+
+
+def _fixed_freqtrade_timeframe(config: "StrategyLoopConfig") -> str:
+    timeframe = str(getattr(config, "timeframe", "") or "1h").strip().lower()
+    return timeframe or "1h"
+
+
+def _fixed_freqtrade_override_payload(
+    config: "StrategyLoopConfig",
+    signal_dir: Path,
+) -> dict[str, Any]:
+    venue = str(getattr(config, "venue", "") or "okx").strip().lower()
+    exchange_name = _VENUE_EXCHANGE.get(venue, "okx")
+    override: dict[str, Any] = {
+        "timeframe": _fixed_freqtrade_timeframe(config),
+    }
+    venue_datadir = _VENUE_DATADIR.get(venue)
+    if venue_datadir is not None:
+        override["datadir"] = venue_datadir
+    exchange: dict[str, Any] = {"name": exchange_name}
+    pairs = _pairs_from_signal_dir(signal_dir, exchange_name=exchange_name)
+    if pairs:
+        exchange["pair_whitelist"] = pairs
+    override["exchange"] = exchange
+    return override
+
+
+def _write_fixed_freqtrade_override(
+    path: Path,
+    config: "StrategyLoopConfig",
+    signal_dir: Path,
+) -> Path:
+    payload = _fixed_freqtrade_override_payload(config, signal_dir)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 PARETO_AXES = (
     "best_validation_composite",
     "best_validation_freqtrade_profit",
@@ -6941,19 +6976,11 @@ class StrategyLoopRunner:
         if not (strategy_dir / f"{FIXED_FREQTRADE_STRATEGY}.py").exists():
             return {"ok": False, "error": f"fixed Freqtrade strategy not found in: {strategy_dir}"}
 
-        # Build venue-specific override config so freqtrade reads the right datadir/exchange.
-        venue = str(self.config.venue or "okx").strip().lower()
-        exchange_name = _VENUE_EXCHANGE.get(venue, "okx")
-        venue_datadir = _VENUE_DATADIR.get(venue)
-        override_path: Optional[Path] = None
-        if venue != "okx" and venue_datadir is not None:
-            pairs = _pairs_from_signal_dir(signal_dir, exchange_name=exchange_name)
-            override = {
-                "datadir": venue_datadir,
-                "exchange": {"name": exchange_name, "pair_whitelist": pairs},
-            }
-            override_path = idir / f"freqtrade_override_{stage}.json"
-            override_path.write_text(json.dumps(override, ensure_ascii=False, indent=2), encoding="utf-8")
+        override_path = _write_fixed_freqtrade_override(
+            idir / f"freqtrade_override_{stage}.json",
+            self.config,
+            signal_dir,
+        )
 
         cmd = [
             sys.executable,
@@ -6977,6 +7004,7 @@ class StrategyLoopRunner:
         env = dict(os.environ)
         env["RP_SIGNAL_DIR"] = str(signal_dir)
         env["RP_TAG"] = str(research_result.get("tag") or self.config.tag)
+        env["RP_TIMEFRAME"] = _fixed_freqtrade_timeframe(self.config)
         start_time = time.time() - 5.0
         log_name = "freqtrade_backtest.log" if stage in {"", "single"} else f"freqtrade_{stage}.log"
         try:
@@ -7991,6 +8019,12 @@ class StrategyLoopRunner:
         env = dict(os.environ)
         env["RP_SIGNAL_DIR"] = str(signal_dir)
         env["RP_TAG"] = str(stage_result.get("tag") or self.config.tag)
+        env["RP_TIMEFRAME"] = _fixed_freqtrade_timeframe(self.config)
+        override_path = _write_fixed_freqtrade_override(
+            gate_dir / f"freqtrade_override_{gate_label}.json",
+            self.config,
+            signal_dir,
+        )
         lookahead_csv = gate_dir / "lookahead.csv"
         lookahead_cmd = [
             sys.executable,
@@ -7998,6 +8032,8 @@ class StrategyLoopRunner:
             "lookahead-analysis",
             "--config",
             str(config_path),
+            "--config",
+            str(override_path),
             "--strategy",
             FIXED_FREQTRADE_STRATEGY,
             "--strategy-path",
@@ -8016,6 +8052,8 @@ class StrategyLoopRunner:
             "recursive-analysis",
             "--config",
             str(config_path),
+            "--config",
+            str(override_path),
             "--strategy",
             FIXED_FREQTRADE_STRATEGY,
             "--strategy-path",
