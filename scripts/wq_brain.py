@@ -1601,7 +1601,7 @@ def cmd_update_data(args: argparse.Namespace) -> None:
     """Incremental daily update of the OHLCV cache."""
     import time as _t
     from agent_market.wq_brain.data_loader import (
-        fetch_data, load_cached_ohlcv, load_tickers, metadata_path,
+        fetch_data, load_cached_ohlcv, load_tickers,
     )
     tickers = load_tickers(Path(args.tickers_file) if args.tickers_file else None)
 

@@ -9,7 +9,6 @@ from typing import Dict, Iterable, List, Tuple
 import pandas as pd
 import pandas_ta as ta
 import vectorbt as vbt
-import yaml
 
 from _lib import load_yaml_config
 

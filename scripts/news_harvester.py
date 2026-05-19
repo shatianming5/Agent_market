@@ -13,10 +13,9 @@ import asyncio
 import datetime as dt
 import json
 import os
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 from urllib import robotparser
 
@@ -27,8 +26,7 @@ import tldextract
 import yaml
 from aiolimiter import AsyncLimiter
 from langdetect import detect as detect_lang
-from pydantic import BaseModel, Field
-from tenacity import retry, stop_after_attempt, wait_exponential
+from pydantic import BaseModel
 from xml.etree import ElementTree
 
 import trafilatura

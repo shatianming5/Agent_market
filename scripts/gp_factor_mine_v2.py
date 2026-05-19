@@ -20,7 +20,7 @@ import random
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Tuple
 
 import numpy as np
 import pandas as pd

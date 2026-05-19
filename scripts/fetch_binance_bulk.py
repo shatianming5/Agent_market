@@ -12,14 +12,13 @@ import hashlib
 import io
 import sys
 from dataclasses import dataclass
-from datetime import datetime, date, timezone
+from datetime import date
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 import zipfile
 
 import pandas as pd
 import requests
-import yaml
 from dateutil.parser import isoparse
 
 from _lib import load_yaml_config

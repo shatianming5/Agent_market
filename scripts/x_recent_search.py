@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-import pandas as pd
 import yaml
 
 RECENT_SEARCH_URL = "https://api.x.com/2/tweets/search/recent"
