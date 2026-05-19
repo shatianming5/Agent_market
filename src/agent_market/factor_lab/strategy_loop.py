@@ -5772,7 +5772,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected = final_status.get("selected") if isinstance(final_status, Mapping) and isinstance(final_status.get("selected"), Mapping) else {}
     final_blind_finalists = final_status.get("finalists") if isinstance(final_status, Mapping) and isinstance(final_status.get("finalists"), list) else []
     promotion = final_status.get("promotion") if isinstance(final_status, Mapping) and isinstance(final_status.get("promotion"), Mapping) else {}
+    root_promotion = load_json(root / "final_promotion.json", {})
+    root_promotion = root_promotion if isinstance(root_promotion, Mapping) else {}
     source_ref_hash_statuses: list[dict[str, Any]] = []
+    promoted_artifact_files = 0
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -5788,6 +5791,37 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 )
             )
 
+    def record_promoted_artifacts(promotion_payload: Mapping[str, Any]) -> None:
+        nonlocal promoted_artifact_files
+        artifacts = promotion_payload.get("artifacts") if isinstance(promotion_payload.get("artifacts"), Mapping) else {}
+        if not artifacts:
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted without artifacts"))
+            return
+        for key, raw in artifacts.items():
+            artifact_path = repo_paths.resolve_repo_path(str(raw or ""))
+            if not artifact_path.exists():
+                findings.append(_doctor_finding("BLOCKER", f"promoted artifact path does not exist: {key}", path=str(raw or "")))
+                continue
+            promoted_artifact_files += 1
+            if key == "optimized_profile":
+                payload = load_json(artifact_path, {})
+                if not isinstance(payload, Mapping):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is not JSON object", path=str(raw or "")))
+                    continue
+                if payload.get("run_id") != str(run_id):
+                    findings.append(
+                        _doctor_finding(
+                            "BLOCKER",
+                            "optimized_profile promotion artifact run_id does not match run",
+                            path=str(raw or ""),
+                            detail={"artifact_run_id": payload.get("run_id"), "run_id": str(run_id)},
+                        )
+                    )
+                if payload.get("final_promotion") is not True:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is not marked final_promotion", path=str(raw or "")))
+                if not isinstance(payload.get("rank_profile"), Mapping) or not payload.get("rank_profile"):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is missing rank_profile", path=str(raw or "")))
+
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
@@ -5801,10 +5835,16 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass verification"))
             if selected.get("promotion_eligible") and lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(selected) != VERIFICATION_PASSED:
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass LEAN gate"))
+        if final_status and dict(root_promotion) != dict(promotion):
+            findings.append(_doctor_finding("BLOCKER", "final_promotion.json differs from final_blind_status promotion"))
+        if final_status and bool(final_status.get("promoted")) != bool(promotion.get("promoted")):
+            findings.append(_doctor_finding("BLOCKER", "final_blind_status promoted flag differs from nested promotion"))
         if promotion.get("promoted") and not selected.get("promotion_eligible"):
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted but selected candidate is not promotion_eligible"))
         if promotion.get("promoted") and lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(selected) != VERIFICATION_PASSED:
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted without a passed LEAN gate"))
+        if promotion.get("promoted"):
+            record_promoted_artifacts(promotion)
 
     for idx, item in enumerate(final_blind_finalists, start=1):
         if not isinstance(item, Mapping):
@@ -5871,6 +5911,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "artifact_refs_missing_hash": missing_hash_total,
             "source_artifact_refs_hashed": source_hashed_total,
             "source_artifact_refs_missing_hash": source_missing_hash_total,
+            "promoted_artifact_files": promoted_artifact_files,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
             "lean_gate_files": len(lean_gate_files),
