@@ -477,7 +477,18 @@ def check_freqtrade_config(path_like: str | Path) -> list[dict[str, Any]]:
             )
         ]
 
-    payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        return [
+            _check(
+                "config.freqtrade",
+                ok=False,
+                severity="error",
+                detail=f"freqtrade_config parse failed: {exc}",
+                data={"path": str(config_path)},
+            )
+        ]
     pairs = ((payload.get("exchange") or {}).get("pair_whitelist")) or []
     checks = [
         _check(

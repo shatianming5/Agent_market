@@ -11,13 +11,13 @@ from agent_market import paths
 from agent_market.runtime_preflight import (
     _check,
     _iso_now,
+    check_freqtrade_config as _shared_check_freqtrade_config,
     check_freqtrade_cli as _check_freqtrade_cli,
     check_openai_compatible as _shared_check_openai_compatible,
     check_opencli as _check_opencli,
     check_writable_dir as _check_writable_dir,
 )
 
-from ._helpers import _load_freqtrade_payload
 from .dtypes import MinerConfig, Phase
 
 logger = logging.getLogger(__name__)
@@ -96,34 +96,7 @@ def _check_provider(config: MinerConfig, applied_env: dict[str, str]) -> list[di
 
 
 def _check_freqtrade_config(config: MinerConfig) -> list[dict[str, Any]]:
-    checks: list[dict[str, Any]] = []
-    ft_path = paths.resolve_repo_path(config.freqtrade_config)
-    if not ft_path.exists():
-        return [
-            _check(
-                "config.freqtrade",
-                ok=False,
-                severity="error",
-                detail=f"freqtrade_config not found: {ft_path}",
-                data={"path": str(ft_path)},
-            )
-        ]
-
-    payload = _load_freqtrade_payload(str(ft_path))
-    pairs = ((payload.get("exchange") or {}).get("pair_whitelist")) or []
-    checks.append(
-        _check(
-            "config.freqtrade",
-            ok=bool(isinstance(pairs, list) and pairs),
-            severity="info" if isinstance(pairs, list) and pairs else "error",
-            detail=f"loaded {ft_path}" if isinstance(pairs, list) and pairs else "pair_whitelist is empty",
-            data={"path": str(ft_path), "pair_count": len(pairs) if isinstance(pairs, list) else 0},
-        )
-    )
-
-    datadir = paths.resolve_repo_path(str(payload.get("datadir") or "user_data/data"))
-    checks.append(_check_writable_dir("config.freqtrade.datadir", datadir))
-    return checks
+    return _shared_check_freqtrade_config(config.freqtrade_config)
 
 
 def _log_check(item: dict[str, Any]) -> None:

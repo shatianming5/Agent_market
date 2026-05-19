@@ -243,3 +243,17 @@ def test_runtime_preflight_normalizes_ws_model_and_env(monkeypatch) -> None:
     assert settings["model_id"] == "gpt-5.2"
     assert settings["base_url"] == "http://proxy.internal:4141/v1"
     assert settings["api_key"] == "_"
+
+
+def test_runtime_preflight_reports_malformed_freqtrade_config(tmp_path: Path) -> None:
+    from agent_market.runtime_preflight import check_freqtrade_config
+
+    cfg = tmp_path / "freqtrade.json"
+    cfg.write_text("{bad json", encoding="utf-8")
+
+    checks = check_freqtrade_config(cfg)
+
+    assert len(checks) == 1
+    assert checks[0]["name"] == "config.freqtrade"
+    assert checks[0]["severity"] == "error"
+    assert "parse failed" in checks[0]["detail"]
