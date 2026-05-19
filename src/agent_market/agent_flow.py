@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import platform
@@ -152,6 +153,47 @@ def load_agent_flow_config(path: Path) -> AgentFlowConfig:
     except json.JSONDecodeError as exc:  # pragma: no cover
         raise ValueError(f"Failed to parse config JSON: {exc}") from exc
     return AgentFlowConfig.from_dict(payload)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Agent Market end-to-end orchestrator")
+    parser.add_argument("--config", required=True, help="Path to JSON configuration file")
+    parser.add_argument(
+        "--steps",
+        nargs="*",
+        help="Optional subset of steps to run (feature, expression, ml, rl, backtest)",
+    )
+    parser.add_argument(
+        "--log-dir",
+        default="user_data/agent_logs",
+        help="Directory to store agent flow log files",
+    )
+    return parser
+
+
+def _configure_cli_logging(log_dir: Path) -> Path:
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"agent_flow_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
+    logging.getLogger().info("Agent Flow log file: %s", log_file)
+    return log_file
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    _configure_cli_logging(paths.resolve_repo_path(args.log_dir))
+
+    cfg_path = paths.resolve_repo_path(args.config)
+    cfg = load_agent_flow_config(cfg_path)
+    flow = AgentFlow(cfg, config_path=cfg_path)
+    flow.run(args.steps)
+    return 0
 
 
 class AgentFlow:
@@ -419,4 +461,14 @@ class AgentFlow:
         }
 
 
-__all__ = ["AgentFlow", "AgentFlowConfig", "load_agent_flow_config"]
+__all__ = [
+    "AgentFlow",
+    "AgentFlowConfig",
+    "build_parser",
+    "load_agent_flow_config",
+    "main",
+]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

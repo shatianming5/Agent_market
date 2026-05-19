@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -94,6 +97,37 @@ def test_load_agent_flow_config_not_found():
 
     with pytest.raises(FileNotFoundError):
         load_agent_flow_config(Path("/nonexistent/config.json"))
+
+
+def test_agent_flow_script_help_uses_package_cli():
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, str(root / "scripts" / "agent_flow.py"), "--help"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "Agent Market end-to-end orchestrator" in proc.stdout
+    assert "--log-dir" in proc.stdout
+
+
+def test_agent_flow_module_help_uses_package_cli():
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    proc = subprocess.run(
+        [sys.executable, "-m", "agent_market.agent_flow", "--help"],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "Agent Market end-to-end orchestrator" in proc.stdout
+    assert "--log-dir" in proc.stdout
 
 
 # ---------------------------------------------------------------------------
