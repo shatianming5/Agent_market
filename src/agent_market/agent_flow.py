@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from agent_market.cli_args import extract_flag_value as _extract_flag_value
 from agent_market.utils import sha256_bytes
 from agent_market.flow_ext.step_spec import STEP_CONFIG_FIELDS, STEP_ORDER
 from agent_market import paths
@@ -75,16 +76,6 @@ def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
-
-
-def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
-    if not isinstance(args, list):
-        return None
-    value: Optional[str] = None
-    for idx, item in enumerate(args):
-        if str(item) == flag and idx + 1 < len(args):
-            value = str(args[idx + 1])
-    return value
 
 
 def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> Dict[str, Any]:

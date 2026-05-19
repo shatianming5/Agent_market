@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agent_market import paths
+from agent_market.cli_args import extract_flag_value as _extract_flag_value
 from agent_market.run_artifacts import RunArtifacts
 
 logger = logging.getLogger(__name__)
@@ -32,16 +33,6 @@ flow_steps = _LazyFlowSteps()
 
 def _relpath(path: Path) -> str:
     return paths.relpath_for_meta(path if path.is_absolute() else (REPO_ROOT / path))
-
-
-def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
-    if not isinstance(args, list):
-        return None
-    value: Optional[str] = None
-    for idx, item in enumerate(args):
-        if str(item) == flag and idx + 1 < len(args):
-            value = str(args[idx + 1])
-    return value
 
 
 def _merge_into_global_factor_memory(arts: RunArtifacts) -> None:

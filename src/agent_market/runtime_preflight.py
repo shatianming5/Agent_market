@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
 from agent_market import paths
+from agent_market.cli_args import (
+    extract_flag_value as _extract_flag_value,
+    has_flag as _has_flag,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -551,20 +555,6 @@ def check_freqtrade_config(path_like: str | Path) -> list[dict[str, Any]]:
     datadir = paths.resolve_repo_path(str(payload.get("datadir") or "user_data/data"))
     checks.append(check_writable_dir("config.freqtrade.datadir", datadir))
     return checks
-
-
-def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
-    if not isinstance(args, list):
-        return None
-    value: Optional[str] = None
-    for idx, item in enumerate(args):
-        if str(item) == flag and idx + 1 < len(args):
-            value = str(args[idx + 1])
-    return value
-
-
-def _has_flag(args: Any, flag: str) -> bool:
-    return isinstance(args, list) and flag in [str(item) for item in args]
 
 
 def _resolve_cfg_path(path_like: str | Path, *, cwd: Optional[str] = None) -> Path:
