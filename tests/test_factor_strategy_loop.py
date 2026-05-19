@@ -4191,17 +4191,30 @@ def test_pareto_pool_excludes_failed_iteration_rows() -> None:
             "run_id": "unit_pareto_failed",
             "iteration": 2,
             "candidate_path": "artifacts/factor_strategy_loop/unit/iter_02/candidate.json",
+            "candidate": {"candidate_type": "rank_profile", "rank_profile": {"top_k": 4}},
+            "parameter_signature": "failed_positive_score",
+            "score": 10.0,
+            "score_components": {"composite_score": 10_000.0},
+            "research_metrics": {"profit_pct": -2.0, "profit_over_max_drawdown": -1.0, "trades": 80},
+            "constraints_ok": False,
+        },
+        {
+            "run_id": "unit_pareto_failed",
+            "iteration": 3,
+            "candidate_path": "artifacts/factor_strategy_loop/unit/iter_03/candidate.json",
             "candidate": {"candidate_type": "rank_profile", "rank_profile": {"top_k": 3}},
             "parameter_signature": "valid",
             "score": 1.0,
             "score_components": {"composite_score": 1.0},
+            "constraints_ok": True,
         },
     ]
 
     pool = build_pareto_pool(rows)
 
-    assert [row["iteration"] for row in pool["axes"]["best_validation_composite"]] == [2]
+    assert [row["iteration"] for row in pool["axes"]["best_validation_composite"]] == [3]
     assert all(row["iteration"] != 1 for row in pool["finalists"])
+    assert all(row["iteration"] != 2 for row in pool["finalists"])
 
 
 def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_path: Path) -> None:

@@ -1431,6 +1431,8 @@ def _axis_value(axis: str, row: Mapping[str, Any]) -> Optional[float]:
 def _pareto_row_eligible(row: Mapping[str, Any]) -> bool:
     if row.get("pareto_eligible") is False:
         return False
+    if row.get("constraints_ok") is not True:
+        return False
     behavior = row.get("behavior_novelty") if isinstance(row.get("behavior_novelty"), Mapping) else {}
     if str(behavior.get("status") or "").strip().lower() in BEHAVIOR_DUPLICATE_STATUSES:
         return False
@@ -5527,6 +5529,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     if protocol in {VALIDATION_TRIPLE_HOLDOUT, VALIDATION_WALKFORWARD} and not windows_ok:
         findings.append(_doctor_finding("BLOCKER", "search/validation/blind windows are missing, invalid, or overlapping", detail=windows_detail))
 
+    run_manifest = load_json(root / "manifest.json", {})
+    manifest_git = run_manifest.get("git") if isinstance(run_manifest, Mapping) and isinstance(run_manifest.get("git"), Mapping) else {}
+    manifest_commit = str(manifest_git.get("commit") or "").strip()
+    current_commit = str(_git_provenance().get("commit") or "").strip()
     stale_git_detail = _stale_run_manifest_git_detail(str(run_id))
     if strict_formal and stale_git_detail:
         findings.append(
@@ -5642,8 +5648,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "lean_gate_files": len(lean_gate_files),
             "lean_gate_counts": lean_gate_counts,
             "final_promoted": bool(promotion.get("promoted")) if promotion else False,
-            "run_manifest_commit": stale_git_detail.get("run_manifest_commit") or "",
-            "current_commit": stale_git_detail.get("current_commit") or _git_provenance().get("commit"),
+            "run_manifest_commit": manifest_commit,
+            "current_commit": current_commit,
         },
         "findings": findings,
     }
