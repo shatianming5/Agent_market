@@ -5969,11 +5969,33 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     deepresearch = final_status.get("deepresearch") if isinstance(final_status, Mapping) and isinstance(final_status.get("deepresearch"), Mapping) else {}
     deep_artifacts = deepresearch.get("artifacts") if isinstance(deepresearch.get("artifacts"), Mapping) else {}
+    deep_ref_status = _doctor_artifact_refs_hash_status(deepresearch.get("artifact_refs") if isinstance(deepresearch, Mapping) else None)
     if (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal) and (bool(selected) or bool(final_blind_finalists)):
         if str(deepresearch.get("status") or "").lower() != VERIFICATION_PASSED:
             findings.append(_doctor_finding("BLOCKER", "deepresearch status is not passed"))
         expected_deep_dir = (repo_paths.artifacts_root() / "strategy_deepresearch" / str(run_id)).resolve()
         deep_paths: dict[str, Path] = {}
+        deep_refs = deepresearch.get("artifact_refs") if isinstance(deepresearch.get("artifact_refs"), Mapping) else {}
+        if not isinstance(deepresearch.get("artifact_refs"), Mapping):
+            findings.append(_doctor_finding("BLOCKER", "deepresearch artifact_refs missing"))
+        elif deep_ref_status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", "deepresearch artifact_refs do not include files"))
+        elif deep_ref_status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "deepresearch artifact_refs have entries without sha256 hashes",
+                    detail={"missing_hash": deep_ref_status["missing_hash"]},
+                )
+            )
+        deep_integrity_failures = {
+            "missing_file": deep_ref_status.get("missing_file", 0),
+            "bytes_mismatch": deep_ref_status.get("bytes_mismatch", 0),
+            "hash_mismatch": deep_ref_status.get("hash_mismatch", 0),
+            "errors": deep_ref_status.get("errors", 0),
+        }
+        if any(deep_integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", "deepresearch artifact refs failed integrity check", detail=deep_integrity_failures))
         for key in ("context", "sources", "review", "protocol"):
             raw = str(deep_artifacts.get(key) or "").strip()
             if not raw:
@@ -5993,6 +6015,19 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                         f"deepresearch artifact path is outside run artifacts: {key}",
                         path=raw,
                         detail={"expected_dir": _as_repo_meta(expected_deep_dir)},
+                    )
+                )
+            ref = deep_refs.get(key) if isinstance(deep_refs.get(key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            if not ref_raw:
+                findings.append(_doctor_finding("BLOCKER", f"deepresearch artifact ref missing: {key}"))
+            elif _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(path):
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        f"deepresearch artifact ref path differs from artifact path: {key}",
+                        path=ref_raw,
+                        detail={"artifact_path": _as_repo_meta(path)},
                     )
                 )
         context_path = deep_paths.get("context")
@@ -6075,6 +6110,13 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "source_artifact_refs_bytes_mismatch": source_bytes_mismatch_total,
             "source_artifact_refs_hash_mismatch": source_hash_mismatch_total,
             "source_artifact_refs_errors": source_ref_errors_total,
+            "deepresearch_artifact_refs_hashed": deep_ref_status.get("hashed", 0),
+            "deepresearch_artifact_refs_missing_hash": deep_ref_status.get("missing_hash", 0),
+            "deepresearch_artifact_refs_checked": deep_ref_status.get("checked", 0),
+            "deepresearch_artifact_refs_missing_file": deep_ref_status.get("missing_file", 0),
+            "deepresearch_artifact_refs_bytes_mismatch": deep_ref_status.get("bytes_mismatch", 0),
+            "deepresearch_artifact_refs_hash_mismatch": deep_ref_status.get("hash_mismatch", 0),
+            "deepresearch_artifact_refs_errors": deep_ref_status.get("errors", 0),
             "promoted_artifact_files": promoted_artifact_files,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
@@ -8438,6 +8480,12 @@ class StrategyLoopRunner:
                 "sources": _as_repo_meta(root / "sources.json"),
                 "review": _as_repo_meta(review_path),
                 "protocol": _as_repo_meta(protocol_path),
+            },
+            "artifact_refs": {
+                "context": _artifact_ref(root / "context.json"),
+                "sources": _artifact_ref(root / "sources.json"),
+                "review": _artifact_ref(review_path),
+                "protocol": _artifact_ref(protocol_path),
             },
             "findings": findings,
         }
