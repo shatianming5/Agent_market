@@ -7,7 +7,7 @@ import platform
 import sys
 import traceback
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -99,23 +99,7 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
             logger.warning("Failed to hash config file (%s): %s", cfg_path, exc)
 
     try:
-        snapshot = {
-            "capture": cfg.capture,
-            "lob_rebuild": cfg.lob_rebuild,
-            "feature": cfg.feature,
-            "micro_feature": cfg.micro_feature,
-            "portfolio": cfg.portfolio,
-            "expression": cfg.expression,
-            "factor_compile": cfg.factor_compile,
-            "factor_eval": cfg.factor_eval,
-            "ml_training": cfg.ml_training,
-            "rl_training": cfg.rl_training,
-            "backtest": cfg.backtest,
-            "tca": cfg.tca,
-            "report": cfg.report,
-            "strategy_miner": cfg.strategy_miner,
-            "experiment": cfg.experiment,
-        }
+        snapshot = {name: getattr(cfg, name) for name in AgentFlowConfig.field_names()}
         payload = json.dumps(
             snapshot,
             ensure_ascii=False,
@@ -146,46 +130,18 @@ class AgentFlowConfig:
     experiment: Optional[Dict[str, Any]] = None
 
     @classmethod
+    def field_names(cls) -> tuple[str, ...]:
+        return tuple(field.name for field in fields(cls))
+
+    @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentFlowConfig":
-        known_keys = {
-            "capture",
-            "lob_rebuild",
-            "feature",
-            "micro_feature",
-            "portfolio",
-            "expression",
-            "factor_compile",
-            "factor_eval",
-            "ml_training",
-            "rl_training",
-            "backtest",
-            "tca",
-            "report",
-            "strategy_miner",
-            "experiment",
-        }
+        known_keys = set(cls.field_names())
         extra = set(data.keys()) - known_keys
         if extra:
             logger.warning(
                 "AgentFlowConfig received unknown keys: %s", ", ".join(sorted(extra))
             )
-        return cls(
-            capture=data.get("capture"),
-            lob_rebuild=data.get("lob_rebuild"),
-            feature=data.get("feature"),
-            micro_feature=data.get("micro_feature"),
-            portfolio=data.get("portfolio"),
-            expression=data.get("expression"),
-            factor_compile=data.get("factor_compile"),
-            factor_eval=data.get("factor_eval"),
-            ml_training=data.get("ml_training"),
-            rl_training=data.get("rl_training"),
-            backtest=data.get("backtest"),
-            tca=data.get("tca"),
-            report=data.get("report"),
-            strategy_miner=data.get("strategy_miner"),
-            experiment=data.get("experiment"),
-        )
+        return cls(**{name: data.get(name) for name in cls.field_names()})
 
 
 def load_agent_flow_config(path: Path) -> AgentFlowConfig:
