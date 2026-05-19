@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ._helpers import _coerce_float
 from .dtypes import MinerConfig, StrategyCandidate
@@ -9,7 +9,6 @@ from .dtypes import MinerConfig, StrategyCandidate
 
 def _compute_psr(sharpe: float, observations: int, total_candidates: int = 100) -> float:
     """Deflate a sharpe-like score for small samples and multiple testing."""
-    import math
     if observations <= 2 or not math.isfinite(sharpe):
         return 0.0
     se = math.sqrt((1 + 0.25 * sharpe ** 2) / observations)
@@ -39,8 +38,6 @@ def _compute_effective_score(
     total_candidates: int,
 ) -> float:
     """Reward robust daily edge, realized profit, turnover, and stability."""
-
-    import math
 
     clipped_sharpe = max(-4.0, min(4.0, float(sharpe)))
     psr = _compute_psr(clipped_sharpe, max(3, observations), total_candidates=total_candidates)
@@ -211,7 +208,6 @@ def _safe_metric(summary: Dict[str, Any], key: str, default: float = 0.0) -> flo
         if v is None:
             return default
         f = float(v)
-        import math
         return f if math.isfinite(f) else default
     except (TypeError, ValueError):
         return default
