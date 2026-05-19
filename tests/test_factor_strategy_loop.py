@@ -3569,6 +3569,73 @@ def test_rank_profile_repair_queue_prioritizes_search_quality_after_duplicate_pa
     assert queue[0]["rank_profile"]["min_abs_score_z"] > anchor["min_abs_score_z"]
 
 
+def test_rank_profile_repair_queue_adds_search_pair_focus_repairs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    anchor = {
+        "n": 50,
+        "candidate_state": "artifacts/factor_lab/mining/unit/state_0149.json",
+        "recompute_corr": False,
+        "top_k": 5,
+        "gross_cap": 2.0,
+        "net_cap": 2.0,
+        "single_pair_cap": 2.0,
+        "side_mode": "short",
+        "min_abs_score_z": 1.45,
+        "rebalance_hours": 6,
+        "risk_per_trade": 0.015,
+        "leverage_cap": 3.0,
+        "exclude_pairs": ["BTC/USDT", "SOL/USDT"],
+    }
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_search_pair_focus",
+        run_id="unit_search_pair_focus_run",
+        validation_protocol="triple_holdout",
+        baseline_profile=str(tmp_path / "missing_optimized_profile.json"),
+    )
+    monkeypatch.setattr(
+        strategy_loop_mod,
+        "_pair_pnl_order_from_signal_dir",
+        lambda raw_signal_dir, anchor_profile: [
+            ("DOT/USDT", -0.04),
+            ("BNB/USDT", -0.02),
+            ("ADA/USDT", 0.03),
+            ("ETH/USDT", 0.02),
+        ],
+    )
+    rows = [
+        {
+            "run_id": cfg.run_id,
+            "iteration": 7,
+            "candidate": {"candidate_type": "rank_profile", "name": "active_search_loss", "rank_profile": anchor},
+            "parameter_signature": rank_profile_signature(anchor),
+            "window_metrics": {
+                "search": {
+                    "signal_dir": "artifacts/unit/signals",
+                    "constraints_ok": False,
+                    "research_metrics": {
+                        "profit_pct": -5.0,
+                        "max_drawdown_pct": 6.0,
+                        "profit_over_max_drawdown": -0.8,
+                        "trades": scaled_gate_values(cfg, cfg.search_timerange)["min_trades"] + 20,
+                    },
+                    "violations": ["profit_over_max_drawdown=-0.8 < 1.2"],
+                }
+            },
+        }
+    ]
+
+    queue = build_rank_profile_repair_queue({}, cfg, rows=rows)
+
+    assert queue
+    assert queue[0]["metadata"]["source"] == "controller_rank_profile_search_pair_focus_repair"
+    assert queue[0]["metadata"]["parent_anchor"] == "iteration_7"
+    assert queue[0]["rank_profile"]["top_k"] == 2
+    assert queue[0]["rank_profile"]["exclude_pairs"] == ["BTC/USDT", "SOL/USDT", "DOT/USDT", "BNB/USDT"]
+    assert queue[0]["metadata"]["search_pair_pnl_summary"]["profitable_pairs"] == ["ADA/USDT", "ETH/USDT"]
+
+
 def test_rank_profile_repair_queue_prioritizes_validation_trade_repair_after_search_pass(tmp_path: Path) -> None:
     anchor = {
         "n": 50,

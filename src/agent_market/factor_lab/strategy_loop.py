@@ -2379,6 +2379,12 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
             "profit_over_max_drawdown": pdd,
             "profit_pct": profit,
             "max_drawdown_pct": drawdown,
+            "search_signal_dir": (
+                (row.get("window_metrics") or {}).get("search", {}).get("signal_dir")
+                if isinstance(row.get("window_metrics"), Mapping)
+                and isinstance((row.get("window_metrics") or {}).get("search"), Mapping)
+                else None
+            ),
             "rank_profile": dict(profile),
         }
         if trades < min_trades and pdd >= min_pdd and profit > 0:
@@ -2561,7 +2567,7 @@ def _resolve_signal_file(raw_signal_dir: Any) -> Optional[Path]:
     return path if path.exists() else None
 
 
-def _pair_loss_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mapping[str, Any]) -> list[str]:
+def _pair_pnl_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mapping[str, Any]) -> list[tuple[str, float]]:
     signal_path = _resolve_signal_file(raw_signal_dir)
     if signal_path is None:
         return []
@@ -2634,8 +2640,58 @@ def _pair_loss_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mappin
         norm = _normalize_pair_token(pair)
         if norm:
             pair_pnl[norm] = pair_pnl.get(norm, 0.0) + float(pnl)
-    loss_pairs = [pair for pair, pnl in sorted(pair_pnl.items(), key=lambda item: item[1]) if pnl < 0.0]
-    return loss_pairs
+    return sorted(pair_pnl.items(), key=lambda item: item[1])
+
+
+def _pair_loss_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mapping[str, Any]) -> list[str]:
+    return [pair for pair, pnl in _pair_pnl_order_from_signal_dir(raw_signal_dir, anchor_profile) if pnl < 0.0]
+
+
+def _search_pair_focus_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+    config: StrategyLoopConfig,
+) -> list[tuple[str, str, dict[str, Any], str, dict[str, Any]]]:
+    pair_pnl = _pair_pnl_order_from_signal_dir(anchor.get("search_signal_dir"), anchor_profile)
+    if not pair_pnl:
+        return []
+    existing_pairs = set(_merged_excluded_pairs(anchor_profile, []))
+    profitable_pairs = [pair for pair, pnl in sorted(pair_pnl, key=lambda item: item[1], reverse=True) if pnl > 0.0]
+    loss_pairs = [pair for pair, pnl in pair_pnl if pnl < 0.0 and pair not in existing_pairs]
+    focus_pairs = [pair for pair in profitable_pairs if pair not in existing_pairs][:3]
+    if len(focus_pairs) < 2 or not loss_pairs:
+        return []
+
+    anchor_top_k = _coerce_int(anchor_profile.get("top_k"), 2)
+    focus_top_k = max(1, min(anchor_top_k, len(focus_pairs)))
+    anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), 1.5)
+    lowered_z = max(0.5, min(anchor_z - 0.05, 1.2))
+    excluded = _merged_excluded_pairs(anchor_profile, loss_pairs)
+    pnl_summary = {
+        "profitable_pairs": focus_pairs,
+        "loss_pairs": loss_pairs,
+        "pair_pnl": {pair: round(float(pnl), 8) for pair, pnl in pair_pnl},
+    }
+    specs: list[tuple[str, str, dict[str, Any], str, dict[str, Any]]] = [
+        (
+            f"search_pair_focus_top{focus_top_k}",
+            "search_pair_focus_exclude_loss_pairs",
+            {"exclude_pairs": excluded, "top_k": focus_top_k},
+            f"focus search exposure on profitable pair path(s) {', '.join(focus_pairs)} and exclude search loss pair(s)",
+            pnl_summary,
+        )
+    ]
+    if lowered_z < anchor_z:
+        specs.append(
+            (
+                f"search_pair_focus_top{focus_top_k}_z{int(round(lowered_z * 100)):03d}",
+                "search_pair_focus_threshold_repair",
+                {"exclude_pairs": excluded, "top_k": focus_top_k, "min_abs_score_z": lowered_z},
+                "pair the search pair-focus repair with a lower z threshold to recover trade count after narrowing the pair path",
+                pnl_summary,
+            )
+        )
+    return specs
 
 
 def _signal_activity_summary_from_signal_dir(raw_signal_dir: Any) -> dict[str, Any]:
@@ -3344,6 +3400,48 @@ def build_rank_profile_repair_queue(
                             "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
                             "anchor_validation_trades": anchor.get("validation_trades"),
                             "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    if isinstance(high_trade_low_quality, Sequence):
+        for anchor in high_trade_low_quality[:3]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_iter = anchor.get("iteration")
+            for raw_name, family, changes, tradeoff, pnl_summary in _search_pair_focus_repairs(anchor, anchor_profile, config)[:2]:
+                source = "controller_rank_profile_search_pair_focus_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated search pair-focus repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_pct": anchor.get("profit_pct"),
+                            "anchor_trades": anchor.get("trades"),
+                            "search_pair_pnl_summary": pnl_summary,
                         },
                         "rank_profile": profile,
                     }
