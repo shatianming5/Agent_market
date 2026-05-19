@@ -352,7 +352,8 @@ def phase_strategy_gen(
     names_seen: set[str] = set()
     names_seen_lock = threading.Lock()
     objective_profile = _prompt_objective_profile(config)
-    _, market_pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
+    market_context = _freqtrade_market_context(config.freqtrade_config)
+    market_pairs = market_context.pairs
     factor_store_entries: list[tuple[str, Any]] = []
     factor_store_lock = threading.Lock()
     factor_memory_path = str(getattr(config, "factor_memory_path", "") or "").strip()
@@ -560,8 +561,7 @@ def phase_strategy_gen(
             logger.warning("Candidate %d requested unsupported candidate_type=%s", candidate_idx, candidate_type)
             return None
 
-        _, pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
-        pairs = list(getattr(config, "model_training_pairs", None) or []) or pairs
+        pairs = list(getattr(config, "model_training_pairs", None) or []) or market_context.pairs
         factor_context, factor_snapshot = _factor_retrieval_for_candidate(
             selected_family=selected_family,
             candidate_type=candidate_type,

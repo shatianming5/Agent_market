@@ -83,8 +83,11 @@ def _normalize_model_candidate_payload(
 ) -> dict[str, Any]:
     normalized_type = _normalize_candidate_type(candidate_type)
     allowed_families = _allowed_model_families(normalized_type)
-    exchange, pairs, base_timeframe, datadir = _freqtrade_market_context(config.freqtrade_config)
-    training_pairs = list(getattr(config, "model_training_pairs", None) or []) or pairs
+    market_context = _freqtrade_market_context(config.freqtrade_config)
+    exchange = market_context.exchange
+    base_timeframe = market_context.timeframe
+    datadir = market_context.datadir
+    training_pairs = list(getattr(config, "model_training_pairs", None) or []) or market_context.pairs
 
     raw_family = str(raw_spec.get("model_family") or "").strip().lower()
     if raw_family not in allowed_families:
