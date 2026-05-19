@@ -5838,6 +5838,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_eval_bindings_checked = 0
     selected_eval_binding_mismatches = 0
     selected_candidate_path_missing = 0
+    optimized_profile_eval_bindings_checked = 0
+    optimized_profile_eval_binding_mismatches = 0
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -5862,7 +5864,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             findings.append(_doctor_finding("BLOCKER", f"{label} source artifact refs failed integrity check", detail=integrity_failures))
 
     def record_promoted_artifacts(promotion_payload: Mapping[str, Any]) -> None:
-        nonlocal promoted_artifact_files
+        nonlocal promoted_artifact_files, optimized_profile_eval_bindings_checked, optimized_profile_eval_binding_mismatches
         artifacts = promotion_payload.get("artifacts") if isinstance(promotion_payload.get("artifacts"), Mapping) else {}
         if not artifacts:
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted without artifacts"))
@@ -5896,6 +5898,11 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 selected_candidate = selected.get("candidate") if isinstance(selected.get("candidate"), Mapping) else {}
                 selected_profile = selected_candidate.get("rank_profile") if isinstance(selected_candidate.get("rank_profile"), Mapping) else {}
                 artifact_profile = payload.get("rank_profile") if isinstance(payload.get("rank_profile"), Mapping) else {}
+                if selected and artifact_eval:
+                    optimized_profile_eval_bindings_checked += 1
+                    if dict(artifact_eval) != dict(selected):
+                        optimized_profile_eval_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation differs from selected blind finalist", path=str(raw or "")))
                 if selected_profile and artifact_profile != selected_profile:
                     findings.append(_doctor_finding("BLOCKER", "optimized_profile rank_profile differs from selected candidate", path=str(raw or "")))
                 if selected.get("parameter_signature") and artifact_eval.get("parameter_signature") != selected.get("parameter_signature"):
@@ -5910,7 +5917,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation did not pass verification", path=str(raw or "")))
                 if lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(artifact_eval) != VERIFICATION_PASSED:
                     findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation did not pass LEAN gate", path=str(raw or "")))
-                if selected_candidate and artifact_candidate and artifact_candidate.get("rank_profile") != selected_profile:
+                if selected_candidate and artifact_candidate and dict(artifact_candidate) != dict(selected_candidate):
                     findings.append(_doctor_finding("BLOCKER", "optimized_profile candidate differs from selected candidate", path=str(raw or "")))
 
     def record_selected_evaluation_binding(selected_payload: Mapping[str, Any]) -> None:
@@ -6172,6 +6179,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_evaluation_bindings_checked": selected_eval_bindings_checked,
             "selected_evaluation_binding_mismatches": selected_eval_binding_mismatches,
             "selected_candidate_path_missing": selected_candidate_path_missing,
+            "optimized_profile_eval_bindings_checked": optimized_profile_eval_bindings_checked,
+            "optimized_profile_eval_binding_mismatches": optimized_profile_eval_binding_mismatches,
             "promoted_artifact_files": promoted_artifact_files,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
