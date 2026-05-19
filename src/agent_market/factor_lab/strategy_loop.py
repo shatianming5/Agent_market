@@ -4273,6 +4273,56 @@ def _postprocess_agent_rank_profile_payload(
     return out
 
 
+def _candidate_state_selection_window(candidate_state: Any) -> Optional[tuple[str, str, str]]:
+    raw = str(candidate_state or "").strip()
+    if not raw:
+        return None
+    path = repo_paths.resolve_repo_path(raw)
+    if not path.exists():
+        return None
+    try:
+        payload = load_json(path, {})
+    except Exception:
+        return None
+    cfg = payload.get("config") if isinstance(payload, Mapping) else {}
+    if not isinstance(cfg, Mapping):
+        return None
+    mode = str(cfg.get("eval_mode") or "legacy").strip().lower()
+    if mode in {"portfolio", "composite"}:
+        window = cfg.get("val3") or cfg.get("oos")
+    else:
+        window = cfg.get("oos") or cfg.get("val3")
+    if not isinstance(window, Sequence) or isinstance(window, (str, bytes)) or len(window) < 2:
+        return None
+    start = str(window[0] or "").strip()
+    end = str(window[1] or "").strip()
+    if not start or not end:
+        return None
+    return mode, start, end
+
+
+def _assert_candidate_state_pre_search(candidate_state: Any, config: StrategyLoopConfig) -> None:
+    if str(config.validation_protocol or "").strip().lower() != VALIDATION_TRIPLE_HOLDOUT:
+        return
+    selection = _candidate_state_selection_window(candidate_state)
+    if selection is None:
+        return
+    mode, selection_start, selection_end = selection
+    search_start, _ = parse_timerange(config.search_timerange)
+    try:
+        selection_end_date = _date_from_iso(selection_end)
+        search_start_date = _date_from_iso(search_start)
+    except Exception:
+        return
+    if selection_end_date <= search_start_date:
+        return
+    raise ValueError(
+        "candidate_state mining selection window overlaps formal search/validation/blind: "
+        f"eval_mode={mode} selection={selection_start}:{selection_end} "
+        f"search_start={search_start}. Re-mine with selection ending on or before search_start."
+    )
+
+
 def _rank_kwargs(
     profile: Mapping[str, Any],
     config: StrategyLoopConfig,
@@ -4303,6 +4353,9 @@ def _rank_kwargs(
         recompute_corr = _coerce_bool(baseline_params.get("recompute_corr"))
     else:
         recompute_corr = True
+
+    resolved_candidate_state = _resolve_candidate_state_value(candidate_state_raw, candidate_state_fallback)
+    _assert_candidate_state_pre_search(resolved_candidate_state, config)
 
     params.pop("candidate_state", None)
     params.pop("recompute_corr", None)
@@ -4359,7 +4412,7 @@ def _rank_kwargs(
         "short_exit_market_mom_24h": params.pop("short_exit_market_mom_24h", None),
         "short_exit_market_ma_gap": params.pop("short_exit_market_ma_gap", None),
         "exclude_pairs": params.pop("exclude_pairs", None),
-        "candidate_state": _resolve_candidate_state_value(candidate_state_raw, candidate_state_fallback),
+        "candidate_state": resolved_candidate_state,
         "recompute_corr": bool(recompute_corr),
     }
 

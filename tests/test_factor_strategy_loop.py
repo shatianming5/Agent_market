@@ -851,6 +851,62 @@ def test_rank_kwargs_expands_short_candidate_state_from_config() -> None:
     assert kwargs["top_k"] == 3
 
 
+def test_rank_kwargs_rejects_leaky_legacy_candidate_state_for_triple_holdout() -> None:
+    state_rel = "artifacts/factor_lab/mining/unit_leaky_legacy_state/state_0149.json"
+    state_path = repo_paths.resolve_repo_path(state_rel)
+    _write_json(
+        state_path,
+        {
+            "timeframe": "1h",
+            "config": {
+                "eval_mode": "legacy",
+                "oos": ["2025-11-01", "2026-04-12"],
+            },
+            "survivors": [],
+        },
+    )
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_leaky_legacy_state",
+        candidate_state=state_rel,
+        validation_protocol="triple_holdout",
+        search_timerange="20251201-20260228",
+        validation_timerange="20260301-20260331",
+        blind_timerange="20260401-20260412",
+    )
+
+    with pytest.raises(ValueError, match="mining selection window overlaps formal search"):
+        _rank_kwargs({}, cfg, candidate_state=None, tag="effective")
+
+
+def test_rank_kwargs_allows_portfolio_state_with_pre_search_val3() -> None:
+    state_rel = "artifacts/factor_lab/mining/unit_clean_portfolio_state/state_0149.json"
+    state_path = repo_paths.resolve_repo_path(state_rel)
+    _write_json(
+        state_path,
+        {
+            "timeframe": "1h",
+            "config": {
+                "eval_mode": "portfolio",
+                "oos": ["2025-11-01", "2026-04-12"],
+                "val3": ["2025-07-01", "2025-12-01"],
+            },
+            "survivors": [],
+        },
+    )
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_clean_portfolio_state",
+        candidate_state=state_rel,
+        validation_protocol="triple_holdout",
+        search_timerange="20251201-20260228",
+        validation_timerange="20260301-20260331",
+        blind_timerange="20260401-20260412",
+    )
+
+    kwargs = _rank_kwargs({}, cfg, candidate_state=None, tag="effective")
+
+    assert kwargs["candidate_state"] == str(state_path)
+
+
 def test_runner_seeds_initial_optimized_baseline_candidate(tmp_path: Path) -> None:
     baseline_path = tmp_path / "optimized_profile.json"
     _write_json(
