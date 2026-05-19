@@ -31,15 +31,10 @@ def _truncate_text(text: str, limit: int = 2000) -> str:
 
 def _freqtrade_config_defaults(freqtrade_config_path: str) -> tuple[str, bool]:
     """Return (timeframe, enforce_can_short_false) from a freqtrade config file."""
-    try:
-        ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        payload = json.loads(ft_path.read_text(encoding="utf-8-sig"))
-        timeframe = str(payload.get("timeframe") or "1h").strip() or "1h"
-        trading_mode = str(payload.get("trading_mode") or "spot").strip().lower() or "spot"
-        enforce_can_short_false = trading_mode == "spot"
-        return timeframe, enforce_can_short_false
-    except Exception:
-        return "1h", True
+    payload = _load_freqtrade_payload(freqtrade_config_path)
+    timeframe = str(payload.get("timeframe") or "1h").strip() or "1h"
+    trading_mode = str(payload.get("trading_mode") or "spot").strip().lower() or "spot"
+    return timeframe, trading_mode == "spot"
 
 
 def _load_freqtrade_payload(freqtrade_config_path: str) -> dict[str, Any]:
@@ -97,8 +92,7 @@ def _split_timerange(timerange: str, train_ratio: float = 0.7) -> tuple[str, str
 def _get_leverage_factor(freqtrade_config_path: str) -> float:
     """Return the default leverage factor from a freqtrade config (1.0 for spot)."""
     try:
-        ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        payload = json.loads(ft_path.read_text(encoding="utf-8-sig"))
+        payload = _load_freqtrade_payload(freqtrade_config_path)
         trading_mode = str(payload.get("trading_mode") or "spot").strip().lower()
         if trading_mode != "futures":
             return 1.0
