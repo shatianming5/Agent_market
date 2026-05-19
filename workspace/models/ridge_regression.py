@@ -5,7 +5,6 @@ automatically discovered and registered by model_loader.
 """
 from __future__ import annotations
 
-import json
 import pickle
 from pathlib import Path
 from typing import Any, Dict, Optional

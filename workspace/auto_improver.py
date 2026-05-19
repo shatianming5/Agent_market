@@ -11,7 +11,6 @@ Usage:
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import os
 import re

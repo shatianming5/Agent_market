@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def generate_daily_report() -> Dict[str, Any]:
     """Generate a daily research status report."""
-    from workspace.strategy_lifecycle import LifecycleManager, StrategyState
+    from workspace.strategy_lifecycle import LifecycleManager
     from workspace.tracker import list_experiments
     from workspace.performance_monitor import PerformanceMonitor
 

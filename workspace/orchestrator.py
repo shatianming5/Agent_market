@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 from workspace.backtest_api import run_backtest
 from workspace.evaluator import evaluate
-from workspace.tracker import record_experiment, list_experiments, query_best
+from workspace.tracker import record_experiment
 
 
 def run_experiment(

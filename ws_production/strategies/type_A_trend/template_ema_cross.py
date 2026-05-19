@@ -1,6 +1,6 @@
 """Template: EMA Crossover Trend Following."""
 from __future__ import annotations
-import sys; from pathlib import Path; import numpy as np; from pandas import DataFrame
+import sys; from pathlib import Path; from pandas import DataFrame
 _R = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(_R/"src")); sys.path.insert(0, str(_R))
 from freqtrade.strategy import IStrategy
