@@ -5424,6 +5424,29 @@ def _doctor_finding(severity: str, message: str, *, path: str = "", detail: Opti
     return item
 
 
+def _is_strict_formal_config(config: StrategyLoopConfig) -> bool:
+    return (
+        str(config.validation_protocol).strip().lower() == VALIDATION_TRIPLE_HOLDOUT
+        and str(config.verify_policy).strip().lower() == VERIFY_PARETO
+        and str(config.promote_policy).strip().lower() == PROMOTE_FINAL
+    )
+
+
+def _stale_run_manifest_git_detail(run_id: str) -> dict[str, Any]:
+    manifest = load_json(loop_root(str(run_id)) / "manifest.json", {})
+    manifest_git = manifest.get("git") if isinstance(manifest, Mapping) and isinstance(manifest.get("git"), Mapping) else {}
+    manifest_commit = str(manifest_git.get("commit") or "").strip()
+    current_git = _git_provenance()
+    current_commit = str(current_git.get("commit") or "").strip()
+    if not manifest_commit or not current_commit or manifest_commit == current_commit:
+        return {}
+    return {
+        "run_manifest_commit": manifest_commit,
+        "current_commit": current_commit,
+        "current_dirty_files": current_git.get("dirty_files") or [],
+    }
+
+
 def _doctor_config_from_payloads(root: Path) -> dict[str, Any]:
     checkpoint = load_json(root / "checkpoint.json", {})
     if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("config"), Mapping):
@@ -5504,21 +5527,13 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     if protocol in {VALIDATION_TRIPLE_HOLDOUT, VALIDATION_WALKFORWARD} and not windows_ok:
         findings.append(_doctor_finding("BLOCKER", "search/validation/blind windows are missing, invalid, or overlapping", detail=windows_detail))
 
-    run_manifest = load_json(root / "manifest.json", {})
-    manifest_git = run_manifest.get("git") if isinstance(run_manifest, Mapping) and isinstance(run_manifest.get("git"), Mapping) else {}
-    manifest_commit = str(manifest_git.get("commit") or "").strip()
-    current_git = _git_provenance()
-    current_commit = str(current_git.get("commit") or "").strip()
-    if strict_formal and manifest_commit and current_commit and manifest_commit != current_commit:
+    stale_git_detail = _stale_run_manifest_git_detail(str(run_id))
+    if strict_formal and stale_git_detail:
         findings.append(
             _doctor_finding(
                 "HIGH",
                 "run manifest git commit differs from current controller code; start a fresh formal run before promotion",
-                detail={
-                    "run_manifest_commit": manifest_commit,
-                    "current_commit": current_commit,
-                    "current_dirty_files": current_git.get("dirty_files") or [],
-                },
+                detail=stale_git_detail,
             )
         )
 
@@ -5627,8 +5642,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "lean_gate_files": len(lean_gate_files),
             "lean_gate_counts": lean_gate_counts,
             "final_promoted": bool(promotion.get("promoted")) if promotion else False,
-            "run_manifest_commit": manifest_commit,
-            "current_commit": current_commit,
+            "run_manifest_commit": stale_git_detail.get("run_manifest_commit") or "",
+            "current_commit": stale_git_detail.get("current_commit") or _git_provenance().get("commit"),
         },
         "findings": findings,
     }
@@ -5968,6 +5983,14 @@ class StrategyLoopRunner:
             self.config = loaded_config
             self.state = loaded_state
             self.config.run_id = self.state.run_id
+            stale_git_detail = _stale_run_manifest_git_detail(self.config.run_id)
+            if _is_strict_formal_config(self.config) and stale_git_detail and os.getenv("AGENT_MARKET_ALLOW_STALE_FORMAL_RESUME") != "1":
+                raise ValueError(
+                    "refusing to resume strict formal strategy-loop run with stale controller commit: "
+                    f"run_manifest_commit={stale_git_detail.get('run_manifest_commit')} "
+                    f"current_commit={stale_git_detail.get('current_commit')}. "
+                    "Start a fresh run, or set AGENT_MARKET_ALLOW_STALE_FORMAL_RESUME=1 only for artifact forensics."
+                )
             if self.state.status == LOOP_STOPPED_STAGNATED and requested_max_iterations > self.state.iteration:
                 if self.state.phase == PHASE_COMPLETE:
                     self.state.iteration += 1

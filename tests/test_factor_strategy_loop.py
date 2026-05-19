@@ -183,6 +183,40 @@ def test_resume_extended_completed_run_marks_running() -> None:
     assert runner.state.final_promotion is None
 
 
+def test_resume_strict_formal_rejects_stale_controller_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id="unit_resume_stale_formal",
+        max_iterations=3,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+    )
+    state = StrategyLoopState(run_id=cfg.run_id, iteration=2, phase=PHASE_COMPLETE, status=LOOP_COMPLETED)
+    save_checkpoint(cfg, state)
+    _write_json(
+        repo_paths.artifacts_root() / "factor_strategy_loop" / cfg.run_id / "manifest.json",
+        {"cli_args": cfg.__dict__, "git": {"commit": "old-controller-sha", "dirty_files": []}},
+    )
+    resume_cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=cfg.run_id,
+        max_iterations=4,
+        resume=True,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+    )
+
+    with pytest.raises(ValueError, match="refusing to resume strict formal"):
+        StrategyLoopRunner(resume_cfg)
+
+    monkeypatch.setenv("AGENT_MARKET_ALLOW_STALE_FORMAL_RESUME", "1")
+    runner = StrategyLoopRunner(resume_cfg)
+    assert runner.state.status == strategy_loop_mod.LOOP_RUNNING
+
+
 def test_stagnation_recovery_candidate_gets_grace_at_stop_threshold() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit", run_id="unit_recovery_stagnation", max_iterations=3)
     runner = StrategyLoopRunner(cfg)
