@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ArtifactPaths:
     run_id: str
     run_dir: Path
@@ -35,4 +35,3 @@ def artifact_paths(run_id: str, *, root: Optional[Path] = None) -> ArtifactPaths
 
 
 __all__ = ["ArtifactPaths", "artifact_paths", "run_dir"]
-
