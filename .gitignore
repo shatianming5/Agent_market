@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.playwright-mcp/
 .venv/
 .venv*/
 venv/
@@ -30,9 +31,6 @@ user_data/factor_diversity_report_*.json
 artifacts/models/*/training_summary.json
 sweeper_debug.log
 freqtrade/
-user_data/agent_logs/
-user_data/backtest_results/
-user_data/logs/
 user_data/models/
 user_data/notebooks/
 user_data/plot/
