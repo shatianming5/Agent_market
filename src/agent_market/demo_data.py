@@ -4,7 +4,7 @@ import json
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Sequence
+from typing import Any, List, Sequence
 
 from agent_market import paths
 

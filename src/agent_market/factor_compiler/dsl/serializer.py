@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from ..api_models import ExprArg, ExprNode
 from .ast_utils import format_number
 from .errors import FormulaSerializeError
@@ -60,4 +58,3 @@ def _render(arg: ExprArg) -> str:
 
 def to_formula(expr: ExprNode) -> str:
     return _render(expr)
-

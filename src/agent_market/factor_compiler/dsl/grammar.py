@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Dict, Tuple, Type
+from typing import Dict, Type
 
 MAX_FORMULA_LENGTH = 1024
 MAX_AST_NODES = 512
@@ -70,4 +70,3 @@ OP_TO_CMP_SYMBOL: Dict[str, str] = {
 # Internal node ops used by the DSL
 VAR_OP = "var"
 CONST_OP = "const"
-
