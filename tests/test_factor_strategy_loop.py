@@ -627,6 +627,55 @@ def test_strategy_loop_doctor_requires_complete_deepresearch_sidecar(tmp_path: P
     assert "deepresearch artifact missing: protocol" in messages
 
 
+def test_strategy_loop_doctor_rejects_deepresearch_artifacts_outside_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_deepresearch_outside_run"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+    deepresearch = _write_deepresearch_artifacts(run_id)
+    outside_root = repo_paths.artifacts_root() / "strategy_deepresearch" / "other_run"
+    _write_json(outside_root / "context.json", {"run_id": "other_run"})
+    deepresearch["artifacts"]["context"] = "artifacts/strategy_deepresearch/other_run/context.json"
+    blind_dir = root / "blind_1"
+    evaluation_ref = _write_json_ref(blind_dir / "evaluation.json", {"status": "selected"})
+    verification_ref = _write_json_ref(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok"})
+    _write_json(blind_dir / "manifest.json", {"artifact_refs": {"evaluation.json": evaluation_ref, "verification.json": verification_ref}})
+    _write_json(
+        root / "final_blind_status.json",
+        {
+            "selected": {
+                "blind_final": True,
+                "promotion_eligible": True,
+                "verification_status": VERIFICATION_PASSED,
+                "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"},
+                "artifact_refs": {"evaluation.json": evaluation_ref},
+            },
+            "promotion": {"promoted": False},
+            "deepresearch": deepresearch,
+        },
+    )
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert "deepresearch artifact path is outside run artifacts: context" in messages
+
+
 def test_strategy_loop_doctor_requires_hashed_finalist_source_refs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "doctor_formal_unhashed_source_refs"
