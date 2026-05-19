@@ -107,7 +107,7 @@
 | `portfolio_opt.py` | L2 Domain |
 | `backtest_results.py` | L3 Core/Runtime（dataclass 容器） |
 | `factor_multiagent.py` | L2 Domain |
-| `strategy_factory.py` (1700+ 行；待拆) | L2 Domain |
+| `strategy_factory.py` (~600 行；strategy factory artifact finalization) | L2 Domain |
 | `demo_data.py` | L4 Runtime artifacts (fixtures) |
 
 > 未来如要重排（把 flat 模块移到 `core/` `flow/` 子包），需要先扫所有 import 路径 — 风险高，目前用本文件做"逻辑层级"足够。
@@ -141,7 +141,7 @@
 
 - `wq_brain.scan_runner` 的 `--auto-submit` 路径绕过 quota / persistence 栈
 - `wq_brain pool resubmit-all` 缺 quota 预留 + outcome 持久化
-- `src/agent_market/strategy_factory.py` 1700+ 行待拆
+- `scripts/wq_brain.py` / `scripts/factor_lab.py` 仍是 CLI 巨石，后续可继续把 argparse 分支和 handler 拆到 domain modules
 - `scripts/wq_brain.py` 2200 行 CLI monolith 待拆
 - 双轨 plan 文件已通过命名澄清（`docs/proposals/agent_market_proposal.md` Proposal + `docs/plan.md` MVP，根 `plan.md` 是兼容指针），但未来仍可能合并
 - `src/agent_market/__init__.py` 顶层 14 个 flat 模块未分到 `core/` `flow/` 子包

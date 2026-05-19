@@ -19,7 +19,7 @@
   * ``flow_steps``       — flow 步骤的具体实现
   * ``runtime_bootstrap``/``runtime_preflight`` — 运行时引导 + 预检
   * ``paths``/``config``/``utils`` — 路径、配置、通用工具
-  * ``strategy_factory`` — 策略工厂（1700+ 行；待拆）
+  * ``strategy_factory`` — 策略工厂 artifact finalization
   * ``strategy_registry``/``factor_memory``/``run_artifacts`` — 注册表 / 记忆 / artifacts 写入
   * ``portfolio_opt``    — HRP / 组合优化
   * ``backtest_results`` — 回测结果数据结构

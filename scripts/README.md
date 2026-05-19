@@ -1,6 +1,6 @@
 # scripts/ — CLI 入口分类索引
 
-> 70+ Python 脚本按用途分类；每条最多 1 行说明 + "运行示例 / 状态"。
+> 70 个 Python 脚本按用途分类；每条最多 1 行说明 + "运行示例 / 状态"。
 > 旧版 `FACTOR_LAB_README.md` 已移除；脚本导航以本文件为准。
 
 ## 主入口（"如果你只能跑一个，就跑这些"）
@@ -9,7 +9,7 @@
 |---|---|---|
 | `agent_flow.py` | **离线主流水线** | `--steps feature expression ml backtest`；步骤 dispatcher 在 `src/agent_market/flow_ext/step_dispatch.py` |
 | `factor_lab.py` | **研究 CLI 总入口** | 子命令 `data / features / mine / validate / backtest / rank-export / rank-backtest / rl / combo / deploy / hub` |
-| `wq_brain.py` | **WQ BRAIN agentic alpha mining CLI** | `simulate / pool submit-worker / sync-status / pre-check / pre-check-local / kaggle-import / ...`，~2200 行 |
+| `wq_brain.py` | **WQ BRAIN agentic alpha mining CLI** | `simulate / pool submit-worker / sync-status / pre-check / pre-check-local / kaggle-import / ...`，~3100 行 |
 | `strategy_miner.py` | **LLM 策略级挖掘** | `--config configs/strategy_miner_default.json` |
 | `smoke_test.py` | **黄金路径冒烟** | 跑通即代表后端 + flow + 主依赖完好 |
 | `freqtrade_cli.py` | freqtrade 命令包装 | 桥接 vendored freqtrade |

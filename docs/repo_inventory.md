@@ -25,7 +25,7 @@
   runtime_configs/         # Runtime config snapshots from server/jobs（运行时）
   runtime_logs/            # Runtime logs from server/jobs（运行时）
   runtime_manifests/       # Job manifests and metadata（运行时）
-  scripts/                 # 70+ CLI entrypoints；先看 scripts/README.md 分类
+  scripts/                 # 70 CLI entrypoints；先看 scripts/README.md 分类
   server/                  # FastAPI app, API routes, auth, job manager
   src/agent_market/        # 业务核心；详见其 __init__.py 导览
   src/runner_fsm/          # 通用 OpenCode-FSM runner core

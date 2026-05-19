@@ -99,7 +99,7 @@ pytest -q
 如果你即将动以下任何一处，请先 grep + 读对应文档：
 
 - `src/agent_market/wq_brain/pool.py::AlphaPool._save` — 跨进程 fcntl + 状态优先级 merge；改之前读 `AUTO_REVIEW.md` 中第二轮 R2-CRIT / R3-CRIT。
-- `scripts/wq_brain.py` (~2200 行) — CLI 单文件壳，分支多；先确认子命令以避免重复实现。
+- `scripts/wq_brain.py` (~3100 行) — CLI 单文件壳，分支多；先确认子命令以避免重复实现。
 - `src/agent_market/agent_flow.py` — 主流水线编排，所有 step 经此进出。
 - `docs/plan.md` (MVP, 已闭环) vs `docs/proposals/agent_market_proposal.md` (Proposal, 部分 PARTIAL) — 不同口径；先看 `docs/project_status.md`。**注**：根 `/plan.md` 现在只是兼容性指针。
 

@@ -33,7 +33,7 @@ Updated: 2026-05-09 (originally 2026-02-05; refreshed for plan-name 拆分 + str
 
 ### 结构 cleanup commits（2026-05-09，待提交）
 
-- `AGENTS.md` / `docs/architecture.md` / `docs/INDEX.md` / `scripts/README.md` 新增：AI agent 入口契约 + L1-L4 系统分层 + 文档状态索引 + 70+ scripts 分类
+- `AGENTS.md` / `docs/architecture.md` / `docs/INDEX.md` / `scripts/README.md` 新增：AI agent 入口契约 + L1-L4 系统分层 + 文档状态索引 + scripts 分类
 - `RALPH_PROMPT.md` / `HARNESS_*.md` 移到 `docs/legacy/`：清理根目录长期 vs 过程资产边界
 - 根 `plan.md` 重命名为 `docs/proposals/agent_market_proposal.md`，根 `plan.md` 留兼容性指针：消除 plan-name 歧义
 - 8 处 `__init__.py` docstring 补齐（`src/agent_market/`、`flow_ext/`、`freqai/`、`factor_compiler/` 等）

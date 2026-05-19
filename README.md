@@ -27,7 +27,7 @@ configs/                   # 配置（Flow/训练/回测 JSON + 数据抓取 YAM
 docs/                      # 文档（24+ 篇；先看 docs/INDEX.md 找当前 vs 历史）
 freqtrade/                 # vendored Freqtrade snapshot（只读）
 runtime_*/                 # 运行时快照（log / config / manifest，运行时生成）
-scripts/                   # 70+ CLI 脚本（先看 scripts/README.md 分类）
+scripts/                   # 70 个 CLI 脚本（先看 scripts/README.md 分类）
 server/                    # FastAPI 后端
 src/agent_market/          # 业务核心；主子系统 wq_brain（详见其内部 docstring）
 src/runner_fsm/            # 通用 runner FSM
