@@ -658,6 +658,16 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
             "final_blind_status": final_status,
         },
     )
+    registry_state = StrategyLoopState(run_id=run_id, iteration=2)
+    registry_state.status = LOOP_COMPLETED
+    registry_state.best_candidate = leaderboard_row
+    registry_state.best_score = leaderboard_row["score"]
+    registry_state.score_history = [leaderboard_row]
+    registry_state.candidate_paths = [source_candidate_path]
+    registry_state.pareto_pool = pareto_pool
+    registry_state.final_blind_status = final_status
+    registry_state.final_promotion = final_promotion
+    write_strategy_loop_registry_entry(cfg, registry_state, final_promotion=final_promotion)
 
     result = doctor_strategy_loop_run(run_id)
 
@@ -692,6 +702,8 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert result["summary"]["checkpoint_final_status_binding_mismatches"] == 0
     assert result["summary"]["checkpoint_final_promotion_bindings_checked"] == 1
     assert result["summary"]["checkpoint_final_promotion_binding_mismatches"] == 0
+    assert result["summary"]["run_registry_bindings_checked"] == 1
+    assert result["summary"]["run_registry_binding_mismatches"] == 0
     assert result["summary"]["pareto_axis_leaderboard_bindings_checked"] == 1
     assert result["summary"]["pareto_axis_leaderboard_binding_mismatches"] == 0
     assert result["summary"]["pareto_finalist_leaderboard_bindings_checked"] == 1
@@ -1047,6 +1059,105 @@ def test_strategy_loop_doctor_binds_checkpoint_final_artifacts(
     assert "checkpoint state final_blind_status differs from final_blind_status.json" in messages
     assert "checkpoint top-level final_blind_status differs from final_blind_status.json" in messages
     assert "checkpoint state final_promotion differs from final_promotion.json" in messages
+
+
+def test_strategy_loop_doctor_binds_run_registry_to_final_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_run_registry_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    iter_dir = root / "iter_01"
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    candidate_ref = _write_json_ref(iter_dir / "candidate.json", candidate)
+    evaluation = {
+        "iteration": 1,
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json",
+        "score": 1.0,
+        "score_components": {"composite_score": 1.0},
+        "constraints_ok": True,
+        "metrics": {},
+        "research_metrics": {},
+        "freqtrade_metrics": {},
+        "window_metrics": {},
+        "verification_status": VERIFICATION_PASSED,
+        "promotion_eligible": False,
+        "pareto_eligible": True,
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+        "promotion": {"promoted": False},
+    }
+    _write_json(iter_dir / "evaluation.json", evaluation)
+    evaluation_ref = strategy_loop_mod._artifact_ref(iter_dir / "evaluation.json")
+    _write_json(iter_dir / "manifest.json", {"artifact_refs": {"candidate.json": candidate_ref, "evaluation.json": evaluation_ref}})
+    row = strategy_loop_mod._leaderboard_row_from_evaluation(evaluation, run_id, iteration=1)
+    promotion = {"promoted": False}
+    final_status = {"selected": None, "finalists": [], "promotion": promotion, "promoted": False}
+    pareto_pool = {"finalists": []}
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [row]})
+    _write_json(root / "pareto_pool.json", pareto_pool)
+    _write_json(root / "final_blind_status.json", final_status)
+    _write_json(root / "final_promotion.json", promotion)
+    _write_doctor_checkpoint(
+        root,
+        cfg,
+        [row],
+        pareto_pool=pareto_pool,
+        final_status=final_status,
+        final_promotion=promotion,
+    )
+    stale_registry_entry = {
+        "version": "factor-strategy-loop-run-registry-v1",
+        "ts": 1.0,
+        "run_id": run_id,
+        "tag": cfg.tag,
+        "protocol": cfg.validation_protocol,
+        "status": LOOP_COMPLETED,
+        "best_score": row["score"],
+        "best_iteration": row["iteration"],
+        "promoted": True,
+        "promotion": {"promoted": True},
+        "verification_summary": {
+            "verify_policy": cfg.verify_policy,
+            "promote_policy": cfg.promote_policy,
+            "score_mode": cfg.score_mode,
+            "eval_mode": cfg.eval_mode,
+            "lean_gate_mode": cfg.lean_gate_mode,
+        },
+        "artifacts": {
+            "run_dir": f"artifacts/factor_strategy_loop/{run_id}",
+            "manifest": f"artifacts/factor_strategy_loop/{run_id}/manifest.json",
+            "checkpoint": f"artifacts/factor_strategy_loop/{run_id}/checkpoint.json",
+            "leaderboard": f"artifacts/factor_strategy_loop/{run_id}/leaderboard.json",
+            "pareto_pool": f"artifacts/factor_strategy_loop/{run_id}/pareto_pool.json",
+            "final_blind_status": f"artifacts/factor_strategy_loop/{run_id}/final_blind_status.json",
+            "doctor_latest": "",
+        },
+        "retention_tier": "keep_promoted",
+    }
+    registry_path = strategy_loop_registry_path()
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(json.dumps(stale_registry_entry, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["run_registry_bindings_checked"] == 1
+    assert result["summary"]["run_registry_binding_mismatches"] == 3
+    assert "run registry entry differs from run artifacts" in messages
 
 
 def test_strategy_loop_doctor_binds_pareto_pool_rows_to_leaderboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

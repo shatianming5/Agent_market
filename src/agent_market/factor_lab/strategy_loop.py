@@ -5914,6 +5914,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     checkpoint_final_status_binding_mismatches = 0
     checkpoint_final_promotion_bindings_checked = 0
     checkpoint_final_promotion_binding_mismatches = 0
+    run_registry_bindings_checked = 0
+    run_registry_binding_mismatches = 0
     pareto_axis_leaderboard_bindings_checked = 0
     pareto_axis_leaderboard_binding_mismatches = 0
     pareto_finalist_leaderboard_bindings_checked = 0
@@ -6412,6 +6414,110 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 checkpoint_final_promotion_binding_mismatches += 1
                 findings.append(_doctor_finding("BLOCKER", "checkpoint state final_promotion differs from final_promotion.json"))
 
+    def record_run_registry_binding() -> None:
+        nonlocal run_registry_bindings_checked, run_registry_binding_mismatches
+        registry_path = strategy_loop_registry_path()
+        if not registry_path.exists():
+            run_registry_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "run registry is missing", path=_as_repo_meta(registry_path)))
+            return
+        entries: list[Mapping[str, Any]] = []
+        invalid_lines: list[int] = []
+        with registry_path.open("r", encoding="utf-8") as fh:
+            for line_no, raw in enumerate(fh, start=1):
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    invalid_lines.append(line_no)
+                    continue
+                if isinstance(item, Mapping) and str(item.get("run_id") or "") == str(run_id):
+                    entries.append(item)
+        if invalid_lines:
+            run_registry_binding_mismatches += len(invalid_lines)
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run registry contains invalid JSON lines",
+                    path=_as_repo_meta(registry_path),
+                    detail={"lines": invalid_lines[:20]},
+                )
+            )
+        if not entries:
+            run_registry_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "run registry entry missing for run", path=_as_repo_meta(registry_path)))
+            return
+
+        run_registry_bindings_checked += 1
+        entry = entries[-1]
+        entry_artifacts = entry.get("artifacts") if isinstance(entry.get("artifacts"), Mapping) else {}
+        entry_summary = entry.get("verification_summary") if isinstance(entry.get("verification_summary"), Mapping) else {}
+        state_best = checkpoint_state.get("best_candidate") if isinstance(checkpoint_state.get("best_candidate"), Mapping) else {}
+        expected_best_score = float_or_none(checkpoint_state.get("best_score"))
+        expected_best_iteration = state_best.get("iteration") if state_best else None
+        expected_retention = strategy_loop_retention_tier(str(run_id), final_promotion=root_promotion)
+        expected_artifacts = {
+            "run_dir": _as_repo_meta(root),
+            "manifest": _as_repo_meta(root / "manifest.json"),
+            "checkpoint": _as_repo_meta(root / "checkpoint.json"),
+            "leaderboard": _as_repo_meta(root / "leaderboard.json"),
+            "pareto_pool": _as_repo_meta(root / "pareto_pool.json"),
+            "final_blind_status": _as_repo_meta(root / "final_blind_status.json"),
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        def add_mismatch(field: str, actual: Any, expected: Any) -> None:
+            mismatches.append({"field": field, "actual": actual, "expected": expected})
+
+        expected_fields = {
+            "version": "factor-strategy-loop-run-registry-v1",
+            "run_id": str(run_id),
+            "tag": config_payload.get("tag"),
+            "protocol": protocol,
+            "status": checkpoint_state.get("status"),
+            "best_iteration": expected_best_iteration,
+            "promoted": bool(root_promotion.get("promoted")),
+            "retention_tier": expected_retention,
+        }
+        for field, expected in expected_fields.items():
+            if entry.get(field) != expected:
+                add_mismatch(field, entry.get(field), expected)
+        actual_best_score = float_or_none(entry.get("best_score"))
+        if expected_best_score is not None and (
+            actual_best_score is None or not math.isclose(actual_best_score, expected_best_score, rel_tol=1e-12, abs_tol=1e-12)
+        ):
+            add_mismatch("best_score", entry.get("best_score"), expected_best_score)
+        if dict(entry.get("promotion") if isinstance(entry.get("promotion"), Mapping) else {}) != dict(root_promotion):
+            add_mismatch("promotion", entry.get("promotion"), root_promotion)
+        expected_summary = {
+            "verify_policy": verify_policy,
+            "promote_policy": promote_policy,
+            "score_mode": config_payload.get("score_mode"),
+            "eval_mode": config_payload.get("eval_mode"),
+            "lean_gate_mode": lean_gate_mode,
+        }
+        if dict(entry_summary) != expected_summary:
+            add_mismatch("verification_summary", dict(entry_summary), expected_summary)
+        for key, expected in expected_artifacts.items():
+            if entry_artifacts.get(key) != expected:
+                add_mismatch(f"artifacts.{key}", entry_artifacts.get(key), expected)
+        doctor_latest = str(entry_artifacts.get("doctor_latest") or "")
+        expected_doctor_latest = _as_repo_meta(root / "doctor_latest.json")
+        if doctor_latest and doctor_latest != expected_doctor_latest:
+            add_mismatch("artifacts.doctor_latest", doctor_latest, expected_doctor_latest)
+        if mismatches:
+            run_registry_binding_mismatches += len(mismatches)
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run registry entry differs from run artifacts",
+                    path=_as_repo_meta(registry_path),
+                    detail={"run_id": str(run_id), "fields": mismatches[:20]},
+                )
+            )
+
     def record_pareto_pool_bindings() -> None:
         nonlocal pareto_axis_leaderboard_bindings_checked, pareto_axis_leaderboard_binding_mismatches
         nonlocal pareto_finalist_leaderboard_bindings_checked, pareto_finalist_leaderboard_binding_mismatches
@@ -6631,6 +6737,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         record_leaderboard_iteration_bindings()
         record_checkpoint_state_bindings()
+        record_run_registry_binding()
         record_pareto_pool_bindings()
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
@@ -6886,6 +6993,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "checkpoint_final_status_binding_mismatches": checkpoint_final_status_binding_mismatches,
             "checkpoint_final_promotion_bindings_checked": checkpoint_final_promotion_bindings_checked,
             "checkpoint_final_promotion_binding_mismatches": checkpoint_final_promotion_binding_mismatches,
+            "run_registry_bindings_checked": run_registry_bindings_checked,
+            "run_registry_binding_mismatches": run_registry_binding_mismatches,
             "pareto_axis_leaderboard_bindings_checked": pareto_axis_leaderboard_bindings_checked,
             "pareto_axis_leaderboard_binding_mismatches": pareto_axis_leaderboard_binding_mismatches,
             "pareto_finalist_leaderboard_bindings_checked": pareto_finalist_leaderboard_bindings_checked,
