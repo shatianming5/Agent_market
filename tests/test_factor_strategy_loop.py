@@ -6636,7 +6636,18 @@ def test_pareto_pool_excludes_failed_iteration_rows() -> None:
 def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_path: Path) -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit_manifest", run_id="unit_manifest_run")
     idir = tmp_path / "iter_01"
-    _write_json(idir / "candidate.json", {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2}})
+    candidate_state = tmp_path / "state_0010.json"
+    baseline_profile = tmp_path / "optimized_profile.json"
+    _write_json(candidate_state, {"candidates": []})
+    _write_json(baseline_profile, {"rank_profile": {"top_k": 2}})
+    _write_json(
+        idir / "candidate.json",
+        {
+            "candidate_type": "rank_profile",
+            "rank_profile": {"top_k": 2, "candidate_state": str(candidate_state)},
+            "metadata": {"baseline_profile": str(baseline_profile)},
+        },
+    )
     _write_json(idir / "backtest.json", {"signals": str(idir / "signals" / "all.feather")})
     _write_json(idir / "context" / "prepare.json", {"prompt": "full prompt context"})
     (idir / "agent_response.txt").write_text("assistant response text", encoding="utf-8")
@@ -6680,11 +6691,15 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     assert "sha256" in manifest["artifact_refs"]["freqtrade_validation.log"]
     assert "sha256" in manifest["artifact_refs"]["lean_analysis.json"]
     assert "sha256" in manifest["artifact_refs"]["lean_analysis.md"]
+    assert "sha256" in manifest["artifact_refs"]["rank_profile_candidate_state"]
+    assert "sha256" in manifest["artifact_refs"]["metadata_baseline_profile"]
     assert "sha256" in manifest["artifact_refs"]["verification_freqtrade_override"]
     assert "sha256" in manifest["artifact_refs"]["verification_lookahead_csv"]
     assert "sha256" in manifest["artifact_refs"]["verification_lookahead_log"]
     assert "sha256" in manifest["artifact_refs"]["verification_recursive_log"]
     assert manifest["lookahead_recursive_artifacts"]["lookahead_csv"] == manifest["artifact_refs"]["verification_lookahead_csv"]
+    assert manifest["candidate_input_artifacts"]["rank_profile_candidate_state"] == manifest["artifact_refs"]["rank_profile_candidate_state"]
+    assert manifest["candidate_input_artifacts"]["metadata_baseline_profile"] == manifest["artifact_refs"]["metadata_baseline_profile"]
     assert "fake feather" not in json.dumps(manifest)
 
 
@@ -6739,6 +6754,49 @@ def test_strategy_loop_doctor_flags_iteration_audit_sidecar_hash_mismatch(
     assert result["ok"] is False
     assert result["summary"]["artifact_refs_hash_mismatch"] == 1
     assert "manifest artifact refs failed integrity check" in messages
+
+
+def test_strategy_loop_doctor_requires_candidate_input_artifact_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_candidate_input_refs"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    state_path = repo_paths.artifacts_root() / "factor_lab" / "mining" / "unit" / "state_0010.json"
+    _write_json(state_path, {"candidates": []})
+    candidate_ref = _write_json_ref(
+        root / "iter_01" / "candidate.json",
+        {
+            "candidate_type": "rank_profile",
+            "rank_profile": {
+                "top_k": 1,
+                "candidate_state": f"artifacts/factor_lab/mining/unit/state_0010.json",
+            },
+        },
+    )
+    _write_json(root / "iter_01" / "manifest.json", {"artifact_refs": {"candidate.json": candidate_ref}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["summary"]["candidate_input_ref_bindings_checked"] == 1
+    assert result["summary"]["candidate_input_ref_binding_mismatches"] == 1
+    assert "candidate input artifact ref missing from manifest" in messages
 
 
 def test_best_snapshot_rewrites_artifact_refs_to_best_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

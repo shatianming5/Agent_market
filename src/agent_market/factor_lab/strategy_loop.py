@@ -5457,6 +5457,20 @@ _BEST_LOCAL_ARTIFACT_REF_KEYS = {
     *_ITERATION_AUDIT_ARTIFACTS,
     *[f"context/{name}" for name in _ITERATION_CONTEXT_ARTIFACTS],
 }
+_CANDIDATE_INPUT_ARTIFACT_REF_KEYS = {
+    "rank_profile_candidate_state",
+    "metadata_baseline_profile",
+}
+
+
+def _maybe_artifact_ref_for_existing_file(raw: Any) -> Optional[dict[str, Any]]:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    path = repo_paths.resolve_repo_path(text)
+    if not path.is_file():
+        return None
+    return _artifact_ref(path)
 
 
 def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = None) -> dict[str, Any]:
@@ -5475,6 +5489,16 @@ def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = No
         path = idir / "context" / name
         if path.exists():
             refs[key] = _artifact_ref(path)
+    candidate_payload = load_json(idir / "candidate.json", {})
+    if isinstance(candidate_payload, Mapping):
+        rank_profile = candidate_payload.get("rank_profile") if isinstance(candidate_payload.get("rank_profile"), Mapping) else {}
+        candidate_state_ref = _maybe_artifact_ref_for_existing_file(rank_profile.get("candidate_state") if rank_profile else None)
+        if candidate_state_ref is not None:
+            refs["rank_profile_candidate_state"] = candidate_state_ref
+        metadata = candidate_payload.get("metadata") if isinstance(candidate_payload.get("metadata"), Mapping) else {}
+        baseline_ref = _maybe_artifact_ref_for_existing_file(metadata.get("baseline_profile") if metadata else None)
+        if baseline_ref is not None:
+            refs["metadata_baseline_profile"] = baseline_ref
     lean_gate = load_json(idir / "lean_gate.json", {})
     lean_artifacts = lean_gate.get("artifacts") if isinstance(lean_gate, Mapping) and isinstance(lean_gate.get("artifacts"), Mapping) else {}
     for key, raw in lean_artifacts.items():
@@ -5667,6 +5691,11 @@ def build_iteration_manifest(
             "lookahead_csv": refs.get("verification_lookahead_csv"),
             "lookahead_log": refs.get("verification_lookahead_log"),
             "recursive_log": refs.get("verification_recursive_log"),
+        },
+        "candidate_input_artifacts": {
+            key: refs[key]
+            for key in sorted(_CANDIDATE_INPUT_ARTIFACT_REF_KEYS)
+            if key in refs
         },
         "lean_gate": {
             "status": (evaluation.get("lean_gate") or {}).get("status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
@@ -6022,8 +6051,11 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     artifact_ref_errors_total = sum(item.get("errors", 0) for item in manifest_hashes)
     best_manifest_local_ref_bindings_checked = 0
     best_manifest_local_ref_binding_mismatches = 0
+    candidate_input_ref_bindings_checked = 0
+    candidate_input_ref_binding_mismatches = 0
     best_dir = root / "best"
     best_dir_resolved = best_dir.resolve()
+    all_iteration_like_manifests = [*iteration_manifests, *blind_manifests, *best_manifests]
     for manifest_path in best_manifests:
         manifest_payload = load_json(manifest_path, {})
         refs = manifest_payload.get("artifact_refs") if isinstance(manifest_payload, Mapping) and isinstance(manifest_payload.get("artifact_refs"), Mapping) else {}
@@ -6052,6 +6084,47 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                         detail={"key": key, "best_dir": _as_repo_meta(best_dir)},
                     )
                 )
+    for manifest_path in all_iteration_like_manifests:
+        manifest_payload = load_json(manifest_path, {})
+        refs = manifest_payload.get("artifact_refs") if isinstance(manifest_payload, Mapping) and isinstance(manifest_payload.get("artifact_refs"), Mapping) else {}
+        candidate_ref = refs.get("candidate.json") if isinstance(refs.get("candidate.json"), Mapping) else {}
+        candidate_ref_raw = str(candidate_ref.get("path") or "").strip() if isinstance(candidate_ref, Mapping) else ""
+        if not candidate_ref_raw:
+            continue
+        candidate_path = repo_paths.resolve_repo_path(candidate_ref_raw)
+        candidate_payload = load_json(candidate_path, {})
+        if not isinstance(candidate_payload, Mapping):
+            continue
+        rank_profile = candidate_payload.get("rank_profile") if isinstance(candidate_payload.get("rank_profile"), Mapping) else {}
+        input_specs: list[tuple[str, Any, str]] = []
+        if rank_profile and str(rank_profile.get("candidate_state") or "").strip():
+            input_specs.append(("rank_profile_candidate_state", rank_profile.get("candidate_state"), "rank_profile.candidate_state"))
+        metadata = candidate_payload.get("metadata") if isinstance(candidate_payload.get("metadata"), Mapping) else {}
+        if metadata and str(metadata.get("baseline_profile") or "").strip():
+            input_specs.append(("metadata_baseline_profile", metadata.get("baseline_profile"), "metadata.baseline_profile"))
+        for ref_key, raw_input, label in input_specs:
+            candidate_input_ref_bindings_checked += 1
+            expected_path = repo_paths.resolve_repo_path(str(raw_input or ""))
+            ref = refs.get(ref_key) if isinstance(refs.get(ref_key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            mismatch_detail = {
+                "manifest": _as_repo_meta(manifest_path),
+                "field": label,
+                "expected_path": _as_repo_meta(expected_path),
+                "ref_key": ref_key,
+                "ref_path": ref_raw,
+            }
+            if not expected_path.is_file():
+                candidate_input_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "candidate input artifact path does not exist", path=str(raw_input or ""), detail=mismatch_detail))
+                continue
+            if not ref_raw:
+                candidate_input_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "candidate input artifact ref missing from manifest", path=_as_repo_meta(candidate_path), detail=mismatch_detail))
+                continue
+            if _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(expected_path):
+                candidate_input_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "candidate input artifact ref differs from candidate payload", path=ref_raw, detail=mismatch_detail))
     if iteration_manifests and missing_hash_total:
         findings.append(_doctor_finding("MEDIUM", "some manifest artifact refs are missing sha256 hashes", detail={"missing_hash": missing_hash_total}))
     manifest_integrity_failures = {
@@ -7278,6 +7351,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "leaderboard_candidate_payload_binding_mismatches": leaderboard_candidate_payload_binding_mismatches,
             "best_manifest_local_ref_bindings_checked": best_manifest_local_ref_bindings_checked,
             "best_manifest_local_ref_binding_mismatches": best_manifest_local_ref_binding_mismatches,
+            "candidate_input_ref_bindings_checked": candidate_input_ref_bindings_checked,
+            "candidate_input_ref_binding_mismatches": candidate_input_ref_binding_mismatches,
             "run_manifest_structure_bindings_checked": run_manifest_structure_bindings_checked,
             "run_manifest_structure_binding_mismatches": run_manifest_structure_binding_mismatches,
             "checkpoint_identity_bindings_checked": checkpoint_identity_bindings_checked,
