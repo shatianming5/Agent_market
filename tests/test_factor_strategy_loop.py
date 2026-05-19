@@ -6722,6 +6722,35 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     (idir / "freqtrade_validation.log").write_text("freqtrade log text", encoding="utf-8")
     _write_json(idir / "lean_analysis.json", {"monthly_returns": []})
     (idir / "lean_analysis.md").write_text("# LEAN\n", encoding="utf-8")
+    lean_project = idir / "lean_gate" / "iteration" / "project"
+    lean_result_dir = lean_project / "backtests" / "unit"
+    (lean_project / "data" / "ohlcv").mkdir(parents=True)
+    lean_result_dir.mkdir(parents=True)
+    (lean_project / "main.py").write_text("print('lean')\n", encoding="utf-8")
+    _write_json(lean_project / "config.json", {"algorithm-language": "Python"})
+    _write_json(lean_project / "manifest.json", {"local_only": True})
+    _write_json(lean_project / "lean_backtest_run.json", {"returncode": 0})
+    (lean_project / "data" / "signals.csv").write_text("time,symbol,lean_target_weight\n", encoding="utf-8")
+    (lean_project / "data" / "funding.csv").write_text("time,pair,rate\n", encoding="utf-8")
+    (lean_project / "data" / "ohlcv" / "BTCUSDT.csv").write_text("time,open,high,low,close,volume\n", encoding="utf-8")
+    lean_result = lean_result_dir / "123-summary.json"
+    _write_json(lean_result, {"total-return": 0.1})
+    _write_json(lean_result_dir / "123-order-events.json", [])
+    _write_json(lean_result_dir / "123.json", {"orders": []})
+    (lean_result_dir / "log.txt").write_text("lean log\n", encoding="utf-8")
+    (lean_result_dir / "config").write_text("lean config\n", encoding="utf-8")
+    _write_json(
+        idir / "lean_gate.json",
+        {
+            "artifacts": {
+                "dir": str(idir / "lean_gate" / "iteration"),
+                "lean_project": str(lean_project),
+                "lean_manifest": str(lean_project / "manifest.json"),
+                "lean_backtest_run": str(lean_project / "lean_backtest_run.json"),
+                "lean_result": str(lean_result),
+            },
+        },
+    )
     gate_dir = idir / "validation_gates" / "validation"
     _write_json(gate_dir / "freqtrade_override_validation.json", {"signal_dir": "signals"})
     (gate_dir / "lookahead.csv").write_text("strategy,has_bias,total_signals\n", encoding="utf-8")
@@ -6755,6 +6784,16 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     assert "sha256" in manifest["artifact_refs"]["freqtrade_validation.log"]
     assert "sha256" in manifest["artifact_refs"]["lean_analysis.json"]
     assert "sha256" in manifest["artifact_refs"]["lean_analysis.md"]
+    assert "sha256" in manifest["artifact_refs"]["lean_project_main_py"]
+    assert "sha256" in manifest["artifact_refs"]["lean_project_config_json"]
+    assert "sha256" in manifest["artifact_refs"]["lean_project_signals_csv"]
+    assert "sha256" in manifest["artifact_refs"]["lean_project_funding_csv"]
+    assert "sha256" in manifest["artifact_refs"]["lean_project_ohlcv_BTCUSDT"]
+    assert "sha256" in manifest["artifact_refs"]["lean_result_file_123-summary"]
+    assert "sha256" in manifest["artifact_refs"]["lean_result_file_123-order-events"]
+    assert "sha256" in manifest["artifact_refs"]["lean_result_file_123"]
+    assert "sha256" in manifest["artifact_refs"]["lean_result_file_log"]
+    assert "sha256" in manifest["artifact_refs"]["lean_result_file_config"]
     assert "sha256" in manifest["artifact_refs"]["rank_profile_candidate_state"]
     assert "sha256" in manifest["artifact_refs"]["metadata_baseline_profile"]
     assert "sha256" in manifest["artifact_refs"]["single_rank_export"]
@@ -6772,6 +6811,8 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     assert manifest["candidate_input_artifacts"]["metadata_baseline_profile"] == manifest["artifact_refs"]["metadata_baseline_profile"]
     assert manifest["rank_portfolio_artifacts"]["single_rank_export"] == manifest["artifact_refs"]["single_rank_export"]
     assert manifest["rank_portfolio_artifacts"]["signal_export_rank_export"] == manifest["artifact_refs"]["signal_export_rank_export"]
+    assert manifest["lean_project_artifacts"]["lean_project_signals_csv"] == manifest["artifact_refs"]["lean_project_signals_csv"]
+    assert manifest["lean_project_artifacts"]["lean_result_file_123-summary"] == manifest["artifact_refs"]["lean_result_file_123-summary"]
     assert "fake feather" not in json.dumps(manifest)
 
 

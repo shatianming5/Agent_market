@@ -5564,6 +5564,48 @@ def _is_rank_portfolio_artifact_ref_key(key: str) -> bool:
     )
 
 
+def _add_lean_project_artifact_refs(refs: dict[str, Any], raw_project: Any) -> None:
+    if not raw_project:
+        return
+    project = repo_paths.resolve_repo_path(str(raw_project))
+    if not project.is_dir():
+        return
+    for key, relative in (
+        ("lean_project_main_py", "main.py"),
+        ("lean_project_config_json", "config.json"),
+        ("lean_project_manifest_json", "manifest.json"),
+        ("lean_project_backtest_run_json", "lean_backtest_run.json"),
+        ("lean_project_signals_csv", "data/signals.csv"),
+        ("lean_project_funding_csv", "data/funding.csv"),
+    ):
+        path = project / relative
+        if path.is_file():
+            refs[key] = _artifact_ref(path)
+    ohlcv_dir = project / "data" / "ohlcv"
+    if ohlcv_dir.is_dir():
+        for path in sorted(ohlcv_dir.glob("*.csv")):
+            refs[f"lean_project_ohlcv_{_artifact_key_token(path.stem)}"] = _artifact_ref(path)
+
+
+def _add_lean_result_artifact_refs(refs: dict[str, Any], raw_result: Any) -> None:
+    if not raw_result:
+        return
+    result = repo_paths.resolve_repo_path(str(raw_result))
+    result_dir = result.parent if result.is_file() else result
+    if not result_dir.is_dir():
+        return
+    refs["lean_result_dir"] = {"path": _as_repo_meta(result_dir), "kind": "directory"}
+    for path in sorted(item for item in result_dir.iterdir() if item.is_file()):
+        if path.name == "__pycache__":
+            continue
+        token = _artifact_key_token(path.stem if path.suffix else path.name)
+        refs[f"lean_result_file_{token}"] = _artifact_ref(path)
+
+
+def _is_lean_project_artifact_ref_key(key: str) -> bool:
+    return key.startswith("lean_project_") or key.startswith("lean_result_file_") or key == "lean_result_dir"
+
+
 def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = None) -> dict[str, Any]:
     excluded = exclude or set()
     refs: dict[str, Any] = {}
@@ -5602,6 +5644,8 @@ def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = No
             refs[f"lean_{key}"] = _artifact_ref(path)
     if lean_artifacts.get("dir"):
         refs["lean_gate_dir"] = {"path": str(lean_artifacts["dir"]), "kind": "directory"}
+    _add_lean_project_artifact_refs(refs, lean_artifacts.get("lean_project"))
+    _add_lean_result_artifact_refs(refs, lean_artifacts.get("lean_result"))
     verification = load_json(idir / "verification.json", {})
     verification_artifacts = (
         verification.get("artifacts")
@@ -5793,6 +5837,11 @@ def build_iteration_manifest(
             "comparison_json": refs.get("lean_comparison_json"),
             "lean_project": refs.get("lean_lean_project"),
             "lean_result": refs.get("lean_lean_result"),
+        },
+        "lean_project_artifacts": {
+            key: ref
+            for key, ref in sorted(refs.items())
+            if _is_lean_project_artifact_ref_key(key)
         },
         "artifact_refs": refs,
         "window_metrics": evaluation.get("window_metrics") or {},
