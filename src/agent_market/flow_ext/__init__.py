@@ -2,6 +2,7 @@
 
 模块组织：
 
+  * ``step_spec``     — canonical step order + config field mapping
   * ``step_dispatch`` — 把 agent_flow.py 解析出的 steps 列表分派到具体 handler
   * ``steps``         — 具体 step 实现（feature / expression / ml / backtest / ...）
   * ``artifacts``     — 每步 artifacts 落盘到 ``artifacts/runs/<run_id>/``
@@ -19,4 +20,4 @@ def __getattr__(name: str) -> ModuleType:
         return import_module(f"{__name__}.{name}")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
-__all__ = ["artifacts", "steps"]
+__all__ = ["artifacts", "step_dispatch", "step_spec", "steps"]
