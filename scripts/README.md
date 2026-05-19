@@ -30,7 +30,7 @@
 
 | 脚本 | 用途 |
 |---|---|
-| `gp_factor_mine.py` / `gp_factor_mine_v2.py` | GP 因子挖掘（v2 是当前推荐） |
+| `gp_factor_mine_v2.py` | GP 因子挖掘当前实现；`gp_factor_mine.py` 仅保留为兼容 wrapper |
 | `factor_compile.py` / `factor_eval.py` | 因子编译 + 评估 |
 | `verify_factors.py` / `tag_factor_snoop_level.py` | 因子验证 / 数据窥探等级标记 |
 | `walk_forward_pca.py` / `select_by_perm_importance.py` | walk-forward / 重要性筛选 |
