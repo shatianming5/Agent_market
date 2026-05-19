@@ -5835,6 +5835,9 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     root_promotion = root_promotion if isinstance(root_promotion, Mapping) else {}
     source_ref_hash_statuses: list[dict[str, Any]] = []
     promoted_artifact_files = 0
+    selected_eval_bindings_checked = 0
+    selected_eval_binding_mismatches = 0
+    selected_candidate_path_missing = 0
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -5910,6 +5913,53 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 if selected_candidate and artifact_candidate and artifact_candidate.get("rank_profile") != selected_profile:
                     findings.append(_doctor_finding("BLOCKER", "optimized_profile candidate differs from selected candidate", path=str(raw or "")))
 
+    def record_selected_evaluation_binding(selected_payload: Mapping[str, Any]) -> None:
+        nonlocal selected_eval_bindings_checked, selected_eval_binding_mismatches, selected_candidate_path_missing
+        raw_candidate = str(selected_payload.get("candidate_path") or "").strip()
+        if not raw_candidate:
+            selected_candidate_path_missing += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is missing candidate_path"))
+            return
+        candidate_path = repo_paths.resolve_repo_path(raw_candidate)
+        if not candidate_path.exists():
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate_path does not exist", path=raw_candidate))
+            return
+        try:
+            candidate_path.resolve().relative_to(root.resolve())
+        except Exception:
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate_path is outside run artifacts", path=raw_candidate))
+            return
+        if not candidate_path.parent.name.startswith("blind_"):
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate_path is not under a blind_* directory", path=raw_candidate))
+            return
+        refs = selected_payload.get("artifact_refs") if isinstance(selected_payload.get("artifact_refs"), Mapping) else {}
+        candidate_ref = refs.get("candidate.json") if isinstance(refs.get("candidate.json"), Mapping) else {}
+        candidate_ref_raw = str(candidate_ref.get("path") or "").strip() if isinstance(candidate_ref, Mapping) else ""
+        if candidate_ref_raw and _as_repo_meta(repo_paths.resolve_repo_path(candidate_ref_raw)) != _as_repo_meta(candidate_path):
+            selected_eval_binding_mismatches += 1
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "selected blind finalist candidate_path differs from candidate artifact ref",
+                    path=raw_candidate,
+                    detail={"candidate_ref": candidate_ref_raw},
+                )
+            )
+            return
+        evaluation_path = candidate_path.parent / "evaluation.json"
+        if not evaluation_path.exists():
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist evaluation artifact does not exist", path=_as_repo_meta(evaluation_path)))
+            return
+        selected_eval_bindings_checked += 1
+        evaluation_payload = load_json(evaluation_path, {})
+        if not isinstance(evaluation_payload, Mapping) or dict(evaluation_payload) != dict(selected_payload):
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist differs from blind evaluation artifact", path=_as_repo_meta(evaluation_path)))
+
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
@@ -5917,6 +5967,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             findings.append(_doctor_finding("HIGH", "no selected blind finalist"))
         else:
             record_source_ref_status("selected blind finalist", selected.get("artifact_refs"))
+            if promotion.get("promoted") or selected.get("candidate_path"):
+                record_selected_evaluation_binding(selected)
             if not bool(selected.get("blind_final")):
                 findings.append(_doctor_finding("BLOCKER", "selected candidate is not marked blind_final"))
             if selected.get("promotion_eligible") and str(selected.get("verification_status") or "").lower() != VERIFICATION_PASSED:
@@ -6117,6 +6169,9 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "deepresearch_artifact_refs_bytes_mismatch": deep_ref_status.get("bytes_mismatch", 0),
             "deepresearch_artifact_refs_hash_mismatch": deep_ref_status.get("hash_mismatch", 0),
             "deepresearch_artifact_refs_errors": deep_ref_status.get("errors", 0),
+            "selected_evaluation_bindings_checked": selected_eval_bindings_checked,
+            "selected_evaluation_binding_mismatches": selected_eval_binding_mismatches,
+            "selected_candidate_path_missing": selected_candidate_path_missing,
             "promoted_artifact_files": promoted_artifact_files,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
