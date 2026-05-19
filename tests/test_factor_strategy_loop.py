@@ -6638,6 +6638,31 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     idir = tmp_path / "iter_01"
     _write_json(idir / "candidate.json", {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2}})
     _write_json(idir / "backtest.json", {"signals": str(idir / "signals" / "all.feather")})
+    _write_json(idir / "context" / "prepare.json", {"prompt": "full prompt context"})
+    (idir / "agent_response.txt").write_text("assistant response text", encoding="utf-8")
+    (idir / "analysis.md").write_text("# Analysis\n", encoding="utf-8")
+    _write_json(idir / "freqtrade_override_validation.json", {"signal_dir": "signals"})
+    (idir / "freqtrade_validation.log").write_text("freqtrade log text", encoding="utf-8")
+    _write_json(idir / "lean_analysis.json", {"monthly_returns": []})
+    (idir / "lean_analysis.md").write_text("# LEAN\n", encoding="utf-8")
+    gate_dir = idir / "validation_gates" / "validation"
+    _write_json(gate_dir / "freqtrade_override_validation.json", {"signal_dir": "signals"})
+    (gate_dir / "lookahead.csv").write_text("strategy,has_bias,total_signals\n", encoding="utf-8")
+    (gate_dir / "lookahead.log").write_text("no bias detected\n", encoding="utf-8")
+    (gate_dir / "recursive.log").write_text("no variance on indicator(s) found due to recursive formula\n", encoding="utf-8")
+    _write_json(
+        idir / "verification.json",
+        {
+            "status": VERIFICATION_PASSED,
+            "artifacts": {
+                "dir": str(gate_dir),
+                "freqtrade_override": str(gate_dir / "freqtrade_override_validation.json"),
+                "lookahead_csv": str(gate_dir / "lookahead.csv"),
+                "lookahead_log": str(gate_dir / "lookahead.log"),
+                "recursive_log": str(gate_dir / "recursive.log"),
+            },
+        },
+    )
     (idir / "signals").mkdir()
     (idir / "signals" / "all.feather").write_bytes(b"fake feather")
     candidate = validate_candidate(idir / "candidate.json")
@@ -6648,7 +6673,72 @@ def test_iteration_manifest_uses_artifact_refs_without_embedding_payload(tmp_pat
     assert manifest["candidate_signature"] == "abc"
     assert manifest["artifact_refs"]["candidate.json"]["path"].endswith("candidate.json")
     assert "sha256" in manifest["artifact_refs"]["single_signals"]
+    assert "sha256" in manifest["artifact_refs"]["agent_response.txt"]
+    assert "sha256" in manifest["artifact_refs"]["analysis.md"]
+    assert "sha256" in manifest["artifact_refs"]["context/prepare.json"]
+    assert "sha256" in manifest["artifact_refs"]["freqtrade_override_validation.json"]
+    assert "sha256" in manifest["artifact_refs"]["freqtrade_validation.log"]
+    assert "sha256" in manifest["artifact_refs"]["lean_analysis.json"]
+    assert "sha256" in manifest["artifact_refs"]["lean_analysis.md"]
+    assert "sha256" in manifest["artifact_refs"]["verification_freqtrade_override"]
+    assert "sha256" in manifest["artifact_refs"]["verification_lookahead_csv"]
+    assert "sha256" in manifest["artifact_refs"]["verification_lookahead_log"]
+    assert "sha256" in manifest["artifact_refs"]["verification_recursive_log"]
+    assert manifest["lookahead_recursive_artifacts"]["lookahead_csv"] == manifest["artifact_refs"]["verification_lookahead_csv"]
     assert "fake feather" not in json.dumps(manifest)
+
+
+def test_strategy_loop_doctor_flags_iteration_audit_sidecar_hash_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_iteration_sidecar_hash_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    iter_dir = root / "iter_01"
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    _write_json(iter_dir / "candidate.json", candidate)
+    _write_json(iter_dir / "backtest.json", {"metrics": {}})
+    (iter_dir / "agent_response.txt").write_text("assistant response text", encoding="utf-8")
+    evaluation = {
+        "iteration": 1,
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json",
+        "score": 1.0,
+        "score_components": {"composite_score": 1.0},
+        "constraints_ok": True,
+        "verification_status": VERIFICATION_PASSED,
+        "promotion_eligible": False,
+        "parameter_signature": "unit",
+        "artifact_refs": strategy_loop_mod._artifact_refs_for_iteration(iter_dir, exclude={"evaluation.json", "manifest.json"}),
+    }
+    _write_json(iter_dir / "evaluation.json", evaluation)
+    manifest = build_iteration_manifest(iter_dir, cfg, candidate, evaluation)
+    bad_ref = dict(manifest["artifact_refs"]["agent_response.txt"])
+    bad_ref["sha256"] = "0" * 64
+    manifest["artifact_refs"]["agent_response.txt"] = bad_ref
+    _write_json(iter_dir / "manifest.json", manifest)
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["artifact_refs_hash_mismatch"] == 1
+    assert "manifest artifact refs failed integrity check" in messages
 
 
 def test_structured_mode_requires_structural_change() -> None:

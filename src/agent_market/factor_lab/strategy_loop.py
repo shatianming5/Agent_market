@@ -5392,15 +5392,55 @@ def _artifact_ref(path: Path) -> dict[str, Any]:
     return ref
 
 
+_ITERATION_CORE_ARTIFACTS = (
+    "candidate.json",
+    "signal_export.json",
+    "backtest.json",
+    "evaluation.json",
+    "verification.json",
+    "lean_gate.json",
+    "manifest.json",
+)
+_ITERATION_AUDIT_ARTIFACTS = (
+    "agent_response.txt",
+    "analysis.md",
+    "error.json",
+    "freqtrade_backtest.log",
+    "freqtrade_search.log",
+    "freqtrade_validation.log",
+    "freqtrade_blind.log",
+    "freqtrade_final.log",
+    "freqtrade_override_single.json",
+    "freqtrade_override_search.json",
+    "freqtrade_override_validation.json",
+    "freqtrade_override_blind.json",
+    "freqtrade_override_final.json",
+    "lean_analysis.json",
+    "lean_analysis.md",
+    "lean_analysis_hermes.txt",
+)
+_ITERATION_CONTEXT_ARTIFACTS = (
+    "prepare.json",
+    "lean_analysis_prompt.json",
+)
+
+
 def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = None) -> dict[str, Any]:
     excluded = exclude or set()
     refs: dict[str, Any] = {}
-    for name in ("candidate.json", "signal_export.json", "backtest.json", "evaluation.json", "verification.json", "lean_gate.json", "manifest.json"):
+    for name in (*_ITERATION_CORE_ARTIFACTS, *_ITERATION_AUDIT_ARTIFACTS):
         if name in excluded:
             continue
         path = idir / name
         if path.exists():
             refs[name] = _artifact_ref(path)
+    for name in _ITERATION_CONTEXT_ARTIFACTS:
+        key = f"context/{name}"
+        if key in excluded or name in excluded:
+            continue
+        path = idir / "context" / name
+        if path.exists():
+            refs[key] = _artifact_ref(path)
     lean_gate = load_json(idir / "lean_gate.json", {})
     lean_artifacts = lean_gate.get("artifacts") if isinstance(lean_gate, Mapping) and isinstance(lean_gate.get("artifacts"), Mapping) else {}
     for key, raw in lean_artifacts.items():
@@ -5413,6 +5453,22 @@ def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = No
             refs[f"lean_{key}"] = _artifact_ref(path)
     if lean_artifacts.get("dir"):
         refs["lean_gate_dir"] = {"path": str(lean_artifacts["dir"]), "kind": "directory"}
+    verification = load_json(idir / "verification.json", {})
+    verification_artifacts = (
+        verification.get("artifacts")
+        if isinstance(verification, Mapping) and isinstance(verification.get("artifacts"), Mapping)
+        else {}
+    )
+    for key, raw in verification_artifacts.items():
+        if key == "dir":
+            continue
+        if not raw:
+            continue
+        path = repo_paths.resolve_repo_path(str(raw))
+        if path.exists():
+            refs[f"verification_{key}"] = _artifact_ref(path)
+    if verification_artifacts.get("dir"):
+        refs["verification_dir"] = {"path": str(verification_artifacts["dir"]), "kind": "directory"}
     backtest = load_json(idir / "backtest.json", {})
     stage_sources: list[tuple[str, Mapping[str, Any]]] = []
     if isinstance(backtest, Mapping):
@@ -5573,6 +5629,10 @@ def build_iteration_manifest(
         },
         "lookahead_recursive_artifacts": {
             "verification": refs.get("verification.json"),
+            "freqtrade_override": refs.get("verification_freqtrade_override"),
+            "lookahead_csv": refs.get("verification_lookahead_csv"),
+            "lookahead_log": refs.get("verification_lookahead_log"),
+            "recursive_log": refs.get("verification_recursive_log"),
         },
         "lean_gate": {
             "status": (evaluation.get("lean_gate") or {}).get("status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
@@ -5590,6 +5650,29 @@ def build_iteration_manifest(
             "keys": sorted(backtest.keys()) if isinstance(backtest, Mapping) else [],
         },
     }
+
+
+def refresh_iteration_manifest_artifact_refs(
+    idir: Path,
+    config: StrategyLoopConfig,
+    *,
+    candidate: Optional[Mapping[str, Any]] = None,
+    evaluation: Optional[Mapping[str, Any]] = None,
+) -> None:
+    """Rewrite only manifest.json so late audit sidecars are hash-bound."""
+    evaluation_payload: Mapping[str, Any]
+    if evaluation is not None:
+        evaluation_payload = evaluation
+    else:
+        loaded_evaluation = load_json(idir / "evaluation.json", {})
+        evaluation_payload = loaded_evaluation if isinstance(loaded_evaluation, Mapping) else {}
+    if not evaluation_payload:
+        return
+    candidate_payload: Mapping[str, Any] = candidate if isinstance(candidate, Mapping) else {}
+    if not candidate_payload:
+        loaded_candidate = load_json(idir / "candidate.json", {})
+        candidate_payload = loaded_candidate if isinstance(loaded_candidate, Mapping) else {}
+    write_json(idir / "manifest.json", build_iteration_manifest(idir, config, candidate_payload, evaluation_payload))
 
 
 def strategy_loop_retention_tier(run_id: str, *, final_promotion: Optional[Mapping[str, Any]] = None) -> str:
@@ -8895,6 +8978,7 @@ class StrategyLoopRunner:
     def _analysis(self, idir: Path) -> None:
         path = idir / "analysis.md"
         if path.exists():
+            refresh_iteration_manifest_artifact_refs(idir, self.config)
             return
         evaluation = load_json(idir / "evaluation.json", {})
         lean_analysis = load_json(idir / "lean_analysis.json", {}) if (idir / "lean_analysis.json").exists() else {}
@@ -8959,6 +9043,7 @@ class StrategyLoopRunner:
             ]
         )
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        refresh_iteration_manifest_artifact_refs(idir, self.config, evaluation=evaluation if isinstance(evaluation, Mapping) else None)
 
     def _effective_rank_tag(self, idir: Path) -> str:
         return f"{self.config.tag}__loop_{self.config.run_id}_{idir.name}"
@@ -9414,6 +9499,7 @@ class StrategyLoopRunner:
             "commands": {"lookahead": lookahead_cmd, "recursive": recursive_cmd},
             "artifacts": {
                 "dir": _as_repo_meta(gate_dir),
+                "freqtrade_override": _as_repo_meta(override_path),
                 "lookahead_csv": _as_repo_meta(lookahead_csv),
                 "lookahead_log": _as_repo_meta(gate_dir / "lookahead.log"),
                 "recursive_log": _as_repo_meta(recursive_log),
@@ -9767,6 +9853,10 @@ class StrategyLoopRunner:
             "promotion": {"promoted": False, "artifacts": {}, "reason": message},
         }
         write_json(idir / "evaluation.json", evaluation)
+        write_json(
+            idir / "manifest.json",
+            build_iteration_manifest(idir, self.config, raw_candidate if isinstance(raw_candidate, Mapping) else {}, evaluation),
+        )
 
         row = {
             "run_id": self.config.run_id,
