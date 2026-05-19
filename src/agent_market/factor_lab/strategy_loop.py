@@ -5821,6 +5821,27 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is not marked final_promotion", path=str(raw or "")))
                 if not isinstance(payload.get("rank_profile"), Mapping) or not payload.get("rank_profile"):
                     findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is missing rank_profile", path=str(raw or "")))
+                artifact_eval = payload.get("evaluation") if isinstance(payload.get("evaluation"), Mapping) else {}
+                artifact_candidate = payload.get("candidate") if isinstance(payload.get("candidate"), Mapping) else {}
+                selected_candidate = selected.get("candidate") if isinstance(selected.get("candidate"), Mapping) else {}
+                selected_profile = selected_candidate.get("rank_profile") if isinstance(selected_candidate.get("rank_profile"), Mapping) else {}
+                artifact_profile = payload.get("rank_profile") if isinstance(payload.get("rank_profile"), Mapping) else {}
+                if selected_profile and artifact_profile != selected_profile:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile rank_profile differs from selected candidate", path=str(raw or "")))
+                if selected.get("parameter_signature") and artifact_eval.get("parameter_signature") != selected.get("parameter_signature"):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation signature differs from selected candidate", path=str(raw or "")))
+                if selected.get("candidate_path") and artifact_eval.get("candidate_path") != selected.get("candidate_path"):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation candidate_path differs from selected candidate", path=str(raw or "")))
+                if artifact_eval.get("blind_final") is not True:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation is not marked blind_final", path=str(raw or "")))
+                if artifact_eval.get("promotion_eligible") is not True:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation is not promotion_eligible", path=str(raw or "")))
+                if str(artifact_eval.get("verification_status") or "").lower() != VERIFICATION_PASSED:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation did not pass verification", path=str(raw or "")))
+                if lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(artifact_eval) != VERIFICATION_PASSED:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation did not pass LEAN gate", path=str(raw or "")))
+                if selected_candidate and artifact_candidate and artifact_candidate.get("rank_profile") != selected_profile:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile candidate differs from selected candidate", path=str(raw or "")))
 
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         if not final_status:
