@@ -353,6 +353,7 @@ def phase_strategy_gen(
     objective_profile = _prompt_objective_profile(config)
     market_context = _freqtrade_market_context(config.freqtrade_config)
     market_pairs = market_context.pairs
+    market_profile = _build_market_profile(config.freqtrade_config)
     factor_store_entries: list[tuple[str, Any]] = []
     factor_store_lock = threading.Lock()
     factor_memory_path = str(getattr(config, "factor_memory_path", "") or "").strip()
@@ -806,7 +807,7 @@ def phase_strategy_gen(
                 elite_summaries=elite_summaries,
                 failure_summary=failure_summary,
                 provider=config.provider,
-                market_profile=_build_market_profile(config.freqtrade_config),
+                market_profile=market_profile,
                 market_context=_market_context_str,
                 research_insights=research_insights,
                 strategy_blueprints=strategy_blueprints,
@@ -946,7 +947,7 @@ def phase_strategy_gen(
             elite_summaries=elite_summaries,
             failure_summary=failure_summary,
             provider=config.provider,
-            market_profile=_build_market_profile(config.freqtrade_config),
+            market_profile=market_profile,
             market_context=_market_context_str,
             research_insights=research_insights,
             strategy_blueprints=strategy_blueprints,
