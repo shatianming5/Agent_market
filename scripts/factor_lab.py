@@ -207,6 +207,41 @@ def cmd_features(args):
         print(out)
 
 
+def _parse_date_range_arg(raw: str | None, *, name: str) -> tuple[str, str] | None:
+    if raw in (None, ""):
+        return None
+    text = str(raw).strip()
+    if ":" in text:
+        start, end = text.split(":", 1)
+    elif "," in text:
+        start, end = text.split(",", 1)
+    else:
+        raise SystemExit(f"{name} must use START:END or START,END")
+    start = start.strip()
+    end = end.strip()
+    if not start or not end:
+        raise SystemExit(f"{name} must include both START and END")
+    if start >= end:
+        raise SystemExit(f"{name} start must be before end")
+    return start, end
+
+
+def _parse_val_windows_arg(raw: str | None) -> tuple[tuple[str, str], ...] | None:
+    if raw in (None, ""):
+        return None
+    windows: list[tuple[str, str]] = []
+    for i, part in enumerate(str(raw).split(";"), start=1):
+        part = part.strip()
+        if not part:
+            continue
+        parsed = _parse_date_range_arg(part, name=f"--val-windows item {i}")
+        if parsed is not None:
+            windows.append(parsed)
+    if not windows:
+        raise SystemExit("--val-windows must include at least one START:END window")
+    return tuple(windows)
+
+
 def cmd_features_restore(args):
     features.restore_backups(kind=args.kind, pairs=args.pairs, data_dir=args.data_dir)
 
@@ -220,6 +255,14 @@ def cmd_mine(args):
     fee_rate = bps_to_rate(args.fee_bps) if args.fee_bps is not None else float(args.fee_rate)
     slippage = bps_to_rate(args.slippage_bps) if args.slippage_bps is not None else float(args.slippage)
     label_period = primary_label_horizon(label_horizons, default=lane.label_horizons)
+    train = _parse_date_range_arg(args.train, name="--train")
+    oos = _parse_date_range_arg(args.oos, name="--oos")
+    train3 = _parse_date_range_arg(args.train3, name="--train3")
+    val3 = _parse_date_range_arg(args.val3, name="--val3")
+    real_test3 = _parse_date_range_arg(args.real_test3, name="--real-test3")
+    val_windows = _parse_val_windows_arg(args.val_windows)
+    if val_windows is None and val3 is not None:
+        val_windows = (val3,)
     cfg = mining.MiningConfig(
         rounds=args.rounds, top_k=args.top_k,
         llm_per_loop=args.llm_per_loop, py_per_loop=args.py_per_loop,
@@ -230,6 +273,12 @@ def cmd_mine(args):
         max_same_family_in_top40=args.max_same_family_in_top40,
         max_same_signature=args.max_same_signature,
         checkpoint_every=args.checkpoint_every,
+        **({"train": train} if train is not None else {}),
+        **({"oos": oos} if oos is not None else {}),
+        **({"train3": train3} if train3 is not None else {}),
+        **({"val3": val3} if val3 is not None else {}),
+        **({"real_test3": real_test3} if real_test3 is not None else {}),
+        **({"val_windows": val_windows} if val_windows is not None else {}),
         use_llm=args.llm, llm_required=args.llm_required,
         llm_timeout=args.llm_timeout, llm_retries=args.llm_retries,
         llm_max_tokens=args.llm_max_tokens,
@@ -1137,6 +1186,18 @@ def build_parser():
                     help="comma-separated forward label horizons in bars; defaults from --lane")
     m.add_argument("--embargo-bars", type=int, default=0,
                     help="purged split embargo bars recorded in artifacts; 0 uses lane default")
+    m.add_argument("--train", default=None,
+                    help="[split] legacy train window as START:END, e.g. 2023-05-15:2025-10-01")
+    m.add_argument("--oos", default=None,
+                    help="[split] legacy OOS window as START:END")
+    m.add_argument("--train3", default=None,
+                    help="[split] composite train window as START:END")
+    m.add_argument("--val3", default=None,
+                    help="[split] composite selection/validation window as START:END")
+    m.add_argument("--real-test3", dest="real_test3", default=None,
+                    help="[split] composite real-test holdout window recorded in state as START:END")
+    m.add_argument("--val-windows", default=None,
+                    help="[split] semicolon-separated validation subwindows, e.g. START:END;START:END")
     m.add_argument("--micro-data-quality", default="unknown",
                     choices=["unknown", "ohlcv_only", "spread_orderflow"],
                     help="data quality marker for micro lanes; 1m OHLCV-only is not promotion eligible")
