@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from .operators import OPERATORS_TS, OPERATORS_CS, OPERATORS_TRANSFORM, FIELDS_PRICE_VOLUME
+from .operators import OPERATORS_CS, OPERATORS_TRANSFORM, FIELDS_PRICE_VOLUME
 
 logger = logging.getLogger(__name__)
 

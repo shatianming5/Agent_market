@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Sequence
 
-from .pheromone_cache import PheromoneLink, score
+from .pheromone_cache import PheromoneLink
 from .prompt_builder import _slot_key
 from .tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,

@@ -33,7 +33,7 @@ import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from .local_sim import simulate_expression_locally
 from .paths import tried_exprs_path, wq_brain_root

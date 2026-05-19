@@ -43,7 +43,7 @@ from .pheromone_cache import (
     top_links,
     write_links,
 )
-from .routing import RoutingDecision, decide, state_from_rows
+from .routing import RoutingDecision, state_from_rows
 from .routing_policy import LearnedPolicy, hybrid_decide, policy_path
 from .tried_log import (
     ALTITUDE_L1_REGION_UNIVERSE,
