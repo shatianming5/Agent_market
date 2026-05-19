@@ -65,3 +65,37 @@ def test_freqtrade_market_context_exposes_named_fields_and_tuple_order(tmp_path)
         "15m",
         "user_data/data/binance",
     )
+
+
+def test_build_market_profile_uses_shared_freqtrade_loader(tmp_path) -> None:
+    from agent_market.strategy_miner._generation import _build_market_profile
+
+    cfg = tmp_path / "freqtrade.json"
+    cfg.write_text(
+        json.dumps(
+            {
+                "timeframe": "1h",
+                "stake_currency": "USDT",
+                "trading_mode": "futures",
+                "dry_run_wallet": 1000,
+                "exchange": {"pair_whitelist": ["BTC/USDT"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = _build_market_profile(str(cfg))
+
+    assert profile is not None
+    assert "BTC/USDT" in profile
+    assert "Stake currency: USDT" in profile
+    assert "Trading mode: futures" in profile
+
+
+def test_build_market_profile_returns_none_for_bad_json(tmp_path) -> None:
+    from agent_market.strategy_miner._generation import _build_market_profile
+
+    cfg = tmp_path / "freqtrade.json"
+    cfg.write_text("{bad json", encoding="utf-8")
+
+    assert _build_market_profile(str(cfg)) is None

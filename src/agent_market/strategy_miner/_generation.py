@@ -38,6 +38,7 @@ from .sandbox import (
 from ._helpers import (
     _freqtrade_config_defaults,
     _freqtrade_market_context,
+    _load_freqtrade_payload,
     _prompt_objective_profile,
     _sanitize_candidate_name,
     _candidate_type_for_slot,
@@ -142,10 +143,8 @@ def _extract_indicator_names(code: str) -> List[str]:
 
 def _build_market_profile(freqtrade_config_path: str) -> Optional[str]:
     """Extract market profile info from freqtrade config for prompt injection."""
-    try:
-        ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        payload = json.loads(ft_path.read_text(encoding="utf-8-sig"))
-    except Exception:
+    payload = _load_freqtrade_payload(freqtrade_config_path)
+    if not payload:
         return None
 
     lines = []
