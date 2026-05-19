@@ -5838,10 +5838,35 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_eval_bindings_checked = 0
     selected_eval_binding_mismatches = 0
     selected_candidate_path_missing = 0
+    selected_candidate_payload_bindings_checked = 0
+    selected_candidate_payload_binding_mismatches = 0
     optimized_profile_eval_bindings_checked = 0
     optimized_profile_eval_binding_mismatches = 0
     deepresearch_context_final_bindings_checked = 0
     deepresearch_context_final_binding_mismatches = 0
+    default_n = int(config_payload.get("n") or 50)
+
+    def candidate_binding_payload(payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, Mapping):
+            return {}
+        data = {
+            key: value
+            for key, value in dict(payload).items()
+            if key not in {"path", "workspace", "strategy_validation"}
+        }
+        if data.get("description") == "":
+            data.pop("description", None)
+        if data.get("metadata") == {}:
+            data.pop("metadata", None)
+        if data.get("strategy_path") in {"", None}:
+            data.pop("strategy_path", None)
+        profile = data.get("rank_profile")
+        if isinstance(profile, Mapping):
+            try:
+                data["rank_profile"] = normalize_rank_profile(profile, default_n=default_n)
+            except Exception:
+                data["rank_profile"] = dict(profile)
+        return data
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -5924,6 +5949,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     def record_selected_evaluation_binding(selected_payload: Mapping[str, Any]) -> None:
         nonlocal selected_eval_bindings_checked, selected_eval_binding_mismatches, selected_candidate_path_missing
+        nonlocal selected_candidate_payload_bindings_checked, selected_candidate_payload_binding_mismatches
         raw_candidate = str(selected_payload.get("candidate_path") or "").strip()
         if not raw_candidate:
             selected_candidate_path_missing += 1
@@ -5958,6 +5984,16 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 )
             )
             return
+        selected_candidate = selected_payload.get("candidate") if isinstance(selected_payload.get("candidate"), Mapping) else {}
+        candidate_payload = load_json(candidate_path, {})
+        selected_candidate_payload_bindings_checked += 1
+        if (
+            not isinstance(candidate_payload, Mapping)
+            or not selected_candidate
+            or candidate_binding_payload(candidate_payload) != candidate_binding_payload(selected_candidate)
+        ):
+            selected_candidate_payload_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate differs from candidate artifact", path=raw_candidate))
         evaluation_path = candidate_path.parent / "evaluation.json"
         if not evaluation_path.exists():
             selected_eval_binding_mismatches += 1
@@ -6187,6 +6223,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_evaluation_bindings_checked": selected_eval_bindings_checked,
             "selected_evaluation_binding_mismatches": selected_eval_binding_mismatches,
             "selected_candidate_path_missing": selected_candidate_path_missing,
+            "selected_candidate_payload_bindings_checked": selected_candidate_payload_bindings_checked,
+            "selected_candidate_payload_binding_mismatches": selected_candidate_payload_binding_mismatches,
             "optimized_profile_eval_bindings_checked": optimized_profile_eval_bindings_checked,
             "optimized_profile_eval_binding_mismatches": optimized_profile_eval_binding_mismatches,
             "deepresearch_context_final_bindings_checked": deepresearch_context_final_bindings_checked,
