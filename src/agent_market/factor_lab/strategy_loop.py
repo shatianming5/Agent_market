@@ -9388,7 +9388,6 @@ class StrategyLoopRunner:
         if not self.config.agent == AGENT_HERMES:
             return
         try:
-            import json as _json
             # Build a compact context payload for the LLM
             context_summary = {
                 "iteration": self.state.iteration,

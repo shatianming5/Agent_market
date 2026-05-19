@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from statistics import NormalDist
 import re
 import warnings
-from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
 import pandas as pd

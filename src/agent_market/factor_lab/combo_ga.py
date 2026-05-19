@@ -21,19 +21,18 @@ from __future__ import annotations
 import json
 import random
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
 from .paths import (KUCOIN_DIR, FEATURE_FILE, USER_DATA,
-                    DEFAULT_PAIRS, DEFAULT_TRAIN, DEFAULT_OOS,
+                    DEFAULT_PAIRS,
                     DEFAULT_TRAIN3, DEFAULT_VAL3, DEFAULT_REAL_TEST3,
-                    DEFAULT_LABEL_PERIOD, DEFAULT_TAKER_FEE, DEFAULT_SLIPPAGE,
+                    DEFAULT_LABEL_PERIOD,
                     LAB_STATE, TIMEFRAME_LABEL_BARS, kucoin_feather)
-from . import fitness as F
 
 
 # ============================================================
