@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 
@@ -22,4 +21,3 @@ def rank_information_coefficient(factor: pd.Series, target: pd.Series) -> float:
     fx = aligned["x"].rank(method="average")
     ty = aligned["y"].rank(method="average")
     return float(fx.corr(ty))
-

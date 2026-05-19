@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -39,4 +39,3 @@ def ast_similarity_max(expr_sha256: str, library_sha256: Iterable[str]) -> float
 
 
 __all__ = ["ast_similarity_max", "corr_to_library_max"]
-
