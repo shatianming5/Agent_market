@@ -114,6 +114,19 @@ def _resolve_quick_gate_thresholds(config: MinerConfig) -> dict[str, float]:
     return thresholds
 
 
+def _ensure_configured_strategy_compliance(
+    config: MinerConfig, strategy_path: Path
+) -> tuple[bool, list[str]]:
+    timeframe, enforce_can_short_false = _freqtrade_config_defaults(
+        config.freqtrade_config
+    )
+    return ensure_freqtrade_strategy_compliance_file(
+        strategy_path,
+        timeframe=timeframe,
+        enforce_can_short_false=enforce_can_short_false,
+    )
+
+
 def _repair_candidate(
     *,
     agent: StrategyAgent,
@@ -231,11 +244,8 @@ def _repair_candidate(
         # Ensure freqtrade sanity settings regardless of LLM output.
         compliance_fixes: list[str] = []
         try:
-            tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
-            did_comp, compliance_fixes = ensure_freqtrade_strategy_compliance_file(
-                candidate.strategy_path,
-                timeframe=tf,
-                enforce_can_short_false=enforce_short,
+            did_comp, compliance_fixes = _ensure_configured_strategy_compliance(
+                config, candidate.strategy_path
             )
             if did_comp:
                 candidate.code = candidate.strategy_path.read_text(encoding="utf-8", errors="replace")
@@ -708,12 +718,7 @@ def phase_train_model(
     wrapper_path.write_text(wrapper_code, encoding="utf-8")
 
     try:
-        tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
-        ensure_freqtrade_strategy_compliance_file(
-            wrapper_path,
-            timeframe=tf,
-            enforce_can_short_false=enforce_short,
-        )
+        _ensure_configured_strategy_compliance(config, wrapper_path)
         wrapper_code = wrapper_path.read_text(encoding="utf-8", errors="replace")
     except Exception:
         logger.debug("Compliance auto-fix failed for trained model wrapper", exc_info=True)
@@ -1003,11 +1008,8 @@ def phase_backtest(
 
         # Preflight: ensure freqtrade sanity-required settings.
         try:
-            tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
-            did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
-                candidate.strategy_path,
-                timeframe=tf,
-                enforce_can_short_false=enforce_short,
+            did_comp, comp_fixes = _ensure_configured_strategy_compliance(
+                config, candidate.strategy_path
             )
             if did_comp:
                 try:
