@@ -5970,7 +5970,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     deepresearch = final_status.get("deepresearch") if isinstance(final_status, Mapping) and isinstance(final_status.get("deepresearch"), Mapping) else {}
     deep_artifacts = deepresearch.get("artifacts") if isinstance(deepresearch.get("artifacts"), Mapping) else {}
     if (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal) and (bool(selected) or bool(final_blind_finalists)):
-        for key in ("context", "sources"):
+        if str(deepresearch.get("status") or "").lower() != VERIFICATION_PASSED:
+            findings.append(_doctor_finding("BLOCKER", "deepresearch status is not passed"))
+        expected_deep_dir = (repo_paths.artifacts_root() / "strategy_deepresearch" / str(run_id)).resolve()
+        for key in ("context", "sources", "review", "protocol"):
             raw = str(deep_artifacts.get(key) or "").strip()
             if not raw:
                 findings.append(_doctor_finding("HIGH", f"deepresearch artifact missing: {key}"))
@@ -5978,6 +5981,18 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             path = repo_paths.resolve_repo_path(raw)
             if not path.exists():
                 findings.append(_doctor_finding("HIGH", f"deepresearch artifact path does not exist: {key}", path=raw))
+                continue
+            try:
+                path.resolve().relative_to(expected_deep_dir)
+            except Exception:
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        f"deepresearch artifact path is outside run artifacts: {key}",
+                        path=raw,
+                        detail={"expected_dir": _as_repo_meta(expected_deep_dir)},
+                    )
+                )
 
     severity_rank = {"BLOCKER": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
     worst = max((severity_rank.get(str(item.get("severity")), 0) for item in findings), default=0)
