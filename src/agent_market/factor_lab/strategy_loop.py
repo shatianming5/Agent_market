@@ -5951,6 +5951,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     leaderboard_evaluation_binding_mismatches = 0
     leaderboard_candidate_payload_bindings_checked = 0
     leaderboard_candidate_payload_binding_mismatches = 0
+    run_manifest_structure_bindings_checked = 0
+    run_manifest_structure_binding_mismatches = 0
     checkpoint_identity_bindings_checked = 0
     checkpoint_identity_binding_mismatches = 0
     checkpoint_score_history_bindings_checked = 0
@@ -6364,6 +6366,91 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
         data = dict(payload)
         data.pop("final_promotion", None)
         return data
+
+    def record_run_manifest_structure_bindings() -> None:
+        nonlocal run_manifest_structure_bindings_checked, run_manifest_structure_binding_mismatches
+        if not isinstance(run_manifest, Mapping) or not run_manifest:
+            return
+        run_manifest_structure_bindings_checked += 1
+        manifest_config = run_manifest.get("cli_args") if isinstance(run_manifest.get("cli_args"), Mapping) else {}
+        checkpoint_config = checkpoint.get("config") if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("config"), Mapping) else {}
+        expected_config = dict(checkpoint_config or config_payload)
+        expected_loop_config = StrategyLoopConfig.from_dict(expected_config) if expected_config else None
+        mismatches: list[dict[str, Any]] = []
+
+        def add_mismatch(field: str, actual: Any, expected: Any) -> None:
+            mismatches.append({"field": field, "actual": actual, "expected": expected})
+
+        if run_manifest.get("version") != "factor-strategy-loop-run-manifest-v1":
+            add_mismatch("version", run_manifest.get("version"), "factor-strategy-loop-run-manifest-v1")
+        if str(run_manifest.get("run_id") or "") != str(run_id):
+            add_mismatch("run_id", run_manifest.get("run_id"), str(run_id))
+        if not manifest_config:
+            add_mismatch("cli_args", manifest_config, expected_config)
+        elif expected_config and dict(manifest_config) != expected_config:
+            diff_keys = sorted(set(manifest_config.keys()) | set(expected_config.keys()))
+            add_mismatch(
+                "cli_args",
+                {key: manifest_config.get(key) for key in diff_keys if manifest_config.get(key) != expected_config.get(key)},
+                {key: expected_config.get(key) for key in diff_keys if manifest_config.get(key) != expected_config.get(key)},
+            )
+
+        if expected_loop_config is not None:
+            expected_validation = validation_protocol_summary(expected_loop_config)
+            manifest_validation = run_manifest.get("validation_protocol") if isinstance(run_manifest.get("validation_protocol"), Mapping) else {}
+            if dict(manifest_validation) != dict(expected_validation):
+                add_mismatch("validation_protocol", manifest_validation, expected_validation)
+            expected_lean = {
+                "mode": expected_loop_config.lean_gate_mode,
+                "lean_bin": expected_loop_config.lean_bin,
+                "lean_timeout": expected_loop_config.lean_timeout,
+                "required_status": expected_loop_config.lean_required_status,
+                "data_root": expected_loop_config.lean_data_root,
+            }
+            manifest_lean = run_manifest.get("lean_gate") if isinstance(run_manifest.get("lean_gate"), Mapping) else {}
+            if dict(manifest_lean) != expected_lean:
+                add_mismatch("lean_gate", manifest_lean, expected_lean)
+            manifest_baseline = run_manifest.get("baseline_profile") if isinstance(run_manifest.get("baseline_profile"), Mapping) else {}
+            expected_baseline = _load_optimized_baseline(expected_loop_config)
+            for key in ("available", "path", "rank_profile"):
+                if manifest_baseline.get(key) != expected_baseline.get(key):
+                    add_mismatch(f"baseline_profile.{key}", manifest_baseline.get(key), expected_baseline.get(key))
+
+            config_ref = run_manifest.get("config_path") if isinstance(run_manifest.get("config_path"), Mapping) else {}
+            config_path_raw = str(config_ref.get("path") or "").strip() if isinstance(config_ref, Mapping) else ""
+            if config_path_raw:
+                config_path = repo_paths.resolve_repo_path(config_path_raw)
+                expected_pairs = _pair_universe_from_config(config_path) if config_path.exists() else []
+                manifest_pairs = list(run_manifest.get("pair_universe") or []) if isinstance(run_manifest.get("pair_universe"), list) else []
+                if sorted(str(item) for item in manifest_pairs) != expected_pairs:
+                    add_mismatch("pair_universe", manifest_pairs, expected_pairs)
+                expected_data_paths = [
+                    _as_repo_meta(path)
+                    for path in _data_files_for_pairs(expected_pairs, timeframe=expected_loop_config.timeframe, venue=expected_loop_config.venue)
+                ]
+                manifest_data = run_manifest.get("data_files") if isinstance(run_manifest.get("data_files"), list) else []
+                manifest_data_paths = [
+                    str(ref.get("path"))
+                    for ref in manifest_data
+                    if isinstance(ref, Mapping) and str(ref.get("path") or "").strip()
+                ]
+                if manifest_data_paths != expected_data_paths:
+                    add_mismatch(
+                        "data_files",
+                        {"count": len(manifest_data_paths), "paths": manifest_data_paths[:20]},
+                        {"count": len(expected_data_paths), "paths": expected_data_paths[:20]},
+                    )
+
+        if mismatches:
+            run_manifest_structure_binding_mismatches += len(mismatches)
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run manifest structure differs from checkpoint/config",
+                    path=_as_repo_meta(root / "manifest.json"),
+                    detail={"fields": mismatches[:20]},
+                )
+            )
 
     def record_checkpoint_state_bindings() -> None:
         nonlocal checkpoint_identity_bindings_checked, checkpoint_identity_binding_mismatches
@@ -6787,6 +6874,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         record_leaderboard_iteration_bindings()
+        record_run_manifest_structure_bindings()
         record_checkpoint_state_bindings()
         record_run_registry_binding()
         record_pareto_pool_bindings()
@@ -7037,6 +7125,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "leaderboard_evaluation_binding_mismatches": leaderboard_evaluation_binding_mismatches,
             "leaderboard_candidate_payload_bindings_checked": leaderboard_candidate_payload_bindings_checked,
             "leaderboard_candidate_payload_binding_mismatches": leaderboard_candidate_payload_binding_mismatches,
+            "run_manifest_structure_bindings_checked": run_manifest_structure_bindings_checked,
+            "run_manifest_structure_binding_mismatches": run_manifest_structure_binding_mismatches,
             "checkpoint_identity_bindings_checked": checkpoint_identity_bindings_checked,
             "checkpoint_identity_binding_mismatches": checkpoint_identity_binding_mismatches,
             "checkpoint_score_history_bindings_checked": checkpoint_score_history_bindings_checked,

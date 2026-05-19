@@ -538,9 +538,22 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     _write_json(
         root / "manifest.json",
         {
+            "version": "factor-strategy-loop-run-manifest-v1",
+            "run_id": run_id,
             "cli_args": cfg.__dict__,
+            "validation_protocol": strategy_loop_mod.validation_protocol_summary(cfg),
+            "lean_gate": {
+                "mode": cfg.lean_gate_mode,
+                "lean_bin": cfg.lean_bin,
+                "lean_timeout": cfg.lean_timeout,
+                "required_status": cfg.lean_required_status,
+                "data_root": cfg.lean_data_root,
+            },
+            "pair_universe": [],
             "config_path": config_ref,
             "strategy_path": strategy_ref,
+            "baseline_profile": strategy_loop_mod._load_optimized_baseline(cfg),
+            "data_files": [],
         },
     )
     final_promotion = {"promoted": False}
@@ -699,6 +712,8 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert result["summary"]["leaderboard_evaluation_binding_mismatches"] == 0
     assert result["summary"]["leaderboard_candidate_payload_bindings_checked"] == 1
     assert result["summary"]["leaderboard_candidate_payload_binding_mismatches"] == 0
+    assert result["summary"]["run_manifest_structure_bindings_checked"] == 1
+    assert result["summary"]["run_manifest_structure_binding_mismatches"] == 0
     assert result["summary"]["checkpoint_identity_bindings_checked"] == 1
     assert result["summary"]["checkpoint_identity_binding_mismatches"] == 0
     assert result["summary"]["checkpoint_score_history_bindings_checked"] == 1
@@ -1234,6 +1249,71 @@ def test_strategy_loop_doctor_checks_run_manifest_artifact_refs(
     assert result["summary"]["run_manifest_artifact_refs_checked"] == 2
     assert result["summary"]["run_manifest_artifact_refs_hash_mismatch"] == 1
     assert "run manifest artifact refs failed integrity check" in messages
+
+
+def test_strategy_loop_doctor_binds_run_manifest_structure_to_checkpoint_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_run_manifest_config_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    config_ref = _write_json_ref(root / "manifest_config_snapshot.json", {"unit": True})
+    strategy_ref = _write_json_ref(root / "manifest_strategy_snapshot.py", {"class": "Unit"})
+    promotion = {"promoted": False}
+    final_status = {"selected": None, "finalists": [], "promotion": promotion, "promoted": False}
+    pareto_pool = {"finalists": []}
+    tampered_cli_args = {**cfg.__dict__, "max_iterations": int(cfg.max_iterations) + 1}
+    _write_json(
+        root / "manifest.json",
+        {
+            "version": "factor-strategy-loop-run-manifest-v1",
+            "run_id": run_id,
+            "cli_args": tampered_cli_args,
+            "validation_protocol": strategy_loop_mod.validation_protocol_summary(cfg),
+            "lean_gate": {
+                "mode": cfg.lean_gate_mode,
+                "lean_bin": cfg.lean_bin,
+                "lean_timeout": cfg.lean_timeout,
+                "required_status": cfg.lean_required_status,
+                "data_root": cfg.lean_data_root,
+            },
+            "pair_universe": [],
+            "config_path": config_ref,
+            "strategy_path": strategy_ref,
+            "baseline_profile": strategy_loop_mod._load_optimized_baseline(cfg),
+            "data_files": [],
+        },
+    )
+    _write_doctor_checkpoint(
+        root,
+        cfg,
+        [],
+        pareto_pool=pareto_pool,
+        final_status=final_status,
+        final_promotion=promotion,
+    )
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", pareto_pool)
+    _write_json(root / "final_blind_status.json", final_status)
+    _write_json(root / "final_promotion.json", promotion)
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["run_manifest_structure_bindings_checked"] == 1
+    assert result["summary"]["run_manifest_structure_binding_mismatches"] >= 1
+    assert "run manifest structure differs from checkpoint/config" in messages
 
 
 def test_strategy_loop_doctor_binds_pareto_pool_rows_to_leaderboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
