@@ -138,8 +138,12 @@ def _expected_ending_open_positions(lean_project: Path) -> dict[str, Any]:
     with signals_path.open("r", encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.DictReader(fh))
     if not rows:
-        return {"expected": 0, "latest_time": None, "nonzero_symbols": []}
-    latest_time = max(str(row.get("time") or "") for row in rows)
+        return {"expected": 0, "latest_time": None, "nonzero_symbols": [], "terminal_time": None}
+    times = sorted({str(row.get("time") or "") for row in rows if str(row.get("time") or "")})
+    if len(times) < 2:
+        return {"expected": 0, "latest_time": None, "nonzero_symbols": [], "terminal_time": times[-1] if times else None}
+    terminal_time = times[-1]
+    latest_time = times[-2]
     latest_rows = [row for row in rows if str(row.get("time") or "") == latest_time]
     symbols = [
         str(row.get("symbol") or row.get("pair") or "")
@@ -149,6 +153,7 @@ def _expected_ending_open_positions(lean_project: Path) -> dict[str, Any]:
     return {
         "expected": len(symbols),
         "latest_time": latest_time,
+        "terminal_time": terminal_time,
         "nonzero_symbols": sorted(symbols),
     }
 
@@ -246,6 +251,7 @@ def assess_comparison(
             "value": actual_open,
             "expected": expected_open,
             "latest_time": expected_positions.get("latest_time"),
+            "terminal_time": expected_positions.get("terminal_time"),
             "nonzero_symbols": expected_positions.get("nonzero_symbols") or [],
         }
         if expected_open is None:

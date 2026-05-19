@@ -121,6 +121,26 @@ def _install_fake_lean_gate(
     monkeypatch.setattr(strategy_loop_mod.lean_bridge, "compare_results", fake_compare_results)
 
 
+def test_strategy_loop_expected_open_positions_ignore_terminal_signal(tmp_path: Path) -> None:
+    project = tmp_path / "lean_project"
+    signals = project / "data" / "signals.csv"
+    signals.parent.mkdir(parents=True)
+    signals.write_text(
+        "time,pair,symbol,lean_target_weight\n"
+        "2026-04-11 12:00:00,BTC/USDT,BTCUSDT,0\n"
+        "2026-04-11 16:00:00,BTC/USDT,BTCUSDT,0\n"
+        "2026-04-11 20:00:00,ETH/USDT,ETHUSDT,-1\n",
+        encoding="utf-8",
+    )
+
+    result = strategy_loop_mod._expected_ending_open_positions(project)
+
+    assert result["expected"] == 0
+    assert result["latest_time"] == "2026-04-11 16:00:00"
+    assert result["terminal_time"] == "2026-04-11 20:00:00"
+    assert result["nonzero_symbols"] == []
+
+
 def test_strategy_loop_checkpoint_roundtrip() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit", run_id="unit_checkpoint", max_iterations=2)
     state = StrategyLoopState(run_id=cfg.run_id, iteration=2, phase=PHASE_BACKTEST)
