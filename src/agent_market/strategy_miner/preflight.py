@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from pathlib import Path
 from typing import Any, Optional
@@ -10,7 +9,10 @@ from typing import Any, Optional
 from agent_market import paths
 from agent_market.runtime_preflight import (
     _check,
+    _count_checks,
+    _failed_check_messages,
     _iso_now,
+    _log_check,
     check_freqtrade_config as _shared_check_freqtrade_config,
     check_freqtrade_cli as _check_freqtrade_cli,
     check_openai_compatible as _shared_check_openai_compatible,
@@ -20,8 +22,6 @@ from agent_market.runtime_preflight import (
 )
 
 from .dtypes import MinerConfig, Phase
-
-logger = logging.getLogger(__name__)
 
 
 def _check_openai_compatible(config: MinerConfig, applied_env: dict[str, str]) -> dict[str, Any]:
@@ -81,17 +81,6 @@ def _check_freqtrade_config(config: MinerConfig) -> list[dict[str, Any]]:
     return _shared_check_freqtrade_config(config.freqtrade_config)
 
 
-def _log_check(item: dict[str, Any]) -> None:
-    text = f"[preflight] {item.get('name')}: {item.get('detail')}"
-    severity = str(item.get("severity") or "info").lower()
-    if severity == "error":
-        logger.error(text)
-    elif severity == "warning":
-        logger.warning(text)
-    else:
-        logger.info(text)
-
-
 def run_startup_preflight(
     config: MinerConfig,
     *,
@@ -144,8 +133,7 @@ def run_startup_preflight(
     checks.append(_check_freqtrade_cli())
     checks.extend(_check_freqtrade_config(config))
 
-    errors = sum(1 for item in checks if str(item.get("severity")).lower() == "error" and not item.get("ok"))
-    warnings = sum(1 for item in checks if str(item.get("severity")).lower() == "warning")
+    errors, warnings = _count_checks(checks, error_requires_failed=True)
     report = {
         "timestamp": _iso_now(),
         "ok": errors == 0,
@@ -163,7 +151,7 @@ def run_startup_preflight(
         _log_check(item)
 
     if errors and raise_on_error:
-        failed = [f"{item['name']}: {item['detail']}" for item in checks if str(item.get("severity")).lower() == "error" and not item.get("ok")]
+        failed = _failed_check_messages(checks, error_requires_failed=True)
         raise RuntimeError("Startup preflight failed: " + "; ".join(failed))
     return report
 

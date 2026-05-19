@@ -88,6 +88,35 @@ def _log_check(item: dict[str, Any]) -> None:
         logger.info(message)
 
 
+def _count_checks(
+    items: Iterable[dict[str, Any]],
+    *,
+    error_requires_failed: bool = False,
+) -> tuple[int, int]:
+    checks = list(items)
+    warnings = sum(1 for item in checks if str(item.get("severity")).lower() == "warning")
+    errors = sum(
+        1
+        for item in checks
+        if str(item.get("severity")).lower() == "error"
+        and (not error_requires_failed or not item.get("ok"))
+    )
+    return errors, warnings
+
+
+def _failed_check_messages(
+    items: Iterable[dict[str, Any]],
+    *,
+    error_requires_failed: bool = False,
+) -> list[str]:
+    return [
+        f"{item.get('name')}: {item.get('detail')}"
+        for item in items
+        if str(item.get("severity")).lower() == "error"
+        and (not error_requires_failed or not item.get("ok"))
+    ]
+
+
 def _touch_directory(path: Path) -> tuple[bool, str]:
     try:
         path.mkdir(parents=True, exist_ok=True)
@@ -557,8 +586,7 @@ def _finalize_report(
     raise_on_error: bool = True,
 ) -> dict[str, Any]:
     items = list(checks)
-    warnings = sum(1 for item in items if str(item.get("severity")).lower() == "warning")
-    errors = sum(1 for item in items if str(item.get("severity")).lower() == "error")
+    errors, warnings = _count_checks(items)
     report = {
         "schema_version": 1,
         "kind": kind,
@@ -580,8 +608,7 @@ def _finalize_report(
         _log_check(item)
 
     if raise_on_error and errors:
-        failed = [f"{item.get('name')}: {item.get('detail')}" for item in items if item.get("severity") == "error"]
-        raise RuntimeError("Startup preflight failed: " + "; ".join(failed))
+        raise RuntimeError("Startup preflight failed: " + "; ".join(_failed_check_messages(items)))
     return report
 
 
