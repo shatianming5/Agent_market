@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import ast
+from copy import deepcopy
+from functools import lru_cache
 import json
+from pathlib import Path
 import re
 from typing import Any, Dict, NamedTuple, Optional
 
@@ -47,9 +50,26 @@ def _freqtrade_config_defaults(freqtrade_config_path: str) -> tuple[str, bool]:
 def _load_freqtrade_payload(freqtrade_config_path: str) -> dict[str, Any]:
     try:
         ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        return json.loads(ft_path.read_text(encoding="utf-8-sig"))
+        stat = ft_path.stat()
+        payload = _load_freqtrade_payload_cached(
+            str(ft_path), stat.st_mtime_ns, stat.st_size
+        )
+        return deepcopy(payload)
     except Exception:
         return {}
+
+
+@lru_cache(maxsize=64)
+def _load_freqtrade_payload_cached(
+    resolved_path: str, mtime_ns: int, size: int
+) -> dict[str, Any]:
+    try:
+        payload = json.loads(Path(resolved_path).read_text(encoding="utf-8-sig"))
+        if isinstance(payload, dict):
+            return payload
+    except Exception:
+        pass
+    return {}
 
 
 def _freqtrade_market_context(freqtrade_config_path: str) -> FreqtradeMarketContext:

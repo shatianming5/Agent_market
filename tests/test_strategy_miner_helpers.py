@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 
 from agent_market.strategy_miner._helpers import (
     _freqtrade_market_context,
     _freqtrade_config_defaults,
     _get_leverage_factor,
+    _load_freqtrade_payload,
 )
 
 
@@ -17,6 +19,36 @@ def test_freqtrade_config_defaults_use_shared_loader(tmp_path) -> None:
     )
 
     assert _freqtrade_config_defaults(str(cfg)) == ("4h", False)
+
+
+def test_freqtrade_payload_loader_returns_isolated_cached_copies(tmp_path) -> None:
+    cfg = tmp_path / "freqtrade.json"
+    cfg.write_text(
+        json.dumps({"timeframe": "4h", "exchange": {"pair_whitelist": ["BTC/USDT"]}}),
+        encoding="utf-8",
+    )
+
+    first = _load_freqtrade_payload(str(cfg))
+    first["exchange"]["pair_whitelist"].append("ETH/USDT")
+
+    second = _load_freqtrade_payload(str(cfg))
+
+    assert second["exchange"]["pair_whitelist"] == ["BTC/USDT"]
+
+
+def test_freqtrade_payload_loader_refreshes_when_file_changes(tmp_path) -> None:
+    cfg = tmp_path / "freqtrade.json"
+    cfg.write_text(json.dumps({"timeframe": "4h"}), encoding="utf-8")
+    assert _freqtrade_config_defaults(str(cfg)) == ("4h", True)
+
+    stat = cfg.stat()
+    cfg.write_text(json.dumps({"timeframe": "15m"}), encoding="utf-8")
+    os.utime(
+        cfg,
+        ns=(stat.st_atime_ns + 1_000_000_000, stat.st_mtime_ns + 1_000_000_000),
+    )
+
+    assert _freqtrade_config_defaults(str(cfg)) == ("15m", True)
 
 
 def test_freqtrade_config_defaults_fallback_for_bad_json(tmp_path) -> None:
