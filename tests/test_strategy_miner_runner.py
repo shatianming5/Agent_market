@@ -125,6 +125,38 @@ def test_update_kb_with_successful_candidate():
         assert kb.elites[0]["name"] == "Good"
 
 
+def test_update_kb_strategy_card_uses_market_context_order():
+    from agent_market.strategy_miner.runner import _update_knowledge_base
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        ft_cfg = root / "freqtrade.json"
+        ft_cfg.write_text(
+            json.dumps(
+                {
+                    "timeframe": "4h",
+                    "exchange": {
+                        "name": "binance",
+                        "pair_whitelist": ["BTC/USDT", "ETH/USDT"],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        kb = KnowledgeBase(root / "kb.json")
+        state = MinerState(run_id="run123", iteration=3)
+        c = StrategyCandidate("Good", "class Good: pass", root / "Good.py")
+        c.reward = 0.8
+        c.backtest_summary = {"profit_total_pct": 10, "trades": 50}
+        c.validation_passed = True
+        state.candidates.append(c)
+
+        _update_knowledge_base(kb, state, config=MinerConfig(freqtrade_config=str(ft_cfg)))
+
+        assert kb.strategy_cards[0]["timeframe"] == "4h"
+        assert kb.strategy_cards[0]["universe"] == ["BTC/USDT", "ETH/USDT"]
+
+
 def test_update_kb_with_failed_candidate():
     from agent_market.strategy_miner.runner import _update_knowledge_base
 

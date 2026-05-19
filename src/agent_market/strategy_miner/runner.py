@@ -142,7 +142,7 @@ def _update_knowledge_base(
         try:
             from ._helpers import _freqtrade_market_context
 
-            timeframe, market_pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
+            _exchange, market_pairs, timeframe, _datadir = _freqtrade_market_context(config.freqtrade_config)
             universe = list(getattr(config, "model_training_pairs", None) or []) or list(market_pairs or [])
         except Exception:
             logger.debug("Failed to infer market context for strategy card", exc_info=True)
