@@ -16,6 +16,18 @@ def test_flow_ext_package_import_is_lazy() -> None:
     assert "agent_market.flow_ext.steps" not in sys.modules
 
 
+def test_flow_ext_steps_import_defers_legacy_flow_steps() -> None:
+    sys.modules.pop("agent_market.flow_ext.steps", None)
+    sys.modules.pop("agent_market.flow_steps", None)
+
+    steps = importlib.import_module("agent_market.flow_ext.steps")
+
+    assert "agent_market.flow_steps" not in sys.modules
+    assert isinstance(steps.STEP_ORDER, list)
+    assert callable(steps.run_command)
+    assert "agent_market.flow_steps" in sys.modules
+
+
 def test_flow_ext_modules_import_and_basic_helpers() -> None:
     from agent_market.flow_ext.step_dispatch import STEP_HANDLERS
     from agent_market.flow_ext.step_spec import STEP_ORDER
