@@ -9,6 +9,7 @@ conventions. To avoid breaking existing imports while moving towards that struct
 this module re-exports the canonical step runner functions.
 """
 
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -36,11 +37,8 @@ _LEGACY_EXPORTS = {
 
 def __getattr__(name: str) -> Any:
     if name in _LEGACY_EXPORTS:
-        from agent_market import flow_steps as _legacy
-
-        value = getattr(_legacy, name)
-        globals()[name] = value
-        return value
+        _legacy = import_module("agent_market.flow_steps")
+        return getattr(_legacy, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
