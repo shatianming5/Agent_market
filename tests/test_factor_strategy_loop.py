@@ -1268,6 +1268,79 @@ def test_strategy_loop_doctor_requires_promoted_optimized_profile_artifact(tmp_p
     assert any(item["message"] == "promoted artifact path does not exist: optimized_profile" for item in result["findings"])
 
 
+def test_strategy_loop_doctor_rejects_promoted_artifact_hash_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_promoted_artifact_hash_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag=run_id,
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    profile = {"candidate_state": "state.json", "top_k": 1, "side_mode": "short"}
+    candidate = {"candidate_type": "rank_profile", "rank_profile": profile}
+    blind_dir = root / "blind_1"
+    candidate_ref = _write_json_ref(blind_dir / "candidate.json", candidate)
+    verification_ref = _write_json_ref(blind_dir / "verification.json", {"status": VERIFICATION_PASSED})
+    selected = {
+        "score": 10.0,
+        "blind_final": True,
+        "promotion_eligible": True,
+        "verification_status": VERIFICATION_PASSED,
+        "lean_gate": {"status": VERIFICATION_PASSED, "comparison_status": "ok"},
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/blind_1/candidate.json",
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+    }
+    _write_json(blind_dir / "evaluation.json", selected)
+    evaluation_ref = strategy_loop_mod._artifact_ref(blind_dir / "evaluation.json")
+    _write_json(blind_dir / "lean_gate.json", {"status": VERIFICATION_PASSED, "comparison_status": "ok"})
+    _write_json(blind_dir / "manifest.json", {"artifact_refs": {"evaluation.json": evaluation_ref, "verification.json": verification_ref}})
+    optimized_profile_path = repo_paths.artifacts_root() / "rank_portfolio" / run_id / "optimized_profile.json"
+    optimized_profile = {
+        "version": "factor-strategy-loop-optimized-profile-v1",
+        "run_id": run_id,
+        "final_promotion": True,
+        "candidate": candidate,
+        "rank_profile": profile,
+        "evaluation": selected,
+    }
+    _write_json(optimized_profile_path, optimized_profile)
+    promotion = {
+        "promoted": True,
+        "artifacts": {"optimized_profile": f"artifacts/rank_portfolio/{run_id}/optimized_profile.json"},
+        "artifact_refs": {"optimized_profile": strategy_loop_mod._artifact_ref(optimized_profile_path)},
+        "reason": "rank profile passed full holdout and was written as optimized_profile.json",
+    }
+    optimized_profile_path.write_text(json.dumps(optimized_profile, indent=2), encoding="utf-8")
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [{"iteration": 1, "promotion_eligible": False}]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_promotion.json", promotion)
+    final_status = {
+        "promoted": True,
+        "selected": selected,
+        "finalists": [{"evaluation": selected, "score": selected["score"], "promotion_eligible": True, "blind_final": True}],
+        "promotion": promotion,
+    }
+    final_status["deepresearch"] = _write_deepresearch_artifacts(run_id, final_status=final_status)
+    _write_json(root / "final_blind_status.json", final_status)
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["promoted_artifact_refs_checked"] == 1
+    assert result["summary"]["promoted_artifact_refs_hash_mismatch"] == 1
+    assert "promotion artifact refs failed integrity check" in messages
+
+
 def test_strategy_loop_doctor_binds_optimized_profile_to_selected_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "doctor_formal_mismatched_optimized_profile"
@@ -2889,6 +2962,8 @@ def test_promotion_requires_passing_constraints(tmp_path: Path) -> None:
     )
 
     assert passed["promoted"] is True
+    assert passed["artifact_refs"]["optimized_profile"]["path"].endswith("/optimized_profile.json")
+    assert passed["artifact_refs"]["optimized_profile"]["sha256"]
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["rank_profile"]["top_k"] == 2
 

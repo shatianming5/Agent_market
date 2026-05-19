@@ -5834,6 +5834,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     root_promotion = load_json(root / "final_promotion.json", {})
     root_promotion = root_promotion if isinstance(root_promotion, Mapping) else {}
     source_ref_hash_statuses: list[dict[str, Any]] = []
+    promoted_artifact_ref_status = _doctor_artifact_refs_hash_status({})
     promoted_artifact_files = 0
     selected_eval_bindings_checked = 0
     selected_eval_binding_mismatches = 0
@@ -5900,16 +5901,52 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             findings.append(_doctor_finding("BLOCKER", f"{label} source artifact refs failed integrity check", detail=integrity_failures))
 
     def record_promoted_artifacts(promotion_payload: Mapping[str, Any]) -> None:
-        nonlocal promoted_artifact_files, optimized_profile_eval_bindings_checked, optimized_profile_eval_binding_mismatches
+        nonlocal promoted_artifact_files, promoted_artifact_ref_status
+        nonlocal optimized_profile_eval_bindings_checked, optimized_profile_eval_binding_mismatches
         artifacts = promotion_payload.get("artifacts") if isinstance(promotion_payload.get("artifacts"), Mapping) else {}
         if not artifacts:
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted without artifacts"))
             return
+        artifact_refs = promotion_payload.get("artifact_refs") if isinstance(promotion_payload.get("artifact_refs"), Mapping) else {}
+        promoted_artifact_ref_status = _doctor_artifact_refs_hash_status(artifact_refs)
+        if not isinstance(promotion_payload.get("artifact_refs"), Mapping):
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact_refs missing"))
+        elif promoted_artifact_ref_status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact_refs do not include files"))
+        elif promoted_artifact_ref_status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "promotion artifact_refs have entries without sha256 hashes",
+                    detail={"missing_hash": promoted_artifact_ref_status["missing_hash"]},
+                )
+            )
+        promoted_integrity_failures = {
+            "missing_file": promoted_artifact_ref_status.get("missing_file", 0),
+            "bytes_mismatch": promoted_artifact_ref_status.get("bytes_mismatch", 0),
+            "hash_mismatch": promoted_artifact_ref_status.get("hash_mismatch", 0),
+            "errors": promoted_artifact_ref_status.get("errors", 0),
+        }
+        if any(promoted_integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact refs failed integrity check", detail=promoted_integrity_failures))
         for key, raw in artifacts.items():
             artifact_path = repo_paths.resolve_repo_path(str(raw or ""))
             if not artifact_path.exists():
                 findings.append(_doctor_finding("BLOCKER", f"promoted artifact path does not exist: {key}", path=str(raw or "")))
                 continue
+            ref = artifact_refs.get(key) if isinstance(artifact_refs.get(key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            if not ref_raw:
+                findings.append(_doctor_finding("BLOCKER", f"promoted artifact ref missing: {key}", path=str(raw or "")))
+            elif _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(artifact_path):
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        f"promoted artifact ref path differs from artifact path: {key}",
+                        path=ref_raw,
+                        detail={"artifact_path": _as_repo_meta(artifact_path)},
+                    )
+                )
             promoted_artifact_files += 1
             if key == "optimized_profile":
                 payload = load_json(artifact_path, {})
@@ -6268,6 +6305,13 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "deepresearch_artifact_refs_bytes_mismatch": deep_ref_status.get("bytes_mismatch", 0),
             "deepresearch_artifact_refs_hash_mismatch": deep_ref_status.get("hash_mismatch", 0),
             "deepresearch_artifact_refs_errors": deep_ref_status.get("errors", 0),
+            "promoted_artifact_refs_hashed": promoted_artifact_ref_status.get("hashed", 0),
+            "promoted_artifact_refs_missing_hash": promoted_artifact_ref_status.get("missing_hash", 0),
+            "promoted_artifact_refs_checked": promoted_artifact_ref_status.get("checked", 0),
+            "promoted_artifact_refs_missing_file": promoted_artifact_ref_status.get("missing_file", 0),
+            "promoted_artifact_refs_bytes_mismatch": promoted_artifact_ref_status.get("bytes_mismatch", 0),
+            "promoted_artifact_refs_hash_mismatch": promoted_artifact_ref_status.get("hash_mismatch", 0),
+            "promoted_artifact_refs_errors": promoted_artifact_ref_status.get("errors", 0),
             "selected_evaluation_bindings_checked": selected_eval_bindings_checked,
             "selected_evaluation_binding_mismatches": selected_eval_binding_mismatches,
             "selected_candidate_path_missing": selected_candidate_path_missing,
@@ -6306,6 +6350,7 @@ def promote_candidate(
 ) -> dict[str, Any]:
     promoted = False
     artifacts: dict[str, str] = {}
+    artifact_refs: dict[str, Any] = {}
     reason = str(evaluation.get("promotion_reason") or "")
     if not config.promote or config.promote_policy == PROMOTE_NONE:
         reason = "promotion disabled"
@@ -6348,6 +6393,7 @@ def promote_candidate(
             }
             write_json(out, payload)
             artifacts["optimized_profile"] = _as_repo_meta(out)
+            artifact_refs["optimized_profile"] = _artifact_ref(out)
             promoted = True
             reason = "rank profile passed full holdout and was written as optimized_profile.json"
         elif ctype == CANDIDATE_FREQTRADE_STRATEGY:
@@ -6361,10 +6407,14 @@ def promote_candidate(
                 dst = strategies_dir / f"{src.stem}_{config.run_id}_{iter_dir.name}{src.suffix}"
             shutil.copy2(src, dst)
             artifacts["strategy"] = _as_repo_meta(dst)
+            artifact_refs["strategy"] = _artifact_ref(dst)
             promoted = True
             reason = "strategy passed full holdout and was copied to user_data/strategies"
 
-    return {"promoted": promoted, "artifacts": artifacts, "reason": reason}
+    result = {"promoted": promoted, "artifacts": artifacts, "reason": reason}
+    if artifact_refs:
+        result["artifact_refs"] = artifact_refs
+    return result
 
 
 def render_agent_prompt(context_path: Path, *, candidate_type: str = "auto") -> str:
