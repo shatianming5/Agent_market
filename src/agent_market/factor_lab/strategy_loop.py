@@ -5830,6 +5830,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     final_status = load_json(root / "final_blind_status.json", {})
     selected = final_status.get("selected") if isinstance(final_status, Mapping) and isinstance(final_status.get("selected"), Mapping) else {}
     final_blind_finalists = final_status.get("finalists") if isinstance(final_status, Mapping) and isinstance(final_status.get("finalists"), list) else []
+    pareto_pool = load_json(root / "pareto_pool.json", {})
+    pareto_finalists = pareto_pool.get("finalists") if isinstance(pareto_pool, Mapping) and isinstance(pareto_pool.get("finalists"), list) else []
     promotion = final_status.get("promotion") if isinstance(final_status, Mapping) and isinstance(final_status.get("promotion"), Mapping) else {}
     root_promotion = load_json(root / "final_promotion.json", {})
     root_promotion = root_promotion if isinstance(root_promotion, Mapping) else {}
@@ -5848,6 +5850,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_verification_payload_binding_mismatches = 0
     selected_lean_gate_payload_bindings_checked = 0
     selected_lean_gate_payload_binding_mismatches = 0
+    final_blind_pareto_bindings_checked = 0
+    final_blind_pareto_binding_mismatches = 0
+    final_blind_evaluation_bindings_checked = 0
+    final_blind_evaluation_binding_mismatches = 0
     optimized_profile_eval_bindings_checked = 0
     optimized_profile_eval_binding_mismatches = 0
     deepresearch_context_final_bindings_checked = 0
@@ -5881,6 +5887,18 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def payload_identity(payload: Mapping[str, Any]) -> str:
+        try:
+            return json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), default=str)
+        except Exception:
+            return repr(dict(payload))
+
+    def count_identities(items: Sequence[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items:
+            counts[item] = counts.get(item, 0) + 1
+        return counts
 
     def record_source_ref_status(label: str, refs: Any) -> None:
         status = _doctor_artifact_refs_hash_status(refs)
@@ -6126,6 +6144,111 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     )
                 )
 
+    def record_final_blind_finalist_bindings() -> None:
+        nonlocal final_blind_pareto_bindings_checked, final_blind_pareto_binding_mismatches
+        nonlocal final_blind_evaluation_bindings_checked, final_blind_evaluation_binding_mismatches
+        pareto_keys = [
+            payload_identity(item)
+            for item in pareto_finalists
+            if isinstance(item, Mapping)
+        ]
+        pareto_counts = count_identities(pareto_keys)
+        final_keys: list[str] = []
+        for idx, row in enumerate(final_blind_finalists, start=1):
+            if not isinstance(row, Mapping):
+                final_blind_pareto_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final_blind_status finalist row is not an object", detail={"index": idx}))
+                continue
+            finalist = row.get("finalist") if isinstance(row.get("finalist"), Mapping) else {}
+            if not finalist:
+                final_blind_pareto_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final_blind_status finalist row is missing Pareto finalist payload", detail={"index": idx}))
+            else:
+                final_blind_pareto_bindings_checked += 1
+                key = payload_identity(finalist)
+                final_keys.append(key)
+                if key not in pareto_counts:
+                    final_blind_pareto_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "final blind finalist is not present in pareto_pool finalists", detail={"index": idx}))
+            evaluation = row.get("evaluation") if isinstance(row.get("evaluation"), Mapping) else {}
+            if not evaluation:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final blind finalist row is missing evaluation payload", detail={"index": idx}))
+                continue
+            raw_blind_dir = str(row.get("blind_dir") or "").strip()
+            if not raw_blind_dir:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final blind finalist row is missing blind_dir", detail={"index": idx}))
+            else:
+                blind_dir = repo_paths.resolve_repo_path(raw_blind_dir)
+                try:
+                    blind_dir.resolve().relative_to(root.resolve())
+                except Exception:
+                    final_blind_evaluation_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "final blind finalist blind_dir is outside run artifacts", path=raw_blind_dir, detail={"index": idx}))
+                else:
+                    if not blind_dir.name.startswith("blind_"):
+                        final_blind_evaluation_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "final blind finalist blind_dir is not a blind_* directory", path=raw_blind_dir, detail={"index": idx}))
+                    evaluation_path = blind_dir / "evaluation.json"
+                    if not evaluation_path.exists():
+                        final_blind_evaluation_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "final blind finalist evaluation artifact does not exist", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+                    else:
+                        final_blind_evaluation_bindings_checked += 1
+                        evaluation_artifact = load_json(evaluation_path, {})
+                        if not isinstance(evaluation_artifact, Mapping) or dict(evaluation_artifact) != dict(evaluation):
+                            final_blind_evaluation_binding_mismatches += 1
+                            findings.append(_doctor_finding("BLOCKER", "final blind finalist evaluation differs from blind artifact", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+            summary_expected = {
+                "score": evaluation.get("score"),
+                "constraints_ok": evaluation.get("constraints_ok"),
+                "verification_status": evaluation.get("verification_status"),
+                "promotion_eligible": evaluation.get("promotion_eligible"),
+                "blind_final": evaluation.get("blind_final"),
+            }
+            summary_actual = {key: row.get(key) for key in summary_expected}
+            if summary_actual != summary_expected:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "final blind finalist summary fields differ from evaluation",
+                        detail={"index": idx, "actual": summary_actual, "expected": summary_expected},
+                    )
+                )
+            if lean_gate_mode != LEAN_GATE_OFF:
+                lean_expected = {
+                    "lean_gate_status": _lean_gate_status(evaluation) or None,
+                    "lean_comparison_status": (evaluation.get("lean_gate") or {}).get("comparison_status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
+                }
+                lean_actual = {key: row.get(key) for key in lean_expected}
+                if lean_actual != lean_expected:
+                    final_blind_evaluation_binding_mismatches += 1
+                    findings.append(
+                        _doctor_finding(
+                            "BLOCKER",
+                            "final blind finalist LEAN summary differs from evaluation",
+                            detail={"index": idx, "actual": lean_actual, "expected": lean_expected},
+                        )
+                    )
+            finalist_candidate = str(finalist.get("candidate_path") or "").strip() if finalist else ""
+            source_candidate = str(evaluation.get("source_candidate_path") or "").strip()
+            if finalist_candidate and source_candidate != finalist_candidate:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "final blind finalist source_candidate_path differs from Pareto finalist",
+                        detail={"index": idx, "source_candidate_path": source_candidate, "pareto_candidate_path": finalist_candidate},
+                    )
+                )
+        final_counts = count_identities(final_keys)
+        missing_pareto = sum(max(0, count - final_counts.get(key, 0)) for key, count in pareto_counts.items())
+        if missing_pareto:
+            final_blind_pareto_binding_mismatches += missing_pareto
+            findings.append(_doctor_finding("BLOCKER", "pareto_pool finalists are missing from final_blind_status finalists", detail={"missing_count": missing_pareto}))
+
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
@@ -6142,6 +6265,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass verification"))
             if selected.get("promotion_eligible") and lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(selected) != VERIFICATION_PASSED:
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass LEAN gate"))
+        if final_status:
+            record_final_blind_finalist_bindings()
         if final_status and dict(root_promotion) != dict(promotion):
             findings.append(_doctor_finding("BLOCKER", "final_promotion.json differs from final_blind_status promotion"))
         if final_status and bool(final_status.get("promoted")) != bool(promotion.get("promoted")):
@@ -6361,6 +6486,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_verification_payload_binding_mismatches": selected_verification_payload_binding_mismatches,
             "selected_lean_gate_payload_bindings_checked": selected_lean_gate_payload_bindings_checked,
             "selected_lean_gate_payload_binding_mismatches": selected_lean_gate_payload_binding_mismatches,
+            "final_blind_pareto_bindings_checked": final_blind_pareto_bindings_checked,
+            "final_blind_pareto_binding_mismatches": final_blind_pareto_binding_mismatches,
+            "final_blind_evaluation_bindings_checked": final_blind_evaluation_bindings_checked,
+            "final_blind_evaluation_binding_mismatches": final_blind_evaluation_binding_mismatches,
             "optimized_profile_eval_bindings_checked": optimized_profile_eval_bindings_checked,
             "optimized_profile_eval_binding_mismatches": optimized_profile_eval_binding_mismatches,
             "deepresearch_context_final_bindings_checked": deepresearch_context_final_bindings_checked,
