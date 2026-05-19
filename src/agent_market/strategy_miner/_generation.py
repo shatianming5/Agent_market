@@ -7,7 +7,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 if TYPE_CHECKING:
     from .knowledge_base import KnowledgeBase
@@ -33,7 +33,6 @@ from .sandbox import (
     find_strategy_files,
     infer_strategy_class_name,
     prepare_sandbox,
-    validate_strategy_code,
 )
 from ._helpers import (
     _freqtrade_config_defaults,
@@ -43,9 +42,7 @@ from ._helpers import (
     _sanitize_candidate_name,
     _candidate_type_for_slot,
     _allowed_model_families,
-    _normalize_candidate_type,
     _json_block_or_none,
-    _parse_json_object,
     _phase_for_candidate,
     _pick_active_candidate,
     _rewrite_strategy_class_name,

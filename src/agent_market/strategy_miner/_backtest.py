@@ -9,7 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from .knowledge_base import KnowledgeBase
@@ -22,12 +22,9 @@ from .agent_factory import build_strategy_agent
 from .dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
 from .prompts import build_repair_prompt
 from .sandbox import (
-    auto_fix_strategy_code,
     auto_fix_strategy_file,
     ensure_freqtrade_strategy_compliance_file,
-    find_strategy_files,
     infer_strategy_class_name,
-    prepare_sandbox,
     validate_strategy_code,
 )
 from ._helpers import (
@@ -36,10 +33,7 @@ from ._helpers import (
     _freqtrade_trading_mode,
     _prompt_objective_profile,
     _normalize_candidate_type,
-    _candidate_requires_training,
-    _phase_for_candidate,
     _pick_active_candidate,
-    _mark_candidate_done,
     _advance_after_candidate,
     _validate_timeframe_policy,
     _classify_validation_failure,
