@@ -742,6 +742,38 @@ def test_triple_holdout_skips_invalid_pareto_finalist(tmp_path: Path, monkeypatc
     assert final_status["finalists"][0]["reason"].startswith("candidate invalid:")
 
 
+def test_deepresearch_sidecar_writes_under_artifacts_not_repo_docs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    watched_docs = [
+        repo_paths.REPO_ROOT / "docs" / "strategy_research_review.md",
+        repo_paths.REPO_ROOT / "docs" / "validation_protocol.md",
+    ]
+    before = {path: path.read_bytes() if path.exists() else None for path in watched_docs}
+    run_id = "unit_deepresearch_artifacts"
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit_deepresearch",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        lean_gate_mode="final",
+    )
+    final_status = {
+        "selected": {
+            "verification_status": VERIFICATION_PASSED,
+            "blind_final": True,
+            "lean_gate": {"status": VERIFICATION_PASSED},
+        }
+    }
+
+    audit = StrategyLoopRunner(cfg)._deepresearch_sidecar(final_status)
+
+    artifacts = audit["artifacts"]
+    for key in ("context", "sources", "review", "protocol"):
+        assert artifacts[key].startswith(f"artifacts/strategy_deepresearch/{run_id}/")
+        assert repo_paths.resolve_repo_path(artifacts[key]).exists()
+    after = {path: path.read_bytes() if path.exists() else None for path in watched_docs}
+    assert after == before
+
+
 def test_strategy_loop_registry_records_retention_tier(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "registry_unit"

@@ -8175,7 +8175,8 @@ class StrategyLoopRunner:
             f"- Pareto pool: `{_as_repo_meta(loop_root(self.config.run_id) / 'pareto_pool.json')}`",
             f"- Final blind status: `{_as_repo_meta(loop_root(self.config.run_id) / 'final_blind_status.json')}`",
         ])
-        (repo_paths.REPO_ROOT / "docs" / "strategy_research_review.md").write_text("\n".join(review) + "\n", encoding="utf-8")
+        review_path = root / "strategy_research_review.md"
+        review_path.write_text("\n".join(review) + "\n", encoding="utf-8")
         protocol = validation_protocol_summary(self.config)
         protocol_doc = [
             "# Validation Protocol",
@@ -8195,8 +8196,18 @@ class StrategyLoopRunner:
             "- Promotion requires blind selected gates plus lookahead/recursive verification status `passed`.",
             "- When `lean_gate_mode` is enabled, promotion also requires LEAN gate status `passed`.",
         ])
-        (repo_paths.REPO_ROOT / "docs" / "validation_protocol.md").write_text("\n".join(protocol_doc) + "\n", encoding="utf-8")
-        return {"status": status, "artifacts": {"context": _as_repo_meta(root / "context.json"), "sources": _as_repo_meta(root / "sources.json")}, "findings": findings}
+        protocol_path = root / "validation_protocol.md"
+        protocol_path.write_text("\n".join(protocol_doc) + "\n", encoding="utf-8")
+        return {
+            "status": status,
+            "artifacts": {
+                "context": _as_repo_meta(root / "context.json"),
+                "sources": _as_repo_meta(root / "sources.json"),
+                "review": _as_repo_meta(review_path),
+                "protocol": _as_repo_meta(protocol_path),
+            },
+            "findings": findings,
+        }
 
     def _finalize_promotion(self) -> Optional[dict[str, Any]]:
         if not self.config.promote or self.config.promote_policy != PROMOTE_FINAL:
