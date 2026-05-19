@@ -5341,6 +5341,35 @@ def _copytree_replace(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst)
 
 
+def _rebase_repo_path_value(value: str, *, source_dir: Path, target_dir: Path) -> str:
+    raw = str(value)
+    text = raw.strip()
+    if not text:
+        return raw
+    try:
+        source = source_dir.resolve()
+        target = target_dir.resolve()
+        resolved = repo_paths.resolve_repo_path(text).resolve()
+        rel = resolved.relative_to(source)
+    except Exception:
+        return raw
+    mapped = target / rel
+    return str(mapped) if Path(text).is_absolute() else _as_repo_meta(mapped)
+
+
+def _rebase_repo_paths(value: Any, *, source_dir: Path, target_dir: Path) -> Any:
+    if isinstance(value, str):
+        return _rebase_repo_path_value(value, source_dir=source_dir, target_dir=target_dir)
+    if isinstance(value, list):
+        return [_rebase_repo_paths(item, source_dir=source_dir, target_dir=target_dir) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _rebase_repo_paths(item, source_dir=source_dir, target_dir=target_dir)
+            for key, item in value.items()
+        }
+    return value
+
+
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as fh:
@@ -5423,6 +5452,11 @@ _ITERATION_CONTEXT_ARTIFACTS = (
     "prepare.json",
     "lean_analysis_prompt.json",
 )
+_BEST_LOCAL_ARTIFACT_REF_KEYS = {
+    *[name for name in _ITERATION_CORE_ARTIFACTS if name != "manifest.json"],
+    *_ITERATION_AUDIT_ARTIFACTS,
+    *[f"context/{name}" for name in _ITERATION_CONTEXT_ARTIFACTS],
+}
 
 
 def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = None) -> dict[str, Any]:
@@ -5977,7 +6011,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
 
     iteration_manifests = sorted(root.glob("iter_*/manifest.json"))
     blind_manifests = sorted(root.glob("blind_*/manifest.json"))
-    manifest_hashes = [_doctor_manifest_hash_status(load_json(path, {})) for path in [*iteration_manifests, *blind_manifests]]
+    best_manifests = [root / "best" / "manifest.json"] if (root / "best" / "manifest.json").exists() else []
+    manifest_hashes = [_doctor_manifest_hash_status(load_json(path, {})) for path in [*iteration_manifests, *blind_manifests, *best_manifests]]
     missing_hash_total = sum(item.get("missing_hash", 0) for item in manifest_hashes)
     hashed_total = sum(item.get("hashed", 0) for item in manifest_hashes)
     checked_total = sum(item.get("checked", 0) for item in manifest_hashes)
@@ -5985,6 +6020,38 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     bytes_mismatch_total = sum(item.get("bytes_mismatch", 0) for item in manifest_hashes)
     hash_mismatch_total = sum(item.get("hash_mismatch", 0) for item in manifest_hashes)
     artifact_ref_errors_total = sum(item.get("errors", 0) for item in manifest_hashes)
+    best_manifest_local_ref_bindings_checked = 0
+    best_manifest_local_ref_binding_mismatches = 0
+    best_dir = root / "best"
+    best_dir_resolved = best_dir.resolve()
+    for manifest_path in best_manifests:
+        manifest_payload = load_json(manifest_path, {})
+        refs = manifest_payload.get("artifact_refs") if isinstance(manifest_payload, Mapping) and isinstance(manifest_payload.get("artifact_refs"), Mapping) else {}
+        for key, ref in refs.items():
+            if not (
+                key in _BEST_LOCAL_ARTIFACT_REF_KEYS
+                or str(key).startswith("lean_")
+                or str(key).startswith("verification_")
+            ):
+                continue
+            if not isinstance(ref, Mapping):
+                continue
+            raw_path = str(ref.get("path") or "").strip()
+            if not raw_path:
+                continue
+            best_manifest_local_ref_bindings_checked += 1
+            try:
+                repo_paths.resolve_repo_path(raw_path).resolve().relative_to(best_dir_resolved)
+            except Exception:
+                best_manifest_local_ref_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "best manifest artifact refs point outside best snapshot",
+                        path=raw_path,
+                        detail={"key": key, "best_dir": _as_repo_meta(best_dir)},
+                    )
+                )
     if iteration_manifests and missing_hash_total:
         findings.append(_doctor_finding("MEDIUM", "some manifest artifact refs are missing sha256 hashes", detail={"missing_hash": missing_hash_total}))
     manifest_integrity_failures = {
@@ -7157,6 +7224,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "leaderboard_rows": len(rows),
             "iteration_manifests": len(iteration_manifests),
             "blind_manifests": len(blind_manifests),
+            "best_manifests": len(best_manifests),
             "run_manifest_artifact_refs_hashed": root_manifest_artifact_ref_status.get("hashed", 0),
             "run_manifest_artifact_refs_missing_hash": root_manifest_artifact_ref_status.get("missing_hash", 0),
             "run_manifest_artifact_refs_checked": root_manifest_artifact_ref_status.get("checked", 0),
@@ -7208,6 +7276,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "leaderboard_evaluation_binding_mismatches": leaderboard_evaluation_binding_mismatches,
             "leaderboard_candidate_payload_bindings_checked": leaderboard_candidate_payload_bindings_checked,
             "leaderboard_candidate_payload_binding_mismatches": leaderboard_candidate_payload_binding_mismatches,
+            "best_manifest_local_ref_bindings_checked": best_manifest_local_ref_bindings_checked,
+            "best_manifest_local_ref_binding_mismatches": best_manifest_local_ref_binding_mismatches,
             "run_manifest_structure_bindings_checked": run_manifest_structure_bindings_checked,
             "run_manifest_structure_binding_mismatches": run_manifest_structure_binding_mismatches,
             "checkpoint_identity_bindings_checked": checkpoint_identity_bindings_checked,
@@ -8805,7 +8875,7 @@ class StrategyLoopRunner:
             write_json(out, evaluation)
             write_json(idir / "manifest.json", build_iteration_manifest(idir, self.config, candidate, evaluation))
             if score > self.state.best_score:
-                _copytree_replace(idir, loop_root(self.config.run_id) / "best")
+                self._sync_best_snapshot_from_iteration(idir)
 
         row = _leaderboard_row_from_evaluation(evaluation, self.config.run_id, iteration=self.state.iteration)
         self._append_leaderboard(row)
@@ -8975,10 +9045,41 @@ class StrategyLoopRunner:
         except Exception as exc:
             print(f"[lean_analysis] LLM analysis failed for {idir.name}: {exc}, keeping fallback markdown")
 
+    def _is_current_best_iteration_dir(self, idir: Path) -> bool:
+        best = self.state.best_candidate if isinstance(self.state.best_candidate, Mapping) else {}
+        raw_candidate = str(best.get("candidate_path") or "").strip()
+        if not raw_candidate:
+            return False
+        try:
+            return repo_paths.resolve_repo_path(raw_candidate).parent.resolve() == idir.resolve()
+        except Exception:
+            return False
+
+    def _sync_best_snapshot_from_iteration(self, idir: Path) -> None:
+        best_dir = loop_root(self.config.run_id) / "best"
+        if best_dir.resolve() == idir.resolve():
+            return
+        _copytree_replace(idir, best_dir)
+        for name in ("evaluation.json", "lean_gate.json", "verification.json"):
+            path = best_dir / name
+            payload = load_json(path, None)
+            if isinstance(payload, (dict, list)):
+                write_json(path, _rebase_repo_paths(payload, source_dir=idir, target_dir=best_dir))
+        candidate_payload = load_json(best_dir / "candidate.json", {})
+        candidate = candidate_payload if isinstance(candidate_payload, Mapping) else {}
+        evaluation_payload = load_json(best_dir / "evaluation.json", {})
+        if isinstance(evaluation_payload, Mapping):
+            evaluation = dict(evaluation_payload)
+            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir, exclude={"evaluation.json", "manifest.json"})
+            write_json(best_dir / "evaluation.json", evaluation)
+            write_json(best_dir / "manifest.json", build_iteration_manifest(best_dir, self.config, candidate, evaluation))
+
     def _analysis(self, idir: Path) -> None:
         path = idir / "analysis.md"
         if path.exists():
             refresh_iteration_manifest_artifact_refs(idir, self.config)
+            if self._is_current_best_iteration_dir(idir):
+                self._sync_best_snapshot_from_iteration(idir)
             return
         evaluation = load_json(idir / "evaluation.json", {})
         lean_analysis = load_json(idir / "lean_analysis.json", {}) if (idir / "lean_analysis.json").exists() else {}
@@ -9044,6 +9145,8 @@ class StrategyLoopRunner:
         )
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         refresh_iteration_manifest_artifact_refs(idir, self.config, evaluation=evaluation if isinstance(evaluation, Mapping) else None)
+        if self._is_current_best_iteration_dir(idir):
+            self._sync_best_snapshot_from_iteration(idir)
 
     def _effective_rank_tag(self, idir: Path) -> str:
         return f"{self.config.tag}__loop_{self.config.run_id}_{idir.name}"

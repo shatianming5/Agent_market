@@ -6741,6 +6741,104 @@ def test_strategy_loop_doctor_flags_iteration_audit_sidecar_hash_mismatch(
     assert "manifest artifact refs failed integrity check" in messages
 
 
+def test_best_snapshot_rewrites_artifact_refs_to_best_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "best_snapshot_refs"
+    cfg = StrategyLoopConfig.from_args(tag="unit", run_id=run_id)
+    runner = StrategyLoopRunner(cfg)
+    idir = iteration_dir(run_id, 1)
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    _write_json(idir / "candidate.json", candidate)
+    (idir / "agent_response.txt").write_text("assistant response text", encoding="utf-8")
+    _write_json(idir / "context" / "prepare.json", {"prompt": "context"})
+    lean_dir = idir / "lean_gate" / "iteration"
+    _write_json(lean_dir / "rank_artifact.json", {"rank": True})
+    _write_json(
+        idir / "lean_gate.json",
+        {
+            "status": VERIFICATION_PASSED,
+            "artifacts": {
+                "dir": str(lean_dir),
+                "rank_artifact": str(lean_dir / "rank_artifact.json"),
+            },
+        },
+    )
+    gate_dir = idir / "validation_gates" / "validation"
+    (gate_dir).mkdir(parents=True)
+    (gate_dir / "lookahead.log").write_text("no bias detected\n", encoding="utf-8")
+    (gate_dir / "recursive.log").write_text("no recursive drift\n", encoding="utf-8")
+    _write_json(
+        idir / "verification.json",
+        {
+            "status": VERIFICATION_PASSED,
+            "artifacts": {
+                "dir": str(gate_dir),
+                "lookahead_log": str(gate_dir / "lookahead.log"),
+                "recursive_log": str(gate_dir / "recursive.log"),
+            },
+        },
+    )
+    evaluation = {
+        "iteration": 1,
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json",
+        "score": 1.0,
+        "constraints_ok": True,
+        "artifact_refs": strategy_loop_mod._artifact_refs_for_iteration(idir, exclude={"evaluation.json", "manifest.json"}),
+    }
+    _write_json(idir / "evaluation.json", evaluation)
+    _write_json(idir / "manifest.json", build_iteration_manifest(idir, cfg, candidate, evaluation))
+
+    runner._sync_best_snapshot_from_iteration(idir)
+
+    best_dir = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id / "best"
+    best_eval = json.loads((best_dir / "evaluation.json").read_text(encoding="utf-8"))
+    best_manifest = json.loads((best_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert best_eval["candidate_path"].endswith("/best/candidate.json")
+    assert best_eval["artifact_refs"]["agent_response.txt"]["path"].endswith("/best/agent_response.txt")
+    assert best_manifest["artifact_refs"]["candidate.json"]["path"].endswith("/best/candidate.json")
+    assert best_manifest["artifact_refs"]["context/prepare.json"]["path"].endswith("/best/context/prepare.json")
+    assert best_manifest["artifact_refs"]["lean_rank_artifact"]["path"].endswith("/best/lean_gate/iteration/rank_artifact.json")
+    assert best_manifest["artifact_refs"]["verification_lookahead_log"]["path"].endswith("/best/validation_gates/validation/lookahead.log")
+    assert best_manifest["artifact_refs"]["verification_recursive_log"]["path"].endswith("/best/validation_gates/validation/recursive.log")
+
+
+def test_strategy_loop_doctor_rejects_best_manifest_refs_outside_best_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_best_manifest_refs_outside_best"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    iter_candidate_ref = _write_json_ref(
+        root / "iter_01" / "candidate.json",
+        {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}},
+    )
+    _write_json(root / "best" / "manifest.json", {"artifact_refs": {"candidate.json": iter_candidate_ref}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["summary"]["best_manifests"] == 1
+    assert result["summary"]["best_manifest_local_ref_bindings_checked"] == 1
+    assert result["summary"]["best_manifest_local_ref_binding_mismatches"] == 1
+    assert "best manifest artifact refs point outside best snapshot" in messages
+
+
 def test_structured_mode_requires_structural_change() -> None:
     cfg = StrategyLoopConfig.from_args(tag="unit_structured", run_id="unit_structured_run")
     runner = StrategyLoopRunner(cfg)
