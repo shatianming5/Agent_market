@@ -5836,6 +5836,48 @@ def _stale_run_manifest_git_detail(run_id: str) -> dict[str, Any]:
     }
 
 
+_LOW_IMPACT_UNTRACKED_PREFIXES = (
+    "docs/",
+)
+_RUNTIME_UNTRACKED_PREFIXES = (
+    "configs/",
+    "scripts/",
+    "server/",
+    "src/",
+    "tests/",
+    "user_data/strategies/",
+)
+_RUNTIME_UNTRACKED_SUFFIXES = (
+    ".json",
+    ".py",
+    ".sh",
+    ".toml",
+    ".yaml",
+    ".yml",
+)
+
+
+def _impactful_git_dirty_files(lines: Sequence[Any]) -> list[str]:
+    """Return dirty status lines that can affect formal controller behavior."""
+    impactful: list[str] = []
+    for raw in lines:
+        line = str(raw or "").strip()
+        if not line:
+            continue
+        status = line[:2]
+        path = line[3:].strip() if len(line) > 3 else ""
+        if status == "!!":
+            continue
+        if status == "??":
+            if path.startswith(_LOW_IMPACT_UNTRACKED_PREFIXES):
+                continue
+            if path.startswith(_RUNTIME_UNTRACKED_PREFIXES) or path.endswith(_RUNTIME_UNTRACKED_SUFFIXES):
+                impactful.append(line)
+            continue
+        impactful.append(line)
+    return impactful
+
+
 def _doctor_config_from_payloads(root: Path) -> dict[str, Any]:
     checkpoint = load_json(root / "checkpoint.json", {})
     if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("config"), Mapping):
@@ -5988,6 +6030,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     run_manifest = load_json(root / "manifest.json", {})
     manifest_git = run_manifest.get("git") if isinstance(run_manifest, Mapping) and isinstance(run_manifest.get("git"), Mapping) else {}
     manifest_commit = str(manifest_git.get("commit") or "").strip()
+    manifest_dirty_files = list(manifest_git.get("dirty_files") or []) if isinstance(manifest_git.get("dirty_files"), list) else []
+    manifest_impactful_dirty_files = _impactful_git_dirty_files(manifest_dirty_files)
     current_commit = str(_git_provenance().get("commit") or "").strip()
     root_manifest_artifact_ref_status = _doctor_artifact_refs_hash_status(
         _doctor_run_manifest_artifact_refs(run_manifest) if isinstance(run_manifest, Mapping) else {}
@@ -5999,6 +6043,17 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 "HIGH",
                 "run manifest git commit differs from current controller code; start a fresh formal run before promotion",
                 detail=stale_git_detail,
+            )
+        )
+    if strict_formal and manifest_impactful_dirty_files:
+        findings.append(
+            _doctor_finding(
+                "BLOCKER",
+                "run manifest captured impactful dirty worktree files",
+                detail={
+                    "dirty_files": manifest_impactful_dirty_files,
+                    "all_manifest_dirty_files": manifest_dirty_files,
+                },
             )
         )
 
@@ -7393,6 +7448,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "final_promoted": bool(promotion.get("promoted")) if promotion else False,
             "run_manifest_commit": manifest_commit,
             "current_commit": current_commit,
+            "run_manifest_dirty_files": len(manifest_dirty_files),
+            "run_manifest_impactful_dirty_files": len(manifest_impactful_dirty_files),
         },
         "findings": findings,
     }

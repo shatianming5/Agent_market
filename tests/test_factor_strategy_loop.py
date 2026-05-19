@@ -2737,6 +2737,50 @@ def test_strategy_loop_doctor_flags_stale_run_git_commit(tmp_path: Path, monkeyp
     assert any("git commit differs" in item["message"] for item in result["findings"])
 
 
+def test_strategy_loop_doctor_rejects_impactful_dirty_manifest_git(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_dirty_git"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    current_commit = strategy_loop_mod._git_provenance().get("commit")
+    _write_json(
+        root / "manifest.json",
+        {
+            "cli_args": cfg.__dict__,
+            "git": {
+                "commit": current_commit,
+                "dirty_files": [
+                    " M src/agent_market/factor_lab/strategy_loop.py",
+                    "?? docs/local_note.md",
+                ],
+            },
+        },
+    )
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["summary"]["run_manifest_dirty_files"] == 2
+    assert result["summary"]["run_manifest_impactful_dirty_files"] == 1
+    assert "run manifest captured impactful dirty worktree files" in messages
+
+
 def test_strategy_loop_doctor_no_finalists_does_not_require_final_sidecars(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "doctor_no_finalists"
