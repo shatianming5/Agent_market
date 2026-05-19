@@ -14,11 +14,20 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agent_market import paths
-from agent_market.flow_ext import steps as flow_steps
 from agent_market.run_artifacts import RunArtifacts
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = paths.REPO_ROOT
+
+
+class _LazyFlowSteps:
+    def __getattr__(self, name: str) -> Any:
+        from agent_market.flow_ext import steps as _steps
+
+        return getattr(_steps, name)
+
+
+flow_steps = _LazyFlowSteps()
 
 
 def _relpath(path: Path) -> str:

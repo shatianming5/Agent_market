@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from agent_market.utils import sha256_bytes
-from agent_market.flow_ext import steps as flow_steps
 from agent_market.flow_ext.step_spec import STEP_CONFIG_FIELDS, STEP_ORDER
 from agent_market.flow_ext.step_dispatch import STEP_HANDLERS, StepContext
 from agent_market.run_artifacts import RunArtifacts
@@ -27,6 +26,12 @@ def run_agent_flow_preflight(*args: Any, **kwargs: Any) -> Dict[str, Any]:
     from agent_market.runtime_preflight import run_agent_flow_preflight as _run_agent_flow_preflight
 
     return _run_agent_flow_preflight(*args, **kwargs)
+
+
+def get_freqtrade_version() -> Dict[str, Any]:
+    from agent_market.flow_ext import steps as flow_steps
+
+    return flow_steps.get_freqtrade_version()
 
 
 def _relpath(path: Path) -> str:
@@ -415,7 +420,7 @@ class AgentFlow:
                 "executable": sys.executable,
                 "platform": platform.platform(),
             },
-            "freqtrade": flow_steps.get_freqtrade_version(),
+            "freqtrade": get_freqtrade_version(),
             "preflight": {
                 "ok": bool((self._last_preflight_report or {}).get("ok")),
                 "warnings": int((self._last_preflight_report or {}).get("warnings") or 0),
