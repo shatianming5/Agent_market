@@ -15,6 +15,7 @@ from agent_market.runtime_preflight import (
     check_freqtrade_cli as _check_freqtrade_cli,
     check_openai_compatible as _shared_check_openai_compatible,
     check_opencli as _check_opencli,
+    check_opencode_ready as _check_opencode_ready,
     check_writable_dir as _check_writable_dir,
 )
 
@@ -46,44 +47,25 @@ def _check_provider(config: MinerConfig, applied_env: dict[str, str]) -> list[di
     provider = str(config.provider or "auto").strip().lower() or "auto"
     if provider in ("openai", "openai_compatible"):
         return [_check_openai_compatible(config, applied_env)]
-    if provider == "opencode":
-        import shutil
 
-        binary = shutil.which("opencode")
-        model = str(config.model or os.environ.get("OPENCODE_MODEL") or "").strip()
-        agent_url = str(config.base_url or os.environ.get("OPENCODE_URL") or "").strip()
-        ok = bool(model and (agent_url or binary))
-        severity = "info" if ok else "error"
-        detail = "opencode ready" if ok else "Missing OpenCode model or CLI/agent URL"
-        return [
-            _check(
-                "llm.opencode",
-                ok=ok,
-                severity=severity,
-                detail=detail,
-                data={"model": model, "agent_url": agent_url, "binary": binary or ""},
-            )
-        ]
-
-    import shutil
-
-    binary = shutil.which("opencode")
     model = str(config.model or os.environ.get("OPENCODE_MODEL") or "").strip()
-    opencode_ok = bool(model and (str(config.base_url or os.environ.get("OPENCODE_URL") or "").strip() or binary))
-    checks: list[dict[str, Any]] = [
-        _check(
-            "llm.opencode",
-            ok=opencode_ok,
-            severity="info" if opencode_ok else "warning",
-            detail="opencode ready" if opencode_ok else "OpenCode unavailable; will require openai_compatible fallback",
-            data={"model": model, "binary": binary or ""},
-        )
-    ]
+    agent_url = str(config.base_url or os.environ.get("OPENCODE_URL") or "").strip()
+    opencode_check = _check_opencode_ready(
+        name="llm.opencode",
+        model=model,
+        agent_url=agent_url,
+        require_model=True,
+        unavailable_severity="error" if provider == "opencode" else "warning",
+    )
+    if provider == "opencode":
+        return [opencode_check]
+
+    checks: list[dict[str, Any]] = [opencode_check]
     openai_check = _check_openai_compatible(config, applied_env)
-    if opencode_ok and not openai_check["ok"]:
+    if opencode_check["ok"] and not openai_check["ok"]:
         openai_check["severity"] = "warning"
     checks.append(openai_check)
-    if not opencode_ok and not openai_check["ok"]:
+    if not opencode_check["ok"] and not openai_check["ok"]:
         checks.append(
             _check(
                 "llm.auto",

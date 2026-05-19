@@ -308,33 +308,53 @@ def check_freqtrade_cli() -> dict[str, Any]:
     )
 
 
-def check_opencode_cli(*, model: Optional[str] = None) -> dict[str, Any]:
+def check_opencode_ready(
+    *,
+    name: str = "system.opencode",
+    model: Optional[str] = None,
+    agent_url: Optional[str] = None,
+    require_model: bool = False,
+    unavailable_severity: str = "error",
+) -> dict[str, Any]:
+    model_name = str(model or "").strip()
+    agent = str(agent_url or "").strip()
     binary = _resolve_executable("opencode")
-    if not binary:
+    missing: list[str] = []
+    if require_model and not model_name:
+        missing.append("model")
+    if not (agent or binary):
+        missing.append("CLI/agent URL")
+    if missing:
+        detail = "opencode unavailable" if missing == ["CLI/agent URL"] else f"Missing OpenCode {' and '.join(missing)}"
         return _check(
-            "system.opencode",
+            name,
             ok=False,
-            severity="error",
-            detail="opencode unavailable",
-            data={"model": str(model or "")},
+            severity=unavailable_severity,
+            detail=detail,
+            data={"model": model_name, "agent_url": agent, "binary": binary or ""},
         )
-    detail = f"opencode ready: {binary}"
-    data: dict[str, Any] = {"binary": binary, "model": str(model or "")}
-    try:
-        proc = subprocess.run(  # noqa: S603
-            [binary, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        version = (proc.stdout or proc.stderr or "").strip().splitlines()
-        if proc.returncode == 0 and version:
-            detail = version[0]
-            data["version"] = version[0]
-    except Exception as exc:
-        data["version_probe_error"] = str(exc)
-    return _check("system.opencode", ok=True, severity="info", detail=detail, data=data)
+    detail = f"opencode ready: {agent or binary}"
+    data: dict[str, Any] = {"binary": binary or "", "agent_url": agent, "model": model_name}
+    if binary:
+        try:
+            proc = subprocess.run(  # noqa: S603
+                [binary, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            version = (proc.stdout or proc.stderr or "").strip().splitlines()
+            if proc.returncode == 0 and version:
+                detail = version[0]
+                data["version"] = version[0]
+        except Exception as exc:
+            data["version_probe_error"] = str(exc)
+    return _check(name, ok=True, severity="info", detail=detail, data=data)
+
+
+def check_opencode_cli(*, model: Optional[str] = None) -> dict[str, Any]:
+    return check_opencode_ready(model=model)
 
 
 def check_python_imports(
@@ -987,6 +1007,7 @@ __all__ = [
     "check_freqtrade_config",
     "check_openai_compatible",
     "check_opencli",
+    "check_opencode_ready",
     "check_opencode_cli",
     "check_python_imports",
     "check_writable_dir",

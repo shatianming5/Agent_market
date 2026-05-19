@@ -257,3 +257,21 @@ def test_runtime_preflight_reports_malformed_freqtrade_config(tmp_path: Path) ->
     assert checks[0]["name"] == "config.freqtrade"
     assert checks[0]["severity"] == "error"
     assert "parse failed" in checks[0]["detail"]
+
+
+def test_runtime_preflight_opencode_ready_accepts_agent_url_without_cli(monkeypatch) -> None:
+    from agent_market import runtime_preflight
+
+    monkeypatch.setattr(runtime_preflight, "_resolve_executable", lambda *_args, **_kwargs: None)
+
+    check = runtime_preflight.check_opencode_ready(
+        name="llm.opencode",
+        model="opencode-model",
+        agent_url="http://127.0.0.1:4096",
+        require_model=True,
+    )
+
+    assert check["ok"] is True
+    assert check["name"] == "llm.opencode"
+    assert check["data"]["agent_url"] == "http://127.0.0.1:4096"
+    assert check["data"]["binary"] == ""

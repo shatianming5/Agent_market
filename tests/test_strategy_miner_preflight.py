@@ -125,6 +125,59 @@ def test_preflight_reports_missing_freqtrade_config(monkeypatch, tmp_path: Path)
     assert any(item["name"] == "config.freqtrade" and item["severity"] == "error" for item in report["checks"])
 
 
+def test_preflight_auto_accepts_opencode_agent_url(monkeypatch, tmp_path: Path) -> None:
+    from agent_market import runtime_preflight
+    from agent_market.strategy_miner import preflight
+
+    _prepare_env(monkeypatch, tmp_path)
+    ft_cfg = tmp_path / "freqtrade.json"
+    ft_cfg.write_text(
+        '{"datadir":"user_data/data","exchange":{"pair_whitelist":["BTC/USDT"]},"timeframe":"5m"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_preflight, "_resolve_executable", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        preflight,
+        "_check_openai_compatible",
+        lambda *_args, **_kwargs: {
+            "name": "llm.openai_compatible",
+            "ok": False,
+            "severity": "error",
+            "detail": "missing key",
+        },
+    )
+    monkeypatch.setattr(
+        preflight,
+        "_check_opencli",
+        lambda: {"name": "system.opencli", "ok": True, "severity": "info", "detail": "ok"},
+    )
+    monkeypatch.setattr(
+        preflight,
+        "_check_freqtrade_cli",
+        lambda: {"name": "system.freqtrade", "ok": True, "severity": "info", "detail": "ok"},
+    )
+
+    report = preflight.run_startup_preflight(
+        MinerConfig(
+            provider="auto",
+            model="opencode-model",
+            base_url="http://127.0.0.1:4096",
+            freqtrade_config=str(ft_cfg),
+        ),
+        miner_dir=tmp_path / "artifacts" / "runs" / "opencode" / "strategy_miner",
+        phase=Phase.STRATEGY_GEN,
+        raise_on_error=False,
+    )
+
+    opencode_check = next(item for item in report["checks"] if item["name"] == "llm.opencode")
+    openai_check = next(item for item in report["checks"] if item["name"] == "llm.openai_compatible")
+    assert report["ok"] is True
+    assert opencode_check["ok"] is True
+    assert opencode_check["data"]["agent_url"] == "http://127.0.0.1:4096"
+    assert openai_check["severity"] == "warning"
+    assert not any(item["name"] == "llm.auto" for item in report["checks"])
+
+
 def test_preflight_skips_complete_phase(monkeypatch, tmp_path: Path) -> None:
     from agent_market.strategy_miner import preflight
 
