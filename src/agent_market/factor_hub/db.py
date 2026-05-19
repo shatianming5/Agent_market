@@ -5,10 +5,9 @@ import hashlib
 import json
 import os
 import sqlite3
-import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 DEFAULT_DB_PATH = Path(os.environ.get("FACTOR_HUB_DB") or Path.home() / ".factor_hub" / "registry.db")
