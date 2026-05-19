@@ -497,7 +497,7 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     source_candidate_ref = _write_json_ref(iter_dir / "candidate.json", candidate)
     source_candidate_path = f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json"
     axis = "best_validation_composite"
-    leaderboard_row = {
+    source_evaluation = {
         "iteration": 1,
         "candidate": candidate,
         "candidate_path": source_candidate_path,
@@ -505,15 +505,27 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         "score_components": {"composite_score": 1.0},
         "constraints_ok": True,
         "metrics": {},
+        "selected_metrics": {},
         "research_metrics": {},
         "freqtrade_metrics": {},
+        "window_metrics": {},
         "verification_status": VERIFICATION_PASSED,
         "promotion_eligible": False,
         "pareto_eligible": True,
+        "behavior_novelty": {},
+        "signal_fingerprints": {},
         "pareto_axes": [axis],
         "parameter_signature": "unit-signature",
+        "violations": [],
         "artifact_refs": {"candidate.json": source_candidate_ref},
+        "promotion_reason": "unit",
+        "promotion": {"promoted": False},
     }
+    _write_json(iter_dir / "evaluation.json", source_evaluation)
+    source_evaluation_ref = strategy_loop_mod._artifact_ref(iter_dir / "evaluation.json")
+    _write_json(iter_dir / "manifest.json", {"artifact_refs": {"candidate.json": source_candidate_ref, "evaluation.json": source_evaluation_ref}})
+    leaderboard_row = strategy_loop_mod._leaderboard_row_from_evaluation(source_evaluation, run_id, iteration=1)
+    leaderboard_row["pareto_axes"] = [axis]
     pareto_axis_row = strategy_loop_mod._compact_leaderboard_row(leaderboard_row)
     pareto_axis_row["axis_value"] = strategy_loop_mod._axis_value(axis, leaderboard_row)
     pareto_finalist = dict(pareto_axis_row)
@@ -592,6 +604,10 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     assert result["summary"]["selected_verification_payload_binding_mismatches"] == 0
     assert result["summary"]["selected_lean_gate_payload_bindings_checked"] == 1
     assert result["summary"]["selected_lean_gate_payload_binding_mismatches"] == 0
+    assert result["summary"]["leaderboard_evaluation_bindings_checked"] == 1
+    assert result["summary"]["leaderboard_evaluation_binding_mismatches"] == 0
+    assert result["summary"]["leaderboard_candidate_payload_bindings_checked"] == 1
+    assert result["summary"]["leaderboard_candidate_payload_binding_mismatches"] == 0
     assert result["summary"]["pareto_axis_leaderboard_bindings_checked"] == 1
     assert result["summary"]["pareto_axis_leaderboard_binding_mismatches"] == 0
     assert result["summary"]["pareto_finalist_leaderboard_bindings_checked"] == 1
@@ -607,6 +623,120 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
     persisted = json.loads((root / "doctor_latest.json").read_text(encoding="utf-8"))
     assert persisted["ok"] is True
     assert persisted["artifacts"]["doctor_latest.json"].endswith("/doctor_latest.json")
+
+
+def test_strategy_loop_doctor_binds_leaderboard_row_to_iteration_evaluation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_leaderboard_evaluation_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    iter_dir = root / "iter_01"
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    candidate_ref = _write_json_ref(iter_dir / "candidate.json", candidate)
+    evaluation = {
+        "iteration": 1,
+        "candidate": candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json",
+        "score": 1.0,
+        "score_components": {"composite_score": 1.0},
+        "constraints_ok": True,
+        "metrics": {},
+        "research_metrics": {},
+        "freqtrade_metrics": {},
+        "window_metrics": {},
+        "verification_status": VERIFICATION_PASSED,
+        "promotion_eligible": False,
+        "pareto_eligible": True,
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+        "promotion": {"promoted": False},
+    }
+    _write_json(iter_dir / "evaluation.json", evaluation)
+    evaluation_ref = strategy_loop_mod._artifact_ref(iter_dir / "evaluation.json")
+    _write_json(iter_dir / "manifest.json", {"artifact_refs": {"candidate.json": candidate_ref, "evaluation.json": evaluation_ref}})
+    row = strategy_loop_mod._leaderboard_row_from_evaluation(evaluation, run_id, iteration=1)
+    row["score"] = 2.0
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [row]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["leaderboard_evaluation_bindings_checked"] == 1
+    assert result["summary"]["leaderboard_evaluation_binding_mismatches"] == 1
+    assert result["summary"]["leaderboard_candidate_payload_bindings_checked"] == 1
+    assert result["summary"]["leaderboard_candidate_payload_binding_mismatches"] == 0
+    assert "leaderboard row differs from iteration evaluation artifact" in messages
+
+
+def test_strategy_loop_doctor_binds_leaderboard_candidate_to_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_formal_leaderboard_candidate_mismatch"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    root.mkdir(parents=True)
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    iter_dir = root / "iter_01"
+    candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}}
+    row_candidate = {"candidate_type": "rank_profile", "rank_profile": {"top_k": 2}}
+    candidate_ref = _write_json_ref(iter_dir / "candidate.json", candidate)
+    evaluation = {
+        "iteration": 1,
+        "candidate": row_candidate,
+        "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/iter_01/candidate.json",
+        "score": 1.0,
+        "score_components": {"composite_score": 1.0},
+        "constraints_ok": True,
+        "metrics": {},
+        "research_metrics": {},
+        "freqtrade_metrics": {},
+        "window_metrics": {},
+        "verification_status": VERIFICATION_PASSED,
+        "promotion_eligible": False,
+        "pareto_eligible": True,
+        "parameter_signature": "unit-signature",
+        "artifact_refs": {"candidate.json": candidate_ref},
+        "promotion": {"promoted": False},
+    }
+    _write_json(iter_dir / "evaluation.json", evaluation)
+    evaluation_ref = strategy_loop_mod._artifact_ref(iter_dir / "evaluation.json")
+    _write_json(iter_dir / "manifest.json", {"artifact_refs": {"candidate.json": candidate_ref, "evaluation.json": evaluation_ref}})
+    row = strategy_loop_mod._leaderboard_row_from_evaluation(evaluation, run_id, iteration=1)
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "leaderboard.json", {"rows": [row]})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["ok"] is False
+    assert result["summary"]["leaderboard_evaluation_bindings_checked"] == 1
+    assert result["summary"]["leaderboard_evaluation_binding_mismatches"] == 0
+    assert result["summary"]["leaderboard_candidate_payload_bindings_checked"] == 1
+    assert result["summary"]["leaderboard_candidate_payload_binding_mismatches"] == 1
+    assert "leaderboard candidate differs from candidate artifact" in messages
 
 
 def test_strategy_loop_doctor_binds_pareto_pool_rows_to_leaderboard(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

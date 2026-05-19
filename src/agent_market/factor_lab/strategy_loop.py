@@ -4789,6 +4789,50 @@ def _lean_analysis_summary(lean_analysis: Optional[Any]) -> dict[str, Any]:
     }
 
 
+def _leaderboard_row_from_evaluation(
+    evaluation: Mapping[str, Any],
+    run_id: str,
+    *,
+    iteration: Any = None,
+) -> dict[str, Any]:
+    """Project an iteration evaluation into the canonical leaderboard row shape."""
+    candidate = evaluation.get("candidate") if isinstance(evaluation.get("candidate"), Mapping) else {}
+    lean_gate = evaluation.get("lean_gate") if isinstance(evaluation.get("lean_gate"), Mapping) else {}
+    score_components = evaluation.get("score_components") if isinstance(evaluation.get("score_components"), Mapping) else {}
+    return {
+        "run_id": str(run_id),
+        "iteration": evaluation.get("iteration") if iteration is None else iteration,
+        "candidate_path": evaluation.get("candidate_path"),
+        "candidate": candidate or evaluation.get("candidate"),
+        "parameters": candidate.get("rank_profile") if isinstance(candidate, Mapping) else {},
+        "strategy_path": candidate.get("strategy_path") if isinstance(candidate, Mapping) else None,
+        "score": evaluation.get("score"),
+        "score_components": evaluation.get("score_components") or {},
+        "constraints_ok": evaluation.get("constraints_ok"),
+        "metrics": evaluation.get("metrics"),
+        "selected_metrics": evaluation.get("selected_metrics") or {},
+        "research_metrics": evaluation.get("research_metrics") or evaluation.get("metrics"),
+        "freqtrade_metrics": evaluation.get("freqtrade_metrics") or {},
+        "lean_gate_status": lean_gate.get("status") if isinstance(lean_gate, Mapping) else None,
+        "lean_comparison_status": lean_gate.get("comparison_status") if isinstance(lean_gate, Mapping) else None,
+        "lean_metrics": lean_gate.get("lean_metrics") if isinstance(lean_gate, Mapping) else {},
+        "lean_gate": evaluation.get("lean_gate"),
+        "lean_score": score_components.get("lean_score") if isinstance(score_components, Mapping) else None,
+        "lean_analysis_summary": _lean_analysis_summary(evaluation.get("lean_analysis")),
+        "window_metrics": evaluation.get("window_metrics") or {},
+        "verification_status": evaluation.get("verification_status") or VERIFICATION_PENDING,
+        "promotion_eligible": evaluation.get("promotion_eligible"),
+        "pareto_eligible": evaluation.get("pareto_eligible", True),
+        "behavior_novelty": evaluation.get("behavior_novelty") or {},
+        "signal_fingerprints": evaluation.get("signal_fingerprints") or {},
+        "artifact_refs": evaluation.get("artifact_refs") or {},
+        "parameter_signature": evaluation.get("parameter_signature"),
+        "violations": evaluation.get("violations"),
+        "diagnostics": evaluation.get("promotion_reason"),
+        "promotion": evaluation.get("promotion"),
+    }
+
+
 def score_research_only_window(
     backtest: Mapping[str, Any],
     config: StrategyLoopConfig,
@@ -5850,6 +5894,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     selected_verification_payload_binding_mismatches = 0
     selected_lean_gate_payload_bindings_checked = 0
     selected_lean_gate_payload_binding_mismatches = 0
+    leaderboard_evaluation_bindings_checked = 0
+    leaderboard_evaluation_binding_mismatches = 0
+    leaderboard_candidate_payload_bindings_checked = 0
+    leaderboard_candidate_payload_binding_mismatches = 0
     pareto_axis_leaderboard_bindings_checked = 0
     pareto_axis_leaderboard_binding_mismatches = 0
     pareto_finalist_leaderboard_bindings_checked = 0
@@ -6153,6 +6201,94 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     )
                 )
 
+    def record_leaderboard_iteration_bindings() -> None:
+        nonlocal leaderboard_evaluation_bindings_checked, leaderboard_evaluation_binding_mismatches
+        nonlocal leaderboard_candidate_payload_bindings_checked, leaderboard_candidate_payload_binding_mismatches
+        row_keys = set(_leaderboard_row_from_evaluation({}, str(run_id)).keys())
+        row_keys.add("pareto_axes")
+        for idx, row in enumerate(rows, start=1):
+            if not isinstance(row, Mapping):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard row is not an object", detail={"index": idx}))
+                continue
+            raw_candidate = str(row.get("candidate_path") or "").strip()
+            if not raw_candidate:
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard row is missing candidate_path", detail={"index": idx}))
+                continue
+            candidate_path = repo_paths.resolve_repo_path(raw_candidate)
+            if not candidate_path.exists():
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate_path does not exist", path=raw_candidate, detail={"index": idx}))
+                continue
+            try:
+                candidate_path.resolve().relative_to(root.resolve())
+            except Exception:
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate_path is outside run artifacts", path=raw_candidate, detail={"index": idx}))
+                continue
+            if not candidate_path.parent.name.startswith("iter_"):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate_path is not under an iter_* directory", path=raw_candidate, detail={"index": idx}))
+                continue
+            refs = row.get("artifact_refs") if isinstance(row.get("artifact_refs"), Mapping) else {}
+            candidate_ref = refs.get("candidate.json") if isinstance(refs.get("candidate.json"), Mapping) else {}
+            candidate_ref_raw = str(candidate_ref.get("path") or "").strip() if isinstance(candidate_ref, Mapping) else ""
+            if candidate_ref_raw and _as_repo_meta(repo_paths.resolve_repo_path(candidate_ref_raw)) != _as_repo_meta(candidate_path):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "leaderboard candidate_path differs from candidate artifact ref",
+                        path=raw_candidate,
+                        detail={"index": idx, "candidate_ref": candidate_ref_raw},
+                    )
+                )
+            row_candidate = row.get("candidate") if isinstance(row.get("candidate"), Mapping) else {}
+            candidate_payload = load_json(candidate_path, {})
+            leaderboard_candidate_payload_bindings_checked += 1
+            if (
+                not isinstance(candidate_payload, Mapping)
+                or not row_candidate
+                or candidate_binding_payload(candidate_payload) != candidate_binding_payload(row_candidate)
+            ):
+                leaderboard_candidate_payload_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate differs from candidate artifact", path=raw_candidate, detail={"index": idx}))
+            evaluation_path = candidate_path.parent / "evaluation.json"
+            if not evaluation_path.exists():
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard evaluation artifact does not exist", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+                continue
+            evaluation_payload = load_json(evaluation_path, {})
+            if not isinstance(evaluation_payload, Mapping):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard evaluation artifact is not a JSON object", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+                continue
+            leaderboard_evaluation_bindings_checked += 1
+            expected = _leaderboard_row_from_evaluation(evaluation_payload, str(run_id), iteration=row.get("iteration"))
+            actual = {key: row.get(key) for key in expected}
+            if actual != expected:
+                leaderboard_evaluation_binding_mismatches += 1
+                diff_keys = sorted(key for key in expected if actual.get(key) != expected.get(key))
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "leaderboard row differs from iteration evaluation artifact",
+                        path=_as_repo_meta(evaluation_path),
+                        detail={"index": idx, "diff_keys": diff_keys[:20]},
+                    )
+                )
+            extra_keys = sorted(key for key in row.keys() if key not in row_keys)
+            if extra_keys:
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "leaderboard row contains fields outside canonical projection",
+                        detail={"index": idx, "extra_keys": extra_keys},
+                    )
+                )
+
     def record_pareto_pool_bindings() -> None:
         nonlocal pareto_axis_leaderboard_bindings_checked, pareto_axis_leaderboard_binding_mismatches
         nonlocal pareto_finalist_leaderboard_bindings_checked, pareto_finalist_leaderboard_binding_mismatches
@@ -6370,6 +6506,7 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             findings.append(_doctor_finding("BLOCKER", "pareto_pool finalists are missing from final_blind_status finalists", detail={"missing_count": missing_pareto}))
 
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        record_leaderboard_iteration_bindings()
         record_pareto_pool_bindings()
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
@@ -6607,6 +6744,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "selected_verification_payload_binding_mismatches": selected_verification_payload_binding_mismatches,
             "selected_lean_gate_payload_bindings_checked": selected_lean_gate_payload_bindings_checked,
             "selected_lean_gate_payload_binding_mismatches": selected_lean_gate_payload_binding_mismatches,
+            "leaderboard_evaluation_bindings_checked": leaderboard_evaluation_bindings_checked,
+            "leaderboard_evaluation_binding_mismatches": leaderboard_evaluation_binding_mismatches,
+            "leaderboard_candidate_payload_bindings_checked": leaderboard_candidate_payload_bindings_checked,
+            "leaderboard_candidate_payload_binding_mismatches": leaderboard_candidate_payload_binding_mismatches,
             "pareto_axis_leaderboard_bindings_checked": pareto_axis_leaderboard_bindings_checked,
             "pareto_axis_leaderboard_binding_mismatches": pareto_axis_leaderboard_binding_mismatches,
             "pareto_finalist_leaderboard_bindings_checked": pareto_finalist_leaderboard_bindings_checked,
@@ -8188,38 +8329,7 @@ class StrategyLoopRunner:
             if score > self.state.best_score:
                 _copytree_replace(idir, loop_root(self.config.run_id) / "best")
 
-        row = {
-            "run_id": self.config.run_id,
-            "iteration": self.state.iteration,
-            "candidate_path": _as_repo_meta(idir / "candidate.json"),
-            "candidate": evaluation.get("candidate"),
-            "parameters": (evaluation.get("candidate") or {}).get("rank_profile") if isinstance(evaluation.get("candidate"), dict) else {},
-            "strategy_path": (evaluation.get("candidate") or {}).get("strategy_path") if isinstance(evaluation.get("candidate"), dict) else None,
-            "score": evaluation.get("score"),
-            "score_components": evaluation.get("score_components") or {},
-            "constraints_ok": evaluation.get("constraints_ok"),
-            "metrics": evaluation.get("metrics"),
-            "selected_metrics": evaluation.get("selected_metrics") or {},
-            "research_metrics": evaluation.get("research_metrics") or evaluation.get("metrics"),
-            "freqtrade_metrics": evaluation.get("freqtrade_metrics") or {},
-            "lean_gate_status": (evaluation.get("lean_gate") or {}).get("status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
-            "lean_comparison_status": (evaluation.get("lean_gate") or {}).get("comparison_status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
-            "lean_metrics": (evaluation.get("lean_gate") or {}).get("lean_metrics") if isinstance(evaluation.get("lean_gate"), Mapping) else {},
-            "lean_gate": evaluation.get("lean_gate"),
-            "lean_score": (evaluation.get("score_components") or {}).get("lean_score"),
-            "lean_analysis_summary": _lean_analysis_summary(evaluation.get("lean_analysis")),
-            "window_metrics": evaluation.get("window_metrics") or {},
-            "verification_status": evaluation.get("verification_status") or VERIFICATION_PENDING,
-            "promotion_eligible": evaluation.get("promotion_eligible"),
-            "pareto_eligible": evaluation.get("pareto_eligible", True),
-            "behavior_novelty": evaluation.get("behavior_novelty") or {},
-            "signal_fingerprints": evaluation.get("signal_fingerprints") or {},
-            "artifact_refs": evaluation.get("artifact_refs") or {},
-            "parameter_signature": evaluation.get("parameter_signature"),
-            "violations": evaluation.get("violations"),
-            "diagnostics": evaluation.get("promotion_reason"),
-            "promotion": evaluation.get("promotion"),
-        }
+        row = _leaderboard_row_from_evaluation(evaluation, self.config.run_id, iteration=self.state.iteration)
         self._append_leaderboard(row)
         score = float(evaluation.get("score") or float("-inf"))
         if score > self.state.best_score:
