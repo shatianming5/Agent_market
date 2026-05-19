@@ -14,12 +14,44 @@ from typing import Any, Dict, List, Optional
 
 from agent_market.utils import sha256_bytes
 from agent_market.flow_ext.step_spec import STEP_CONFIG_FIELDS, STEP_ORDER
-from agent_market.flow_ext.step_dispatch import STEP_HANDLERS, StepContext
-from agent_market.run_artifacts import RunArtifacts
 from agent_market import paths
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = paths.REPO_ROOT
+
+
+class _LazyStepHandlers:
+    def _target(self) -> Dict[str, Any]:
+        from agent_market.flow_ext.step_dispatch import STEP_HANDLERS as _step_handlers
+
+        return _step_handlers
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._target()
+
+    def __getitem__(self, name: str) -> Any:
+        return self._target()[name]
+
+    def __iter__(self):
+        return iter(self._target())
+
+    def __len__(self) -> int:
+        return len(self._target())
+
+    def get(self, name: str, default: Any = None) -> Any:
+        return self._target().get(name, default)
+
+    def items(self):
+        return self._target().items()
+
+    def keys(self):
+        return self._target().keys()
+
+    def values(self):
+        return self._target().values()
+
+
+STEP_HANDLERS = _LazyStepHandlers()
 
 
 def run_agent_flow_preflight(*args: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -224,6 +256,9 @@ class AgentFlow:
         self._last_preflight_report: Optional[Dict[str, Any]] = None
 
     def run(self, steps: Optional[List[str]] = None) -> str:
+        from agent_market.flow_ext.step_dispatch import StepContext
+        from agent_market.run_artifacts import RunArtifacts
+
         run_id = uuid.uuid4().hex[:12]
         started_at = datetime.now(timezone.utc).isoformat()
         meta_latest_path = paths.run_meta_latest_path()

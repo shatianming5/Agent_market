@@ -143,6 +143,8 @@ def test_agent_flow_import_does_not_load_runtime_preflight():
                 "assert 'agent_market.runtime_preflight' not in sys.modules; "
                 "assert 'agent_market.flow_steps' not in sys.modules; "
                 "assert 'agent_market.flow_ext.steps' not in sys.modules; "
+                "assert 'agent_market.flow_ext.step_dispatch' not in sys.modules; "
+                "assert 'agent_market.run_artifacts' not in sys.modules; "
                 "print('ok')"
             ),
         ],
