@@ -1,7 +1,7 @@
 # scripts/ — CLI 入口分类索引
 
 > 70+ Python 脚本按用途分类；每条最多 1 行说明 + "运行示例 / 状态"。
-> 旧版 `FACTOR_LAB_README.md` 已不准确（声称 `factor_lab.py ~240 lines`，实际 1870 行；引用的 `scripts/legacy/` 不存在）— 以本文件为准。
+> 旧版 `FACTOR_LAB_README.md` 已移除；脚本导航以本文件为准。
 
 ## 主入口（"如果你只能跑一个，就跑这些"）
 

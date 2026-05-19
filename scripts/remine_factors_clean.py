@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Clean remine — strict NO-OOS filtering.
 
-Replaces scripts/legacy/remine_factors.py which filtered on OOS IC (data
-snooping). This version splits TRAIN3 (2023-05-15 → 2025-07-01) into a
+Supersedes an earlier remine script that filtered on OOS IC (data snooping).
+This version splits TRAIN3 (2023-05-15 → 2025-07-01) into a
 chronological fit/holdout (80/20) and selects factors by holdout stats:
 
     - |fit_ic_mean|    >= 0.03       (signal strength on fit slice)
