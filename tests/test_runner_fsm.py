@@ -507,6 +507,34 @@ def test_stale_timeout_propagated():
         client._post_message_with_retry(model="test", text="hello")
 
 
+def test_opencode_run_on_turn_uses_wait_monitor(tmp_path):
+    """Regression: on_turn should use the module monitor, not a missing instance attr."""
+    from runner_fsm.opencode.client import OpenCodeClient
+
+    client = object.__new__(OpenCodeClient)
+    client._repo = tmp_path
+    client._tool_policy = None
+    client._unattended = "strict"
+    client._max_turns = 1
+    client._token_log_path = None
+    client._stale_timeout = 10.0
+    client._proc = None
+    client._model_obj = {"providerID": "openai", "modelID": "unit"}
+    client._model_str = "openai/unit"
+    client._extract_context_info = lambda msg: None
+    client._print_context_status = lambda *args, **kwargs: None
+    client._post_message_with_retry = lambda *, model, text: {
+        "parts": [{"type": "text", "text": "done"}],
+    }
+
+    events = []
+    result = client.run("hello", on_turn=events.append)
+
+    assert result.assistant_text == "done"
+    assert len(events) == 1
+    assert events[0].finished is True
+
+
 # ---------------------------------------------------------------------------
 # OpenCodeServerConfig
 # ---------------------------------------------------------------------------

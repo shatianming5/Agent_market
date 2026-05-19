@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from fastapi import APIRouter
 
 from agent_market import paths  # type: ignore
 
 from ..errors import error, not_found
-from ...runtime import ROOT
 
 router = APIRouter()
 

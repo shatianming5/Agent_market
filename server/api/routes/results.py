@@ -4,8 +4,6 @@ import json
 import math
 import logging
 import sys
-from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
