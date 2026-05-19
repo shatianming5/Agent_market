@@ -351,6 +351,9 @@ def phase_strategy_gen(
     names_seen: set[str] = set()
     names_seen_lock = threading.Lock()
     objective_profile = _prompt_objective_profile(config)
+    compliance_timeframe, enforce_can_short_false = _freqtrade_config_defaults(
+        config.freqtrade_config
+    )
     market_context = _freqtrade_market_context(config.freqtrade_config)
     market_pairs = market_context.pairs
     market_profile = _build_market_profile(config.freqtrade_config)
@@ -861,11 +864,10 @@ def phase_strategy_gen(
 
                 # Ensure freqtrade sanity settings (order_types/time_in_force/can_short).
                 try:
-                    tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
                     did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
                         norm_path,
-                        timeframe=tf,
-                        enforce_can_short_false=enforce_short,
+                        timeframe=compliance_timeframe,
+                        enforce_can_short_false=enforce_can_short_false,
                     )
                     if did_comp:
                         code = norm_path.read_text(encoding="utf-8", errors="replace")
@@ -1151,11 +1153,10 @@ def phase_strategy_gen(
 
         # Ensure freqtrade sanity settings before reviewer/backtester prompts.
         try:
-            tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
             did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
                 norm_path,
-                timeframe=tf,
-                enforce_can_short_false=enforce_short,
+                timeframe=compliance_timeframe,
+                enforce_can_short_false=enforce_can_short_false,
             )
             if did_comp:
                 code = norm_path.read_text(encoding="utf-8", errors="replace")
@@ -1319,11 +1320,10 @@ def phase_strategy_gen(
 
         # Ensure freqtrade sanity settings after reviewer edits.
         try:
-            tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
             did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
                 norm_path,
-                timeframe=tf,
-                enforce_can_short_false=enforce_short,
+                timeframe=compliance_timeframe,
+                enforce_can_short_false=enforce_can_short_false,
             )
             if did_comp:
                 code = norm_path.read_text(encoding="utf-8", errors="replace")
