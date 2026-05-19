@@ -5564,6 +5564,36 @@ def _is_rank_portfolio_artifact_ref_key(key: str) -> bool:
     )
 
 
+def _rank_stage_sources_from_backtest(backtest: Any) -> list[tuple[str, Mapping[str, Any]]]:
+    stage_sources: list[tuple[str, Mapping[str, Any]]] = []
+    if not isinstance(backtest, Mapping):
+        return stage_sources
+    stages = backtest.get("stages") if isinstance(backtest.get("stages"), Mapping) else {}
+    for stage_name, stage_payload in stages.items():
+        if isinstance(stage_payload, Mapping):
+            stage_sources.append((str(stage_name), stage_payload))
+    if not stage_sources:
+        stage_sources.append(("single", backtest))
+    return stage_sources
+
+
+def _rank_audit_expected_artifact_refs(idir: Path) -> dict[str, Any]:
+    refs: dict[str, Any] = {}
+    signal_export = load_json(idir / "signal_export.json", {})
+    if isinstance(signal_export, Mapping):
+        _add_rank_payload_artifact_refs(refs, "signal_export", signal_export)
+    backtest = load_json(idir / "backtest.json", {})
+    for stage_name, payload in _rank_stage_sources_from_backtest(backtest):
+        _add_rank_payload_artifact_refs(refs, stage_name, payload)
+    return {
+        key: ref
+        for key, ref in refs.items()
+        if _is_rank_portfolio_artifact_ref_key(key)
+        or key.endswith("_signals")
+        or key.endswith("_signal_dir")
+    }
+
+
 def _add_lean_project_artifact_refs(refs: dict[str, Any], raw_project: Any) -> None:
     if not raw_project:
         return
@@ -5666,15 +5696,7 @@ def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = No
     if isinstance(signal_export, Mapping):
         _add_rank_payload_artifact_refs(refs, "signal_export", signal_export)
     backtest = load_json(idir / "backtest.json", {})
-    stage_sources: list[tuple[str, Mapping[str, Any]]] = []
-    if isinstance(backtest, Mapping):
-        stages = backtest.get("stages") if isinstance(backtest.get("stages"), Mapping) else {}
-        for stage_name, stage_payload in stages.items():
-            if isinstance(stage_payload, Mapping):
-                stage_sources.append((str(stage_name), stage_payload))
-        if not stage_sources:
-            stage_sources.append(("single", backtest))
-    for stage_name, payload in stage_sources:
+    for stage_name, payload in _rank_stage_sources_from_backtest(backtest):
         _add_rank_payload_artifact_refs(refs, stage_name, payload)
         freqtrade = payload.get("freqtrade_backtest") if isinstance(payload.get("freqtrade_backtest"), Mapping) else {}
         metrics = freqtrade.get("metrics") if isinstance(freqtrade.get("metrics"), Mapping) else {}
@@ -6267,6 +6289,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     best_manifest_local_ref_binding_mismatches = 0
     candidate_input_ref_bindings_checked = 0
     candidate_input_ref_binding_mismatches = 0
+    rank_audit_ref_bindings_checked = 0
+    rank_audit_ref_binding_mismatches = 0
     lean_audit_ref_bindings_checked = 0
     lean_audit_ref_binding_mismatches = 0
     best_dir = root / "best"
@@ -6303,6 +6327,35 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     for manifest_path in all_iteration_like_manifests:
         manifest_payload = load_json(manifest_path, {})
         refs = manifest_payload.get("artifact_refs") if isinstance(manifest_payload, Mapping) and isinstance(manifest_payload.get("artifact_refs"), Mapping) else {}
+        expected_rank_refs = _rank_audit_expected_artifact_refs(manifest_path.parent)
+        for ref_key, expected_ref in expected_rank_refs.items():
+            if not isinstance(expected_ref, Mapping):
+                continue
+            expected_raw = str(expected_ref.get("path") or "").strip()
+            if not expected_raw:
+                continue
+            rank_audit_ref_bindings_checked += 1
+            expected_path = repo_paths.resolve_repo_path(expected_raw)
+            expected_exists = expected_path.is_dir() if expected_ref.get("kind") == "directory" else expected_path.is_file()
+            ref = refs.get(ref_key) if isinstance(refs.get(ref_key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            detail = {
+                "manifest": _as_repo_meta(manifest_path),
+                "ref_key": ref_key,
+                "expected_path": _as_repo_meta(expected_path),
+                "ref_path": ref_raw,
+            }
+            if not expected_exists:
+                rank_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "rank audit artifact path does not exist", path=expected_raw, detail=detail))
+                continue
+            if not ref_raw:
+                rank_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "rank audit artifact ref missing from manifest", path=_as_repo_meta(manifest_path), detail=detail))
+                continue
+            if _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(expected_path):
+                rank_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "rank audit artifact ref path differs from backtest artifact", path=ref_raw, detail=detail))
         lean_gate_payload = load_json(manifest_path.parent / "lean_gate.json", {})
         expected_lean_refs = _lean_audit_expected_artifact_refs(lean_gate_payload) if isinstance(lean_gate_payload, Mapping) else {}
         for ref_key, expected_ref in expected_lean_refs.items():
@@ -7599,6 +7652,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
             "best_manifest_local_ref_binding_mismatches": best_manifest_local_ref_binding_mismatches,
             "candidate_input_ref_bindings_checked": candidate_input_ref_bindings_checked,
             "candidate_input_ref_binding_mismatches": candidate_input_ref_binding_mismatches,
+            "rank_audit_ref_bindings_checked": rank_audit_ref_bindings_checked,
+            "rank_audit_ref_binding_mismatches": rank_audit_ref_binding_mismatches,
             "lean_audit_ref_bindings_checked": lean_audit_ref_bindings_checked,
             "lean_audit_ref_binding_mismatches": lean_audit_ref_binding_mismatches,
             "run_manifest_structure_bindings_checked": run_manifest_structure_bindings_checked,

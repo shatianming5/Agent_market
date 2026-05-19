@@ -6977,6 +6977,70 @@ def test_strategy_loop_doctor_requires_lean_audit_artifact_refs(
     assert "LEAN audit artifact ref missing from manifest" in messages
 
 
+def test_strategy_loop_doctor_requires_rank_audit_artifact_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
+    run_id = "doctor_rank_audit_refs"
+    root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
+    iter_dir = root / "iter_01"
+    cfg = StrategyLoopConfig.from_args(
+        tag="unit",
+        run_id=run_id,
+        validation_protocol="triple_holdout",
+        verify_policy="pareto",
+        promote_policy="final",
+        lean_gate_mode="final",
+    )
+    rank_root = repo_paths.artifacts_root() / "rank_portfolio" / f"{run_id}_search"
+    signal_dir = rank_root / "signals"
+    signal_dir.mkdir(parents=True)
+    all_signals = signal_dir / "all.feather"
+    btc_signals = signal_dir / "BTC_USDT_USDT.feather"
+    all_signals.write_bytes(b"all signals")
+    btc_signals.write_bytes(b"btc signals")
+    selected_factors = rank_root / "selected_factors.json"
+    _write_json(selected_factors, {"version": "rank-portfolio-v1", "factors": []})
+    _write_json(rank_root / "rank_export.json", {"selected_factors": str(selected_factors), "signals": {"all": str(all_signals)}})
+    _write_json(rank_root / "backtest.json", {"trades": 1, "signals": str(all_signals)})
+
+    candidate_ref = _write_json_ref(iter_dir / "candidate.json", {"candidate_type": "rank_profile", "rank_profile": {"top_k": 1}})
+    _write_json(
+        iter_dir / "backtest.json",
+        {
+            "stages": {
+                "search": {
+                    "selected_factors": str(selected_factors),
+                    "signals": str(all_signals),
+                }
+            }
+        },
+    )
+    _write_json(
+        iter_dir / "manifest.json",
+        {
+            "artifact_refs": {
+                "candidate.json": candidate_ref,
+                "search_signals": strategy_loop_mod._artifact_ref(all_signals),
+            },
+        },
+    )
+    _write_json(root / "manifest.json", {"cli_args": cfg.__dict__, "git": strategy_loop_mod._git_provenance()})
+    _write_json(root / "checkpoint.json", {"config": cfg.__dict__, "state": {"run_id": run_id, "iteration": 1}})
+    _write_json(root / "leaderboard.json", {"rows": []})
+    _write_json(root / "pareto_pool.json", {"finalists": []})
+    _write_json(root / "final_blind_status.json", {"selected": None, "finalists": [], "promotion": {"promoted": False}})
+    _write_json(root / "final_promotion.json", {"promoted": False})
+
+    result = doctor_strategy_loop_run(run_id, write=False)
+    messages = [item["message"] for item in result["findings"]]
+
+    assert result["summary"]["rank_audit_ref_bindings_checked"] >= 6
+    assert result["summary"]["rank_audit_ref_binding_mismatches"] >= 5
+    assert "rank audit artifact ref missing from manifest" in messages
+
+
 def test_best_snapshot_rewrites_artifact_refs_to_best_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "best_snapshot_refs"
