@@ -24,7 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from agent_market.factor_lab.mining import build_big  # noqa: E402
 from agent_market.factor_lab.paths import DEFAULT_PAIRS  # noqa: E402
 from agent_market.freqai.expression_engine import load_expression_file, apply_expressions  # noqa: E402
 from agent_market.freqai.features import apply_configured_features  # noqa: E402

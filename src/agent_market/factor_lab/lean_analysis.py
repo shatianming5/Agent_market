@@ -460,7 +460,6 @@ def compute_lean_analysis(
     # Per-pair P&L from fills
     fills = []
     if order_events:
-        from .lean_bridge import _lean_execution_stats  # noqa: F401
         # Reuse filled events extraction
         fills_raw = _filled_events_from_orders(full_payload or {})
         if not fills_raw:

@@ -24,7 +24,6 @@ sys.path.insert(0, str(ROOT))
 from _lib import read_json, resolve_label_period, resolve_path, resolve_timeframe  # noqa: E402
 from agent_market import paths  # noqa: E402
 from agent_market.factor_lab.timeframes import (  # noqa: E402
-    bps_to_rate,
     lane_manifest,
     normalize_lane,
     parse_label_horizons,
