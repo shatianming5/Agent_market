@@ -19,7 +19,7 @@
   artifacts/               # Runs, model outputs, factor_lab/rank_portfolio artifacts, control-plane state（不要手动改）
   benchmark_pack/          # Benchmark/challenge pack inputs
   configs/                 # Agent Flow, strategy miner, feed/symbol/rule configs
-  docs/                    # 24 篇文档（先读 docs/INDEX.md 分类） + docs/plans/
+  docs/                    # 文档索引、功能子 README、runbook、proposal、legacy 归档；先读 docs/INDEX.md
   freqtrade/               # Vendored Freqtrade snapshot；只读
   logs/                    # Mining/backtest/data logs（运行时生成）
   runtime_configs/         # Runtime config snapshots from server/jobs（运行时）
@@ -56,6 +56,8 @@
 - `python scripts/strategy_miner.py --config configs/strategy_miner_default.json`
   - Wrapper for LLM strategy mining via `src/agent_market/strategy_miner/runner.py`.
   - Alternative module entrypoint: `python -m agent_market.strategy_miner --config ...`.
+- `docs/features/*/README.md`
+  - One README per major feature area; root `README.md` links into these pages.
 - `freqtrade backtesting --config user_data/config_okx_futures_rank_backtest.json --strategy ELRankPortfolioLeverageStrategy --strategy-path user_data/strategies`
   - Consumes precomputed rank-portfolio signals from `artifacts/rank_portfolio/<tag>/signals`.
   - Strategy file is `user_data/strategies/ELRankPortfolioLeverageStrategy.py`.

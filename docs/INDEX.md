@@ -1,6 +1,6 @@
 # docs/ INDEX — 文档状态与读取顺序
 
-> `docs/` 下当前 24 篇 .md（含 `architecture.md`，不含本 INDEX）+ 子目录 `docs/plans/` 2 篇 + `docs/proposals/` 1 篇 + `docs/legacy/` 4 篇；状态标签让 agent / 新读者第一眼分辨哪些是**当前事实**，哪些是**历史/证据/差距**记录。状态会过期 — 如有冲突以仓库当前代码为准。
+> `docs/` 下包含当前文档、功能子 README、计划、proposal、legacy 归档与证据链文档；状态标签让 agent / 新读者第一眼分辨哪些是**当前事实**，哪些是**历史/证据/差距**记录。状态会过期 — 如有冲突以仓库当前代码为准。
 >
 > 推荐读取顺序：先 **CURRENT** 类，后 **EVIDENCE/STATUS**，最后 **PROPOSAL** 或具体子系统 RUNBOOK。
 
@@ -41,6 +41,20 @@
 | [`plan_gap_planmd.md`](plan_gap_planmd.md) | EVIDENCE | 原根 `plan.md` / Proposal（现 `docs/proposals/agent_market_proposal.md`）逐章差距审计 | 2026-02-05 |
 | [`plan_gap_planmd_partial_missing.md`](plan_gap_planmd_partial_missing.md) | EVIDENCE | 上面那份的 PARTIAL/MISSING 抽取视图 | 2026-02-05 |
 | [`strategy_miner_recovery_report.md`](strategy_miner_recovery_report.md) | HISTORICAL | 2026-03-05 strategy_miner `best_reward=-inf` 修复报告 | 2026-03-05 |
+
+### `docs/features/` 子目录
+
+| 文档 | 状态 | 一句话用途 | 最近更新 |
+|---|---|---|---|
+| [`features/README.md`](features/README.md) | CURRENT | 功能子 README 索引；根 README 的跳转目标 | 2026-05-24 |
+| [`features/wq_brain/README.md`](features/wq_brain/README.md) | CURRENT | WQ BRAIN alpha mining 功能、命令、安全边界 | 2026-05-24 |
+| [`features/agent_flow/README.md`](features/agent_flow/README.md) | CURRENT | Agent Flow step、产物、API 与验证 | 2026-05-24 |
+| [`features/factor_lab/README.md`](features/factor_lab/README.md) | CURRENT | Factor Lab 子命令、数据和产物 | 2026-05-24 |
+| [`features/strategy_miner/README.md`](features/strategy_miner/README.md) | CURRENT | Strategy Miner 流程、产物、API 与安全约束 | 2026-05-24 |
+| [`features/api_web/README.md`](features/api_web/README.md) | CURRENT | FastAPI 服务、Web UI、JobManager 与 API 分组 | 2026-05-24 |
+| [`features/factor_infrastructure/README.md`](features/factor_infrastructure/README.md) | CURRENT | Factor Compiler / Hub / Memory 功能入口 | 2026-05-24 |
+| [`features/microstructure_tca_rank/README.md`](features/microstructure_tca_rank/README.md) | CURRENT | 微观结构、TCA、rank portfolio 功能入口 | 2026-05-24 |
+| [`features/ops_testing/README.md`](features/ops_testing/README.md) | CURRENT | 安装、测试、清理、GC 与运行产物边界 | 2026-05-24 |
 
 ### `docs/plans/` 子目录
 
