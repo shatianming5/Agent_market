@@ -1,2 +1,10 @@
 pytest
+httpx
 
+# Dependencies exercised by the offline CI smoke suite (not the full ML stack).
+filelock
+numpy
+pandas
+pyarrow
+requests
+scikit-learn

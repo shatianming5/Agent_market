@@ -248,12 +248,28 @@ class TestVersionManager:
 
 
 class TestSignalValidator:
-    def test_validates_pairs_signal(self):
+    def test_validates_pairs_signal(self, monkeypatch):
+        import numpy as np
+        import pandas as pd
+
+        from workspace.pairs_engine import PairsEngine
         from workspace.signal_validator import validate_pairs_signal
+
+        def fake_compute_spread(engine, *, lookback):
+            assert (engine.asset_a, engine.asset_b, engine.exchange) == (
+                "BTC/USDT", "ETH/USDT", "gate",
+            )
+            assert lookback == 80
+            spread = np.sin(np.arange(240) / 10)
+            return pd.DataFrame({"spread": spread, "zscore": 2 * spread})
+
+        monkeypatch.setattr(PairsEngine, "compute_spread", fake_compute_spread)
         r = validate_pairs_signal("BTC/USDT", "ETH/USDT", exchange="gate")
         assert "ic" in r
         assert "hit_rate" in r
         assert "passed" in r
+        assert r["n_samples"] == 240 - 24
+        assert r["pair"] == "BTC/USDT/ETH/USDT"
 
     def test_rejects_insufficient_data(self):
         from workspace.signal_validator import validate_signal

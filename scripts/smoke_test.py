@@ -123,10 +123,13 @@ def main() -> None:
     # Accept success (when example backtests exist) or NO_ARCHIVES error otherwise
     def _check_results_latest_summary() -> None:
         resp = client.get("/results/latest-summary")
-        assert resp.status_code == 200
         j = resp.json()
-        if j.get("status") != "error":
+        if resp.status_code == 200:
             assert_in("profit_total_pct", j)
+        else:
+            assert_eq(resp.status_code, 400)
+            assert_eq(j.get("status"), "error")
+            assert_eq(j.get("code"), "NO_ARCHIVES")
 
     check("GET /results/latest-summary", _check_results_latest_summary)
 

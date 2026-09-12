@@ -1,16 +1,33 @@
-.PHONY: install install-full run smoke test check e2e flow flow-smoke clean clean-dry
+.PHONY: install install-full run smoke test-smoke test check e2e flow flow-smoke clean clean-dry
 
 install:
-	pip install -r server/requirements.txt -r requirements-dev.txt
+	pip install -c constraints.txt -r server/requirements.txt -r requirements-dev.txt
 
 install-full:
-	pip install -r requirements-full.txt
+	pip install -c constraints.txt -r requirements-full.txt
 
 run:
 	uvicorn server.main:app --host 0.0.0.0 --port 8000
 
 smoke:
 	python scripts/smoke_test.py
+
+test-smoke:
+	pytest -q \
+		tests/test_api_smoke.py \
+		tests/test_no_bom.py \
+		tests/test_security_and_gates.py \
+		tests/test_sandbox_exec.py \
+		tests/test_workspace_core.py \
+		tests/test_strategy_miner_runner.py \
+		tests/test_strategy_miner_artifacts.py \
+		tests/test_strategy_miner_phases.py \
+		tests/test_factor_strategy_loop.py \
+		tests/test_rank_portfolio.py \
+		tests/test_factor_memory.py \
+		tests/test_backtest_results.py \
+		tests/test_pipeline_leakage.py \
+		tests/test_walkforward.py
 
 test:
 	pytest -q

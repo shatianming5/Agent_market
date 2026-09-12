@@ -24,11 +24,15 @@ python -m venv .venv
 pip install -c constraints.txt -r requirements-full.txt
 ```
 
-只跑后端和测试：
+只跑后端和离线 CI 冒烟测试：
 
 ```bash
-pip install -r server/requirements.txt -r requirements-dev.txt
+pip install -c constraints.txt -r server/requirements.txt -r requirements-dev.txt
+make test-smoke
 ```
+
+最小安装仅覆盖 `Makefile` 中 `test-smoke` 的测试清单和 API 冒烟脚本，
+不承诺支持 `pytest -q` 全套研究测试；不安装 Torch、LightGBM 或 RL 引擎。
 
 macOS 如果要跑 TA-Lib 相关策略：
 
@@ -67,6 +71,7 @@ make run
 make flow
 make flow-smoke
 make smoke
+make test-smoke
 make test
 make check
 make e2e
@@ -76,20 +81,27 @@ make clean
 
 ## 测试
 
+最小安装与 CI 使用同一份离线测试清单：
+
 ```bash
-pytest -q
-pytest tests/test_wq_brain_*.py -q
-pytest tests/test_rank_portfolio.py -q
+make test-smoke
 python scripts/smoke_test.py
-python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
 ```
 
-建议顺序：
+完整安装后可运行更广的研究测试：
 
 ```bash
 pytest tests/test_wq_brain_*.py -q
+pytest tests/test_rank_portfolio.py -q
 pytest -q
-python scripts/smoke_test.py
+```
+
+全套测试依赖 `requirements-full.txt` 及所选可选引擎；网络测试默认跳过，
+用 `--run-network` 显式启用。涉及真实回测 / 训练的测试还需要对应数据、
+配置与外部工具，不能把最小安装或跳过可选测试视为完整路径验收。
+真实端到端验证另行运行：
+
+```bash
 python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
 ```
 
@@ -132,4 +144,3 @@ python scripts/gc_jobs.py --keep 200 --keep-days 14
 - `ws_production/`，独立实验区
 
 `.gitignore` 是运行产物边界的权威清单。历史上可能存在 tracked artifact，不要把它们当作当前推荐手动维护的文件。
-

@@ -33,10 +33,11 @@ source .venv/bin/activate
 pip install -c constraints.txt -r requirements-full.txt
 ```
 
-只跑后端和测试：
+只跑后端和离线 CI 冒烟测试（不含完整 ML / RL 依赖）：
 
 ```bash
-pip install -r server/requirements.txt -r requirements-dev.txt
+pip install -c constraints.txt -r server/requirements.txt -r requirements-dev.txt
+make test-smoke
 ```
 
 更多安装、环境变量和测试说明见 [`docs/features/ops_testing/README.md`](docs/features/ops_testing/README.md)。
@@ -111,10 +112,13 @@ make run
 make flow
 make flow-smoke
 
-# 验证
+# 最小安装：与 CI 相同的离线冒烟范围
+make test-smoke
+python scripts/smoke_test.py
+
+# 完整安装：研究测试与全套测试（可选引擎、数据依赖见运维文档）
 pytest tests/test_wq_brain_*.py -q
 pytest -q
-python scripts/smoke_test.py
 python scripts/e2e_smoke_flow.py --config configs/agent_flow_kucoin_cpu_nollm.json
 
 # 清理 / GC
