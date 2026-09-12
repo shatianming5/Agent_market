@@ -19,6 +19,10 @@ test-smoke:
 		tests/test_security_and_gates.py \
 		tests/test_sandbox_exec.py \
 		tests/test_workspace_core.py \
+		tests/test_workspace_filesystem_safety.py \
+		tests/test_wq_brain_state_integrity.py \
+		tests/test_wq_brain_pool.py \
+		tests/test_wq_brain_submit_worker.py \
 		tests/test_strategy_miner_runner.py \
 		tests/test_strategy_miner_artifacts.py \
 		tests/test_strategy_miner_phases.py \
