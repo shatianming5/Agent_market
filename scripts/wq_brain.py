@@ -333,7 +333,8 @@ def _emit_submit_recording_failure(
         "hint": (
             "WQ returned a submit outcome, but local recording failed. Do not resubmit. "
             "Preserve this response, repair local state/access, then reconcile this "
-            "alpha ID with WQ (pool sync-status) before further submissions."
+            "alpha ID with WQ and restore its local pool outcome before further submissions. "
+            "pool sync-status only updates IDs already present in the pool."
         ),
     }, code=3)
 
