@@ -613,6 +613,8 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         "workspace": str(root / "iter_01"),
         "strategy_validation": None,
     }
+    benchmark = {"passed": True, "status": "passed", "suite_id": "unit"}
+    _write_json(blind_dir / "benchmark_verdict.json", benchmark)
     selected = {
         "score": 1.0,
         "blind_final": True,
@@ -620,6 +622,7 @@ def test_strategy_loop_doctor_accepts_complete_formal_run(tmp_path: Path, monkey
         "verification_status": VERIFICATION_PASSED,
         "verification": verification,
         "lean_gate": lean_gate,
+        "benchmark": benchmark,
         "candidate": selected_candidate,
         "candidate_path": f"artifacts/factor_strategy_loop/{run_id}/blind_1/candidate.json",
         "source_candidate_path": source_candidate_path,
@@ -1586,7 +1589,7 @@ def test_strategy_loop_doctor_rejects_deepresearch_artifacts_outside_run(tmp_pat
     assert "deepresearch artifact path is outside run artifacts: context" in messages
 
 
-def test_strategy_loop_doctor_rejects_stale_deepresearch_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_strategy_loop_doctor_accepts_pre_promotion_audit_outcome(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_MARKET_ARTIFACTS_ROOT", str(tmp_path / "artifacts"))
     run_id = "doctor_formal_stale_deepresearch_context"
     root = repo_paths.artifacts_root() / "factor_strategy_loop" / run_id
@@ -1631,8 +1634,9 @@ def test_strategy_loop_doctor_rejects_stale_deepresearch_context(tmp_path: Path,
     result = doctor_strategy_loop_run(run_id, write=False)
     messages = [item["message"] for item in result["findings"]]
 
-    assert result["ok"] is False
-    assert "deepresearch context promotion differs from final_blind_status" in messages
+    assert result["summary"]["deepresearch_context_final_bindings_checked"] == 1
+    assert result["summary"]["deepresearch_context_final_binding_mismatches"] == 0
+    assert "deepresearch context final_status differs from final_blind_status" not in messages
 
 
 def test_strategy_loop_doctor_rejects_deepresearch_final_status_payload_drift(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

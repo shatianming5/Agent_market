@@ -47,7 +47,17 @@ python scripts/strategy_miner.py \
 | `BACKTEST` | freqtrade backtesting，失败可进入 repair |
 | `EVALUATION` | 打分并应用 gates |
 | `ANALYSIS` | LLM 总结经验并指导下轮 |
-| 收尾 | sealed holdout、benchmark、portfolio、promotion chain |
+| `FINALIZING` | sealed holdout、benchmark、portfolio、promotion chain |
+
+收尾必须有有效 sealed-holdout 证据；执行异常或未产出结果会写入
+`holdout_gate.json` 的 `insufficient_evidence` 状态，保留 `finalizing`
+checkpoint 并抛出错误，不发出 `run_complete`。修复数据或配置后可用同一
+checkpoint 重试，已有成功 holdout 不会重复执行。
+
+`benchmark_suite` 必须显式指向实际存在的 frozen pack（如
+`benchmark_pack/default`）；缺少配置、文件或执行失败都会写
+`benchmark_verdict.json`，状态为 `insufficient_evidence`，不允许进入晋升链。
+基准指标未达标则为 `failed`，不会把证据缺失伪装成指标失败或通过。
 
 ## 产物目录
 
@@ -93,4 +103,3 @@ GET  /strategy-miner/results/{run_id}
 python scripts/strategy_miner.py --help
 python scripts/strategy_miner_preflight.py --help
 ```
-

@@ -254,6 +254,7 @@ def build_big(pairs: List[str], feat_cfg_path: Path, v7_path: Path,
         df = apply_configured_features(df, feat_cfg)
         df, _ = apply_expressions(df, v7_specs, on_error="skip")
         df["__ret__"] = df["close"].pct_change(label_period).shift(-label_period)
+        df["__label_end__"] = df["date"].shift(-label_period)
         ok = (df["date"] >= ts) & (df["date"] < te) & df["close"].notna() & df["__ret__"].notna()
         if ok.sum() > 0:
             dfs.append(df.loc[ok].reset_index(drop=True))
@@ -266,13 +267,19 @@ def build_big(pairs: List[str], feat_cfg_path: Path, v7_path: Path,
     window_masks = []
     for ws, we in TRAIN_WINDOWS:
         wts = pd.Timestamp(ws, tz="UTC"); wte = pd.Timestamp(we, tz="UTC")
-        m = ((big["date"] >= wts) & (big["date"] < wte)).values
+        m = (
+            (big["date"] >= wts) & (big["date"] < wte)
+            & (big["__label_end__"] < min(wte, te))
+        ).values
         if m.sum() > 200:
             window_masks.append(m)
 
-    val3_mask = ((big["date"] >= val3_s) & (big["date"] < val3_e)).values
+    val3_mask = (
+        (big["date"] >= val3_s) & (big["date"] < val3_e)
+        & (big["__label_end__"] < min(val3_e, te))
+    ).values
 
-    excl = {"date", "open", "high", "low", "close", "volume", "__ret__"}
+    excl = {"date", "open", "high", "low", "close", "volume", "__ret__", "__label_end__"}
     cols = [c for c in big.columns if c not in excl]
     w_sizes = [m.sum() for m in window_masks]
     print(f"[data] {len(big):,} rows | {len(cols)} cols | "

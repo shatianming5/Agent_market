@@ -866,14 +866,19 @@ def append_event(miner_dir: Path, event_type: str,
 
 def write_holdout_gate(miner_dir: Path, holdout_result: dict) -> Path:
     """Write holdout_gate.json with pass/fail determination."""
-    passed = not holdout_result.get("overfitting_flag", False)
+    passed = (
+        holdout_result.get("status") != "insufficient_evidence"
+        and holdout_result.get("overfitting_flag") is False
+    )
     payload = {
         "evaluated_at": _iso_now(),
         "passed": passed,
+        "status": holdout_result.get("status") or ("passed" if passed else "failed"),
+        "error": holdout_result.get("error"),
         "holdout_profit_pct": holdout_result.get("holdout_profit_pct"),
         "selection_profit_pct": holdout_result.get("selection_profit_pct"),
         "delta_pct": holdout_result.get("delta_pct"),
-        "overfitting_flag": holdout_result.get("overfitting_flag", False),
+        "overfitting_flag": holdout_result.get("overfitting_flag"),
         "holdout_timerange": holdout_result.get("holdout_timerange", ""),
     }
     out = miner_dir / "holdout_gate.json"

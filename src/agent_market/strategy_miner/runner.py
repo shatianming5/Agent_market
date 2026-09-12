@@ -593,7 +593,7 @@ def run_strategy_miner(
     final_status: dict[str, object] = {}
 
     preflight_report = None
-    if state.phase != Phase.COMPLETE:
+    if state.phase not in {Phase.COMPLETE, Phase.FINALIZING}:
         from .preflight import run_startup_preflight
 
         preflight_report = run_startup_preflight(
@@ -692,9 +692,10 @@ def run_strategy_miner(
     # D13: Track total wall time
     import time as _run_time
     _run_start_wall = _run_time.time()
+    _run_succeeded = False
 
     try:
-        while state.phase != Phase.COMPLETE:
+        while state.phase not in {Phase.COMPLETE, Phase.FINALIZING}:
             # D1: Check budget exhaustion from GoalContract
             if _goal_contract is not None and _goal_contract.is_budget_exhausted(
                 state.economics, state.iteration, len(state.candidates)
@@ -829,15 +830,21 @@ def run_strategy_miner(
                 },
             )
 
-        # Sealed holdout: run exactly once on the final champion
-        if (
-            state.best_candidate is not None
-            and "holdout" not in (state.best_candidate.funnel_state or {})
-        ):
+        if state.phase == Phase.COMPLETE:
+            safe_transition(state, Phase.FINALIZING)
+        _save_checkpoint(state, miner_dir)
+
+        # Reuse successful holdout evidence on resume; incomplete attempts retry.
+        if state.best_candidate is not None:
             try:
                 from ._holdout import run_sealed_holdout
-                holdout_result = run_sealed_holdout(state.best_candidate, config, miner_dir)
+                holdout_result = state.best_candidate.funnel_state.get("holdout")
+                if holdout_result is None:
+                    holdout_result = run_sealed_holdout(state.best_candidate, config, miner_dir)
+                if not isinstance(holdout_result, dict) or not isinstance(holdout_result.get("overfitting_flag"), bool):
+                    raise RuntimeError("Sealed holdout produced no valid gate evidence")
                 if holdout_result is not None:
+                    state.best_candidate.funnel_state.pop("holdout_error", None)
                     state.best_candidate.funnel_state["holdout"] = holdout_result
                     final_status["holdout_passed"] = not holdout_result.get("overfitting_flag", False)
                     # D10: Enforce holdout gate — demote champion if overfitting detected
@@ -860,8 +867,6 @@ def run_strategy_miner(
                                 constraints_ok=bool(getattr(state.best_candidate, "constraints_ok", True)),
                                 observation_days=_obs_days,
                             )
-                        benchmark_ok = True
-                        benchmark_result = None
                         benchmark_suite = ""
                         if _goal_contract is not None:
                             benchmark_suite = str(
@@ -869,29 +874,25 @@ def run_strategy_miner(
                             ).strip()
                         if not benchmark_suite:
                             benchmark_suite = str(getattr(config, "benchmark_suite", "") or "").strip()
-                        if benchmark_suite:
-                            try:
-                                from ._benchmark import run_benchmark_suite
-                                from .artifacts import write_benchmark_verdict
+                        from ._benchmark import evaluate_benchmark_gate
+                        from .artifacts import write_benchmark_verdict
 
-                                benchmark_result = run_benchmark_suite(
-                                    state.best_candidate,
-                                    suite_path=benchmark_suite,
-                                    holdout_result=holdout_result,
-                                )
-                                state.best_candidate.funnel_state["benchmark"] = benchmark_result
-                                benchmark_ok = bool(benchmark_result.get("passed", False))
-                                final_status["benchmark_passed"] = benchmark_ok
-                                _benchmark_path = write_benchmark_verdict(miner_dir, benchmark_result)
-                                final_artifacts["benchmark_verdict"] = str(_benchmark_path.resolve())
-                                append_event(miner_dir, "benchmark_complete", {
-                                    "passed": benchmark_ok,
-                                    "failed_ids": benchmark_result.get("failed_ids", []),
-                                })
-                            except Exception as exc:
-                                benchmark_ok = False
-                                final_status["benchmark_passed"] = False
-                                logger.warning("Frozen benchmark suite failed: %s", exc)
+                        benchmark_result = evaluate_benchmark_gate(
+                            state.best_candidate,
+                            suite_path=benchmark_suite,
+                            holdout_result=holdout_result,
+                        )
+                        state.best_candidate.funnel_state["benchmark"] = benchmark_result
+                        benchmark_ok = benchmark_result.get("passed") is True
+                        final_status["benchmark_passed"] = benchmark_ok
+                        final_status["benchmark_status"] = benchmark_result["status"]
+                        _benchmark_path = write_benchmark_verdict(miner_dir, benchmark_result)
+                        final_artifacts["benchmark_verdict"] = str(_benchmark_path.resolve())
+                        append_event(miner_dir, "benchmark_complete", {
+                            "passed": benchmark_ok,
+                            "status": benchmark_result["status"],
+                            "failed_ids": benchmark_result.get("failed_ids", []),
+                        })
                         if _promotion_ok:
                             if benchmark_ok:
                                 logger.info(
@@ -905,7 +906,7 @@ def run_strategy_miner(
                                     "Holdout PASSED but frozen benchmark FAILED: %s",
                                     state.best_candidate.name,
                                 )
-                                final_status["promotion_status"] = "benchmark_failed"
+                                final_status["promotion_status"] = f"benchmark_{benchmark_result['status']}"
                         else:
                             logger.warning(
                                 "Holdout PASSED but promotion conditions NOT met: %s",
@@ -967,19 +968,30 @@ def run_strategy_miner(
                             pass
                     _save_checkpoint(state, miner_dir)
                     # D10: Write holdout gate artifact
-                    try:
-                        from .artifacts import write_holdout_gate
-                        _holdout_path = write_holdout_gate(miner_dir, holdout_result)
-                        final_artifacts["holdout_gate"] = str(_holdout_path.resolve())
-                    except Exception:
-                        pass
+                    from .artifacts import write_holdout_gate
+                    _holdout_path = write_holdout_gate(miner_dir, holdout_result)
+                    final_artifacts["holdout_gate"] = str(_holdout_path.resolve())
                     # D9: Event
                     append_event(miner_dir, "holdout_complete", {
                         "passed": not holdout_result.get("overfitting_flag", False),
                         "delta_pct": holdout_result.get("delta_pct"),
                     })
             except Exception as exc:
-                logger.warning("Sealed holdout failed: %s", exc)
+                from .artifacts import write_holdout_gate
+
+                error_result = {
+                    "status": "insufficient_evidence",
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "holdout_timerange": config.holdout_timerange,
+                }
+                if state.best_candidate is not None:
+                    state.best_candidate.funnel_state["holdout_error"] = error_result
+                final_status["holdout_passed"] = False
+                final_status["promotion_status"] = "holdout_insufficient_evidence"
+                final_artifacts["holdout_gate"] = str(write_holdout_gate(miner_dir, error_result).resolve())
+                append_event(miner_dir, "holdout_error", error_result)
+                logger.exception("Sealed holdout finalization failed")
+                raise
 
         try:
             if bool(getattr(config, "portfolio_enabled", True)):
@@ -1007,6 +1019,8 @@ def run_strategy_miner(
         except Exception as exc:
             logger.warning("Candidate portfolio construction failed: %s", exc)
 
+        safe_transition(state, Phase.COMPLETE)
+        _run_succeeded = True
         best_summary = state.best_candidate.backtest_summary if state.best_candidate else {}
         logger.info(
             "Mining complete: run_id=%s iterations=%d best_sharpe=%.4f best_profit=%.2f%%",
@@ -1031,13 +1045,13 @@ def run_strategy_miner(
         _save_checkpoint(state, miner_dir)
         # D9: Final event
         try:
-            append_event(miner_dir, "run_complete", {
+            append_event(miner_dir, "run_complete" if _run_succeeded else "run_failed", {
                 "iterations": state.iteration,
                 "best_score": state.best_score,
                 "best_name": state.best_candidate.name if state.best_candidate else None,
             })
             write_run_meta(miner_dir, run_id=state.run_id,
-                           phase="complete", iteration=state.iteration,
+                           phase=state.phase.value if _run_succeeded else "failed", iteration=state.iteration,
                            extra={
                                "best_score": state.best_score,
                                "artifacts": final_artifacts,

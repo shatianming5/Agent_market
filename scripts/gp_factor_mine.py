@@ -25,10 +25,28 @@ def _load_v2() -> ModuleType:
 
 
 def _translate_legacy_args(argv: list[str]) -> list[str]:
+    fixed_windows = {
+        "--tr3-start": "2024-01-01",
+        "--tr3-end": "2025-07-01",
+        "--v3-start": "2025-07-01",
+        "--v3-end": "2025-12-01",
+    }
     translated: list[str] = []
     idx = 0
     while idx < len(argv):
         arg = argv[idx]
+        flag, separator, value = arg.partition("=")
+        if flag in fixed_windows:
+            if not separator:
+                if idx + 1 >= len(argv):
+                    raise ValueError(f"{flag} requires a date")
+                value = argv[idx + 1]
+            legacy_data_start = flag == "--tr3-start" and value == "2023-05-15"
+            if value != fixed_windows[flag] and not legacy_data_start:
+                raise ValueError(
+                    f"{flag}={value} cannot be preserved by v2's fixed training/validation windows "
+                    f"({flag}={fixed_windows[flag]}); refusing to change the experiment silently"
+                )
         if arg == "--tr3-start":
             translated.append("--data-start")
         elif arg.startswith("--tr3-start="):
@@ -49,10 +67,17 @@ def _translate_legacy_args(argv: list[str]) -> list[str]:
 
 def main() -> int:
     print(
-        "[gp_factor_mine] deprecated wrapper; forwarding to scripts/gp_factor_mine_v2.py",
+        "[gp_factor_mine] deprecated wrapper; forwarding to scripts/gp_factor_mine_v2.py. "
+        "v2 fitness uses fixed 6-month windows from 2024-01-01 to 2025-07-01, "
+        "VAL3 ends 2025-12-01; earlier legacy data-start dates supply history only.",
         file=sys.stderr,
     )
-    sys.argv = [str(_V2_PATH), *_translate_legacy_args(sys.argv[1:])]
+    try:
+        translated = _translate_legacy_args(sys.argv[1:])
+    except ValueError as exc:
+        print(f"[gp_factor_mine] error: {exc}", file=sys.stderr)
+        return 2
+    sys.argv = [str(_V2_PATH), *translated]
     return int(_load_v2().main())
 
 

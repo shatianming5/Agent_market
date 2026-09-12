@@ -418,6 +418,7 @@ class StrategyLoopConfig:
     blind_timerange: str = DEFAULT_BLIND_TIMERANGE
     verify_policy: str = VERIFY_NONE
     pareto_size_per_axis: int = 3
+    benchmark_suite: str = ""
     lean_gate_mode: str = LEAN_GATE_OFF
     lean_bin: str = "lean"
     lean_timeout: Optional[int] = None
@@ -464,6 +465,7 @@ class StrategyLoopConfig:
         blind_timerange: Optional[str] = None,
         verify_policy: Optional[str] = None,
         pareto_size_per_axis: int = 3,
+        benchmark_suite: str = "",
         lean_gate_mode: str = LEAN_GATE_OFF,
         lean_bin: str = "lean",
         lean_timeout: Optional[int] = None,
@@ -570,6 +572,7 @@ class StrategyLoopConfig:
             blind_timerange=blind_range,
             verify_policy=verify,
             pareto_size_per_axis=max(1, int(pareto_size_per_axis)),
+            benchmark_suite=str(benchmark_suite or "").strip(),
             lean_gate_mode=lean_mode,
             lean_bin=str(lean_bin or "lean"),
             lean_timeout=None if lean_timeout is None else int(lean_timeout),
@@ -5427,6 +5430,7 @@ _ITERATION_CORE_ARTIFACTS = (
     "backtest.json",
     "evaluation.json",
     "verification.json",
+    "benchmark_verdict.json",
     "lean_gate.json",
     "manifest.json",
 )
@@ -7415,6 +7419,12 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass verification"))
             if selected.get("promotion_eligible") and lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(selected) != VERIFICATION_PASSED:
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass LEAN gate"))
+            if selected.get("promotion_eligible") or promotion.get("promoted"):
+                benchmark = selected.get("benchmark") if isinstance(selected.get("benchmark"), Mapping) else {}
+                candidate_path = str(selected.get("candidate_path") or "")
+                benchmark_path = repo_paths.resolve_repo_path(candidate_path).parent / "benchmark_verdict.json"
+                if benchmark.get("passed") is not True or load_json(benchmark_path, {}) != dict(benchmark):
+                    findings.append(_doctor_finding("BLOCKER", "selected candidate lacks matching passed frozen benchmark evidence"))
         if final_status:
             record_final_blind_finalist_bindings()
         if final_status and dict(root_promotion) != dict(promotion):
@@ -7466,7 +7476,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
     deep_ref_status = _doctor_artifact_refs_hash_status(deepresearch.get("artifact_refs") if isinstance(deepresearch, Mapping) else None)
     if (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal) and (bool(selected) or bool(final_blind_finalists)):
         expected_context_final_status = dict(final_status)
-        expected_context_final_status.pop("deepresearch", None)
+        for key in ("deepresearch", "promotion", "promoted"):
+            expected_context_final_status.pop(key, None)
         if str(deepresearch.get("status") or "").lower() != VERIFICATION_PASSED:
             findings.append(_doctor_finding("BLOCKER", "deepresearch status is not passed"))
         expected_deep_dir = (repo_paths.artifacts_root() / "strategy_deepresearch" / str(run_id)).resolve()
@@ -7550,14 +7561,10 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: 
                     findings.append(_doctor_finding("BLOCKER", "deepresearch context is missing final_status", path=_as_repo_meta(context_path)))
                 else:
                     deepresearch_context_final_bindings_checked += 1
-                    if dict(context_final) != expected_context_final_status:
+                    audited_inputs = {key: value for key, value in context_final.items() if key not in {"promotion", "promoted"}}
+                    if audited_inputs != expected_context_final_status:
                         deepresearch_context_final_binding_mismatches += 1
                         findings.append(_doctor_finding("BLOCKER", "deepresearch context final_status differs from final_blind_status", path=_as_repo_meta(context_path)))
-                    context_promotion = context_final.get("promotion") if isinstance(context_final.get("promotion"), Mapping) else {}
-                    if dict(context_promotion) != dict(promotion):
-                        findings.append(_doctor_finding("BLOCKER", "deepresearch context promotion differs from final_blind_status", path=_as_repo_meta(context_path)))
-                    if bool(context_final.get("promoted")) != bool(final_status.get("promoted")):
-                        findings.append(_doctor_finding("BLOCKER", "deepresearch context promoted flag differs from final_blind_status", path=_as_repo_meta(context_path)))
 
                     def selected_binding(payload: Any) -> dict[str, Any]:
                         item = payload if isinstance(payload, Mapping) else {}
@@ -7738,6 +7745,19 @@ def promote_candidate(
     elif _lean_gate_active(config) and not _lean_gate_passed(evaluation):
         status = _lean_gate_status(evaluation) or "missing"
         reason = f"lean_gate_status={status} blocks promotion"
+    elif config.validation_protocol != VALIDATION_SINGLE and not (
+        config.benchmark_suite
+        and isinstance(evaluation.get("benchmark"), Mapping)
+        and evaluation["benchmark"].get("passed") is True
+        and load_json(iter_dir / "benchmark_verdict.json", {}) == evaluation["benchmark"]
+    ):
+        from agent_market.strategy_miner._benchmark import benchmark_unavailable
+
+        verdict = evaluation.get("benchmark")
+        if not isinstance(verdict, Mapping) or verdict.get("passed") is True:
+            verdict = benchmark_unavailable(config.benchmark_suite, "formal promotion requires executed frozen benchmark evidence")
+            write_json(iter_dir / "benchmark_verdict.json", verdict)
+        reason = f"benchmark_status={verdict.get('status', 'insufficient_evidence')} blocks promotion"
     else:
         ctype = str(candidate.get("candidate_type"))
         if ctype == CANDIDATE_RANK_PROFILE:
@@ -8014,6 +8034,10 @@ class StrategyLoopRunner:
         self.state = StrategyLoopState(run_id=config.run_id)
         if config.resume:
             loaded_config, loaded_state = load_checkpoint(config.run_id)
+            if config.benchmark_suite:
+                if loaded_config.benchmark_suite and config.benchmark_suite != loaded_config.benchmark_suite:
+                    raise ValueError("cannot change the frozen benchmark_suite when resuming a run")
+                loaded_config.benchmark_suite = config.benchmark_suite
             for key in (
                 "model",
                 "agent",
@@ -9990,6 +10014,53 @@ class StrategyLoopRunner:
         write_json(idir / "verification.json", result)
         return result
 
+    def _run_frozen_benchmark(
+        self,
+        idir: Path,
+        selection: Mapping[str, Any],
+        holdout: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        from agent_market.strategy_miner._benchmark import benchmark_unavailable, evaluate_benchmark_gate
+        from agent_market.strategy_miner.dtypes import StrategyCandidate
+
+        try:
+            if not self.config.benchmark_suite:
+                raise ValueError("benchmark_suite is not configured")
+            selection_ft = selection.get("freqtrade_backtest") or {}
+            holdout_ft = holdout.get("freqtrade_backtest") or {}
+            if selection_ft.get("ok") is not True or holdout_ft.get("ok") is not True:
+                raise ValueError("selection and blind Freqtrade backtest evidence are required")
+            selection_summary = selection_ft["summary"]
+            holdout_summary = holdout_ft["summary"]
+            selection_profit = float(selection_summary["profit_total_pct"])
+            holdout_profit = float(holdout_summary["profit_total_pct"])
+            command = holdout_ft["command"]
+            strategy_name = command[command.index("--strategy") + 1]
+            strategy_dir = repo_paths.resolve_repo_path(command[command.index("--strategy-path") + 1])
+            strategy_path = strategy_dir / f"{strategy_name}.py"
+            candidate = StrategyCandidate(
+                name=strategy_name,
+                code=strategy_path.read_text(encoding="utf-8"),
+                strategy_path=strategy_path,
+                iteration=self.state.iteration,
+                backtest_summary=dict(selection_summary),
+            )
+            verdict = evaluate_benchmark_gate(
+                candidate,
+                suite_path=self.config.benchmark_suite,
+                holdout_result={
+                    "holdout_timerange": self.config.blind_timerange,
+                    "holdout_summary": dict(holdout_summary),
+                    "selection_profit_pct": selection_profit,
+                    "holdout_profit_pct": holdout_profit,
+                    "delta_pct": abs(selection_profit - holdout_profit),
+                },
+            )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+            verdict = benchmark_unavailable(self.config.benchmark_suite, f"{type(exc).__name__}: {exc}")
+        write_json(idir / "benchmark_verdict.json", verdict)
+        return verdict
+
     def _deepresearch_sidecar(self, final_status: Mapping[str, Any]) -> dict[str, Any]:
         root = repo_paths.artifacts_root() / "strategy_deepresearch" / self.config.run_id
         root.mkdir(parents=True, exist_ok=True)
@@ -10000,6 +10071,8 @@ class StrategyLoopRunner:
             findings.append({"severity": "BLOCKER", "message": "selected candidate did not pass lookahead/recursive gates"})
         if not bool((final_status.get("selected") or {}).get("blind_final")):
             findings.append({"severity": "BLOCKER", "message": "selected candidate is not backed by blind evaluation"})
+        if ((final_status.get("selected") or {}).get("benchmark") or {}).get("passed") is not True:
+            findings.append({"severity": "BLOCKER", "message": "selected candidate lacks passed frozen benchmark evidence"})
         if _lean_gate_active(self.config) and _lean_gate_status(final_status.get("selected") or {}) != VERIFICATION_PASSED:
             findings.append({"severity": "BLOCKER", "message": "selected candidate did not pass LEAN promotion gate"})
         status = VERIFICATION_FAILED if any(f.get("severity") in {"BLOCKER", "HIGH"} for f in findings) else VERIFICATION_PASSED
@@ -10052,6 +10125,7 @@ class StrategyLoopRunner:
             "- Validation ranks leaderboard/Pareto candidates.",
             "- Blind holdout is run only for Pareto finalists.",
             "- Promotion requires blind selected gates plus lookahead/recursive verification status `passed`.",
+            "- Promotion also requires an executed frozen benchmark pack with status `passed`.",
             "- When `lean_gate_mode` is enabled, promotion also requires LEAN gate status `passed`.",
         ])
         protocol_path = root / "validation_protocol.md"
@@ -10107,6 +10181,12 @@ class StrategyLoopRunner:
         pool = self._refresh_pareto_pool()
         finalists = pool.get("finalists") if isinstance(pool.get("finalists"), list) else []
         if not finalists:
+            from agent_market.strategy_miner._benchmark import benchmark_unavailable
+
+            write_json(
+                loop_root(self.config.run_id) / "benchmark_verdict.json",
+                benchmark_unavailable(self.config.benchmark_suite, "no Pareto finalists available for benchmark evaluation"),
+            )
             promotion = {"promoted": False, "artifacts": {}, "reason": "no Pareto finalists available"}
             status = {
                 "promoted": False,
@@ -10187,11 +10267,13 @@ class StrategyLoopRunner:
             blind_eval["selected_window"] = "blind"
             blind_eval["blind_final"] = True
             validation_stage: Mapping[str, Any] = blind_result
+            benchmark_selection: Mapping[str, Any] = {}
             source_backtest = load_json(candidate_path.parent / "backtest.json", {})
             if isinstance(source_backtest, Mapping):
                 stages = source_backtest.get("stages") if isinstance(source_backtest.get("stages"), Mapping) else {}
                 if isinstance(stages.get("validation"), Mapping):
                     validation_stage = stages["validation"]
+                    benchmark_selection = stages["validation"]
 
             if self.config.verify_policy == VERIFY_NONE:
                 verification = {"status": VERIFICATION_PENDING, "reason": "verify_policy=none"}
@@ -10210,13 +10292,16 @@ class StrategyLoopRunner:
             if self._should_run_lean_gate("blind", promotion_candidate=base_promotion_eligible):
                 self._apply_lean_gate(blind_dir, blind_eval, stage="blind", timerange=self.config.blind_timerange)
                 blind_eval["promotion_eligible"] = base_promotion_eligible and _lean_gate_passed(blind_eval)
+            benchmark = self._run_frozen_benchmark(blind_dir, benchmark_selection, blind_result)
+            blind_eval["benchmark"] = benchmark
+            blind_eval["promotion_eligible"] = blind_eval["promotion_eligible"] and benchmark.get("passed") is True
             lean_status = _lean_gate_status(blind_eval) if _lean_gate_active(self.config) else ""
             blind_eval["promotion_reason"] = (
-                "blind window, verification gates, and LEAN gate passed"
+                "blind window, verification, LEAN, and frozen benchmark gates passed"
                 if blind_eval["promotion_eligible"]
                 else (
                     f"blind/verification/LEAN failed: {blind_eval.get('violations') or []}; "
-                    f"verification={verification_status}; lean={lean_status or 'off'}"
+                    f"verification={verification_status}; lean={lean_status or 'off'}; benchmark={benchmark['status']}"
                 )
             )
             blind_eval["artifact_refs"] = _artifact_refs_for_iteration(blind_dir, exclude={"evaluation.json", "manifest.json"})
@@ -10259,6 +10344,17 @@ class StrategyLoopRunner:
             "selected": selected["evaluation"] if selected else None,
             "finalists": final_rows,
         }
+        benchmarks = [row["evaluation"]["benchmark"] for row in final_rows if "evaluation" in row]
+        all_benchmarks_passed = bool(benchmarks) and all(item.get("passed") is True for item in benchmarks)
+        benchmark_verdict = selected["evaluation"]["benchmark"] if selected else {
+            "passed": all_benchmarks_passed,
+            "status": "insufficient_evidence" if not benchmarks or any(
+                item.get("status") == "insufficient_evidence" for item in benchmarks
+            ) else ("passed" if all_benchmarks_passed else "failed"),
+            "finalists": benchmarks,
+            "reason": "benchmark outcomes for evaluated finalists; other promotion gates are separate",
+        }
+        write_json(loop_root(self.config.run_id) / "benchmark_verdict.json", benchmark_verdict)
         audit = self._deepresearch_sidecar(final_status)
         if selected and audit.get("status") == VERIFICATION_PASSED:
             selected_eval = selected["evaluation"]
@@ -10269,7 +10365,7 @@ class StrategyLoopRunner:
         elif selected:
             final_status["promotion"] = {"promoted": False, "artifacts": {}, "reason": "deepresearch BLOCKER/HIGH finding blocks promotion"}
             final_status["promoted"] = False
-        final_status["deepresearch"] = self._deepresearch_sidecar(final_status)
+        final_status["deepresearch"] = audit
         self.state.final_blind_status = final_status
         write_json(loop_root(self.config.run_id) / "final_blind_status.json", final_status)
         write_json(loop_root(self.config.run_id) / "final_promotion.json", final_status["promotion"])
@@ -10402,6 +10498,7 @@ def evaluate_candidate(
     blind_timerange: Optional[str] = None,
     verify_policy: Optional[str] = None,
     pareto_size_per_axis: int = 3,
+    benchmark_suite: str = "",
     lean_gate_mode: str = LEAN_GATE_OFF,
     lean_bin: str = "lean",
     lean_timeout: Optional[int] = None,
@@ -10432,6 +10529,7 @@ def evaluate_candidate(
         blind_timerange=blind_timerange,
         verify_policy=verify_policy,
         pareto_size_per_axis=pareto_size_per_axis,
+        benchmark_suite=benchmark_suite,
         lean_gate_mode=lean_gate_mode,
         lean_bin=lean_bin,
         lean_timeout=lean_timeout,

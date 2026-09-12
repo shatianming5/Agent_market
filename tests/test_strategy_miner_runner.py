@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from agent_market import paths
 from agent_market.strategy_miner.dtypes import MinerConfig, MinerState, Phase, StrategyCandidate
 from agent_market.strategy_miner.knowledge_base import KnowledgeBase
@@ -519,3 +521,99 @@ def test_holdout_failure_writes_demoted_promotion_log() -> None:
             assert promotion_rows[-1]["promotion_ok"] is False
             assert promotion_rows[-1]["promotion_status"] == "holdout_failed"
             assert promotion_rows[-1]["factor_references"] == ["flowrun:spec:breakout_card"]
+
+
+def _finalization_checkpoint(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_MARKET_RUNS_ROOT", str(tmp_path))
+    miner_dir = paths.run_dir("finalization") / "strategy_miner"
+    miner_dir.mkdir(parents=True)
+    candidate = StrategyCandidate(
+        name="Champion", code="class Champion: pass", strategy_path=miner_dir / "Champion.py",
+        iteration=1, stage="evaluated", reward=1.2,
+        backtest_summary={
+            "profit_total_pct": 10.0, "observation_days": 40,
+            "walkforward": {"folds_completed": 3, "folds_total": 3},
+        },
+    )
+    state = MinerState(
+        run_id="finalization", phase=Phase.COMPLETE, iteration=1,
+        candidates=[candidate], best_candidate=candidate, best_score=1.0,
+    )
+    checkpoint = miner_dir / "checkpoint.json"
+    checkpoint.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+    return miner_dir, checkpoint
+
+
+@pytest.mark.parametrize("result", [RuntimeError("bad holdout data"), None, {}])
+def test_holdout_error_is_persisted_and_never_emits_success(tmp_path, monkeypatch, result):
+    from agent_market.strategy_miner.runner import run_strategy_miner
+
+    miner_dir, checkpoint = _finalization_checkpoint(tmp_path, monkeypatch)
+    config = MinerConfig(use_global_memory=False, portfolio_enabled=False)
+    kwargs = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}
+    with patch("agent_market.strategy_miner._holdout.run_sealed_holdout", **kwargs):
+        with pytest.raises(RuntimeError):
+            run_strategy_miner(config, resume=checkpoint)
+
+    gate = json.loads((miner_dir / "holdout_gate.json").read_text())
+    assert gate["passed"] is False
+    assert gate["status"] == "insufficient_evidence"
+    assert gate["overfitting_flag"] is None
+    assert json.loads(checkpoint.read_text())["phase"] == "finalizing"
+    assert json.loads((miner_dir / "run_meta.json").read_text())["phase"] == "failed"
+    events = [json.loads(line)["event"] for line in (miner_dir / "events.jsonl").read_text().splitlines()]
+    assert "run_complete" not in events
+    assert "holdout_error" in events
+    assert "run_failed" in events
+
+    with patch(
+        "agent_market.strategy_miner._holdout.run_sealed_holdout",
+        return_value={"delta_pct": 2.0, "overfitting_flag": False},
+    ) as holdout:
+        recovered = run_strategy_miner(config, resume=checkpoint)
+    holdout.assert_called_once()
+    assert recovered.phase == Phase.COMPLETE
+    assert "holdout_error" not in recovered.best_candidate.funnel_state
+    assert json.loads((miner_dir / "holdout_gate.json").read_text())["passed"] is True
+
+
+@pytest.mark.parametrize("suite", ["", "benchmark_pack/not-present"])
+def test_runner_requires_configured_existing_benchmark(tmp_path, monkeypatch, suite):
+    from agent_market.strategy_miner.runner import run_strategy_miner
+
+    miner_dir, checkpoint = _finalization_checkpoint(tmp_path, monkeypatch)
+    with patch(
+        "agent_market.strategy_miner._holdout.run_sealed_holdout",
+        return_value={"delta_pct": 2.0, "overfitting_flag": False},
+    ):
+        result = run_strategy_miner(
+            MinerConfig(benchmark_suite=suite, use_global_memory=False, portfolio_enabled=False),
+            resume=checkpoint,
+        )
+    verdict = json.loads((miner_dir / "benchmark_verdict.json").read_text())
+    assert verdict["status"] == "insufficient_evidence"
+    assert verdict["passed"] is False
+    assert verdict["failed_ids"] == []
+    assert result.best_candidate.funnel_state["benchmark"] == verdict
+    meta = json.loads((miner_dir / "run_meta.json").read_text())
+    assert meta["promotion_status"] == "benchmark_insufficient_evidence"
+
+
+def test_benchmark_execution_error_preserves_holdout_and_writes_insufficient_verdict(tmp_path, monkeypatch):
+    from agent_market.strategy_miner.runner import run_strategy_miner
+
+    miner_dir, checkpoint = _finalization_checkpoint(tmp_path, monkeypatch)
+    with (
+        patch("agent_market.strategy_miner._holdout.run_sealed_holdout",
+              return_value={"delta_pct": 2.0, "overfitting_flag": False}) as holdout,
+        patch("agent_market.strategy_miner._benchmark.run_benchmark_suite",
+              side_effect=RuntimeError("benchmark unavailable")),
+    ):
+        config = MinerConfig(benchmark_suite="benchmark_pack/default", use_global_memory=False, portfolio_enabled=False)
+        run_strategy_miner(config, resume=checkpoint)
+        run_strategy_miner(config, resume=checkpoint)
+    holdout.assert_called_once()
+    assert json.loads((miner_dir / "holdout_gate.json").read_text())["passed"] is True
+    verdict = json.loads((miner_dir / "benchmark_verdict.json").read_text())
+    assert verdict["status"] == "insufficient_evidence"
+    assert "benchmark unavailable" in verdict["reason"]

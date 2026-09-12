@@ -23,8 +23,11 @@ test-smoke:
 		tests/test_strategy_miner_artifacts.py \
 		tests/test_strategy_miner_phases.py \
 		tests/test_factor_strategy_loop.py \
+		tests/test_strategy_loop_final_gates.py \
 		tests/test_rank_portfolio.py \
 		tests/test_factor_memory.py \
+		tests/test_gp_factor_mine_wrapper.py \
+		tests/test_gp_factor_mine_v2.py \
 		tests/test_backtest_results.py \
 		tests/test_pipeline_leakage.py \
 		tests/test_walkforward.py

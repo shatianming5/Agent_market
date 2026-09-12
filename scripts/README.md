@@ -30,7 +30,7 @@
 
 | 脚本 | 用途 |
 |---|---|
-| `gp_factor_mine_v2.py` | GP 因子挖掘当前实现；`gp_factor_mine.py` 仅保留为兼容 wrapper |
+| `gp_factor_mine_v2.py` | GP 当前实现；按标签实际结束时间剔除跨 TRAIN/VAL 窗口的 forward labels。兼容 wrapper `gp_factor_mine.py` 只接受 v2 固定切分对应的旧参数，非默认旧切分明确报错，不静默丢弃 |
 | `factor_compile.py` / `factor_eval.py` | 因子编译 + 评估 |
 | `verify_factors.py` / `tag_factor_snoop_level.py` | 因子验证 / 数据窥探等级标记 |
 | `walk_forward_pca.py` / `select_by_perm_importance.py` | walk-forward / 重要性筛选 |
@@ -38,6 +38,18 @@
 | `rl_generate_signals.py` | RL 信号生成 |
 | `verify_model_training.py` | 训练验证 |
 | `gen_4h_seeds.py` / `gen_researcher_seeds.py` | 种子生成（4h / researcher） |
+
+GP v2 的 fitness 使用固定的三个半年窗口：
+`2024-01-01–2024-07-01`、`2024-07-01–2025-01-01`、
+`2025-01-01–2025-07-01`；VAL3 为 `2025-07-01–2025-12-01`。
+旧 wrapper 接受 `--tr3-start=2024-01-01`、`--tr3-end=2025-07-01`、
+`--v3-start=2025-07-01`、`--v3-end=2025-12-01`（空格赋值同样支持）。
+同时保留旧版默认 `--tr3-start=2023-05-15` 到 `--data-start=2023-05-15`
+的翻译；启动提示明确说明较早数据只提供历史，不属于 v2 fitness 窗口。
+这些参数的其他日期值不能由固定 v2 协议表达，因此在加载数据前明确报错。
+使用上述固定协议的调用可迁移到 `python scripts/gp_factor_mine_v2.py`；
+其 `--data-start` / `--data-end` 只限制载入数据，不重新定义 TRAIN/VAL 切分，
+不能作为自定义旧切分的等价替代。
 
 ## 回测 / 报告 / 部署
 

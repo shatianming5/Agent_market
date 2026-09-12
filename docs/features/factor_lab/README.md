@@ -70,6 +70,14 @@ python scripts/factor_lab.py deploy describe
 
 ## 数据和产物
 
+`strategy-loop --formal`（及其他非 `single` 晋升路径）还必须显式设置
+`--benchmark-suite <已有冻结基准目录或 manifest.json>`。控制器用实际
+validation / blind Freqtrade summary 和执行命令对应的策略代码运行该 pack，
+保存 `benchmark_verdict.json` 后才允许晋升；缺少 pack、summary、策略文件或
+基准执行错误均为 `insufficient_evidence`，不替换为默认指标。基准阈值不变。
+deepresearch 本地审计只运行一次，`context.json` 保留晋升决定之前的输入；
+最终晋升结果写在 `final_blind_status.json`，不会反过来覆盖授权时的审计上下文。
+
 | 路径 | 说明 |
 |---|---|
 | `user_data/data/kucoin/*.feather` | KuCoin spot OHLCV |
@@ -93,4 +101,3 @@ pip install -c constraints.txt -r requirements-full.txt
 python scripts/factor_lab.py --help
 pytest tests/test_rank_portfolio.py -q
 ```
-

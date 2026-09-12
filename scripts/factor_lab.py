@@ -881,6 +881,7 @@ def cmd_strategy_loop(args):
         blind_timerange=args.blind_timerange,
         verify_policy=args.verify_policy,
         pareto_size_per_axis=args.pareto_size_per_axis,
+        benchmark_suite=args.benchmark_suite,
         lean_gate_mode=args.lean_gate_mode,
         lean_bin=args.lean_bin,
         lean_timeout=args.lean_timeout,
@@ -916,6 +917,7 @@ def cmd_strategy_loop_eval(args):
         blind_timerange=args.blind_timerange,
         verify_policy=args.verify_policy,
         pareto_size_per_axis=args.pareto_size_per_axis,
+        benchmark_suite=args.benchmark_suite,
         lean_gate_mode=args.lean_gate_mode,
         lean_bin=args.lean_bin,
         lean_timeout=args.lean_timeout,
@@ -1788,6 +1790,8 @@ def build_parser():
                     help="which candidates get lookahead/recursive verification; triple_holdout promotion requires passed gates")
     sl.add_argument("--pareto-size-per-axis", type=int, default=3,
                     help="number of deduped candidates retained per Pareto axis")
+    sl.add_argument("--benchmark-suite", default="",
+                    help="existing frozen benchmark manifest/directory; required for formal promotion")
     sl.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"],
                     help="run local LEAN validation as a promotion gate; enabled modes fail closed")
     sl.add_argument("--lean-bin", default=_default_lean_bin(),
@@ -1831,6 +1835,8 @@ def build_parser():
     sle.add_argument("--blind-timerange", default="20260401-20260412")
     sle.add_argument("--verify-policy", default="none", choices=["pareto", "best", "all", "none"])
     sle.add_argument("--pareto-size-per-axis", type=int, default=3)
+    sle.add_argument("--benchmark-suite", default="",
+                     help="existing frozen benchmark manifest/directory; required for formal promotion")
     sle.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"])
     sle.add_argument("--lean-bin", default=_default_lean_bin())
     sle.add_argument("--lean-timeout", type=int, default=None)
