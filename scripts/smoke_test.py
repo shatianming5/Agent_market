@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -23,6 +22,9 @@ def main() -> None:
 
     app = srv.app
     client = TestClient(app)
+    api_key = os.environ.get("AGENT_MARKET_API_KEY", "").strip()
+    if api_key:
+        client.headers.update({"X-API-Key": api_key})
 
     results: list[tuple[str, bool, str]] = []
 
@@ -121,10 +123,13 @@ def main() -> None:
     # Accept success (when example backtests exist) or NO_ARCHIVES error otherwise
     def _check_results_latest_summary() -> None:
         resp = client.get("/results/latest-summary")
-        assert resp.status_code == 200
         j = resp.json()
-        if j.get("status") != "error":
+        if resp.status_code == 200:
             assert_in("profit_total_pct", j)
+        else:
+            assert_eq(resp.status_code, 400)
+            assert_eq(j.get("status"), "error")
+            assert_eq(j.get("code"), "NO_ARCHIVES")
 
     check("GET /results/latest-summary", _check_results_latest_summary)
 
@@ -206,6 +211,8 @@ def main() -> None:
         ok_count += 1 if ok else 0
         print(f"[{'OK' if ok else 'FAIL'}] {name:<{width}}  {'' if ok else msg}")
     print(f"passed {ok_count}/{len(results)} checks")
+    if ok_count != len(results):
+        sys.exit(1)
 
 
 # helpers

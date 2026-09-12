@@ -10,7 +10,6 @@ reads this file, which is fine: these are generic base-column seeds.
 from __future__ import annotations
 
 import json
-import itertools
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]

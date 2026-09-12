@@ -58,6 +58,28 @@ python {WQ_TOOLS} pre-check ALPHA_ID --corr-max 0.7
 python {WQ_TOOLS} simulate "rank(close / ts_mean(close, 20) - 1)" \
   --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG}
 
+# 🐜 COLONY / PHEROMONE METADATA (use whenever you derive from a prior alpha):
+#   --parent-alpha-id <ID>     parent in tried_exprs; auto-classifies edit
+#                              altitude (L1/L2/L3/L4) + ΔU vs parent.
+#   --evidence-type <KIND>     one of: seed | mutation | crossover | op_swap |
+#                              region_swap | param_shift | decay_shift |
+#                              neutralization_swap | numeric_tweak | manual.
+#                              Defaults to 'mutation' when --parent-alpha-id
+#                              is set, otherwise 'manual' (seed-equivalent).
+#   --colony-tag <TAG>         when inside a colony, updates best_so_far.json.
+# Mutation Hints + Cross-Over Candidates blocks below already print ready-to-
+# paste lines with these flags — copy them verbatim and only replace <new_expr>.
+# Example:
+python {WQ_TOOLS} simulate "rank(ts_corr(close, volume, 20)) * rank(volume / adv20)" \
+  --region {REGION} --universe {UNIVERSE} --decay {DECAY} --tag {TAG} \
+  --parent-alpha-id akA1rPR1 --evidence-type op_swap --colony-tag {TAG}_colony
+
+# Slot cool-down hard gate: same operator-skeleton + same field set retried
+# with a tiny prior ΔU (< 0.05) is automatically rejected before quota is
+# burned. To intentionally retry such a slot (e.g. after escalating an arg),
+# add --skip-cooldown. Tune via --cooldown-window N (default 8) or
+# --cooldown-delta-flip X (default 0.05).
+
 # Submit a passing alpha. The CLI runs TWO gates before calling WQ:
 #  (1) LOCAL jaccard: rejects if token-similarity ≥0.7 with any ACTIVE
 #      alpha — saves WQ submit quota + 30s verify wait.
@@ -77,8 +99,21 @@ python {WQ_TOOLS} pool list --tag {TAG}
 # Check correlation of an alpha with existing pool (need <0.7 to submit)
 python {WQ_TOOLS} corr ALPHA_ID
 
-# Search arxiv abstracts for ideas
-python {WQ_TOOLS} search-arxiv "cross-sectional momentum reversal" --max 5
+# Search arxiv abstracts for ideas.
+# Default category filter is q-fin.*,stat.ML,cs.CE; keep it unless you have
+# a specific reason to broaden. Use --sort submittedDate only after relevance
+# has produced domain-matched papers.
+python {WQ_TOOLS} search-arxiv "cross-sectional momentum reversal" --max 5 --sort relevance
+
+# Multi-source literature search: arXiv + Semantic Scholar + OpenAlex + SSRN
+# site-search fallback. Use this when arXiv is sparse or you need citations,
+# venues, SSRN working papers, or broader quant-finance coverage.
+python {WQ_TOOLS} search-papers "order flow imbalance alpha market microstructure" --max 3
+
+# Symbolic math scratchpad. Use before translating a paper formula or
+# economic model into FASTEXPR so algebraic signs / derivatives are explicit.
+python {WQ_TOOLS} math simplify "log(S_t / S_0) - log(S_t) + log(S_0)"
+python {WQ_TOOLS} math diff "log(S) - gamma*sigma^2*T/2" --var S
 
 # General web search (Brave API if BRAVE_API_KEY env, else Wikipedia → GitHub fallback)
 python {WQ_TOOLS} web-search "intraday volatility spillover effect" --max 5
@@ -95,6 +130,19 @@ python {WQ_TOOLS} skill-list
 
 # Show full operator/field reference (also embedded below)
 python {WQ_TOOLS} docs operators
+
+# Pre-flight: confirm OPENAI_BASE_URL / OPENAI_MODEL respond before the
+# whole agent process starts up. Catches "model_not_found / 503" failures
+# fast (these used to silently abort the loop after the title-gen step).
+python {WQ_TOOLS} ping-llm
+
+# 🐜 Colony introspection — useful when running inside a multi-ant colony:
+python {WQ_TOOLS} colony status      --colony-tag <TAG>
+python {WQ_TOOLS} colony pheromones list --colony-tag <TAG> --limit 20
+python {WQ_TOOLS} colony pheromones show --colony-tag <TAG> --alpha-id <ID>
+# The 🧭 COLONY ROUTING ADVISORY block injected above tells you the controller's
+# recommended next action (stay / deeper / bubble_up / jump_root) and the
+# target altitude — treat it as a strong hint when picking your next edit.
 ```
 
 You may also use file/terminal freely to write notes, run quick analyses, etc.
@@ -128,6 +176,33 @@ The block below may contain up to 4 sections — read them in order:
 You have ~{MAX_TURNS} turns. The phases are guidelines, not a rigid script —
 adapt cadence to what's available in `## Cross-Loop Knowledge` above.
 
+### Compact Loop Mode — use when `{MAX_TURNS}` ≤ 20
+
+This campaign is meant to run many autonomous iterations. In compact mode,
+finish one complete research loop instead of expanding indefinitely:
+
+1. Run Phase 0 exactly once: `auth`, 2 `skill-search`, 1 `search-arxiv`,
+   1 `search-papers`, and 1 `math` command.
+2. Write a short `notes.md` hypothesis with `[skill:]`, `[arxiv:]` or
+   `[s2:]` / `[openalex:]`, and `[math:]` citations.
+3. Design 3 OHLCV-compatible candidates from distinct families.
+4. `validate` all 3; run `local-simulate` on the single best candidate only.
+   Run local-simulates sequentially, never in parallel. Compact-loop
+   runner enforces max 1 local-simulate total and max 1 active at a time;
+   each local-simulate also has a 360s compact timeout. If you see a
+   budget/concurrency/timeout JSON error, stop launching more local-simulates
+   and write `summary.md`.
+5. Remote `simulate` at most 2 candidates that pass the local gate. The CLI
+   enforces this in compact mode: a remote `simulate` for an expression that
+   did not pass local-simulate in the same run_dir is rejected before WQ quota
+   is reserved.
+6. If a remote result is a near-miss, run `mutate` once and optionally
+   simulate one mutation if it validates and passes local-simulate.
+7. Write `summary.md` before exiting, even if nothing passed.
+
+Do not spend compact loops on broad literature browsing, large candidate
+tables, or fundamentals that cannot pass the mandatory local-simulate gate.
+
 ### Phase 0 — Triage + Mandatory Research (5-8 turns) 🚫 REQUIRED
 
 You **MUST** complete ALL of the following before any simulate call:
@@ -143,16 +218,28 @@ You **MUST** complete ALL of the following before any simulate call:
    from `worldquant-skill` repo) with concrete operator/window combos
    that have worked in production. Skipping this step has historically
    led to local-optimum tunneling.
-3. **At least 1 `search-arxiv` query** for academic novelty:
-   - `search-arxiv "cross-sectional alpha factor 2024" --max 5`
-   - `search-arxiv "VWAP volume rank momentum" --max 5`
-   - `search-arxiv "intraday range volatility prediction" --max 5`
-4. **Optionally 1 `web-search`** for SeekingAlpha/Bloomberg/Reddit angle:
+3. **At least 1 `search-arxiv` query** for academic novelty. Keep the default
+   quant-finance category filter unless intentionally broadening:
+   - `search-arxiv "cross-sectional alpha factor 2024" --max 5 --sort relevance`
+   - `search-arxiv "VWAP volume rank momentum" --max 5 --sort relevance`
+   - `search-arxiv "intraday range volatility prediction" --max 5 --sort relevance`
+4. **At least 1 `search-papers` query** when the arXiv result set is thin,
+   generic, or missing working-paper coverage:
+   - `search-papers "order flow imbalance alpha market microstructure" --max 3`
+   - `search-papers "analyst revision cross sectional return predictability" --max 3`
+5. **At least 1 `math` command is mandatory before any simulate call.**
+   Use it to sanity-check the sign / monotonicity / smoothing transform for
+   your best paper- or playbook-derived idea, then write the sign convention
+   and resulting proxy in `notes.md`:
+   - `math simplify "log(S_t / S_0) - log(S_t) + log(S_0)"`
+   - `math diff "log(S) - gamma*sigma^2*T/2" --var S`
+6. **Optionally 1 `web-search`** for SeekingAlpha/Bloomberg/Reddit angle:
    `web-search "WorldQuant BRAIN consultant tips 2024" --max 5`
-5. **Read the cross-loop knowledge in this prompt** (## ACTIVE Submitted
+7. **Read the cross-loop knowledge in this prompt** (## ACTIVE Submitted
    Alphas, ## SUBMIT FAILURES, ## Cross-Over Candidates, ## Mutation Hints).
-6. Write your starting hypothesis to `notes.md` with citations:
-   `[skill: 降低 turnover §3]`, `[arxiv: 2403.12345 abstract]`, etc.
+8. Write your starting hypothesis to `notes.md` with citations:
+   `[skill: 降低 turnover §3]`, `[arxiv: 2403.12345 abstract]`,
+   `[s2: semantic_scholar paperId]`, `[openalex: W...]`, `[math: simplify]`, etc.
 
 After Phase 0:
 - **If Mutation Hints present** → Phase 2 directly with suggested strategy.
@@ -161,9 +248,11 @@ After Phase 0:
 
 ### Phase 1 — Deeper Research (5-10 turns; OPTIONAL — Phase 0 covers basics)
 
-Use `search-arxiv` / `web-search` / `fetch-url` to dig deeper into the
-specific gap your iteration is trying to close (e.g., if mutation hints
-say `reduce_turnover`, search for "alpha smoothing decay-weighted methods").
+Use `search-arxiv` / `search-papers` / `web-search` / `fetch-url` / `math`
+to dig deeper into the specific gap your iteration is trying to close
+(e.g., if mutation hints say `reduce_turnover`, search for
+"alpha smoothing decay-weighted methods" and symbolically check whether
+the smoothing transform preserves the intended sign).
 Read 3-5 abstracts. Look for:
 - intraday range / VWAP / sector-relative / volume-rank / decay-weighted patterns
 - Order flow imbalance proxies, microstructure asymmetries
@@ -208,9 +297,18 @@ Generate 5-10 distinct candidate expressions covering ≥3 different families.
 
 5. **MANDATORY local-simulate before every remote simulate.** WQ has a
    60-100/day quota; the OHLCV cache (12.99M rows / 2070 tickers) is
-   already loaded. Run `local-simulate` first; if `wq_sharpe < 0` flip
-   sign and re-run; if `wq_fitness < 0.5` after sign-flip, **DROP — do
-   not call remote `simulate`.** See Phase 3 for the full decision tree.
+   already loaded. For this mandatory gate, candidates must use only
+   local-simulate-supported fields:
+   `open`, `high`, `low`, `close`, `vwap`, `volume`, `returns`, `adv20`,
+   plus `sector` / `industry` / `subindustry` grouping labels. Do NOT use
+   fundamentals (`sales`, `assets`, `equity`, `debt`, `net_income`, etc.)
+   in a candidate you intend to local-simulate; the current local OHLCV
+   cache cannot evaluate them and will return
+   `identifier '<field>' not available locally`. Run `local-simulate`
+   first and set the Bash/tool timeout to at least 420000 ms because the
+   remote cache takes ~3-4 minutes per expression. If `wq_sharpe < 0` flip
+   sign and re-run; if `wq_fitness < 0.5` after sign-flip, **DROP — do not
+   call remote `simulate`.** See Phase 3 for the full decision tree.
    Bypassing this gate burns the daily quota on candidates that already
    look bad locally.
 
@@ -232,10 +330,21 @@ The strict parser catches arity mismatches and unknown ops BEFORE you burn WQ bu
 The OHLCV cache is loaded (Russell 3000 / 12.99M rows / 2070 tickers). You
 **MUST** run `local-simulate` on every candidate **before** any `simulate`
 call. WQ daily quota is the binding constraint — local pre-screen costs
-zero budget and rejects ~70% of weak candidates in seconds.
+zero budget and rejects ~70% of weak candidates. On the remote server this
+can take ~3-4 minutes per expression; when using the Bash tool set
+`timeout` to at least `420000` ms. Do not treat the default 120s/180s Bash
+timeout as a local-simulate failure.
+
+Local-simulate field boundary: it evaluates OHLCV-derived expressions only:
+`open`, `high`, `low`, `close`, `vwap`, `volume`, `returns`, `adv20`, plus
+`sector`, `industry`, and `subindustry` as grouping labels. If an expression
+contains fundamentals such as `sales/assets`, `debt/equity`,
+`net_income/equity`, `shares`, `cap`, `fcf`, or `operating_income`, redesign
+it into an OHLCV-compatible proxy for this loop instead of remote-simulating
+without the gate.
 
 ```bash
-python {WQ_TOOLS} local-simulate "<expr>" --rebalance-freq 5
+python {WQ_TOOLS} local-simulate "<expr>" --rebalance-freq 5 --tag {TAG}
 ```
 
 Returns `wq_sharpe / wq_fitness / wq_turnover / wq_returns / submittable / rating`.

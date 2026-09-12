@@ -6,7 +6,7 @@ import argparse
 import datetime as dt
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 from simhash import Simhash

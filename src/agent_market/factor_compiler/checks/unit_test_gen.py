@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from agent_market.factor_compiler import FactorSpec
-from agent_market.factor_compiler.dsl.operators import compile_to_expression_engine
 
 
 def generate_pytest_for_factor_spec(spec: FactorSpec, *, test_name: str = "test_factor_spec_compiles") -> str:
@@ -44,4 +42,3 @@ def write_pytest_for_factor_spec(spec: FactorSpec, path: Path) -> Path:
 
 
 __all__ = ["generate_pytest_for_factor_spec", "write_pytest_for_factor_spec"]
-

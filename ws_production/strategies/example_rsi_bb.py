@@ -2,7 +2,6 @@
 from __future__ import annotations
 import sys
 from pathlib import Path
-import numpy as np
 from pandas import DataFrame
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(_ROOT).parent / "src"))

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import time
 from dataclasses import asdict, dataclass, field, fields
@@ -19,8 +18,17 @@ from agent_market.freqai.features import apply_configured_features
 
 from . import mining
 from .cache import DEFAULT_CACHE_DIR
-from .paths import DEFAULT_PAIRS, FEATURE_FILE, KUCOIN_DIR, OKX_FUTURES_DIR, USER_DATA, feather_for_pair
-from .timeframes import bars_for_hours, bars_for_minutes, manifest_matches_profile, normalize_timeframe
+from .paths import (
+    DEFAULT_FUNDING_DAILY,
+    DEFAULT_PAIRS,
+    FEATURE_FILE,
+    FUNDING_DIR,
+    KUCOIN_DIR,
+    OKX_FUTURES_DIR,
+    USER_DATA,
+    feather_for_pair,
+)
+from .timeframes import bars_for_hours, bars_for_minutes, manifest_matches_profile, normalize_timeframe, timeframe_minutes
 
 
 DEFAULT_TAG = "gpt54_purealpha_v2_full1000_fix1"
@@ -36,14 +44,14 @@ class RiskConfig:
     net_cap: float = 2.5
     single_pair_cap: float = 2.0
     risk_per_trade: float = 0.008
-    daily_loss_limit: float = 0.04
+    daily_loss_limit: float = 0.06
     weekly_loss_limit: float = 0.08
-    drawdown_safe_mode: float = 0.12
-    consecutive_loss_limit: int = 5
+    drawdown_safe_mode: float = 0.20
+    consecutive_loss_limit: int = 8
     pause_hours: int = 24
     maintenance_margin: float = 0.005
     fee_buffer: float = 0.003
-    fee_rate: float = 0.0005
+    fee_rate: float = 0.0004
     slippage: float = 0.0003
     min_stop_pct: float = 0.01
     max_stop_pct: float = 0.06
@@ -66,6 +74,8 @@ class RiskConfig:
     pair_edge_strong_ic: float = 0.05
     pair_edge_very_strong_ic: float = 0.10
     pair_edge_weak_cap: float = 2.0
+    pair_edge_min_entry_ic: float = 0.0
+    pair_edge_min_hold_ic: float = 0.0
     regime_mode: str = "off"
     regime_min_edge_ic: float = 0.0
     regime_min_pair_edge_ic: float = 0.0
@@ -94,6 +104,8 @@ class RiskConfig:
         gross_cap: Optional[float] = None,
         net_cap: Optional[float] = None,
         top_k: Optional[int] = None,
+        min_pairs_for_top_k: Optional[int] = None,
+        low_pair_top_k: Optional[int] = None,
         single_pair_cap: Optional[float] = None,
         side_mode: Optional[str] = None,
         min_abs_score_z: Optional[float] = None,
@@ -111,6 +123,8 @@ class RiskConfig:
         pair_edge_strong_ic: Optional[float] = None,
         pair_edge_very_strong_ic: Optional[float] = None,
         pair_edge_weak_cap: Optional[float] = None,
+        pair_edge_min_entry_ic: Optional[float] = None,
+        pair_edge_min_hold_ic: Optional[float] = None,
         regime_mode: Optional[str] = None,
         regime_min_edge_ic: Optional[float] = None,
         regime_min_pair_edge_ic: Optional[float] = None,
@@ -159,6 +173,8 @@ class RiskConfig:
             "min_abs_score_z": ("RP_SCORE_THRESHOLD", float),
             "rebalance_hours": ("RP_REBALANCE_HOURS", int),
             "leverage_cap": ("RP_MAX_LEVERAGE", float),
+            "min_pairs_for_top_k": ("RP_MIN_PAIRS_FOR_TOP_K", int),
+            "low_pair_top_k": ("RP_LOW_PAIR_TOP_K", int),
             "edge_lookback_hours": ("RP_EDGE_LOOKBACK_HOURS", int),
             "edge_min_periods": ("RP_EDGE_MIN_PERIODS", int),
             "edge_deadband": ("RP_EDGE_DEADBAND", float),
@@ -166,6 +182,8 @@ class RiskConfig:
             "pair_edge_strong_ic": ("RP_PAIR_EDGE_STRONG_IC", float),
             "pair_edge_very_strong_ic": ("RP_PAIR_EDGE_VERY_STRONG_IC", float),
             "pair_edge_weak_cap": ("RP_PAIR_EDGE_WEAK_CAP", float),
+            "pair_edge_min_entry_ic": ("RP_PAIR_EDGE_MIN_ENTRY_IC", float),
+            "pair_edge_min_hold_ic": ("RP_PAIR_EDGE_MIN_HOLD_IC", float),
             "regime_min_edge_ic": ("RP_REGIME_MIN_EDGE_IC", float),
             "regime_min_pair_edge_ic": ("RP_REGIME_MIN_PAIR_EDGE_IC", float),
             "regime_min_pair_count": ("RP_REGIME_MIN_PAIR_COUNT", int),
@@ -213,6 +231,10 @@ class RiskConfig:
             cfg.net_cap = float(net_cap)
         if top_k is not None:
             cfg.top_k = int(top_k)
+        if min_pairs_for_top_k is not None:
+            cfg.min_pairs_for_top_k = int(min_pairs_for_top_k)
+        if low_pair_top_k is not None:
+            cfg.low_pair_top_k = int(low_pair_top_k)
         if single_pair_cap is not None:
             cfg.single_pair_cap = float(single_pair_cap)
         if side_mode is not None:
@@ -250,6 +272,10 @@ class RiskConfig:
             cfg.pair_edge_very_strong_ic = float(pair_edge_very_strong_ic)
         if pair_edge_weak_cap is not None:
             cfg.pair_edge_weak_cap = float(pair_edge_weak_cap)
+        if pair_edge_min_entry_ic is not None:
+            cfg.pair_edge_min_entry_ic = float(pair_edge_min_entry_ic)
+        if pair_edge_min_hold_ic is not None:
+            cfg.pair_edge_min_hold_ic = float(pair_edge_min_hold_ic)
         if regime_mode is not None:
             cfg.regime_mode = str(regime_mode).strip().lower()
         if regime_min_edge_ic is not None:
@@ -1263,6 +1289,13 @@ def _passes_entry_filters(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
     if pair and pair in _excluded_pair_set(cfg):
         return False
 
+    min_pair_entry = float(max(0.0, getattr(cfg, "pair_edge_min_entry_ic", 0.0) or 0.0))
+    if min_pair_entry > 0.0 and _edge_mode(cfg) == "rolling_ic":
+        edge_sign = _safe_float(row.get("rp_edge_sign"), default=0.0)
+        pair_edge = _safe_float(row.get("rp_pair_edge_ic"), default=0.0)
+        if edge_sign == 0.0 or (pair_edge * edge_sign) < min_pair_entry:
+            return False
+
     max_atr = _optional_float(getattr(cfg, "max_entry_atr_pct", None))
     atr = _optional_float(row.get("rp_atr_pct"))
     if max_atr is not None and atr is not None and atr > max_atr:
@@ -1297,6 +1330,13 @@ def _passes_entry_filters(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
 
 
 def _should_exit_held(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
+    min_pair_hold = float(max(0.0, getattr(cfg, "pair_edge_min_hold_ic", 0.0) or 0.0))
+    if min_pair_hold > 0.0 and _edge_mode(cfg) == "rolling_ic":
+        edge_sign = _safe_float(row.get("rp_edge_sign"), default=0.0)
+        pair_edge = _safe_float(row.get("rp_pair_edge_ic"), default=0.0)
+        if edge_sign == 0.0 or (pair_edge * edge_sign) < min_pair_hold:
+            return True
+
     if side < 0:
         mom24 = _optional_float(row.get("rp_mom_24h"))
         exit_24 = _optional_float(getattr(cfg, "short_exit_mom_24h", None))
@@ -1325,8 +1365,75 @@ def _passes_score_threshold(row: pd.Series, side: int, cfg: RiskConfig) -> bool:
     return abs(z) >= threshold
 
 
-def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg: RiskConfig) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-    venue = add_risk_columns(venue_panel, timeframe=getattr(cfg, "timeframe", "1h"))
+def _coerce_utc_timestamp(value: Any) -> Optional[pd.Timestamp]:
+    if value in (None, ""):
+        return None
+    ts = pd.Timestamp(value)
+    if ts.tzinfo is None:
+        return ts.tz_localize("UTC")
+    return ts.tz_convert("UTC")
+
+
+def _warmup_start_for_rank_signals(start: Optional[str], cfg: RiskConfig) -> Tuple[Optional[str], Dict[str, Any]]:
+    start_ts = _coerce_utc_timestamp(start)
+    if start_ts is None:
+        return start, {"enabled": False, "requested_start": str(start) if start else None}
+
+    tf = normalize_timeframe(getattr(cfg, "timeframe", "1h"))
+    risk_warmup_hours = int(max(24 * 30, 96, 72, 24))
+    edge_warmup_hours = 0
+    if _edge_mode(cfg) == "rolling_ic":
+        edge_warmup_hours = int(max(
+            0,
+            int(getattr(cfg, "edge_lookback_hours", 0) or 0),
+            int(getattr(cfg, "edge_min_periods", 0) or 0),
+        ))
+    # Round trip through bars so non-1h timeframes request enough whole candles.
+    warmup_bars = int(max(
+        0,
+        bars_for_hours(risk_warmup_hours, tf),
+        bars_for_hours(edge_warmup_hours, tf),
+    ))
+    if warmup_bars <= 0:
+        return start, {"enabled": False, "requested_start": start_ts.isoformat()}
+
+    warmup_minutes = int(warmup_bars * timeframe_minutes(tf))
+    load_start_ts = start_ts - pd.Timedelta(minutes=warmup_minutes)
+    load_start = load_start_ts.strftime("%Y-%m-%d %H:%M:%S")
+    return load_start, {
+        "enabled": True,
+        "requested_start": start_ts.isoformat(),
+        "load_start": load_start_ts.isoformat(),
+        "warmup_hours": float(warmup_minutes) / 60.0,
+        "warmup_bars": warmup_bars,
+        "edge_warmup_hours": edge_warmup_hours,
+        "risk_warmup_hours": risk_warmup_hours,
+    }
+
+
+def build_rank_signals(
+    score_frame: pd.DataFrame,
+    venue_panel: pd.DataFrame,
+    cfg: RiskConfig,
+    *,
+    trading_start: Optional[Any] = None,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    risk_columns = {
+        "rp_atr_pct",
+        "rp_mom_24h",
+        "rp_mom_72h",
+        "rp_volume_ratio",
+        "rp_ma_gap_96h",
+        "rp_market_mom_24h",
+        "rp_market_mom_72h",
+        "rp_market_ma_gap_96h",
+        "rp_market_atr_pct",
+    }
+    if risk_columns.issubset(set(venue_panel.columns)):
+        venue = venue_panel.copy()
+        venue["date"] = pd.to_datetime(venue["date"], utc=True)
+    else:
+        venue = add_risk_columns(venue_panel, timeframe=getattr(cfg, "timeframe", "1h"))
     scores = score_frame.copy()
     scores["date"] = pd.to_datetime(scores["date"], utc=True)
     merged = venue.merge(scores, on=["date", "__pair__"], how="left")
@@ -1351,7 +1458,14 @@ def build_rank_signals(score_frame: pd.DataFrame, venue_panel: pd.DataFrame, cfg
     held: Dict[str, Dict[str, float]] = {}
     side_mode = _side_mode(cfg)
     rebalance_bars = max(1, int(getattr(cfg, "rebalance_hours", 1) or 1))
-    for date_i, (_, group) in enumerate(merged.groupby("date", sort=True)):
+    trading_start_ts = _coerce_utc_timestamp(trading_start)
+    trade_date_i = 0
+    for _, group in merged.groupby("date", sort=True):
+        group_date = pd.Timestamp(group["date"].iloc[0])
+        if trading_start_ts is not None and group_date < trading_start_ts:
+            continue
+        date_i = trade_date_i
+        trade_date_i += 1
         g = group.copy()
         valid = (
             g["rp_score"].notna()
@@ -1518,6 +1632,8 @@ def rank_export(
     start: Optional[str] = None,
     end: Optional[str] = None,
     top_k: Optional[int] = None,
+    min_pairs_for_top_k: Optional[int] = None,
+    low_pair_top_k: Optional[int] = None,
     gross_cap: Optional[float] = None,
     net_cap: Optional[float] = None,
     single_pair_cap: Optional[float] = None,
@@ -1536,6 +1652,8 @@ def rank_export(
     pair_edge_strong_ic: Optional[float] = None,
     pair_edge_very_strong_ic: Optional[float] = None,
     pair_edge_weak_cap: Optional[float] = None,
+    pair_edge_min_entry_ic: Optional[float] = None,
+    pair_edge_min_hold_ic: Optional[float] = None,
     regime_mode: Optional[str] = None,
     regime_min_edge_ic: Optional[float] = None,
     regime_min_pair_edge_ic: Optional[float] = None,
@@ -1600,6 +1718,8 @@ def rank_export(
         gross_cap=gross_cap,
         net_cap=net_cap,
         top_k=top_k,
+        min_pairs_for_top_k=min_pairs_for_top_k,
+        low_pair_top_k=low_pair_top_k,
         single_pair_cap=single_pair_cap,
         side_mode=side_mode,
         min_abs_score_z=min_abs_score_z,
@@ -1617,6 +1737,8 @@ def rank_export(
         pair_edge_strong_ic=pair_edge_strong_ic,
         pair_edge_very_strong_ic=pair_edge_very_strong_ic,
         pair_edge_weak_cap=pair_edge_weak_cap,
+        pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=pair_edge_min_hold_ic,
         regime_mode=regime_mode,
         regime_min_edge_ic=regime_min_edge_ic,
         regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -1637,12 +1759,13 @@ def rank_export(
         short_exit_market_ma_gap=short_exit_market_ma_gap,
         exclude_pairs=exclude_pairs,
     )
-    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=start, end=end)
-    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=start, end=end)
+    load_start, warmup_report = _warmup_start_for_rank_signals(start, risk_cfg)
+    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=load_start, end=end)
+    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=load_start, end=end)
     scores, score_report = compute_ensemble_scores(feature_panel, selected)
     if int(score_report.get("used_factor_count", 0) or 0) <= 0:
         raise ValueError(f"rank ensemble could not evaluate any selected factors: {score_report.get('errors', [])[:5]}")
-    signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg)
+    signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg, trading_start=start)
 
     out_dir = _artifact_dir(tag)
     selected_path = out_dir / "selected_factors.json"
@@ -1664,6 +1787,7 @@ def rank_export(
         "selection": selection_report,
         "scores": score_report,
         "signal_report": signal_report,
+        "signal_warmup": warmup_report,
     }
     (out_dir / "rank_export.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     return summary
@@ -1677,26 +1801,64 @@ def _max_drawdown(equity: pd.Series) -> float:
     return float(dd.max() or 0.0)
 
 
+def _load_funding_panel(pairs: Iterable[str]) -> Dict[Tuple[str, pd.Timestamp], float]:
+    """Load per-8h funding rates for known pairs.
+
+    Returns dict keyed by (normalised_pair, utc_timestamp).
+    Pairs whose feather is absent are silently skipped; callers use DEFAULT_FUNDING_8H as fallback.
+    """
+    panel: Dict[Tuple[str, pd.Timestamp], float] = {}
+    for raw_pair in pairs:
+        sym = raw_pair.split("/")[0].upper()
+        pf = FUNDING_DIR / f"{sym}_USDT-funding.feather"
+        if not pf.exists():
+            continue
+        try:
+            df = pd.read_feather(pf)
+            df["date"] = pd.to_datetime(df["date"], utc=True)
+            norm = raw_pair.upper().replace(" ", "")
+            for ts, rate in zip(df["date"], df["funding_rate"]):
+                panel[(norm, ts)] = float(rate)
+        except Exception:
+            pass
+    return panel
+
+
+DEFAULT_FUNDING_8H: float = DEFAULT_FUNDING_DAILY / 3  # per-8h fallback when feather absent
+
+
 def run_research_backtest(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, Any]:
     df = signals.copy().sort_values(["pair", "date"]).reset_index(drop=True)
     df["date"] = pd.to_datetime(df["date"], utc=True)
     pieces: List[pd.DataFrame] = []
     for _, sub in df.groupby("pair", sort=False):
         sub = sub.copy()
+        sub["next_open"] = sub["open"].shift(-1)
         sub["next_close"] = sub["close"].shift(-1)
         sub["next_high"] = sub["high"].shift(-1)
         sub["next_low"] = sub["low"].shift(-1)
-        sub["ret_next"] = (sub["next_close"] / sub["close"]) - 1.0
+        # Full-bar return: entry at open[T+1], exit at open[T+2] (next-open-to-next-next-open).
+        # This captures overnight gaps while preserving per-bar early-exit semantics.
+        sub["next_next_open"] = sub["open"].shift(-2)
+        sub["ret_next"] = (sub["next_next_open"] / sub["next_open"].clip(lower=1e-12)) - 1.0
         pieces.append(sub)
     df = pd.concat(pieces, ignore_index=True)
+
+    # Load funding rates (8h cadence). Missing pairs fall back to DEFAULT_FUNDING_8H.
+    unique_pairs = list(df["pair"].unique())
+    funding_panel = _load_funding_panel(unique_pairs)
+    total_funding_paid: float = 0.0
 
     controller = AccountRiskController(cfg)
     prev_weights: Dict[str, float] = {}
     equity = 1.0
     rows: List[Dict[str, Any]] = []
     simulated_liquidations = 0
+    liquidation_terminated_at: Any = None
     trades = 0
     for date, group in df.groupby("date", sort=True):
+        if liquidation_terminated_at is not None:
+            break
         status = controller.update(date, equity)
         g = group.copy()
         if not status.allow_new_entries:
@@ -1720,19 +1882,35 @@ def run_research_backtest(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, A
                 continue
             side = 1.0 if weight > 0 else -1.0
             stop = float(row.get("rp_stop_pct", 0.02) or 0.02)
-            close = float(row["close"])
+            # Use next_open as fill/reference price (avoids look-ahead vs current close)
+            entry = float(row.get("next_open") or row["close"])
+            if entry <= 0:
+                entry = float(row["close"])
             if side > 0:
-                adverse = (close - float(row.get("next_low", close))) / max(close, 1e-12)
+                adverse = (entry - float(row.get("next_low", entry))) / max(entry, 1e-12)
                 side_ret = float(row["ret_next"])
             else:
-                adverse = (float(row.get("next_high", close)) - close) / max(close, 1e-12)
+                adverse = (float(row.get("next_high", entry)) - entry) / max(entry, 1e-12)
                 side_ret = -float(row["ret_next"])
             if adverse >= float(row.get("rp_liq_distance", 999.0) or 999.0):
                 simulated_liquidations += 1
                 side_ret = -float(row.get("rp_liq_distance", stop))
+                liquidation_terminated_at = date
             elif adverse >= stop:
                 side_ret = -stop
             pnl += abs(weight) * side_ret
+
+        # Funding cost at 8h settlement periods (00:00 / 08:00 / 16:00 UTC)
+        if hasattr(date, "hour") and date.hour in (0, 8, 16):
+            for pair, w in prev_weights.items():
+                if abs(w) < 1e-9:
+                    continue
+                norm = pair.upper().replace(" ", "")
+                fr = funding_panel.get((norm, date), DEFAULT_FUNDING_8H)
+                # Positive funding: longs pay, shorts receive (w encodes sign)
+                funding_adj = -w * fr
+                pnl += funding_adj
+                total_funding_paid -= funding_adj  # track total paid by portfolio
 
         all_pairs = set(prev_weights) | set(weights_now)
         turnover = sum(abs(weights_now.get(pair, 0.0) - prev_weights.get(pair, 0.0)) for pair in all_pairs)
@@ -1777,13 +1955,23 @@ def run_research_backtest(signals: pd.DataFrame, cfg: RiskConfig) -> Dict[str, A
         "profit_over_max_drawdown": float(total_return / max(max_dd, 1e-12)),
         "trades": int(trades),
         "simulated_liquidations": int(simulated_liquidations),
+        "liquidation_terminated_at": str(liquidation_terminated_at) if liquidation_terminated_at is not None else None,
         "liquidation_rejects": int(signals.get("rp_liq_reject", pd.Series(dtype=bool)).sum()),
         "leverage_distribution": {str(k): int(v) for k, v in leverage_dist.items()},
         "risk_mode_counts": {str(k): int(v) for k, v in risk_mode_counts.items()},
         "avg_gross": float(curve["gross"].mean() if not curve.empty else 0.0),
         "max_gross": float(curve["gross"].max() if not curve.empty else 0.0),
         "avg_turnover": float(curve["turnover"].mean() if not curve.empty else 0.0),
+        "total_funding_cost": float(total_funding_paid),
         "periods": int(len(curve)),
+        "curve": (
+            [
+                {"date": str(row["date"]), "equity": float(row["equity"])}
+                for _, row in curve[["date", "equity"]].iterrows()
+            ]
+            if not curve.empty
+            else []
+        ),
     }
 
 
@@ -1795,6 +1983,8 @@ def rank_backtest(
     data_venue: str = "auto",
     pairs: Optional[Sequence[str] | str] = None,
     top_k: int = 2,
+    min_pairs_for_top_k: Optional[int] = None,
+    low_pair_top_k: Optional[int] = None,
     gross_cap: float = 2.0,
     net_cap: Optional[float] = None,
     single_pair_cap: Optional[float] = None,
@@ -1817,6 +2007,8 @@ def rank_backtest(
     pair_edge_strong_ic: Optional[float] = None,
     pair_edge_very_strong_ic: Optional[float] = None,
     pair_edge_weak_cap: Optional[float] = None,
+    pair_edge_min_entry_ic: Optional[float] = None,
+    pair_edge_min_hold_ic: Optional[float] = None,
     regime_mode: Optional[str] = None,
     regime_min_edge_ic: Optional[float] = None,
     regime_min_pair_edge_ic: Optional[float] = None,
@@ -1851,6 +2043,8 @@ def rank_backtest(
         start=start,
         end=end,
         top_k=top_k,
+        min_pairs_for_top_k=min_pairs_for_top_k,
+        low_pair_top_k=low_pair_top_k,
         gross_cap=gross_cap,
         net_cap=net_cap,
         single_pair_cap=single_pair_cap,
@@ -1869,6 +2063,8 @@ def rank_backtest(
         pair_edge_strong_ic=pair_edge_strong_ic,
         pair_edge_very_strong_ic=pair_edge_very_strong_ic,
         pair_edge_weak_cap=pair_edge_weak_cap,
+        pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=pair_edge_min_hold_ic,
         regime_mode=regime_mode,
         regime_min_edge_ic=regime_min_edge_ic,
         regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -1915,6 +2111,8 @@ def rank_backtest(
         pair_edge_strong_ic=pair_edge_strong_ic,
         pair_edge_very_strong_ic=pair_edge_very_strong_ic,
         pair_edge_weak_cap=pair_edge_weak_cap,
+        pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=pair_edge_min_hold_ic,
         regime_mode=regime_mode,
         regime_min_edge_ic=regime_min_edge_ic,
         regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -1962,6 +2160,8 @@ def rank_backtest(
         "pair_edge_strong_ic": float(risk_cfg.pair_edge_strong_ic),
         "pair_edge_very_strong_ic": float(risk_cfg.pair_edge_very_strong_ic),
         "pair_edge_weak_cap": float(risk_cfg.pair_edge_weak_cap),
+        "pair_edge_min_entry_ic": float(risk_cfg.pair_edge_min_entry_ic),
+        "pair_edge_min_hold_ic": float(risk_cfg.pair_edge_min_hold_ic),
         "regime_mode": risk_cfg.regime_mode,
         "regime_min_edge_ic": float(risk_cfg.regime_min_edge_ic),
         "regime_min_pair_edge_ic": float(risk_cfg.regime_min_pair_edge_ic),
@@ -2022,6 +2222,8 @@ def rank_sweep(
     pair_edge_strong_ic: Optional[float] = None,
     pair_edge_very_strong_ic: Optional[float] = None,
     pair_edge_weak_cap: Optional[float] = None,
+    pair_edge_min_entry_ic: Optional[float] = None,
+    pair_edge_min_hold_ic: Optional[float] = None,
     regime_mode: Optional[str] = None,
     regime_min_edge_ic: Optional[float] = None,
     regime_min_pair_edge_ic: Optional[float] = None,
@@ -2081,8 +2283,16 @@ def rank_sweep(
     )
     selection_report["pair_universe"] = pair_report
 
-    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=start, end=end)
-    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=start, end=end)
+    warmup_cfg = RiskConfig.from_profile(
+        risk_profile,
+        timeframe=tf,
+        edge_mode=edge_mode,
+        edge_lookback_hours=edge_lookback_hours,
+        edge_min_periods=edge_min_periods,
+    )
+    load_start, warmup_report = _warmup_start_for_rank_signals(start, warmup_cfg)
+    feature_panel = load_feature_panel(pairs=pairs, timeframe=tf, data_venue=feature_venue, start=load_start, end=end)
+    venue_panel = load_venue_ohlcv(venue=venue, timeframe=tf, pairs=pairs, start=load_start, end=end)
     scores, score_report = compute_ensemble_scores(feature_panel, selected)
     if int(score_report.get("used_factor_count", 0) or 0) <= 0:
         raise ValueError(f"rank ensemble could not evaluate any selected factors: {score_report.get('errors', [])[:5]}")
@@ -2121,6 +2331,8 @@ def rank_sweep(
                             pair_edge_strong_ic=pair_edge_strong_ic,
                             pair_edge_very_strong_ic=pair_edge_very_strong_ic,
                             pair_edge_weak_cap=pair_edge_weak_cap,
+                            pair_edge_min_entry_ic=pair_edge_min_entry_ic,
+                            pair_edge_min_hold_ic=pair_edge_min_hold_ic,
                             regime_mode=regime_mode,
                             regime_min_edge_ic=regime_min_edge_ic,
                             regime_min_pair_edge_ic=regime_min_pair_edge_ic,
@@ -2141,7 +2353,7 @@ def rank_sweep(
                             short_exit_market_ma_gap=short_exit_market_ma_gap,
                             exclude_pairs=exclude_pairs,
                         )
-                        signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg)
+                        signals, signal_report = build_rank_signals(scores, venue_panel, risk_cfg, trading_start=start)
                         result = run_research_backtest(signals, risk_cfg)
                         result.update({
                             "tag": tag,
@@ -2167,6 +2379,8 @@ def rank_sweep(
                             "pair_edge_strong_ic": float(risk_cfg.pair_edge_strong_ic),
                             "pair_edge_very_strong_ic": float(risk_cfg.pair_edge_very_strong_ic),
                             "pair_edge_weak_cap": float(risk_cfg.pair_edge_weak_cap),
+                            "pair_edge_min_entry_ic": float(risk_cfg.pair_edge_min_entry_ic),
+                            "pair_edge_min_hold_ic": float(risk_cfg.pair_edge_min_hold_ic),
                             "regime_mode": risk_cfg.regime_mode,
                             "regime_min_edge_ic": float(risk_cfg.regime_min_edge_ic),
                             "regime_min_pair_edge_ic": float(risk_cfg.regime_min_pair_edge_ic),
@@ -2191,6 +2405,7 @@ def rank_sweep(
                             "selected_factors": str(selected_path),
                             "candidate_source": source,
                             "signal_report": signal_report,
+                            "signal_warmup": warmup_report,
                         })
                         rows.append(result)
     summary = {
@@ -2206,6 +2421,7 @@ def rank_sweep(
         "selected_factors": str(selected_path),
         "selection": selection_report,
         "scores": score_report,
+        "signal_warmup": warmup_report,
         "results": rows,
         "best_by_profit_over_dd": max(rows, key=lambda r: r.get("profit_over_max_drawdown", -1e9)) if rows else None,
     }

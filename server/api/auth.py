@@ -16,7 +16,7 @@ import os
 import secrets
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Security
+from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 _header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)

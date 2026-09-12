@@ -29,7 +29,7 @@ except Exception:
     Env = object  # type: ignore
     spaces = None  # type: ignore
 
-from agent_market.freqai.training.pipeline import Dataset, FeatureDatasetBuilder
+from agent_market.freqai.training.pipeline import Dataset
 
 
 @dataclass

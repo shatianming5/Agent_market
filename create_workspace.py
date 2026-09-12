@@ -3,7 +3,7 @@
 
 Usage:
     python create_workspace.py                    # creates ws_001/
-    python create_workspace.py --name my_research # creates ws_my_research/
+    python create_workspace.py --name my_research # creates my_research/
     python create_workspace.py --download-data    # also downloads market data
 
 After creation, start OpenCode in the workspace:
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from datetime import datetime
@@ -36,8 +37,13 @@ def create_workspace(name: str = "", download_data: bool = False) -> Path:
         ws_id = find_next_id()
         name = f"ws_{ws_id:03d}"
 
-    ws = ROOT / name
-    if ws.exists():
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", name):
+        raise ValueError("Workspace name must be a local name using letters, digits, _, - or .")
+    root = ROOT.resolve()
+    ws = root / name
+    if ws.resolve().parent != root:
+        raise ValueError("Workspace must be a direct child of the repository")
+    if ws.exists() or ws.is_symlink():
         print(f"ERROR: {ws} already exists")
         sys.exit(1)
 
@@ -382,10 +388,13 @@ across walk-forward windows."
 
 def main():
     parser = argparse.ArgumentParser(description="Create a new quant research workspace")
-    parser.add_argument("--name", default="", help="Workspace name (default: auto-increment ws_NNN)")
+    parser.add_argument("--name", default="", help="Local directory name, used verbatim (default: ws_NNN)")
     parser.add_argument("--download-data", action="store_true", help="Download market data")
     args = parser.parse_args()
-    create_workspace(name=args.name, download_data=args.download_data)
+    try:
+        create_workspace(name=args.name, download_data=args.download_data)
+    except ValueError as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":

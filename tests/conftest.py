@@ -6,6 +6,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -62,3 +64,21 @@ def _bootstrap_isolated_io_roots() -> None:
 
 
 _bootstrap_isolated_io_roots()
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--run-network",
+        action="store_true",
+        default=False,
+        help="run tests marked with @pytest.mark.network",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if config.getoption("--run-network"):
+        return
+    skip_network = pytest.mark.skip(reason="network test; pass --run-network to run")
+    for item in items:
+        if "network" in item.keywords:
+            item.add_marker(skip_network)

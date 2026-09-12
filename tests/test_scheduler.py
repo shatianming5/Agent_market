@@ -1,5 +1,5 @@
 """Tests for bandit scheduler."""
-from agent_market.strategy_miner._scheduler import BanditScheduler, FamilyStats
+from agent_market.strategy_miner._scheduler import BanditScheduler
 
 
 def test_bandit_selects_n_families():

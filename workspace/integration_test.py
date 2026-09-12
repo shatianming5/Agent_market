@@ -6,7 +6,6 @@ Run: PYTHONPATH=. python3 workspace/integration_test.py
 from __future__ import annotations
 
 import sys
-import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]

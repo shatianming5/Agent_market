@@ -3,13 +3,41 @@ from __future__ import annotations
 import re
 
 _HARD_DENY_PATTERNS: tuple[str, ...] = (
-    # rm -rf / (with optional trailing slash, args, --no-preserve-root)
-    r"(^|[;&|\n]\s*)\s*rm\s+(-\w*\s+)*-rf\s+/\s*($|[\s;&|\n])",
-    r"(^|[;&|\n]\s*)\s*rm\s+(-\w*\s+)*-rf\s+/\*",
+    # rm -rf / (with optional trailing slash, args, --no-preserve-root) —
+    # broadened terminator class so the pattern matches inside quoted
+    # interpreter args (e.g. python3 -c "os.system('rm -rf /')").
+    r"\brm\s+(-\w*\s+)*-rf\s+/\s*($|[\s;&|\n\"'])",
+    r"\brm\s+(-\w*\s+)*-rf\s+/\*",
     # rm -rf ~ or ~/ or $HOME or $HOME/
-    r"(^|[;&|\n]\s*)\s*rm\s+(-\w*\s+)*-rf\s+~(/|\s|$)",
-    r"(^|[;&|\n]\s*)\s*rm\s+(-\w*\s+)*-rf\s+\$HOME(/|\s|$)",
-    r"(^|[;&|\n]\s*)\s*:\(\)\s*\{\s*:\|\:\s*&\s*\}\s*;\s*:",  # fork bomb
+    r"\brm\s+(-\w*\s+)*-rf\s+~(/|\s|$)",
+    r"\brm\s+(-\w*\s+)*-rf\s+\$HOME(/|\s|$)",
+    r":\(\)\s*\{\s*:\|\:\s*&\s*\}\s*;\s*:",  # fork bomb
+    # Pipe-to-shell remote-execution patterns: curl/wget URL | sh|bash|zsh
+    r"\b(curl|wget|fetch)\b[^|]*\|\s*(sudo\s+)?(sh|bash|zsh|fish|python3?|perl|ruby|node)\b",
+    # Eval / exec a command-substitution expansion: eval "$(...)" / exec `...`
+    r"\b(eval|exec)\s+[\"']?\$\(",
+    r"\b(eval|exec)\s+[\"']?`",
+    # Writes / dumps to OS-owned paths (NOT just reads — those have legit
+    # uses; writes/redirects to system dirs almost never do for a research agent)
+    r"(>|>>)\s*/(etc|usr|sys|proc|boot|root|var/log|bin|sbin|lib(64)?)/",
+    r"\btee\s+(-a\s+)?/(etc|usr|sys|proc|boot|root|var/log|bin|sbin|lib(64)?)/",
+    r"\bchmod\s+\+s\b",  # setuid/setgid escalation
+    r"\bchown\s+root\b",
+
+    # CRITICAL FILE PATH references regardless of leading command.
+    # Catches `python3 -c "open('/etc/shadow').read()"` and similar
+    # interpreter-escape attempts that bypass the (cat|less|cp|...) prefix.
+    r"['\"\s]/etc/(passwd|shadow|sudoers|gshadow|sudoers\.d/)",
+    r"['\"\s](~|\$HOME|/home/[^\s/'\"]+)/\.ssh/(id_|authorized_keys|known_hosts|config)",
+    r"['\"\s](~|\$HOME|/home/[^\s/'\"]+)/\.aws/credentials",
+    r"['\"\s](~|\$HOME|/home/[^\s/'\"]+)/\.config/gcloud/",
+
+    # Python / Ruby / Perl interpreter escape — code that explicitly opens
+    # subshells or sockets bypasses the shell denylist. Pattern fires on
+    # well-known escape APIs in any -c / -e payload, regardless of quoting.
+    # Trailing `\b` removed because the last alternative (`exec\s*\(`) ends
+    # in `(` which is non-word and never satisfies a word boundary.
+    r"\b(python3?|ruby|perl|node)\s+-[ec]\s+[^\n]*(os\.system|subprocess\.(run|Popen|call|check_output)|socket\.|pty\.spawn|\bexec\s*\()",
 )
 
 _SAFE_DENY_PATTERNS: tuple[str, ...] = (
@@ -21,6 +49,16 @@ _SAFE_DENY_PATTERNS: tuple[str, ...] = (
     r"\bdd\b",
     r"\bshutdown\b",
     r"\breboot\b",
+    # SSH credentials + cloud creds — leaking these is the highest-value
+    # exfil target for a compromised agent
+    r"(cat|less|more|head|tail|cp|mv|rsync)\s+[^\n]*(~|\$HOME|/home/[^\s/]+)/\.ssh/(id_|authorized_keys|known_hosts|config)",
+    r"(cat|less|more|head|tail|cp|mv|rsync)\s+[^\n]*(~|\$HOME|/home/[^\s/]+)/\.aws/credentials",
+    r"(cat|less|more|head|tail|cp|mv|rsync)\s+[^\n]*(~|\$HOME|/home/[^\s/]+)/\.config/gcloud/",
+    r"(cat|less|more|head|tail|cp|mv|rsync)\s+[^\n]*/etc/(passwd|shadow|sudoers)\b",
+    # Writing a private key into the cred store
+    r">\s*(~|\$HOME|/home/[^\s/]+)/\.ssh/(id_|authorized_keys)",
+    # Network exfil of files: curl/wget POSTing a file payload
+    r"\b(curl|wget)\b[^\n]*(--data|-d|--data-binary)\s+[\"']?@",
 )
 
 

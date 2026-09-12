@@ -33,6 +33,26 @@ def _candidate_state(path: Path) -> Path:
     return path
 
 
+def test_mine_lean_gate_expected_open_positions_ignore_terminal_signal(tmp_path: Path) -> None:
+    project = tmp_path / "lean_project"
+    signals = project / "data" / "signals.csv"
+    signals.parent.mkdir(parents=True)
+    signals.write_text(
+        "time,pair,symbol,lean_target_weight\n"
+        "2026-04-11 12:00:00,BTC/USDT,BTCUSDT,0\n"
+        "2026-04-11 16:00:00,BTC/USDT,BTCUSDT,1\n"
+        "2026-04-11 20:00:00,ETH/USDT,ETHUSDT,-1\n",
+        encoding="utf-8",
+    )
+
+    result = mine_lean_gate._expected_ending_open_positions(project)
+
+    assert result["expected"] == 1
+    assert result["latest_time"] == "2026-04-11 16:00:00"
+    assert result["terminal_time"] == "2026-04-11 20:00:00"
+    assert result["nonzero_symbols"] == ["BTCUSDT"]
+
+
 def _install_fake_pipeline(monkeypatch: pytest.MonkeyPatch, *, comparison_status: str = "ok") -> dict:
     captured: dict = {}
 
@@ -135,7 +155,7 @@ def test_mine_lean_gate_passes_and_records_lineage(tmp_path: Path, monkeypatch: 
     assert result["candidate_state"]["candidate_count"] == 1
     assert result["artifacts"]["rank_artifact"].endswith("backtest.json")
     assert result["artifacts"]["comparison_json"].endswith("comparison.json")
-    assert result["expected_ending_open_positions"]["expected"] == 0
+    assert result["expected_ending_open_positions"]["expected"] == 1
     assert captured["rank_kwargs"]["pairs"] == "BTC/USDT,ETH/USDT"
     assert captured["rank_kwargs"]["candidate_state"] == tmp_path / "gate" / "candidate_state.json"
     assert captured["rank_kwargs"]["timeframe"] == "4h"

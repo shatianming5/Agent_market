@@ -15,9 +15,8 @@ import logging
 import os
 import platform
 import subprocess
-import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 

@@ -280,7 +280,7 @@ class OpenCodeClient(AgentClient):
         for turn_idx in range(self._max_turns):
             monitor = None
             if on_turn:
-                monitor = self._LLMWaitMonitor(
+                monitor = _LLMWaitMonitor(
                     self._token_log_path, turn_idx + 1,
                     stale_timeout=self._stale_timeout,
                     server_proc=self._proc,

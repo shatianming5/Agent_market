@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import ast
+from copy import deepcopy
+from functools import lru_cache
 import json
+from pathlib import Path
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, NamedTuple, Optional
 
 from agent_market import paths
 
@@ -29,34 +32,53 @@ def _truncate_text(text: str, limit: int = 2000) -> str:
 # ---------------------------------------------------------------------------
 
 
+class FreqtradeMarketContext(NamedTuple):
+    exchange: str
+    pairs: list[str]
+    timeframe: str
+    datadir: str
+
+
 def _freqtrade_config_defaults(freqtrade_config_path: str) -> tuple[str, bool]:
     """Return (timeframe, enforce_can_short_false) from a freqtrade config file."""
-    try:
-        ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        payload = json.loads(ft_path.read_text(encoding="utf-8-sig"))
-        timeframe = str(payload.get("timeframe") or "1h").strip() or "1h"
-        trading_mode = str(payload.get("trading_mode") or "spot").strip().lower() or "spot"
-        enforce_can_short_false = trading_mode == "spot"
-        return timeframe, enforce_can_short_false
-    except Exception:
-        return "1h", True
+    payload = _load_freqtrade_payload(freqtrade_config_path)
+    timeframe = str(payload.get("timeframe") or "1h").strip() or "1h"
+    trading_mode = str(payload.get("trading_mode") or "spot").strip().lower() or "spot"
+    return timeframe, trading_mode == "spot"
 
 
 def _load_freqtrade_payload(freqtrade_config_path: str) -> dict[str, Any]:
     try:
         ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        return json.loads(ft_path.read_text(encoding="utf-8-sig"))
+        stat = ft_path.stat()
+        payload = _load_freqtrade_payload_cached(
+            str(ft_path), stat.st_mtime_ns, stat.st_size
+        )
+        return deepcopy(payload)
     except Exception:
         return {}
 
 
-def _freqtrade_market_context(freqtrade_config_path: str) -> tuple[str, list[str], str, str]:
+@lru_cache(maxsize=64)
+def _load_freqtrade_payload_cached(
+    resolved_path: str, mtime_ns: int, size: int
+) -> dict[str, Any]:
+    try:
+        payload = json.loads(Path(resolved_path).read_text(encoding="utf-8-sig"))
+        if isinstance(payload, dict):
+            return payload
+    except Exception:
+        pass
+    return {}
+
+
+def _freqtrade_market_context(freqtrade_config_path: str) -> FreqtradeMarketContext:
     payload = _load_freqtrade_payload(freqtrade_config_path)
     exchange = str(((payload.get("exchange") or {}).get("name")) or "gate")
     pairs = list(((payload.get("exchange") or {}).get("pair_whitelist")) or [])
     timeframe = str(payload.get("timeframe") or "1h")
     datadir = str(payload.get("datadir") or "user_data/data")
-    return exchange, pairs, timeframe, datadir
+    return FreqtradeMarketContext(exchange=exchange, pairs=pairs, timeframe=timeframe, datadir=datadir)
 
 
 def _freqtrade_trading_mode(freqtrade_config_path: str) -> str:
@@ -97,8 +119,7 @@ def _split_timerange(timerange: str, train_ratio: float = 0.7) -> tuple[str, str
 def _get_leverage_factor(freqtrade_config_path: str) -> float:
     """Return the default leverage factor from a freqtrade config (1.0 for spot)."""
     try:
-        ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        payload = json.loads(ft_path.read_text(encoding="utf-8-sig"))
+        payload = _load_freqtrade_payload(freqtrade_config_path)
         trading_mode = str(payload.get("trading_mode") or "spot").strip().lower()
         if trading_mode != "futures":
             return 1.0

@@ -74,6 +74,16 @@ DATA_VENUE_CHOICES = ["auto", "kucoin", "okx", "bybit", "binance"]
 MINING_DATA_VENUE_CHOICES = ["kucoin", "okx", "bybit", "binance"]
 
 
+def _default_lean_bin() -> str:
+    configured = str(os.environ.get("LEAN_BIN") or "").strip()
+    if configured:
+        return configured
+    user_bin = Path.home() / ".local" / "bin" / "lean"
+    if user_bin.exists():
+        return str(user_bin)
+    return "lean"
+
+
 # ============================================================
 # Subcommand handlers
 # ============================================================
@@ -197,6 +207,41 @@ def cmd_features(args):
         print(out)
 
 
+def _parse_date_range_arg(raw: str | None, *, name: str) -> tuple[str, str] | None:
+    if raw in (None, ""):
+        return None
+    text = str(raw).strip()
+    if ":" in text:
+        start, end = text.split(":", 1)
+    elif "," in text:
+        start, end = text.split(",", 1)
+    else:
+        raise SystemExit(f"{name} must use START:END or START,END")
+    start = start.strip()
+    end = end.strip()
+    if not start or not end:
+        raise SystemExit(f"{name} must include both START and END")
+    if start >= end:
+        raise SystemExit(f"{name} start must be before end")
+    return start, end
+
+
+def _parse_val_windows_arg(raw: str | None) -> tuple[tuple[str, str], ...] | None:
+    if raw in (None, ""):
+        return None
+    windows: list[tuple[str, str]] = []
+    for i, part in enumerate(str(raw).split(";"), start=1):
+        part = part.strip()
+        if not part:
+            continue
+        parsed = _parse_date_range_arg(part, name=f"--val-windows item {i}")
+        if parsed is not None:
+            windows.append(parsed)
+    if not windows:
+        raise SystemExit("--val-windows must include at least one START:END window")
+    return tuple(windows)
+
+
 def cmd_features_restore(args):
     features.restore_backups(kind=args.kind, pairs=args.pairs, data_dir=args.data_dir)
 
@@ -210,6 +255,14 @@ def cmd_mine(args):
     fee_rate = bps_to_rate(args.fee_bps) if args.fee_bps is not None else float(args.fee_rate)
     slippage = bps_to_rate(args.slippage_bps) if args.slippage_bps is not None else float(args.slippage)
     label_period = primary_label_horizon(label_horizons, default=lane.label_horizons)
+    train = _parse_date_range_arg(args.train, name="--train")
+    oos = _parse_date_range_arg(args.oos, name="--oos")
+    train3 = _parse_date_range_arg(args.train3, name="--train3")
+    val3 = _parse_date_range_arg(args.val3, name="--val3")
+    real_test3 = _parse_date_range_arg(args.real_test3, name="--real-test3")
+    val_windows = _parse_val_windows_arg(args.val_windows)
+    if val_windows is None and val3 is not None:
+        val_windows = (val3,)
     cfg = mining.MiningConfig(
         rounds=args.rounds, top_k=args.top_k,
         llm_per_loop=args.llm_per_loop, py_per_loop=args.py_per_loop,
@@ -220,6 +273,12 @@ def cmd_mine(args):
         max_same_family_in_top40=args.max_same_family_in_top40,
         max_same_signature=args.max_same_signature,
         checkpoint_every=args.checkpoint_every,
+        **({"train": train} if train is not None else {}),
+        **({"oos": oos} if oos is not None else {}),
+        **({"train3": train3} if train3 is not None else {}),
+        **({"val3": val3} if val3 is not None else {}),
+        **({"real_test3": real_test3} if real_test3 is not None else {}),
+        **({"val_windows": val_windows} if val_windows is not None else {}),
         use_llm=args.llm, llm_required=args.llm_required,
         llm_timeout=args.llm_timeout, llm_retries=args.llm_retries,
         llm_max_tokens=args.llm_max_tokens,
@@ -346,6 +405,8 @@ def _rank_gate_kwargs_from_args(args):
         "pair_edge_strong_ic": args.pair_edge_strong_ic,
         "pair_edge_very_strong_ic": args.pair_edge_very_strong_ic,
         "pair_edge_weak_cap": args.pair_edge_weak_cap,
+        "pair_edge_min_entry_ic": args.pair_edge_min_entry_ic,
+        "pair_edge_min_hold_ic": args.pair_edge_min_hold_ic,
         "regime_mode": args.regime_mode,
         "regime_min_edge_ic": args.regime_min_edge_ic,
         "regime_min_pair_edge_ic": args.regime_min_pair_edge_ic,
@@ -604,6 +665,8 @@ def cmd_rank_export(args):
         pair_edge_strong_ic=args.pair_edge_strong_ic,
         pair_edge_very_strong_ic=args.pair_edge_very_strong_ic,
         pair_edge_weak_cap=args.pair_edge_weak_cap,
+        pair_edge_min_entry_ic=args.pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=args.pair_edge_min_hold_ic,
         regime_mode=args.regime_mode,
         regime_min_edge_ic=args.regime_min_edge_ic,
         regime_min_pair_edge_ic=args.regime_min_pair_edge_ic,
@@ -659,6 +722,8 @@ def cmd_rank_backtest(args):
         pair_edge_strong_ic=args.pair_edge_strong_ic,
         pair_edge_very_strong_ic=args.pair_edge_very_strong_ic,
         pair_edge_weak_cap=args.pair_edge_weak_cap,
+        pair_edge_min_entry_ic=args.pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=args.pair_edge_min_hold_ic,
         regime_mode=args.regime_mode,
         regime_min_edge_ic=args.regime_min_edge_ic,
         regime_min_pair_edge_ic=args.regime_min_pair_edge_ic,
@@ -713,9 +778,73 @@ def cmd_lean_compare(args):
     print(json.dumps(report, indent=2, default=str))
 
 
+def _apply_strategy_loop_formal_preset(args) -> None:
+    if not getattr(args, "formal", False):
+        return
+    args.eval_mode = strategy_loop.EVAL_TWO_STAGE
+    args.score_mode = strategy_loop.SCORE_COMPOSITE
+    args.promote_policy = strategy_loop.PROMOTE_FINAL
+    args.validation_protocol = strategy_loop.VALIDATION_TRIPLE_HOLDOUT
+    if getattr(args, "verify_policy", strategy_loop.VERIFY_NONE) != strategy_loop.VERIFY_ALL:
+        args.verify_policy = strategy_loop.VERIFY_PARETO
+    if getattr(args, "lean_gate_mode", strategy_loop.LEAN_GATE_OFF) not in {
+        strategy_loop.LEAN_GATE_PARETO,
+        strategy_loop.LEAN_GATE_ALL,
+    }:
+        args.lean_gate_mode = strategy_loop.LEAN_GATE_FINAL
+
+
 def cmd_strategy_loop(args):
+    _apply_strategy_loop_formal_preset(args)
     if args.resume and not args.run_id:
         raise SystemExit("--run-id is required with --resume")
+    # Codex review R1-#1 + R2 refinement: preflight the chosen agent CLI
+    # BEFORE allocating run artifacts. The check branches on `opencode_mode`:
+    #   * cli    — require local `opencode` / `hermes` binary
+    #   * server — require `OPENCODE_URL` env (no local binary needed)
+    #   * auto   — either is acceptable
+    # Otherwise the failure surfaces deep inside _run_hermes_cli / opencode
+    # invocation, leaving partial state and confusing log output on remote
+    # 138 / minimal-CLI environments.
+    import os as _os
+    import shutil as _shutil
+    agent_cli = (args.agent or "").strip().lower()
+    opencode_mode = (getattr(args, "opencode_mode", "cli") or "cli").strip().lower()
+    if agent_cli == "hermes":
+        if _shutil.which("hermes") is None:
+            raise SystemExit(
+                "strategy-loop preflight: --agent hermes requires `hermes` on PATH. "
+                "Install it or pick a different --agent."
+            )
+    elif agent_cli == "openai":
+        llm_env = strategy_loop._openai_compatible_env()
+        if not str(llm_env.get("OPENAI_API_KEY") or llm_env.get("LLM_API_KEY") or "").strip():
+            raise SystemExit(
+                "strategy-loop preflight: --agent openai requires OPENAI_API_KEY or LLM_API_KEY."
+            )
+        if not strategy_loop._openai_compatible_model(args.model, llm_env):
+            raise SystemExit(
+                "strategy-loop preflight: --agent openai requires --model, LLM_MODEL, or OPENAI_MODEL."
+            )
+    elif agent_cli == "opencode":
+        has_bin = _shutil.which("opencode") is not None
+        has_url = bool(_os.environ.get("OPENCODE_URL"))
+        if opencode_mode == "cli" and not has_bin:
+            raise SystemExit(
+                "strategy-loop preflight: --agent opencode --opencode-mode cli "
+                "requires `opencode` on PATH. Install it or use --opencode-mode "
+                "{server,auto} with OPENCODE_URL set."
+            )
+        if opencode_mode == "server" and not has_url:
+            raise SystemExit(
+                "strategy-loop preflight: --agent opencode --opencode-mode server "
+                "requires the OPENCODE_URL environment variable."
+            )
+        if opencode_mode == "auto" and not (has_bin or has_url):
+            raise SystemExit(
+                "strategy-loop preflight: --agent opencode --opencode-mode auto "
+                "requires EITHER `opencode` on PATH OR OPENCODE_URL env var."
+            )
     result = strategy_loop.run_strategy_loop(
         tag=args.tag,
         venue=args.venue,
@@ -752,11 +881,13 @@ def cmd_strategy_loop(args):
         blind_timerange=args.blind_timerange,
         verify_policy=args.verify_policy,
         pareto_size_per_axis=args.pareto_size_per_axis,
+        benchmark_suite=args.benchmark_suite,
         lean_gate_mode=args.lean_gate_mode,
         lean_bin=args.lean_bin,
         lean_timeout=args.lean_timeout,
         lean_required_status=args.lean_required_status,
         lean_data_root=args.lean_data_root,
+        score_lean_weight=args.score_lean_weight,
     )
     print(json.dumps(result, indent=2, default=str))
 
@@ -786,6 +917,7 @@ def cmd_strategy_loop_eval(args):
         blind_timerange=args.blind_timerange,
         verify_policy=args.verify_policy,
         pareto_size_per_axis=args.pareto_size_per_axis,
+        benchmark_suite=args.benchmark_suite,
         lean_gate_mode=args.lean_gate_mode,
         lean_bin=args.lean_bin,
         lean_timeout=args.lean_timeout,
@@ -811,8 +943,11 @@ def cmd_strategy_loop_doctor(args):
     result = strategy_loop.doctor_strategy_loop_run(
         args.run_id,
         strict_formal=not args.no_strict_formal,
+        write=not args.no_write,
     )
     print(json.dumps(result, indent=2, default=str))
+    if not args.no_fail and not result.get("ok"):
+        raise SystemExit(1)
 
 
 def cmd_rank_sweep(args):
@@ -851,6 +986,8 @@ def cmd_rank_sweep(args):
         pair_edge_strong_ic=args.pair_edge_strong_ic,
         pair_edge_very_strong_ic=args.pair_edge_very_strong_ic,
         pair_edge_weak_cap=args.pair_edge_weak_cap,
+        pair_edge_min_entry_ic=args.pair_edge_min_entry_ic,
+        pair_edge_min_hold_ic=args.pair_edge_min_hold_ic,
         regime_mode=args.regime_mode,
         regime_min_edge_ic=args.regime_min_edge_ic,
         regime_min_pair_edge_ic=args.regime_min_pair_edge_ic,
@@ -1051,6 +1188,18 @@ def build_parser():
                     help="comma-separated forward label horizons in bars; defaults from --lane")
     m.add_argument("--embargo-bars", type=int, default=0,
                     help="purged split embargo bars recorded in artifacts; 0 uses lane default")
+    m.add_argument("--train", default=None,
+                    help="[split] legacy train window as START:END, e.g. 2023-05-15:2025-10-01")
+    m.add_argument("--oos", default=None,
+                    help="[split] legacy OOS window as START:END")
+    m.add_argument("--train3", default=None,
+                    help="[split] composite train window as START:END")
+    m.add_argument("--val3", default=None,
+                    help="[split] composite selection/validation window as START:END")
+    m.add_argument("--real-test3", dest="real_test3", default=None,
+                    help="[split] composite real-test holdout window recorded in state as START:END")
+    m.add_argument("--val-windows", default=None,
+                    help="[split] semicolon-separated validation subwindows, e.g. START:END;START:END")
     m.add_argument("--micro-data-quality", default="unknown",
                     choices=["unknown", "ohlcv_only", "spread_orderflow"],
                     help="data quality marker for micro lanes; 1m OHLCV-only is not promotion eligible")
@@ -1246,6 +1395,10 @@ def build_parser():
     mlg.add_argument("--pair-edge-strong-ic", type=float, default=None)
     mlg.add_argument("--pair-edge-very-strong-ic", type=float, default=None)
     mlg.add_argument("--pair-edge-weak-cap", type=float, default=None)
+    mlg.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
+                     help="minimum aligned per-pair rolling IC required for new entries")
+    mlg.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                     help="minimum aligned per-pair rolling IC required to keep held positions")
     mlg.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true")
     mlg.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false")
     mlg.add_argument("--regime-mode", default=None, choices=["off", "hq"])
@@ -1270,7 +1423,7 @@ def build_parser():
                      help="comma-separated normalized pairs to block, e.g. SOL/USDT,BTC/USDT")
     mlg.add_argument("--no-corr-recompute", action="store_true",
                      help="skip rank-series recomputation for fast diagnostics")
-    mlg.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"))
+    mlg.add_argument("--lean-bin", default=_default_lean_bin())
     mlg.add_argument("--lean-timeout", type=int, default=None)
     mlg.add_argument("--lean-data-root", default=None,
                      help="override futures feather root for LEAN export")
@@ -1424,6 +1577,10 @@ def build_parser():
                     help="per-pair IC threshold to permit leverage above 5x")
     rx.add_argument("--pair-edge-weak-cap", type=float, default=None,
                     help="max leverage when per-pair IC is weak or misaligned")
+    rx.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required for new entries")
+    rx.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required to keep held positions")
     rx.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true",
                     help="enable per-pair rolling-IC dynamic leverage gating")
     rx.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false",
@@ -1501,6 +1658,10 @@ def build_parser():
                     help="per-pair IC threshold to permit leverage above 5x")
     rb.add_argument("--pair-edge-weak-cap", type=float, default=None,
                     help="max leverage when per-pair IC is weak or misaligned")
+    rb.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required for new entries")
+    rb.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required to keep held positions")
     rb.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true",
                     help="enable per-pair rolling-IC dynamic leverage gating")
     rb.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false",
@@ -1553,7 +1714,7 @@ def build_parser():
     lb = sub.add_parser("lean-backtest", help="run local LEAN backtest for an exported bridge project")
     lb.add_argument("--lean-project", required=True,
                     help="exported LEAN project directory")
-    lb.add_argument("--lean-bin", default="lean",
+    lb.add_argument("--lean-bin", default=_default_lean_bin(),
                     help="LEAN CLI binary/path (default: lean)")
     lb.add_argument("--timeout", type=int, default=None,
                     help="optional subprocess timeout in seconds")
@@ -1576,8 +1737,8 @@ def build_parser():
     sl.add_argument("--timeframe", default="1h", choices=["1m", "5m", "15m", "1h", "4h"])
     sl.add_argument("--lane", default="auto", choices=["auto", "1h", "4h", "15m_intraday", "5m_micro", "1m_micro"])
     sl.add_argument("--data-venue", default="auto", choices=DATA_VENUE_CHOICES)
-    sl.add_argument("--agent", default="hermes", choices=["hermes", "opencode"],
-                    help="candidate-generation agent; Hermes is the default, OpenCode is legacy")
+    sl.add_argument("--agent", default="hermes", choices=["hermes", "openai", "opencode"],
+                    help="candidate-generation agent; openai uses direct OpenAI-compatible chat, OpenCode is legacy")
     sl.add_argument("--model", default=(os.environ.get("HERMES_MODEL") or os.environ.get("LLM_MODEL") or os.environ.get("OPENAI_MODEL") or os.environ.get("OPENCODE_MODEL") or ""))
     sl.add_argument("--risk-profile", default="aggressive", choices=["aggressive"])
     sl.add_argument("--max-iterations", type=int, default=30)
@@ -1609,6 +1770,8 @@ def build_parser():
                     help="skip rank-series recomputation; default inherits optimized_profile.json when available")
     sl.add_argument("--baseline-profile", default=None,
                     help="optimized_profile.json to use as the baseline/default rank profile")
+    sl.add_argument("--formal", action="store_true",
+                    help="private-fund-grade preset: two-stage eval, composite score, final promotion, triple holdout, at least Pareto verification, at least LEAN final gate")
     sl.add_argument("--eval-mode", default="two_stage", choices=["research", "two_stage", "freqtrade"],
                     help="research only, two-stage research->fixed Freqtrade validation, or force Freqtrade stage")
     sl.add_argument("--score-mode", default="composite", choices=["research", "freqtrade", "composite"],
@@ -1627,9 +1790,11 @@ def build_parser():
                     help="which candidates get lookahead/recursive verification; triple_holdout promotion requires passed gates")
     sl.add_argument("--pareto-size-per-axis", type=int, default=3,
                     help="number of deduped candidates retained per Pareto axis")
+    sl.add_argument("--benchmark-suite", default="",
+                    help="existing frozen benchmark manifest/directory; required for formal promotion")
     sl.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"],
                     help="run local LEAN validation as a promotion gate; enabled modes fail closed")
-    sl.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"),
+    sl.add_argument("--lean-bin", default=_default_lean_bin(),
                     help="LEAN CLI binary/path for --lean-gate-mode")
     sl.add_argument("--lean-timeout", type=int, default=None,
                     help="optional LEAN backtest timeout in seconds")
@@ -1637,6 +1802,8 @@ def build_parser():
                     help="required lean-compare status, or comma-separated statuses such as ok,partial")
     sl.add_argument("--lean-data-root", default=None,
                     help="override futures feather root for LEAN export")
+    sl.add_argument("--score-lean-weight", type=float, default=0.7,
+                    help="weight of LEAN score in blended score (0.0=rank-only, 1.0=lean-only, default 0.7)")
     sl.add_argument("--no-promote", action="store_true",
                     help="score candidates but do not write optimized_profile.json or strategy files")
     sl.set_defaults(func=cmd_strategy_loop)
@@ -1668,8 +1835,10 @@ def build_parser():
     sle.add_argument("--blind-timerange", default="20260401-20260412")
     sle.add_argument("--verify-policy", default="none", choices=["pareto", "best", "all", "none"])
     sle.add_argument("--pareto-size-per-axis", type=int, default=3)
+    sle.add_argument("--benchmark-suite", default="",
+                     help="existing frozen benchmark manifest/directory; required for formal promotion")
     sle.add_argument("--lean-gate-mode", default="off", choices=["off", "final", "pareto", "all"])
-    sle.add_argument("--lean-bin", default=os.environ.get("LEAN_BIN", "lean"))
+    sle.add_argument("--lean-bin", default=_default_lean_bin())
     sle.add_argument("--lean-timeout", type=int, default=None)
     sle.add_argument("--lean-required-status", default="ok")
     sle.add_argument("--lean-data-root", default=None)
@@ -1693,6 +1862,10 @@ def build_parser():
     sld.add_argument("--run-id", required=True, help="factor_strategy_loop run id")
     sld.add_argument("--no-strict-formal", action="store_true",
                      help="do not require triple_holdout + verify_policy=pareto + promote_policy=final")
+    sld.add_argument("--no-write", action="store_true",
+                     help="do not write doctor_latest.json into the run directory")
+    sld.add_argument("--no-fail", action="store_true",
+                     help="always exit 0 even when the doctor finds blockers")
     sld.set_defaults(func=cmd_strategy_loop_doctor)
 
     rs = sub.add_parser("rank-sweep", help="sweep rank-portfolio top-k and gross-cap settings")
@@ -1730,6 +1903,10 @@ def build_parser():
                     help="per-pair IC threshold to permit leverage above 5x")
     rs.add_argument("--pair-edge-weak-cap", type=float, default=None,
                     help="max leverage when per-pair IC is weak or misaligned")
+    rs.add_argument("--pair-edge-min-entry-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required for new entries")
+    rs.add_argument("--pair-edge-min-hold-ic", type=float, default=None,
+                    help="minimum aligned per-pair rolling IC required to keep held positions")
     rs.add_argument("--pair-edge-leverage", dest="pair_edge_leverage", action="store_true",
                     help="enable per-pair rolling-IC dynamic leverage gating")
     rs.add_argument("--no-pair-edge-leverage", dest="pair_edge_leverage", action="store_false",

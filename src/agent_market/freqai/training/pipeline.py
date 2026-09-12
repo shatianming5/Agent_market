@@ -22,7 +22,6 @@ from agent_market.freqai.training.labels import future_return, future_classify_3
 from agent_market import paths
 
 try:  # optional deps
-    from sklearn.model_selection import TimeSeriesSplit
     from sklearn.preprocessing import StandardScaler, RobustScaler
     from sklearn.decomposition import PCA as _PCA
     _HAS_SKLEARN = True

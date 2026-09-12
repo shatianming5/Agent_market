@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -96,6 +99,65 @@ def test_load_agent_flow_config_not_found():
         load_agent_flow_config(Path("/nonexistent/config.json"))
 
 
+def test_agent_flow_script_help_uses_package_cli():
+    root = Path(__file__).resolve().parents[1]
+    proc = subprocess.run(
+        [sys.executable, str(root / "scripts" / "agent_flow.py"), "--help"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "Agent Market end-to-end orchestrator" in proc.stdout
+    assert "--log-dir" in proc.stdout
+
+
+def test_agent_flow_module_help_uses_package_cli():
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    proc = subprocess.run(
+        [sys.executable, "-m", "agent_market.agent_flow", "--help"],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "Agent Market end-to-end orchestrator" in proc.stdout
+    assert "--log-dir" in proc.stdout
+
+
+def test_agent_flow_import_does_not_load_runtime_preflight():
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import agent_market.agent_flow; "
+                "assert 'agent_market.runtime_preflight' not in sys.modules; "
+                "assert 'agent_market.flow_steps' not in sys.modules; "
+                "assert 'agent_market.flow_ext.steps' not in sys.modules; "
+                "assert 'agent_market.flow_ext.step_dispatch' not in sys.modules; "
+                "assert 'agent_market.run_artifacts' not in sys.modules; "
+                "print('ok')"
+            ),
+        ],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert proc.stdout.strip() == "ok"
+
+
 # ---------------------------------------------------------------------------
 # helper: _extract_flag_value
 # ---------------------------------------------------------------------------
@@ -177,12 +239,15 @@ def test_config_snapshot_info_missing_file():
 
 def test_step_order():
     from agent_market.agent_flow import AgentFlow
+    from agent_market.flow_ext.step_spec import STEP_ORDER
 
+    assert AgentFlow.STEP_ORDER == STEP_ORDER
     assert "feature" in AgentFlow.STEP_ORDER
     assert "backtest" in AgentFlow.STEP_ORDER
     assert "tca" in AgentFlow.STEP_ORDER
     assert AgentFlow.STEP_ORDER.index("feature") < AgentFlow.STEP_ORDER.index("backtest")
     assert AgentFlow.STEP_ORDER.index("capture") < AgentFlow.STEP_ORDER.index("lob_rebuild")
+    assert AgentFlow.STEP_ORDER.index("strategy_miner") < AgentFlow.STEP_ORDER.index("report")
 
 
 # ---------------------------------------------------------------------------

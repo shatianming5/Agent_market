@@ -17,13 +17,12 @@ Everything that does a "score" is a dict of floats — callers pick fields.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
-from .paths import (DEFAULT_FUNDING_DAILY, DEFAULT_SLIPPAGE, DEFAULT_TAKER_FEE,
-                    DEFAULT_VAL_WINDOWS)
+from .paths import DEFAULT_SLIPPAGE, DEFAULT_TAKER_FEE, DEFAULT_VAL_WINDOWS
 
 
 # ============================================================

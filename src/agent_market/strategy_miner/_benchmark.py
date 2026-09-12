@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -11,6 +12,35 @@ from agent_market import paths
 
 from .dtypes import StrategyCandidate
 from .sandbox import validate_strategy_code
+
+logger = logging.getLogger(__name__)
+
+
+def benchmark_unavailable(suite_path: str | Path, reason: str) -> Dict[str, Any]:
+    logger.error("Frozen benchmark evidence unavailable: %s", reason)
+    return {
+        "evaluated_at": _iso_now(),
+        "status": "insufficient_evidence",
+        "passed": False,
+        "suite_path": str(suite_path),
+        "reason": reason,
+        "failed_ids": [],
+    }
+
+
+def evaluate_benchmark_gate(
+    candidate: StrategyCandidate,
+    *,
+    suite_path: str | Path,
+    holdout_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Keep unavailable benchmark evidence distinct from a measured failure."""
+    try:
+        verdict = run_benchmark_suite(candidate, suite_path=suite_path, holdout_result=holdout_result)
+    except Exception as exc:
+        return benchmark_unavailable(suite_path, f"{type(exc).__name__}: {exc}")
+    verdict["status"] = "passed" if verdict.get("passed") is True else "failed"
+    return verdict
 
 
 def _iso_now() -> str:
@@ -273,4 +303,3 @@ def run_benchmark_suite(
             if not bool(item.get("passed"))
         ],
     }
-

@@ -14,25 +14,25 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from agent_market import paths
-from agent_market.flow_ext import steps as flow_steps
+from agent_market.cli_args import extract_flag_value as _extract_flag_value
 from agent_market.run_artifacts import RunArtifacts
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = paths.REPO_ROOT
 
 
+class _LazyFlowSteps:
+    def __getattr__(self, name: str) -> Any:
+        from agent_market.flow_ext import steps as _steps
+
+        return getattr(_steps, name)
+
+
+flow_steps = _LazyFlowSteps()
+
+
 def _relpath(path: Path) -> str:
     return paths.relpath_for_meta(path if path.is_absolute() else (REPO_ROOT / path))
-
-
-def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
-    if not isinstance(args, list):
-        return None
-    value: Optional[str] = None
-    for idx, item in enumerate(args):
-        if str(item) == flag and idx + 1 < len(args):
-            value = str(args[idx + 1])
-    return value
 
 
 def _merge_into_global_factor_memory(arts: RunArtifacts) -> None:
@@ -496,9 +496,9 @@ def _step_strategy_miner(cfg: Dict[str, Any], arts: RunArtifacts, ctx: StepConte
 # Dispatch table
 # ---------------------------------------------------------------------------
 STEP_HANDLERS: Dict[str, Any] = {
-    "feature": _step_feature,
     "capture": _step_capture,
     "lob_rebuild": _step_lob_rebuild,
+    "feature": _step_feature,
     "micro_feature": _step_micro_feature,
     "portfolio": _step_portfolio,
     "expression": _step_expression,
@@ -508,6 +508,6 @@ STEP_HANDLERS: Dict[str, Any] = {
     "rl": _step_rl,
     "backtest": _step_backtest,
     "tca": _step_tca,
-    "report": _step_report,
     "strategy_miner": _step_strategy_miner,
+    "report": _step_report,
 }

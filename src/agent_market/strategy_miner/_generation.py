@@ -7,7 +7,7 @@ import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 if TYPE_CHECKING:
     from .knowledge_base import KnowledgeBase
@@ -33,18 +33,16 @@ from .sandbox import (
     find_strategy_files,
     infer_strategy_class_name,
     prepare_sandbox,
-    validate_strategy_code,
 )
 from ._helpers import (
     _freqtrade_config_defaults,
     _freqtrade_market_context,
+    _load_freqtrade_payload,
     _prompt_objective_profile,
     _sanitize_candidate_name,
     _candidate_type_for_slot,
     _allowed_model_families,
-    _normalize_candidate_type,
     _json_block_or_none,
-    _parse_json_object,
     _phase_for_candidate,
     _pick_active_candidate,
     _rewrite_strategy_class_name,
@@ -142,10 +140,8 @@ def _extract_indicator_names(code: str) -> List[str]:
 
 def _build_market_profile(freqtrade_config_path: str) -> Optional[str]:
     """Extract market profile info from freqtrade config for prompt injection."""
-    try:
-        ft_path = paths.resolve_repo_path(freqtrade_config_path)
-        payload = json.loads(ft_path.read_text(encoding="utf-8-sig"))
-    except Exception:
+    payload = _load_freqtrade_payload(freqtrade_config_path)
+    if not payload:
         return None
 
     lines = []
@@ -352,7 +348,12 @@ def phase_strategy_gen(
     names_seen: set[str] = set()
     names_seen_lock = threading.Lock()
     objective_profile = _prompt_objective_profile(config)
-    _, market_pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
+    compliance_timeframe, enforce_can_short_false = _freqtrade_config_defaults(
+        config.freqtrade_config
+    )
+    market_context = _freqtrade_market_context(config.freqtrade_config)
+    market_pairs = market_context.pairs
+    market_profile = _build_market_profile(config.freqtrade_config)
     factor_store_entries: list[tuple[str, Any]] = []
     factor_store_lock = threading.Lock()
     factor_memory_path = str(getattr(config, "factor_memory_path", "") or "").strip()
@@ -360,6 +361,33 @@ def phase_strategy_gen(
     if not global_factor_memory_path and bool(getattr(config, "use_global_memory", True)):
         global_factor_memory_path = str(paths.global_factor_memory_path())
     seen_factor_paths: set[str] = set()
+
+    def _apply_generated_strategy_compliance(
+        strategy_path: Path, candidate_idx: int, stage: str
+    ) -> str | None:
+        try:
+            did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
+                strategy_path,
+                timeframe=compliance_timeframe,
+                enforce_can_short_false=enforce_can_short_false,
+            )
+            if not did_comp:
+                return None
+            logger.info(
+                "Compliance auto-fix applied (%s) for candidate %d: %s",
+                stage,
+                candidate_idx,
+                ",".join(comp_fixes),
+            )
+            return strategy_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            logger.debug(
+                "Compliance auto-fix failed (%s) for candidate %d",
+                stage,
+                candidate_idx,
+                exc_info=True,
+            )
+            return None
 
     def _load_factor_store(raw_path: str) -> None:
         raw = str(raw_path or "").strip()
@@ -560,8 +588,7 @@ def phase_strategy_gen(
             logger.warning("Candidate %d requested unsupported candidate_type=%s", candidate_idx, candidate_type)
             return None
 
-        _, pairs, _, _ = _freqtrade_market_context(config.freqtrade_config)
-        pairs = list(getattr(config, "model_training_pairs", None) or []) or pairs
+        pairs = list(getattr(config, "model_training_pairs", None) or []) or market_context.pairs
         factor_context, factor_snapshot = _factor_retrieval_for_candidate(
             selected_family=selected_family,
             candidate_type=candidate_type,
@@ -807,7 +834,7 @@ def phase_strategy_gen(
                 elite_summaries=elite_summaries,
                 failure_summary=failure_summary,
                 provider=config.provider,
-                market_profile=_build_market_profile(config.freqtrade_config),
+                market_profile=market_profile,
                 market_context=_market_context_str,
                 research_insights=research_insights,
                 strategy_blueprints=strategy_blueprints,
@@ -860,18 +887,11 @@ def phase_strategy_gen(
                     logger.info("Candidate %d normalized: %s", candidate_idx, ",".join(fixes))
 
                 # Ensure freqtrade sanity settings (order_types/time_in_force/can_short).
-                try:
-                    tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
-                    did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
-                        norm_path,
-                        timeframe=tf,
-                        enforce_can_short_false=enforce_short,
-                    )
-                    if did_comp:
-                        code = norm_path.read_text(encoding="utf-8", errors="replace")
-                        logger.info("Compliance auto-fix applied (gen) for candidate %d: %s", candidate_idx, ",".join(comp_fixes))
-                except Exception:
-                    logger.debug("Compliance auto-fix failed (gen) for candidate %d", candidate_idx, exc_info=True)
+                fixed_code = _apply_generated_strategy_compliance(
+                    norm_path, candidate_idx, "gen"
+                )
+                if fixed_code is not None:
+                    code = fixed_code
 
                 cand = StrategyCandidate(
                     name=name,
@@ -947,7 +967,7 @@ def phase_strategy_gen(
             elite_summaries=elite_summaries,
             failure_summary=failure_summary,
             provider=config.provider,
-            market_profile=_build_market_profile(config.freqtrade_config),
+            market_profile=market_profile,
             market_context=_market_context_str,
             research_insights=research_insights,
             strategy_blueprints=strategy_blueprints,
@@ -1150,18 +1170,9 @@ def phase_strategy_gen(
             logger.info("Candidate %d normalized: %s", candidate_idx, ",".join(fixes))
 
         # Ensure freqtrade sanity settings before reviewer/backtester prompts.
-        try:
-            tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
-            did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
-                norm_path,
-                timeframe=tf,
-                enforce_can_short_false=enforce_short,
-            )
-            if did_comp:
-                code = norm_path.read_text(encoding="utf-8", errors="replace")
-                logger.info("Compliance auto-fix applied (gen) for candidate %d: %s", candidate_idx, ",".join(comp_fixes))
-        except Exception:
-            logger.debug("Compliance auto-fix failed (gen) for candidate %d", candidate_idx, exc_info=True)
+        fixed_code = _apply_generated_strategy_compliance(norm_path, candidate_idx, "gen")
+        if fixed_code is not None:
+            code = fixed_code
 
         def _try_parse_json(text_blob: str) -> dict[str, Any] | None:
             if not isinstance(text_blob, str) or not text_blob.strip():
@@ -1318,18 +1329,11 @@ def phase_strategy_gen(
                 logger.debug("Applying reviewer fixed_code failed", exc_info=True)
 
         # Ensure freqtrade sanity settings after reviewer edits.
-        try:
-            tf, enforce_short = _freqtrade_config_defaults(config.freqtrade_config)
-            did_comp, comp_fixes = ensure_freqtrade_strategy_compliance_file(
-                norm_path,
-                timeframe=tf,
-                enforce_can_short_false=enforce_short,
-            )
-            if did_comp:
-                code = norm_path.read_text(encoding="utf-8", errors="replace")
-                logger.info("Compliance auto-fix applied (post-review) for candidate %d: %s", candidate_idx, ",".join(comp_fixes))
-        except Exception:
-            logger.debug("Compliance auto-fix failed (post-review) for candidate %d", candidate_idx, exc_info=True)
+        fixed_code = _apply_generated_strategy_compliance(
+            norm_path, candidate_idx, "post-review"
+        )
+        if fixed_code is not None:
+            code = fixed_code
 
         cand = StrategyCandidate(
             name=name,

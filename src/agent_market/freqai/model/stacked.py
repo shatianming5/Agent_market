@@ -9,10 +9,8 @@ import pickle
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import numpy as np
-
 from agent_market.freqai.model.base import BaseModelAdapter, ModelRegistry, TrainResult
-from agent_market.freqai.model.metrics import multiclass_metrics, rmse
+from agent_market.freqai.model.metrics import multiclass_metrics
 from agent_market.freqai.stacking import StackedClassifier, StackConfig
 
 

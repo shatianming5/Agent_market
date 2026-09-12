@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error
+from ..errors import error, not_found
 from ..models import BacktestReq, HyperoptReq
 from ...runtime import ROOT, jobs
 from ...job_manager import JobQueueFullError
@@ -25,7 +25,7 @@ def run_backtest(req: BacktestReq = Body(...)):
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not cfg_path.exists():
-        return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
+        return not_found("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
 
     spath: Optional[Path] = None
     if req.strategy_path:
@@ -34,7 +34,7 @@ def run_backtest(req: BacktestReq = Body(...)):
         except ValueError as exc:
             return error("INVALID_PATH", str(exc))
         if not spath.exists():
-            return error("STRATEGY_PATH_NOT_FOUND", f"Strategy path not found: {spath}")
+            return not_found("STRATEGY_PATH_NOT_FOUND", f"Strategy path not found: {spath}")
 
     py = sys.executable
     base_cmd: list[str]
@@ -94,6 +94,16 @@ def run_backtest(req: BacktestReq = Body(...)):
 
 @router.post("/run/hyperopt")
 def run_hyperopt(req: HyperoptReq = Body(...)):
+    # Codex review (runtime loop): preflight raw OHLCV before queueing
+    # the hyperopt job so contamination fails fast at HTTP-request time
+    # instead of mid-run inside freqtrade's data loader.
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "src"))
+        from agent_market.freqtrade_preflight import assert_raw_ohlcv, OHLCVPreflightError
+        assert_raw_ohlcv(ROOT / "user_data")
+    except OHLCVPreflightError as exc:
+        return error("OHLCV_PREFLIGHT_FAILED", str(exc), status_code=409)
     cmd = [
         "freqtrade",
         "hyperopt",

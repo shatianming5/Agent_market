@@ -2,6 +2,8 @@
 
 Generated: 2026-02-05
 
+> **2026-05-09 兼容性提示**：本视图中 "`plan.md`" 指 [`docs/proposals/agent_market_proposal.md`](proposals/agent_market_proposal.md)（重命名于 2026-05-09）。
+
 Source: `docs/plan_gap_planmd.md`（全量逐章核对，不省略）
 
 ---

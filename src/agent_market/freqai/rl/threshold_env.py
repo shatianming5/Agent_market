@@ -31,7 +31,7 @@ except Exception:
     Env = object  # type: ignore
     spaces = None  # type: ignore
 
-from agent_market.freqai.training.pipeline import Dataset, FeatureDatasetBuilder
+from agent_market.freqai.training.pipeline import Dataset
 
 
 THRESHOLD_LEVELS: List[float] = [0.00, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50]

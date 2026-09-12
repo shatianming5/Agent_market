@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import shutil
-from pathlib import Path
 from typing import Dict, List
 
 from .paths import USER_DATA, EXPRESSIONS_FILE

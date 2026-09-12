@@ -11,7 +11,6 @@ This module re-exports a single ``router`` that includes all sub-routers
 so that ``server/app.py`` can continue importing ``from .api.routes.run import router``.
 """
 from __future__ import annotations
-import logging
 
 from fastapi import APIRouter
 

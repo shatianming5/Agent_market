@@ -51,10 +51,8 @@ def _load_dotenv_fallback(path: Path) -> None:
 
 _load_dotenv_fallback(PROJECT_ROOT / ".env")
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import numpy as np
-import pandas as pd
 import requests
 from requests import Response
 from requests.exceptions import RequestException

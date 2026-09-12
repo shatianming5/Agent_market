@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import zipfile
@@ -8,6 +9,31 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_market.agent_flow import AgentFlow, AgentFlowConfig
+
+
+def test_runtime_preflight_import_defers_optional_llm_modules() -> None:
+    root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root / "src")
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import agent_market.runtime_preflight; "
+                "assert 'agent_market.agents.executor' not in sys.modules; "
+                "assert 'agent_market.strategy_miner.research' not in sys.modules; "
+                "print('ok')"
+            ),
+        ],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert proc.stdout.strip() == "ok"
 
 
 def _prepare_env(monkeypatch, tmp_path: Path) -> None:
@@ -217,3 +243,35 @@ def test_runtime_preflight_normalizes_ws_model_and_env(monkeypatch) -> None:
     assert settings["model_id"] == "gpt-5.2"
     assert settings["base_url"] == "http://proxy.internal:4141/v1"
     assert settings["api_key"] == "_"
+
+
+def test_runtime_preflight_reports_malformed_freqtrade_config(tmp_path: Path) -> None:
+    from agent_market.runtime_preflight import check_freqtrade_config
+
+    cfg = tmp_path / "freqtrade.json"
+    cfg.write_text("{bad json", encoding="utf-8")
+
+    checks = check_freqtrade_config(cfg)
+
+    assert len(checks) == 1
+    assert checks[0]["name"] == "config.freqtrade"
+    assert checks[0]["severity"] == "error"
+    assert "parse failed" in checks[0]["detail"]
+
+
+def test_runtime_preflight_opencode_ready_accepts_agent_url_without_cli(monkeypatch) -> None:
+    from agent_market import runtime_preflight
+
+    monkeypatch.setattr(runtime_preflight, "_resolve_executable", lambda *_args, **_kwargs: None)
+
+    check = runtime_preflight.check_opencode_ready(
+        name="llm.opencode",
+        model="opencode-model",
+        agent_url="http://127.0.0.1:4096",
+        require_model=True,
+    )
+
+    assert check["ok"] is True
+    assert check["name"] == "llm.opencode"
+    assert check["data"]["agent_url"] == "http://127.0.0.1:4096"
+    assert check["data"]["binary"] == ""

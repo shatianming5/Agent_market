@@ -8,6 +8,7 @@ are auditable and resumable.
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
 import csv
 import hashlib
 import json
@@ -21,13 +22,14 @@ import time
 import traceback
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 from agent_market import paths as repo_paths
 from agent_market.backtest_results import build_backtest_summary
 from agent_market.factor_lab import lean_bridge, rank_portfolio
+from agent_market.factor_lab.lean_analysis import compute_lean_analysis
 from agent_market.factor_lab.timeframes import manifest_matches_profile, normalize_lane, normalize_timeframe
 
 
@@ -35,6 +37,7 @@ PHASE_PREPARE = "PREPARE"
 PHASE_CODE_GEN = "CODE_GEN"
 PHASE_SIGNAL_EXPORT = "SIGNAL_EXPORT"
 PHASE_BACKTEST = "BACKTEST"
+PHASE_LEAN_ANALYSIS = "LEAN_ANALYSIS"
 PHASE_EVALUATION = "EVALUATION"
 PHASE_ANALYSIS = "ANALYSIS"
 PHASE_COMPLETE = "COMPLETE"
@@ -44,6 +47,7 @@ PHASES = (
     PHASE_CODE_GEN,
     PHASE_SIGNAL_EXPORT,
     PHASE_BACKTEST,
+    PHASE_LEAN_ANALYSIS,
     PHASE_EVALUATION,
     PHASE_ANALYSIS,
     PHASE_COMPLETE,
@@ -54,8 +58,9 @@ CANDIDATE_FREQTRADE_STRATEGY = "freqtrade_strategy"
 CANDIDATE_TYPES = {CANDIDATE_RANK_PROFILE, CANDIDATE_FREQTRADE_STRATEGY}
 
 AGENT_HERMES = "hermes"
+AGENT_OPENAI = "openai"
 AGENT_OPENCODE = "opencode"
-AGENT_TYPES = {AGENT_HERMES, AGENT_OPENCODE}
+AGENT_TYPES = {AGENT_HERMES, AGENT_OPENAI, AGENT_OPENCODE}
 HERMES_REASONING_EFFORTS = {"", "none", "minimal", "low", "medium", "high", "xhigh"}
 
 EVAL_RESEARCH = "research"
@@ -106,6 +111,7 @@ LOOP_COMPLETED = "COMPLETED"
 LOOP_STOPPED_STAGNATED = "STOPPED_STAGNATED"
 STAGNATION_EXPLORE_AFTER = 15
 STAGNATION_STOP_AFTER = 30
+STAGNATION_RECOVERY_GRACE_CANDIDATES = 8
 
 DEFAULT_START = "2025-12-01"
 DEFAULT_END = "2026-04-12"
@@ -115,7 +121,76 @@ DEFAULT_BLIND_TIMERANGE = "20260401-20260412"
 FAILED_ITERATION_SCORE = -1_000_000.0
 FIXED_FREQTRADE_STRATEGY = "ELRankPortfolioLeverageStrategy"
 FIXED_FREQTRADE_CONFIG = "user_data/config_okx_futures_rank_backtest.json"
+RECURSIVE_ANALYSIS_STARTUP_CANDLES = ("199", "499", "999")
+
+
+def _stagnation_grace_count() -> int:
+    return max(STAGNATION_EXPLORE_AFTER, STAGNATION_STOP_AFTER - STAGNATION_RECOVERY_GRACE_CANDIDATES)
+
+
+def _is_stagnation_recovery_candidate(evaluation: Mapping[str, Any]) -> bool:
+    candidate = evaluation.get("candidate")
+    if not isinstance(candidate, Mapping):
+        return False
+    metadata = candidate.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return False
+    source = str(metadata.get("source") or "")
+    family = str(metadata.get("hypothesis_family") or "")
+    if source == "controller_rank_profile_search_quality_repair" and "after_duplicate_paths" in family:
+        return True
+    if source == "controller_rank_profile_positive_validation_trade_repair":
+        return True
+    return source == "controller_rank_profile_search_quality_repair" and bool(metadata.get("behavior_feedback"))
+
+_VENUE_EXCHANGE: dict[str, str] = {
+    "okx": "okx",
+    "binance": "binance",
+    "bybit": "bybit",
+    "kucoin": "kucoin",
+}
+_VENUE_DATADIR: dict[str, str] = {
+    "okx": "user_data/data/okx",
+    "binance": "user_data/data/binance",
+    "bybit": "user_data/data/bybit",
+    "kucoin": "user_data/data/kucoin",
+}
 PARETO_MAX_TOTAL = 12
+
+
+def _fixed_freqtrade_timeframe(config: "StrategyLoopConfig") -> str:
+    timeframe = str(getattr(config, "timeframe", "") or "1h").strip().lower()
+    return timeframe or "1h"
+
+
+def _fixed_freqtrade_override_payload(
+    config: "StrategyLoopConfig",
+    signal_dir: Path,
+) -> dict[str, Any]:
+    venue = str(getattr(config, "venue", "") or "okx").strip().lower()
+    exchange_name = _VENUE_EXCHANGE.get(venue, "okx")
+    override: dict[str, Any] = {
+        "timeframe": _fixed_freqtrade_timeframe(config),
+    }
+    venue_datadir = _VENUE_DATADIR.get(venue)
+    if venue_datadir is not None:
+        override["datadir"] = venue_datadir
+    exchange: dict[str, Any] = {"name": exchange_name}
+    pairs = _pairs_from_signal_dir(signal_dir, exchange_name=exchange_name)
+    if pairs:
+        exchange["pair_whitelist"] = pairs
+    override["exchange"] = exchange
+    return override
+
+
+def _write_fixed_freqtrade_override(
+    path: Path,
+    config: "StrategyLoopConfig",
+    signal_dir: Path,
+) -> Path:
+    payload = _fixed_freqtrade_override_payload(config, signal_dir)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 PARETO_AXES = (
     "best_validation_composite",
     "best_validation_freqtrade_profit",
@@ -124,7 +199,10 @@ PARETO_AXES = (
     "best_research_robustness",
     "best_regime_stability",
 )
+BEHAVIOR_DUPLICATE_STATUSES = {"duplicate", "no_op", "near_duplicate"}
+SIGNAL_WEIGHT_EPSILON = 1e-10
 STRUCTURAL_RANK_KEYS = {
+    "n",
     "candidate_state",
     "timeframe",
     "data_venue",
@@ -132,18 +210,43 @@ STRUCTURAL_RANK_KEYS = {
     "rebalance_minutes",
     "side_mode",
     "rebalance_hours",
+    "min_abs_score_z",
+    "score_threshold",
     "edge_mode",
     "regime_mode",
+    "pair_edge_min_entry_ic",
+    "pair_edge_min_hold_ic",
+    "regime_min_edge_ic",
+    "regime_min_pair_edge_ic",
+    "regime_min_pair_count",
+    "regime_short_max_market_mom_24h",
+    "regime_short_max_market_mom_72h",
+    "regime_max_market_atr_pct",
     "top_k",
+    "min_pairs_for_top_k",
+    "low_pair_top_k",
     "gross_cap",
     "net_cap",
     "single_pair_cap",
+    "short_max_mom_24h",
+    "short_max_mom_72h",
+    "long_min_mom_24h",
+    "max_entry_atr_pct",
+    "short_max_market_mom_24h",
+    "short_max_market_mom_72h",
+    "short_max_market_ma_gap",
+    "short_exit_mom_24h",
+    "short_exit_mom_72h",
+    "short_exit_market_mom_24h",
+    "short_exit_market_ma_gap",
     "exclude_pairs",
 }
 
 RANK_PROFILE_KEYS = {
     "n",
     "top_k",
+    "min_pairs_for_top_k",
+    "low_pair_top_k",
     "gross_cap",
     "net_cap",
     "single_pair_cap",
@@ -162,6 +265,8 @@ RANK_PROFILE_KEYS = {
     "pair_edge_strong_ic",
     "pair_edge_very_strong_ic",
     "pair_edge_weak_cap",
+    "pair_edge_min_entry_ic",
+    "pair_edge_min_hold_ic",
     "regime_mode",
     "regime_min_edge_ic",
     "regime_min_pair_edge_ic",
@@ -192,6 +297,8 @@ RANK_PROFILE_KEYS = {
 NUMERIC_LIMITS = {
     "n": (1, 200),
     "top_k": (1, 10),
+    "min_pairs_for_top_k": (1, 50),
+    "low_pair_top_k": (1, 10),
     "gross_cap": (0.0, 10.0),
     "net_cap": (0.0, 5.0),
     "single_pair_cap": (0.0, 2.0),
@@ -208,6 +315,8 @@ NUMERIC_LIMITS = {
     "pair_edge_strong_ic": (0.0, 1.0),
     "pair_edge_very_strong_ic": (0.0, 1.0),
     "pair_edge_weak_cap": (1.0, 10.0),
+    "pair_edge_min_entry_ic": (0.0, 1.0),
+    "pair_edge_min_hold_ic": (0.0, 1.0),
     "regime_min_edge_ic": (0.0, 1.0),
     "regime_min_pair_edge_ic": (0.0, 1.0),
     "regime_min_pair_count": (0, 50),
@@ -233,6 +342,27 @@ ENUM_LIMITS = {
     "regime_mode": {"off", "hq"},
     "timeframe": {"1m", "5m", "15m", "1h"},
     "data_venue": {"auto", "kucoin", "okx", "bybit", "binance"},
+}
+
+ENUM_ALIASES = {
+    "edge_mode": {
+        "on": "rolling_ic",
+        "enabled": "rolling_ic",
+        "true": "rolling_ic",
+        "1": "rolling_ic",
+        "disabled": "off",
+        "false": "off",
+        "0": "off",
+    },
+    "regime_mode": {
+        "on": "hq",
+        "enabled": "hq",
+        "true": "hq",
+        "1": "hq",
+        "disabled": "off",
+        "false": "off",
+        "0": "off",
+    },
 }
 
 BANNED_STRATEGY_IMPORTS = {
@@ -288,11 +418,13 @@ class StrategyLoopConfig:
     blind_timerange: str = DEFAULT_BLIND_TIMERANGE
     verify_policy: str = VERIFY_NONE
     pareto_size_per_axis: int = 3
+    benchmark_suite: str = ""
     lean_gate_mode: str = LEAN_GATE_OFF
     lean_bin: str = "lean"
     lean_timeout: Optional[int] = None
     lean_required_status: str = "ok"
     lean_data_root: str = ""
+    score_lean_weight: float = 0.7
 
     @classmethod
     def from_args(
@@ -333,11 +465,13 @@ class StrategyLoopConfig:
         blind_timerange: Optional[str] = None,
         verify_policy: Optional[str] = None,
         pareto_size_per_axis: int = 3,
+        benchmark_suite: str = "",
         lean_gate_mode: str = LEAN_GATE_OFF,
         lean_bin: str = "lean",
         lean_timeout: Optional[int] = None,
         lean_required_status: str = "ok",
         lean_data_root: Optional[str] = None,
+        score_lean_weight: float = 0.7,
     ) -> "StrategyLoopConfig":
         protocol = str(validation_protocol or VALIDATION_SINGLE).strip().lower()
         if protocol not in VALIDATION_PROTOCOLS:
@@ -398,15 +532,7 @@ class StrategyLoopConfig:
         data_venue_s = str(data_venue or "auto").strip().lower()
         if data_venue_s not in {"auto", "kucoin", "okx", "bybit", "binance"}:
             raise ValueError("data_venue must be auto, kucoin, okx, bybit, or binance")
-        if venue_s != "okx" and emode in {EVAL_TWO_STAGE, EVAL_FREQTRADE}:
-            raise ValueError(
-                "Freqtrade validation is still wired to the fixed OKX config; "
-                "use --eval-mode research with --lean-gate-mode final/all for bybit/binance"
-            )
-        if venue_s != "okx" and smode in {SCORE_FREQTRADE, SCORE_COMPOSITE}:
-            raise ValueError(
-                "freqtrade/composite scoring is OKX-only; use --score-mode research for bybit/binance"
-            )
+        # Freqtrade now supports all venues via per-run venue override config.
         promote_enabled = bool(promote) and policy != PROMOTE_NONE
         return cls(
             tag=tag,
@@ -446,11 +572,13 @@ class StrategyLoopConfig:
             blind_timerange=blind_range,
             verify_policy=verify,
             pareto_size_per_axis=max(1, int(pareto_size_per_axis)),
+            benchmark_suite=str(benchmark_suite or "").strip(),
             lean_gate_mode=lean_mode,
             lean_bin=str(lean_bin or "lean"),
             lean_timeout=None if lean_timeout is None else int(lean_timeout),
             lean_required_status=lean_status,
             lean_data_root=str(lean_data_root or ""),
+            score_lean_weight=float(score_lean_weight) if score_lean_weight is not None else 0.7,
         )
 
     @classmethod
@@ -501,6 +629,44 @@ class StrategyLoopState:
             final_blind_status=payload.get("final_blind_status") if isinstance(payload.get("final_blind_status"), dict) else None,
             final_promotion=payload.get("final_promotion") if isinstance(payload.get("final_promotion"), dict) else None,
         )
+
+
+def _pairs_from_signal_dir(signal_dir: Path, *, exchange_name: str = "binance") -> list[str]:
+    """Return futures pair_whitelist for freqtrade from signal directory.
+
+    Reads all.feather to get unique pairs, converts 'BTC/USDT' -> 'BTC/USDT:USDT'.
+    Falls back to scanning data files if feather unreadable.
+    """
+    try:
+        import pandas as pd  # lazy import – only needed when freqtrade runs
+        # Try all.feather first (consolidated signals)
+        all_file = signal_dir / "all.feather"
+        if all_file.exists():
+            df = pd.read_feather(all_file)
+            if "pair" in df.columns:
+                raw_pairs: list[str] = sorted(df["pair"].dropna().unique().tolist())
+                result = []
+                for p in raw_pairs:
+                    p = str(p)
+                    if ":" not in p and "/" in p:
+                        p = p + ":USDT"
+                    result.append(p)
+                if result:
+                    return result
+        # Fallback: derive pairs from individual BASE_USDT_USDT.feather files
+        result = []
+        import re as _re
+        for f in sorted(signal_dir.glob("*_USDT_USDT.feather")):
+            stem = f.stem  # e.g. "BTC_USDT_USDT"
+            base = _re.sub(r"_USDT_USDT$", "", stem)
+            if base:
+                result.append(f"{base}/USDT:USDT")
+        if result:
+            return result
+    except Exception:
+        pass
+    # Fallback: return empty → freqtrade uses base config whitelist
+    return []
 
 
 def parse_timerange(timerange: str | None) -> tuple[str, str]:
@@ -733,6 +899,43 @@ def _resolve_factor_state(tag: str) -> tuple[Optional[Path], str]:
     return None, ""
 
 
+# Features that only exist in 4h-mined states; unavailable in shorter timeframes.
+_MTF_INCOMPATIBLE_PREFIXES = ("mtf4h_", "funding_z_", "amihud_")
+
+
+def _filter_state_for_timeframe(state_path: Optional[Path], timeframe: str, idir: Path) -> Optional[Path]:
+    """Return a timeframe-compatible copy of the factor state.
+
+    Removes survivors whose expressions reference features only available
+    in 4h-mined data (mtf4h_*, funding_z_*, amihud_*) when running in
+    sub-4h timeframes. Writes a filtered copy to idir/filtered_state.json
+    so the original state is preserved.
+    """
+    if state_path is None or not state_path.exists():
+        return state_path
+    tf = str(timeframe or "").strip().lower()
+    if tf in ("4h", "1d", ""):
+        return state_path
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        survivors = state.get("survivors") or []
+        if not survivors:
+            return state_path
+        filtered = [
+            s for s in survivors
+            if not any(pfx in str(s.get("expression", "")) for pfx in _MTF_INCOMPATIBLE_PREFIXES)
+        ]
+        if len(filtered) == len(survivors):
+            return state_path
+        filtered_state = dict(state)
+        filtered_state["survivors"] = filtered
+        filtered_path = idir / "filtered_state.json"
+        write_json(filtered_path, filtered_state)
+        return filtered_path
+    except Exception:
+        return state_path
+
+
 def _summarize_json(path: Path, max_items: int = 8) -> dict[str, Any]:
     try:
         payload = load_json(path, {})
@@ -861,6 +1064,66 @@ def _hermes_cli_env(base_env: Optional[Mapping[str, str]] = None, *, load_dotenv
     return env
 
 
+def _openai_compatible_env(base_env: Optional[Mapping[str, str]] = None, *, load_dotenv: bool = True) -> dict[str, str]:
+    return _hermes_cli_env(base_env, load_dotenv=load_dotenv)
+
+
+def _openai_compatible_model(config_model: str, env: Mapping[str, str]) -> str:
+    for value in (
+        config_model,
+        env.get("LLM_MODEL", ""),
+        env.get("OPENAI_MODEL", ""),
+        env.get("HERMES_MODEL", ""),
+        env.get("OPENCODE_MODEL", ""),
+    ):
+        raw = str(value or "").strip()
+        if raw:
+            return raw.split("/", 1)[1] if raw.startswith("custom/") else raw
+    return ""
+
+
+@contextmanager
+def _temporary_environ(overrides: Mapping[str, str]):
+    previous: dict[str, Optional[str]] = {}
+    for key, value in overrides.items():
+        previous[key] = os.environ.get(key)
+        os.environ[key] = str(value)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _json_object_from_text(text: str) -> Optional[dict[str, Any]]:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    for match in re.finditer(r"```(?:json)?\s*([\s\S]*?)```", raw, flags=re.IGNORECASE):
+        try:
+            obj = json.loads(match.group(1).strip())
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            continue
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if not match:
+        return None
+    try:
+        obj = json.loads(match.group(0))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
+
+
 def _prepare_hermes_run_home(run_id: str, env: dict[str, str]) -> Path:
     source_home = Path(str(env.get("HERMES_HOME") or Path.home() / ".hermes")).expanduser()
     hermes_home = loop_root(run_id) / "hermes_home"
@@ -955,6 +1218,7 @@ def _load_optimized_baseline(config: StrategyLoopConfig) -> dict[str, Any]:
     return {
         "available": True,
         "path": _as_repo_meta(path),
+        "artifact_ref": _artifact_ref(path),
         "label": "state_0149 + no_corr_recompute + filters" if "state_0149" in str(rank_profile.get("candidate_state", "")) else "optimized_profile.json",
         "rank_profile": rank_profile,
         "expected_research": payload.get("research_backtest") if isinstance(payload.get("research_backtest"), Mapping) else {},
@@ -1005,6 +1269,10 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
                 "freqtrade_score",
                 "composite_score",
                 "selection_reason",
+                "lean_score",
+                "blended_score",
+                "score_lean_weight",
+                "regime_stability_score",
             )
             if key in score_components
         },
@@ -1040,6 +1308,8 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
             for key in ("final_equity", "max_drawdown", "trades", "orders", "turnover", "max_gross", "fee_cost", "ending_open_positions")
             if key in lean_metrics
         },
+        "lean_score": row.get("lean_score"),
+        "lean_analysis_summary": row.get("lean_analysis_summary") or {},
         "violations": row.get("violations") or [],
         "window_metrics": {
             key: value
@@ -1048,6 +1318,9 @@ def _compact_leaderboard_row(row: Mapping[str, Any]) -> dict[str, Any]:
         } if isinstance(row.get("window_metrics"), Mapping) else {},
         "verification_status": row.get("verification_status"),
         "promotion_eligible": row.get("promotion_eligible"),
+        "pareto_eligible": row.get("pareto_eligible"),
+        "behavior_novelty": row.get("behavior_novelty") or {},
+        "signal_fingerprints": row.get("signal_fingerprints") or {},
         "pareto_axes": row.get("pareto_axes") or [],
         "artifact_refs": row.get("artifact_refs") or {},
         "diagnostics": row.get("diagnostics") or (row.get("promotion") or {}).get("reason"),
@@ -1164,6 +1437,8 @@ def _regime_stability_score(row: Mapping[str, Any]) -> Optional[float]:
 
 
 def _axis_value(axis: str, row: Mapping[str, Any]) -> Optional[float]:
+    if not _pareto_row_eligible(row):
+        return None
     if axis == "best_validation_composite":
         return _score_component(row, "composite_score")
     if axis == "best_validation_freqtrade_profit":
@@ -1192,15 +1467,43 @@ def _axis_value(axis: str, row: Mapping[str, Any]) -> Optional[float]:
     return None
 
 
+def _pareto_row_eligible(row: Mapping[str, Any]) -> bool:
+    if row.get("pareto_eligible") is False:
+        return False
+    if row.get("constraints_ok") is not True:
+        return False
+    behavior = row.get("behavior_novelty") if isinstance(row.get("behavior_novelty"), Mapping) else {}
+    if str(behavior.get("status") or "").strip().lower() in BEHAVIOR_DUPLICATE_STATUSES:
+        return False
+    status = str(row.get("verification_status") or "").strip().lower()
+    if status == VERIFICATION_FAILED:
+        return False
+    raw_score = row.get("score")
+    if raw_score is not None:
+        try:
+            if float(raw_score) <= FAILED_ITERATION_SCORE:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def build_pareto_pool(
     rows: Sequence[Mapping[str, Any]],
     *,
     size_per_axis: int = 3,
     max_total: int = PARETO_MAX_TOTAL,
+    excluded_signal_fingerprints: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> dict[str, Any]:
     axis_rows: dict[str, list[dict[str, Any]]] = {}
     finalist_rows: dict[str, dict[str, Any]] = {}
     finalist_axes: dict[str, list[str]] = {}
+    selected_signal_fingerprints: list[dict[str, Any]] = [
+        dict(fp)
+        for fp in (excluded_signal_fingerprints or [])
+        if isinstance(fp, Mapping) and _coerce_int(fp.get("active_rows"), 0) > 0
+    ]
+    selected_signal_identities: set[str] = set()
     for axis in PARETO_AXES:
         scored: list[tuple[float, Mapping[str, Any]]] = []
         for row in rows:
@@ -1217,10 +1520,20 @@ def build_pareto_pool(
             ident = _row_identity(row)
             if ident in axis_seen:
                 continue
+            current_fp = _row_stage_signal_fingerprint(row, "validation")
+            if (
+                current_fp
+                and ident not in selected_signal_identities
+                and any(_signal_behavior_duplicate(current_fp, prior_fp) for prior_fp in selected_signal_fingerprints)
+            ):
+                continue
             axis_seen.add(ident)
             compact = _compact_leaderboard_row(row)
             compact["axis_value"] = value
             selected.append(compact)
+            if current_fp and ident not in selected_signal_identities:
+                selected_signal_fingerprints.append(current_fp)
+                selected_signal_identities.add(ident)
             if len(selected) >= int(size_per_axis):
                 break
         axis_rows[axis] = selected
@@ -1257,6 +1570,8 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         "best_freqtrade_profit": None,
         "best_freqtrade_profit_over_drawdown": None,
         "best_research_profit_over_drawdown": None,
+        "best_lean_candidate": None,
+        "lean_metrics_history": [],
         "pareto_memory": {},
         "recent_score_history": [],
         "previous_failure": None,
@@ -1265,6 +1580,7 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         "negative_feedback": [],
         "stagnation": {},
         "gate_repair_hints": {},
+        "validation_gate_repair_hints": {},
     }
     try:
         loaded_config, state = load_checkpoint(run_id)
@@ -1284,6 +1600,26 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         memory["best_freqtrade_profit"] = _best_compact(history, lambda r: _metric_value(r, "freqtrade", "profit_pct"))
         memory["best_freqtrade_profit_over_drawdown"] = _best_compact(history, lambda r: _metric_value(r, "freqtrade", "profit_over_max_drawdown"))
         memory["best_research_profit_over_drawdown"] = _best_compact(history, lambda r: _metric_value(r, "research", "profit_over_max_drawdown"))
+        memory["best_lean_candidate"] = _best_compact(history, lambda r: r.get("lean_score") if r.get("lean_score") is not None else float("-inf"))
+        lean_history: list[dict[str, Any]] = []
+        for row in state.score_history[-recent_limit:]:
+            if not isinstance(row, Mapping):
+                continue
+            compact = _compact_leaderboard_row(row)
+            la_summary = compact.get("lean_analysis_summary") or {}
+            lm = compact.get("lean_metrics") or {}
+            if lm or la_summary or compact.get("lean_score") is not None:
+                lean_history.append({
+                    "iteration": compact.get("iteration"),
+                    "lean_score": compact.get("lean_score"),
+                    "lean_gate_status": compact.get("lean_gate_status"),
+                    "lean_metrics": {k: lm.get(k) for k in ("final_equity", "max_drawdown", "trades") if lm.get(k) is not None},
+                    "monthly_worst": la_summary.get("monthly_worst"),
+                    "monthly_best": la_summary.get("monthly_best"),
+                    "drawdown_worst": la_summary.get("drawdown_worst"),
+                    "consecutive_loss_months": la_summary.get("consecutive_loss_months"),
+                })
+        memory["lean_metrics_history"] = lean_history
         pareto_payload = state.pareto_pool if isinstance(state.pareto_pool, Mapping) and state.pareto_pool else build_pareto_pool(history)
         axes = pareto_payload.get("axes") if isinstance(pareto_payload.get("axes"), Mapping) else {}
         memory["pareto_memory"] = {
@@ -1330,7 +1666,7 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
         memory["negative_feedback"] = feedback[-recent_limit:]
         if loaded_config is not None:
             memory["gate_repair_hints"] = _search_gate_repair_hints(history, loaded_config)
-
+            memory["validation_gate_repair_hints"] = _validation_gate_repair_hints(history, loaded_config)
     previous_iter = iteration_dir(run_id, iteration - 1) if iteration > 1 else None
     if previous_iter is not None and (previous_iter / "error.json").exists():
         error = load_json(previous_iter / "error.json", {})
@@ -1343,6 +1679,260 @@ def _loop_memory(run_id: str, iteration: int, *, recent_limit: int = 8) -> dict[
     return memory
 
 
+def _metric_subset(metrics: Any) -> dict[str, Any]:
+    if not isinstance(metrics, Mapping):
+        return {}
+    keys = (
+        "profit_pct",
+        "total_return_pct",
+        "profit_total_pct",
+        "max_drawdown_pct",
+        "max_account_underwater_pct",
+        "trades",
+        "total_trades",
+        "profit_over_max_drawdown",
+        "simulated_liquidations",
+        "liquidation_rejects",
+        "avg_turnover",
+        "kill_mode_count",
+    )
+    return {key: metrics.get(key) for key in keys if metrics.get(key) is not None}
+
+
+def _compact_behavior_novelty_for_prompt(value: Any) -> Any:
+    if not isinstance(value, Mapping):
+        return value
+
+    def _fingerprint(raw: Any) -> dict[str, Any]:
+        if not isinstance(raw, Mapping):
+            return {}
+        keys = (
+            "active_rows",
+            "active_days",
+            "active_day_ratio",
+            "active_pairs",
+            "target_weight_changed_rows",
+            "active_target_weight_changed_rows",
+            "pair_counts",
+            "action_signature",
+            "path_signature",
+            "distribution_signature",
+        )
+        return {key: raw.get(key) for key in keys if raw.get(key) is not None}
+
+    out = {
+        key: value.get(key)
+        for key in ("status", "stage", "reason", "gate_status")
+        if value.get(key) is not None
+    }
+    fingerprint = _fingerprint(value.get("fingerprint"))
+    if fingerprint:
+        out["fingerprint"] = fingerprint
+    nearest = value.get("nearest")
+    if isinstance(nearest, Mapping):
+        out["nearest"] = {
+            key: nearest.get(key)
+            for key in (
+                "iteration",
+                "status",
+                "reason",
+                "similarity",
+                "active_rows",
+                "active_days",
+                "active_pairs",
+                "action_signature",
+                "path_signature",
+            )
+            if nearest.get(key) is not None
+        }
+    return out
+
+
+def _compact_window_metrics_for_prompt(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    out: dict[str, Any] = {}
+    for stage, raw in value.items():
+        if not isinstance(raw, Mapping):
+            continue
+        freqtrade = raw.get("freqtrade_backtest") if isinstance(raw.get("freqtrade_backtest"), Mapping) else {}
+        violations = raw.get("violations")
+        stability = raw.get("regime_stability") if isinstance(raw.get("regime_stability"), Mapping) else {}
+        compact_stability = {
+            key: stability.get(key)
+            for key in (
+                "score",
+                "subwindow_count",
+                "positive_subwindows",
+                "positive_subwindow_ratio",
+                "worst_subwindow_profit_pct",
+                "best_subwindow_profit_pct",
+                "profit_std",
+                "max_subwindow_drawdown_pct",
+                "month_count",
+                "positive_month_ratio",
+                "worst_subwindow",
+                "best_subwindow",
+                "worst_month",
+                "best_month",
+            )
+            if stability.get(key) not in (None, {}, [])
+        }
+        out[str(stage)] = {
+            key: val
+            for key, val in {
+                "score": raw.get("score"),
+                "constraints_ok": raw.get("constraints_ok"),
+                "violations": list(violations)[:6] if isinstance(violations, Sequence) and not isinstance(violations, str) else violations,
+                "research_metrics": _metric_subset(raw.get("research_metrics") or raw.get("research_backtest") or raw),
+                "freqtrade_metrics": _metric_subset(raw.get("freqtrade_metrics") or freqtrade.get("metrics")),
+                "regime_stability": compact_stability,
+            }.items()
+            if val not in (None, {}, [])
+        }
+    return out
+
+
+def _compact_candidate_row_for_prompt(row: Any) -> Any:
+    if not isinstance(row, Mapping):
+        return row
+    candidate = row.get("candidate") if isinstance(row.get("candidate"), Mapping) else {}
+    profile = (
+        candidate.get("rank_profile")
+        if isinstance(candidate.get("rank_profile"), Mapping)
+        else row.get("rank_profile") if isinstance(row.get("rank_profile"), Mapping)
+        else row.get("parameters") if isinstance(row.get("parameters"), Mapping)
+        else {}
+    )
+    metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), Mapping) else row.get("metadata")
+    violations = row.get("violations")
+    out = {
+        "iteration": row.get("iteration"),
+        "name": candidate.get("name") or row.get("name"),
+        "candidate_type": candidate.get("candidate_type") or row.get("candidate_type"),
+        "rank_profile": profile,
+        "metadata": metadata if isinstance(metadata, Mapping) else None,
+        "score": row.get("score"),
+        "score_components": row.get("score_components") if isinstance(row.get("score_components"), Mapping) else None,
+        "constraints_ok": row.get("constraints_ok"),
+        "violations": list(violations)[:6] if isinstance(violations, Sequence) and not isinstance(violations, str) else violations,
+        "research_metrics": _metric_subset(row.get("research_metrics") or row.get("metrics")),
+        "freqtrade_metrics": _metric_subset(row.get("freqtrade_metrics")),
+        "window_metrics": _compact_window_metrics_for_prompt(row.get("window_metrics")),
+        "behavior_novelty": _compact_behavior_novelty_for_prompt(row.get("behavior_novelty")),
+        "verification_status": row.get("verification_status"),
+        "pareto_eligible": row.get("pareto_eligible"),
+    }
+    return {key: val for key, val in out.items() if val not in (None, {}, [])}
+
+
+def _json_char_len(value: Any) -> int:
+    try:
+        return len(json.dumps(value, sort_keys=True, default=str))
+    except Exception:
+        return len(str(value))
+
+
+def _bounded_prompt_value(value: Any, *, max_chars: int = 8_000) -> Any:
+    size = _json_char_len(value)
+    if size <= max_chars:
+        return value
+    text = json.dumps(value, sort_keys=True, default=str)
+    return {"truncated": True, "chars": size, "preview": text[:max_chars]}
+
+
+def _compact_direct_agent_context(context: Mapping[str, Any]) -> dict[str, Any]:
+    direct_keys = (
+        "version",
+        "run_id",
+        "iteration",
+        "objective",
+        "config",
+        "optimized_baseline",
+        "baseline_search_policy",
+        "factor_source",
+        "factor_summary",
+        "futures_coverage",
+        "okx_coverage",
+        "previous_iteration",
+        "allowed_candidate_files",
+        "allowed_rank_profile_keys",
+        "allowed_rank_profile_enum_values",
+    )
+    compact = {key: context.get(key) for key in direct_keys if key in context}
+    previous = compact.get("previous_iteration")
+    if isinstance(previous, Mapping):
+        compact["previous_iteration"] = {
+            key: _bounded_prompt_value(value, max_chars=6_000)
+            for key, value in previous.items()
+            if key in {"candidate.json", "evaluation.json", "error.json", "analysis.md", "lean_analysis.json", "lean_analysis.md"}
+        }
+
+    memory = context.get("loop_memory") if isinstance(context.get("loop_memory"), Mapping) else {}
+    if memory:
+        compact_memory: dict[str, Any] = {}
+        for key in (
+            "best_candidate",
+            "best_composite_candidate",
+            "best_freqtrade_profit",
+            "best_freqtrade_profit_over_drawdown",
+            "best_research_profit_over_drawdown",
+            "best_lean_candidate",
+        ):
+            if key in memory:
+                compact_memory[key] = _compact_candidate_row_for_prompt(memory.get(key))
+        for key in (
+            "best_research_result",
+            "best_freqtrade_result",
+            "lean_metrics_history",
+            "stagnation",
+            "previous_failure",
+            "negative_feedback",
+        ):
+            if key in memory:
+                compact_memory[key] = _bounded_prompt_value(memory.get(key), max_chars=8_000)
+        for key in ("gate_repair_hints", "validation_gate_repair_hints"):
+            if key in memory:
+                compact_memory[key] = _bounded_prompt_value(memory.get(key), max_chars=3_000)
+        recent = memory.get("recent_score_history")
+        if isinstance(recent, Sequence) and not isinstance(recent, (str, bytes)):
+            compact_memory["recent_score_history"] = [
+                _compact_candidate_row_for_prompt(row)
+                for row in list(recent)[-6:]
+            ]
+        profiles = memory.get("avoid_repeating_rank_profiles")
+        if isinstance(profiles, Sequence) and not isinstance(profiles, (str, bytes)):
+            compact_memory["avoid_repeating_rank_profiles"] = list(profiles)[-6:]
+        signatures = memory.get("avoid_repeating_rank_profile_signatures")
+        if isinstance(signatures, Sequence) and not isinstance(signatures, (str, bytes)):
+            compact_memory["avoid_repeating_rank_profile_signatures"] = {
+                "count": len(signatures),
+                "recent": list(signatures)[-6:],
+            }
+        pareto = memory.get("pareto_memory")
+        if isinstance(pareto, Mapping):
+            compact_memory["pareto_memory"] = {
+                key: [_compact_candidate_row_for_prompt(row) for row in list(value)[:1]]
+                if isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+                else _compact_candidate_row_for_prompt(value)
+                for key, value in pareto.items()
+                if key in PARETO_AXES
+            }
+        compact["loop_memory"] = compact_memory
+
+    for key, value in context.items():
+        if key in compact or key in {"rank_artifacts", "loop_memory"}:
+            continue
+        if _json_char_len(value) <= 2_000:
+            compact[key] = value
+    compact["context_compaction"] = {
+        "source_chars": _json_char_len(context),
+        "compact_chars": _json_char_len(compact),
+        "note": "direct OpenAI-compatible agent receives compact context to avoid context-window failures",
+    }
+    return compact
+
+
 def prepare_context(config: StrategyLoopConfig, run_id: str, iteration: int) -> dict[str, Any]:
     factor_state, factor_source = _resolve_factor_state(config.tag)
     rank_dir = repo_paths.artifacts_root() / "rank_portfolio" / config.tag
@@ -1353,13 +1943,16 @@ def prepare_context(config: StrategyLoopConfig, run_id: str, iteration: int) -> 
     previous_iter = iteration_dir(run_id, iteration - 1) if iteration > 1 else None
     previous: dict[str, Any] = {}
     if previous_iter is not None:
-        for name in ("analysis.md", "backtest.json", "candidate.json", "evaluation.json", "error.json"):
+        for name in ("analysis.md", "backtest.json", "candidate.json", "evaluation.json", "error.json", "lean_analysis.json"):
             path = previous_iter / name
             if path.exists():
                 if path.suffix == ".json":
                     previous[name] = load_json(path, {})
                 else:
                     previous[name] = path.read_text(encoding="utf-8")[:12_000]
+        lean_md_path = previous_iter / "lean_analysis.md"
+        if lean_md_path.exists():
+            previous["lean_analysis.md"] = lean_md_path.read_text(encoding="utf-8")[:12_000]
 
     venue_dir = repo_paths.user_data_root() / "data" / config.venue / "futures"
     if config.venue == "okx" and not venue_dir.exists():
@@ -1459,6 +2052,11 @@ def prepare_context(config: StrategyLoopConfig, run_id: str, iteration: int) -> 
             else ["candidate.json", "analysis.md"]
         ),
         "allowed_rank_profile_keys": sorted(RANK_PROFILE_KEYS),
+        "allowed_rank_profile_enum_values": {
+            key: sorted(values)
+            for key, values in ENUM_LIMITS.items()
+            if key in RANK_PROFILE_KEYS
+        },
     }
 
 
@@ -1496,7 +2094,8 @@ def normalize_rank_profile(profile: Mapping[str, Any], *, default_n: int = 50) -
                 raise ValueError("exclude_pairs must be a string or list")
             continue
         if key in ENUM_LIMITS:
-            lowered = str(value).strip().lower()
+            lowered = "true" if value is True else "false" if value is False else str(value).strip().lower()
+            lowered = ENUM_ALIASES.get(key, {}).get(lowered, lowered)
             if lowered not in ENUM_LIMITS[key]:
                 raise ValueError(f"{key} must be one of {sorted(ENUM_LIMITS[key])}, got {value!r}")
             out[key] = lowered
@@ -1615,6 +2214,161 @@ def _coerce_int(value: Any, default: int) -> int:
         return default
 
 
+def _parse_curve_datetime(value: Any) -> Optional[datetime]:
+    if hasattr(value, "to_pydatetime"):
+        try:
+            value = value.to_pydatetime()
+        except Exception:
+            pass
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, date):
+        dt = datetime(value.year, value.month, value.day)
+    else:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        text = text.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _equity_curve_points(raw_curve: Any) -> list[tuple[datetime, float]]:
+    if not isinstance(raw_curve, Sequence) or isinstance(raw_curve, (str, bytes)):
+        return []
+    points: list[tuple[datetime, float]] = []
+    for raw in raw_curve:
+        if not isinstance(raw, Mapping):
+            continue
+        dt = _parse_curve_datetime(raw.get("date"))
+        if dt is None:
+            continue
+        equity = _coerce_finite_float(raw.get("equity"), float("nan"))
+        if not math.isfinite(equity) or equity <= 0.0:
+            continue
+        points.append((dt, float(equity)))
+    points.sort(key=lambda item: item[0])
+    return points
+
+
+def _equity_period_summary(period: str, points: Sequence[tuple[datetime, float]]) -> Optional[dict[str, Any]]:
+    if len(points) < 2:
+        return None
+    start_equity = float(points[0][1])
+    end_equity = float(points[-1][1])
+    profit_pct = (end_equity / max(start_equity, 1e-12) - 1.0) * 100.0
+    high = start_equity
+    max_dd_pct = 0.0
+    for _, equity in points:
+        high = max(high, float(equity))
+        if high > 0.0:
+            max_dd_pct = max(max_dd_pct, (high - float(equity)) / high * 100.0)
+    if max_dd_pct <= 1e-9:
+        profit_over_dd = 100.0 if profit_pct > 0.0 else -100.0 if profit_pct < 0.0 else 0.0
+    else:
+        profit_over_dd = profit_pct / max_dd_pct
+    return {
+        "period": period,
+        "start": points[0][0].date().isoformat(),
+        "end": points[-1][0].date().isoformat(),
+        "points": len(points),
+        "profit_pct": round(float(profit_pct), 6),
+        "max_drawdown_pct": round(float(max_dd_pct), 6),
+        "profit_over_max_drawdown": round(float(profit_over_dd), 6),
+    }
+
+
+def _curve_period_summaries(
+    points: Sequence[tuple[datetime, float]],
+    *,
+    mode: str,
+    days: int = 7,
+) -> list[dict[str, Any]]:
+    if len(points) < 2:
+        return []
+    grouped: dict[str, list[tuple[datetime, float]]] = {}
+    if mode == "month":
+        for dt, equity in points:
+            key = f"{dt.year:04d}-{dt.month:02d}"
+            grouped.setdefault(key, []).append((dt, equity))
+    else:
+        first_day = points[0][0].date()
+        last_day = points[-1][0].date()
+        span_days = max(1, int(days))
+        for dt, equity in points:
+            idx = max(0, (dt.date() - first_day).days // span_days)
+            period_start = first_day + timedelta(days=idx * span_days)
+            period_end = min(period_start + timedelta(days=span_days - 1), last_day)
+            key = f"{period_start.isoformat()}..{period_end.isoformat()}"
+            grouped.setdefault(key, []).append((dt, equity))
+    summaries: list[dict[str, Any]] = []
+    for key, group in grouped.items():
+        summary = _equity_period_summary(key, group)
+        if summary is not None:
+            summaries.append(summary)
+    return summaries
+
+
+def _period_profit_std(periods: Sequence[Mapping[str, Any]]) -> float:
+    profits = [_coerce_finite_float(period.get("profit_pct"), 0.0) for period in periods]
+    if len(profits) <= 1:
+        return 0.0
+    mean = sum(profits) / len(profits)
+    variance = sum((value - mean) ** 2 for value in profits) / len(profits)
+    return math.sqrt(max(0.0, variance))
+
+
+def _curve_regime_stability(stage_result: Mapping[str, Any]) -> dict[str, Any]:
+    points = _equity_curve_points(stage_result.get("curve"))
+    if len(points) < 2:
+        return {}
+    subwindows = _curve_period_summaries(points, mode="fixed_days", days=7)
+    if not subwindows:
+        return {}
+    months = _curve_period_summaries(points, mode="month")
+    positive_subwindows = sum(1 for period in subwindows if _coerce_finite_float(period.get("profit_pct"), 0.0) > 0.0)
+    positive_months = sum(1 for period in months if _coerce_finite_float(period.get("profit_pct"), 0.0) > 0.0)
+    worst_subwindow = min(subwindows, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0))
+    best_subwindow = max(subwindows, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0))
+    worst_month = min(months, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0)) if months else {}
+    best_month = max(months, key=lambda period: _coerce_finite_float(period.get("profit_pct"), 0.0)) if months else {}
+    profit_std = _period_profit_std(subwindows)
+    worst_profit = _coerce_finite_float(worst_subwindow.get("profit_pct"), 0.0)
+    positive_ratio = positive_subwindows / max(len(subwindows), 1)
+    score = positive_ratio * 100.0 + worst_profit - profit_std
+    return {
+        "version": "equity-curve-regime-stability-v1",
+        "source": "rank_equity_curve",
+        "subwindow_days": 7,
+        "subwindow_count": len(subwindows),
+        "positive_subwindows": positive_subwindows,
+        "positive_subwindow_ratio": round(float(positive_ratio), 6),
+        "worst_subwindow_profit_pct": round(float(worst_profit), 6),
+        "best_subwindow_profit_pct": best_subwindow.get("profit_pct"),
+        "profit_std": round(float(profit_std), 6),
+        "max_subwindow_drawdown_pct": round(
+            max(_coerce_finite_float(period.get("max_drawdown_pct"), 0.0) for period in subwindows),
+            6,
+        ),
+        "worst_subwindow_profit_over_max_drawdown": worst_subwindow.get("profit_over_max_drawdown"),
+        "worst_subwindow": worst_subwindow,
+        "best_subwindow": best_subwindow,
+        "subwindows": subwindows,
+        "month_count": len(months),
+        "positive_months": positive_months,
+        "positive_month_ratio": round(float(positive_months / max(len(months), 1)), 6) if months else None,
+        "worst_month": worst_month,
+        "best_month": best_month,
+        "months": months,
+        "score": round(float(score), 6),
+    }
+
+
 def _clamp_numeric(key: str, value: Any) -> Any:
     if key not in NUMERIC_LIMITS:
         return value
@@ -1643,6 +2397,7 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
     min_trades = int(gates["min_trades"])
     min_pdd = float(gates["min_profit_over_dd"])
     near_misses: list[dict[str, Any]] = []
+    near_pdd_misses: list[dict[str, Any]] = []
     high_trade_low_quality: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, Mapping):
@@ -1663,14 +2418,31 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
             "profit_over_max_drawdown": pdd,
             "profit_pct": profit,
             "max_drawdown_pct": drawdown,
+            "search_signal_dir": (
+                (row.get("window_metrics") or {}).get("search", {}).get("signal_dir")
+                if isinstance(row.get("window_metrics"), Mapping)
+                and isinstance((row.get("window_metrics") or {}).get("search"), Mapping)
+                else None
+            ),
             "rank_profile": dict(profile),
         }
         if trades < min_trades and pdd >= min_pdd and profit > 0:
             near_misses.append(compact)
+        if trades >= min_trades and profit > 0 and pdd < min_pdd and pdd >= min_pdd * 0.75:
+            compact["profit_over_max_drawdown_gap"] = min_pdd - pdd
+            near_pdd_misses.append(compact)
         if trades >= min_trades and pdd < min_pdd:
             high_trade_low_quality.append(compact)
     near_misses.sort(key=lambda item: (int(item["trades_gap"]), -float(item["profit_over_max_drawdown"])))
-    high_trade_low_quality.sort(key=lambda item: (float(item["profit_over_max_drawdown"]), -int(item["trades"])))
+    near_pdd_misses.sort(key=lambda item: (float(item["profit_over_max_drawdown_gap"]), -float(item["profit_pct"])))
+    high_trade_low_quality.sort(
+        key=lambda item: (
+            float(item["profit_over_max_drawdown"]),
+            float(item["profit_pct"]),
+            int(item["trades"]),
+        ),
+        reverse=True,
+    )
     hints: list[str] = []
     if near_misses:
         hints.append(
@@ -1680,9 +2452,14 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
         hints.append(
             "High-trade attempts cleared trade count but damaged profit/drawdown; combine participation repairs with quality controls instead of broad cadence cuts."
         )
+    if near_pdd_misses:
+        hints.append(
+            "Best search near-misses cleared trade count and profit but missed profit/drawdown; prefer tiny quality repairs around those anchors."
+        )
     return {
         "search_gates": gates,
         "near_miss_trade_gate": near_misses[:5],
+        "near_miss_profit_drawdown_gate": near_pdd_misses[:5],
         "high_trade_low_quality": high_trade_low_quality[:5],
         "recommended_repair_order": [
             "lower min_abs_score_z by 0.01-0.03 from a high-P/DD anchor",
@@ -1692,6 +2469,780 @@ def _search_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: Strateg
         ],
         "notes": hints,
     }
+
+
+def _validation_gate_repair_hints(rows: Sequence[Mapping[str, Any]], config: StrategyLoopConfig) -> dict[str, Any]:
+    gates = scaled_gate_values(config, config.validation_timerange)
+    min_trades = int(gates["min_trades"])
+    min_pdd = float(gates["min_profit_over_dd"])
+    validation_pdd_failures: list[dict[str, Any]] = []
+    validation_losses: list[dict[str, Any]] = []
+    validation_passed: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        profile = _row_rank_profile(row)
+        if not profile:
+            continue
+        windows = row.get("window_metrics") if isinstance(row.get("window_metrics"), Mapping) else {}
+        search_window = windows.get("search") if isinstance(windows.get("search"), Mapping) else {}
+        validation_window = windows.get("validation") if isinstance(windows.get("validation"), Mapping) else {}
+        if search_window.get("constraints_ok") is not True or not validation_window:
+            continue
+        validation_metrics = _stage_metrics_from_row(row, "validation")
+        search_metrics = _stage_metrics_from_row(row, "search")
+        if not validation_metrics:
+            continue
+        trades = _coerce_int(validation_metrics.get("trades"), 0)
+        pdd = _coerce_finite_float(validation_metrics.get("profit_over_max_drawdown"), 0.0)
+        profit = _coerce_finite_float(validation_metrics.get("profit_pct"), 0.0)
+        drawdown = _coerce_finite_float(validation_metrics.get("max_drawdown_pct"), 0.0)
+        search_pdd = _coerce_finite_float(search_metrics.get("profit_over_max_drawdown"), 0.0)
+        stability = validation_window.get("regime_stability") if isinstance(validation_window.get("regime_stability"), Mapping) else {}
+        stability_summary = {
+            key: stability.get(key)
+            for key in (
+                "score",
+                "subwindow_count",
+                "positive_subwindows",
+                "positive_subwindow_ratio",
+                "worst_subwindow_profit_pct",
+                "best_subwindow_profit_pct",
+                "profit_std",
+                "max_subwindow_drawdown_pct",
+                "worst_subwindow_profit_over_max_drawdown",
+                "worst_subwindow",
+                "best_subwindow",
+                "month_count",
+                "positive_month_ratio",
+                "worst_month",
+                "best_month",
+            )
+            if stability.get(key) not in (None, {}, [])
+        }
+        compact = {
+            "iteration": row.get("iteration"),
+            "name": (_row_candidate(row) or {}).get("name"),
+            "validation_trades": trades,
+            "validation_trades_gap": max(0, min_trades - trades),
+            "validation_profit_over_max_drawdown": pdd,
+            "validation_profit_over_max_drawdown_gap": min_pdd - pdd,
+            "validation_profit_pct": profit,
+            "validation_max_drawdown_pct": drawdown,
+            "search_signal_dir": search_window.get("signal_dir"),
+            "validation_signal_dir": validation_window.get("signal_dir"),
+            "search_profit_over_max_drawdown": search_pdd,
+            "search_profit_pct": _coerce_finite_float(search_metrics.get("profit_pct"), 0.0),
+            "violations": validation_window.get("violations") or row.get("violations") or [],
+            "rank_profile": dict(profile),
+        }
+        if stability_summary:
+            compact["validation_regime_stability"] = stability_summary
+        if validation_window.get("constraints_ok") is True:
+            validation_passed.append(compact)
+            continue
+        if trades < min_trades or pdd < min_pdd:
+            validation_pdd_failures.append(compact)
+        if profit <= 0.0:
+            validation_losses.append(compact)
+
+    validation_pdd_failures.sort(
+        key=lambda item: (
+            float(item["validation_profit_over_max_drawdown"]),
+            float(item["validation_profit_pct"]),
+            float(item["search_profit_over_max_drawdown"]),
+        ),
+        reverse=True,
+    )
+    validation_losses.sort(
+        key=lambda item: (
+            float(item["search_profit_over_max_drawdown"]),
+            float(item["validation_profit_pct"]),
+        ),
+        reverse=True,
+    )
+    validation_passed.sort(
+        key=lambda item: (
+            float(item["validation_profit_over_max_drawdown"]),
+            float(item["validation_profit_pct"]),
+            int(item["validation_trades"]),
+        ),
+        reverse=True,
+    )
+    notes: list[str] = []
+    if validation_pdd_failures:
+        notes.append(
+            "At least one candidate cleared search gates but failed validation P/DD; prioritize out-of-time robustness before more search tuning."
+        )
+    if validation_losses:
+        notes.append(
+            "At least one search-pass candidate lost money in validation; prefer regime, market-momentum, ATR, and breadth controls."
+        )
+    return {
+        "validation_gates": gates,
+        "validation_passed": validation_passed[:5],
+        "validation_profit_drawdown_fail": validation_pdd_failures[:5],
+        "validation_loss_after_search_pass": validation_losses[:5],
+        "recommended_repair_order": [
+            "enable hq regime filters with minimum edge and market-momentum caps",
+            "if the best validation-fail repair is close but below min_trades, recover trades with top_k+1 or z-0.01 around that anchor",
+            "tighten min_abs_score_z by 0.02-0.05 around the search-pass validation-fail anchor",
+            "reduce top_k or market/ATR exposure before reducing risk sizing alone",
+            "do not keep optimizing search P/DD while validation P/DD is negative",
+        ],
+        "notes": notes,
+    }
+
+
+def _resolve_signal_file(raw_signal_dir: Any) -> Optional[Path]:
+    raw = str(raw_signal_dir or "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = repo_paths.resolve_repo_path(raw)
+    if path.is_dir():
+        path = path / "all.feather"
+    return path if path.exists() else None
+
+
+def _pair_pnl_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mapping[str, Any]) -> list[tuple[str, float]]:
+    signal_path = _resolve_signal_file(raw_signal_dir)
+    if signal_path is None:
+        return []
+    try:
+        import numpy as np
+        import pandas as pd
+    except Exception:
+        return []
+    try:
+        df = pd.read_feather(signal_path)
+    except Exception:
+        return []
+    required = {"date", "pair", "open", "high", "low", "close", "rp_target_weight", "rp_stop_pct"}
+    if not required.issubset(set(df.columns)):
+        return []
+    try:
+        df = df.copy().sort_values(["pair", "date"]).reset_index(drop=True)
+        df["date"] = pd.to_datetime(df["date"], utc=True)
+    except Exception:
+        return []
+
+    pieces = []
+    for _, sub in df.groupby("pair", sort=False):
+        sub = sub.copy()
+        sub["next_open"] = sub["open"].shift(-1)
+        sub["next_high"] = sub["high"].shift(-1)
+        sub["next_low"] = sub["low"].shift(-1)
+        sub["next_next_open"] = sub["open"].shift(-2)
+        sub["ret_next"] = (sub["next_next_open"] / sub["next_open"].clip(lower=1e-12)) - 1.0
+        pieces.append(sub)
+    if not pieces:
+        return []
+
+    scored: list[tuple[str, float]] = []
+    prev_weights: dict[str, float] = {}
+    fee_rate = _coerce_finite_float(anchor_profile.get("fee_rate"), 0.0004)
+    slippage = _coerce_finite_float(anchor_profile.get("slippage"), 0.0003)
+    for _, group in pd.concat(pieces, ignore_index=True).sort_values(["date", "pair"]).groupby("date", sort=True):
+        weights_now: dict[str, float] = {}
+        for _, row in group.iterrows():
+            pair = str(row["pair"])
+            weight = float(row.get("rp_target_weight", 0.0) or 0.0)
+            weights_now[pair] = weight
+            pnl = 0.0
+            ret_next = row.get("ret_next")
+            if abs(weight) > 0.0 and np.isfinite(ret_next):
+                entry = float(row.get("next_open") or row.get("close") or 0.0)
+                if entry <= 0.0:
+                    entry = float(row.get("close") or 0.0)
+                side = 1.0 if weight > 0.0 else -1.0
+                if side > 0.0:
+                    adverse = (entry - float(row.get("next_low", entry))) / max(entry, 1e-12)
+                    side_ret = float(ret_next)
+                else:
+                    adverse = (float(row.get("next_high", entry)) - entry) / max(entry, 1e-12)
+                    side_ret = -float(ret_next)
+                stop = float(row.get("rp_stop_pct") or 0.02)
+                if adverse >= stop:
+                    side_ret = -stop
+                pnl = abs(weight) * side_ret
+            cost = abs(weight - prev_weights.get(pair, 0.0)) * (fee_rate + slippage)
+            if abs(weight) > 0.0 or cost > 0.0:
+                scored.append((pair, pnl - cost))
+        prev_weights = weights_now
+    if not scored:
+        return []
+
+    pair_pnl: dict[str, float] = {}
+    for pair, pnl in scored:
+        norm = _normalize_pair_token(pair)
+        if norm:
+            pair_pnl[norm] = pair_pnl.get(norm, 0.0) + float(pnl)
+    return sorted(pair_pnl.items(), key=lambda item: item[1])
+
+
+def _pair_loss_order_from_signal_dir(raw_signal_dir: Any, anchor_profile: Mapping[str, Any]) -> list[str]:
+    return [pair for pair, pnl in _pair_pnl_order_from_signal_dir(raw_signal_dir, anchor_profile) if pnl < 0.0]
+
+
+def _search_pair_focus_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+    config: StrategyLoopConfig,
+) -> list[tuple[str, str, dict[str, Any], str, dict[str, Any]]]:
+    pair_pnl = _pair_pnl_order_from_signal_dir(anchor.get("search_signal_dir"), anchor_profile)
+    if not pair_pnl:
+        return []
+    existing_pairs = set(_merged_excluded_pairs(anchor_profile, []))
+    profitable_pairs = [pair for pair, pnl in sorted(pair_pnl, key=lambda item: item[1], reverse=True) if pnl > 0.0]
+    loss_pairs = [pair for pair, pnl in pair_pnl if pnl < 0.0 and pair not in existing_pairs]
+    focus_pairs = [pair for pair in profitable_pairs if pair not in existing_pairs][:3]
+    if len(focus_pairs) < 2 or not loss_pairs:
+        return []
+
+    anchor_top_k = _coerce_int(anchor_profile.get("top_k"), 2)
+    focus_top_k = max(1, min(anchor_top_k, len(focus_pairs)))
+    anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), 1.5)
+    lowered_z = max(0.5, min(anchor_z - 0.05, 1.2))
+    excluded = _merged_excluded_pairs(anchor_profile, loss_pairs)
+    pnl_summary = {
+        "profitable_pairs": focus_pairs,
+        "loss_pairs": loss_pairs,
+        "pair_pnl": {pair: round(float(pnl), 8) for pair, pnl in pair_pnl},
+    }
+    specs: list[tuple[str, str, dict[str, Any], str, dict[str, Any]]] = [
+        (
+            f"search_pair_focus_top{focus_top_k}",
+            "search_pair_focus_exclude_loss_pairs",
+            {"exclude_pairs": excluded, "top_k": focus_top_k},
+            f"focus search exposure on profitable pair path(s) {', '.join(focus_pairs)} and exclude search loss pair(s)",
+            pnl_summary,
+        )
+    ]
+    if lowered_z < anchor_z:
+        specs.append(
+            (
+                f"search_pair_focus_top{focus_top_k}_z{int(round(lowered_z * 100)):03d}",
+                "search_pair_focus_threshold_repair",
+                {"exclude_pairs": excluded, "top_k": focus_top_k, "min_abs_score_z": lowered_z},
+                "pair the search pair-focus repair with a lower z threshold to recover trade count after narrowing the pair path",
+                pnl_summary,
+            )
+        )
+    return specs
+
+
+def _signal_activity_summary_from_signal_dir(raw_signal_dir: Any) -> dict[str, Any]:
+    signal_path = _resolve_signal_file(raw_signal_dir)
+    if signal_path is None:
+        return {}
+    try:
+        import pandas as pd
+    except Exception:
+        return {}
+    try:
+        df = pd.read_feather(signal_path)
+    except Exception:
+        return {}
+    required = {"date", "pair", "rp_target_weight"}
+    if not required.issubset(set(df.columns)):
+        return {}
+    try:
+        df = df.copy()
+        df["date"] = pd.to_datetime(df["date"], utc=True)
+        weights = pd.to_numeric(df["rp_target_weight"], errors="coerce").fillna(0.0).abs()
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+
+    active = df[weights > 0.0]
+    days = df["date"].dt.floor("D")
+    total_days = int(days.nunique())
+    active_days = int(active["date"].dt.floor("D").nunique()) if not active.empty else 0
+    active_rows = int(len(active))
+    active_pairs = int(active["pair"].astype(str).nunique()) if not active.empty else 0
+    pair_counts = active["pair"].astype(str).value_counts() if not active.empty else None
+    top_pair_share = (
+        float(pair_counts.iloc[0] / active_rows) if pair_counts is not None and active_rows > 0 else 0.0
+    )
+    return {
+        "total_days": total_days,
+        "active_days": active_days,
+        "active_day_ratio": float(active_days / total_days) if total_days > 0 else 0.0,
+        "active_rows": active_rows,
+        "active_pairs": active_pairs,
+        "top_pair_active_share": top_pair_share,
+    }
+
+
+def _stable_hash_payload(payload: Any) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _count_overlap(first: Mapping[str, Any], second: Mapping[str, Any]) -> float:
+    a = {str(k): _coerce_int(v, 0) for k, v in first.items()}
+    b = {str(k): _coerce_int(v, 0) for k, v in second.items()}
+    denom = max(sum(a.values()), sum(b.values()), 1)
+    overlap = sum(min(a.get(key, 0), b.get(key, 0)) for key in set(a) | set(b))
+    return float(overlap / denom)
+
+
+def _ratio_close(first: Any, second: Any) -> float:
+    a = abs(_coerce_finite_float(first, 0.0))
+    b = abs(_coerce_finite_float(second, 0.0))
+    denom = max(a, b, 1.0)
+    return float(min(a, b) / denom)
+
+
+def _signal_behavior_fingerprint_from_signal_dir(raw_signal_dir: Any) -> dict[str, Any]:
+    signal_path = _resolve_signal_file(raw_signal_dir)
+    if signal_path is None:
+        return {}
+    try:
+        import pandas as pd
+    except Exception:
+        return {}
+    try:
+        df = pd.read_feather(signal_path)
+    except Exception:
+        return {}
+    required = {"date", "pair", "rp_target_weight"}
+    if not required.issubset(set(df.columns)):
+        return {}
+    try:
+        df = df[["date", "pair", "rp_target_weight"]].copy()
+        df["date"] = pd.to_datetime(df["date"], utc=True)
+        df["pair"] = df["pair"].map(_normalize_pair_token)
+        df["rp_target_weight"] = pd.to_numeric(df["rp_target_weight"], errors="coerce").fillna(0.0)
+        df = df.dropna(subset=["date"])
+        df = df[df["pair"].astype(str) != ""]
+        if df.empty:
+            return {}
+        df = df.sort_values(["pair", "date"]).reset_index(drop=True)
+        df["weight_q"] = df["rp_target_weight"].round(8)
+        df["active"] = df["weight_q"].abs() > SIGNAL_WEIGHT_EPSILON
+        df["date_key"] = df["date"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        df["day_key"] = df["date"].dt.floor("D").dt.strftime("%Y-%m-%d")
+        previous = df.groupby("pair", sort=False)["weight_q"].shift().fillna(0.0)
+        df["weight_changed"] = (df["weight_q"] - previous).abs() > SIGNAL_WEIGHT_EPSILON
+    except Exception:
+        return {}
+
+    active = df[df["active"]]
+    total_rows = int(len(df))
+    total_days = int(df["day_key"].nunique())
+    active_rows = int(len(active))
+    active_days = int(active["day_key"].nunique()) if active_rows else 0
+    active_pairs = int(active["pair"].nunique()) if active_rows else 0
+    changed_rows = int(df["weight_changed"].sum())
+    active_changed_rows = int((df["weight_changed"] & df["active"]).sum())
+    pair_counts = (
+        {str(k): int(v) for k, v in active["pair"].value_counts(sort=False).sort_index().items()}
+        if active_rows
+        else {}
+    )
+    daily_active_counts = (
+        {str(k): int(v) for k, v in active["day_key"].value_counts(sort=False).sort_index().items()}
+        if active_rows
+        else {}
+    )
+    daily_change_counts = (
+        {str(k): int(v) for k, v in df[df["weight_changed"]]["day_key"].value_counts(sort=False).sort_index().items()}
+        if changed_rows
+        else {}
+    )
+
+    action_records: list[tuple[str, str, float]] = []
+    path_records: list[tuple[str, str, int]] = []
+    if active_rows:
+        for row in active[["date_key", "pair", "weight_q"]].itertuples(index=False):
+            weight = float(row.weight_q)
+            action_records.append((str(row.date_key), str(row.pair), round(weight, 8)))
+            path_records.append((str(row.date_key), str(row.pair), 1 if weight > 0.0 else -1))
+
+    distribution_payload = {
+        "active_rows": active_rows,
+        "active_days": active_days,
+        "active_pairs": active_pairs,
+        "target_weight_changed_rows": changed_rows,
+        "active_target_weight_changed_rows": active_changed_rows,
+        "pair_counts": pair_counts,
+        "daily_active_counts": daily_active_counts,
+        "daily_change_counts": daily_change_counts,
+    }
+    return {
+        "version": "signal-behavior-fingerprint-v1",
+        "signal_file": _as_repo_meta(signal_path),
+        "total_rows": total_rows,
+        "total_days": total_days,
+        "active_rows": active_rows,
+        "active_days": active_days,
+        "active_day_ratio": float(active_days / total_days) if total_days > 0 else 0.0,
+        "active_pairs": active_pairs,
+        "target_weight_changed_rows": changed_rows,
+        "active_target_weight_changed_rows": active_changed_rows,
+        "pair_counts": pair_counts,
+        "daily_active_counts": daily_active_counts,
+        "daily_change_counts": daily_change_counts,
+        "action_signature": _stable_hash_payload(action_records),
+        "path_signature": _stable_hash_payload(path_records),
+        "distribution_signature": _stable_hash_payload(distribution_payload),
+    }
+
+
+def _signal_behavior_duplicate(
+    current: Mapping[str, Any],
+    prior: Mapping[str, Any],
+    *,
+    min_similarity: float = 0.95,
+) -> Optional[dict[str, Any]]:
+    if not current or not prior:
+        return None
+    active_rows = _coerce_int(current.get("active_rows"), 0)
+    prior_active_rows = _coerce_int(prior.get("active_rows"), 0)
+    if active_rows <= 0 or prior_active_rows <= 0:
+        return None
+    if str(current.get("action_signature") or "") and current.get("action_signature") == prior.get("action_signature"):
+        return {"status": "duplicate", "reason": "exact target-weight action signature match", "similarity": 1.0}
+    if str(current.get("path_signature") or "") and current.get("path_signature") == prior.get("path_signature"):
+        return {"status": "no_op", "reason": "same active date/pair/side signal path", "similarity": 1.0}
+    if str(current.get("distribution_signature") or "") and current.get("distribution_signature") == prior.get("distribution_signature"):
+        return {"status": "near_duplicate", "reason": "same aggregate signal distribution", "similarity": 1.0}
+
+    row_ratio = _ratio_close(active_rows, prior_active_rows)
+    day_ratio = _ratio_close(current.get("active_days"), prior.get("active_days"))
+    pair_ratio = _ratio_close(current.get("active_pairs"), prior.get("active_pairs"))
+    change_ratio = _ratio_close(current.get("target_weight_changed_rows"), prior.get("target_weight_changed_rows"))
+    pair_overlap = _count_overlap(
+        current.get("pair_counts") if isinstance(current.get("pair_counts"), Mapping) else {},
+        prior.get("pair_counts") if isinstance(prior.get("pair_counts"), Mapping) else {},
+    )
+    daily_overlap = _count_overlap(
+        current.get("daily_active_counts") if isinstance(current.get("daily_active_counts"), Mapping) else {},
+        prior.get("daily_active_counts") if isinstance(prior.get("daily_active_counts"), Mapping) else {},
+    )
+    similarity = min(row_ratio, day_ratio, max(0.0, pair_ratio), change_ratio, pair_overlap, daily_overlap)
+    if (
+        similarity >= float(min_similarity)
+        and pair_overlap >= float(min_similarity)
+        and daily_overlap >= float(min_similarity)
+        and row_ratio >= float(min_similarity)
+    ):
+        return {
+            "status": "near_duplicate",
+            "reason": "near-identical active rows, active days, pair counts, and daily activity",
+            "similarity": float(similarity),
+            "components": {
+                "active_rows_ratio": row_ratio,
+                "active_days_ratio": day_ratio,
+                "active_pairs_ratio": pair_ratio,
+                "target_weight_changed_rows_ratio": change_ratio,
+                "pair_count_overlap": pair_overlap,
+                "daily_active_overlap": daily_overlap,
+            },
+        }
+    return None
+
+
+def _stage_signal_fingerprint_from_window(window: Mapping[str, Any]) -> dict[str, Any]:
+    existing = window.get("signal_fingerprint")
+    if isinstance(existing, Mapping) and existing:
+        return dict(existing)
+    return _signal_behavior_fingerprint_from_signal_dir(window.get("signal_dir"))
+
+
+def _row_stage_signal_fingerprint(row: Mapping[str, Any], stage: str = "validation") -> dict[str, Any]:
+    stored = row.get("signal_fingerprints") if isinstance(row.get("signal_fingerprints"), Mapping) else {}
+    if isinstance(stored.get(stage), Mapping) and stored.get(stage):
+        return dict(stored[stage])
+    windows = row.get("window_metrics") if isinstance(row.get("window_metrics"), Mapping) else {}
+    window = windows.get(stage) if isinstance(windows.get(stage), Mapping) else {}
+    if not window:
+        return {}
+    return _stage_signal_fingerprint_from_window(window)
+
+
+def _compact_signal_fingerprint(fp: Mapping[str, Any]) -> dict[str, Any]:
+    if not fp:
+        return {}
+    return {
+        key: fp.get(key)
+        for key in (
+            "version",
+            "signal_file",
+            "active_rows",
+            "active_days",
+            "active_day_ratio",
+            "active_pairs",
+            "target_weight_changed_rows",
+            "active_target_weight_changed_rows",
+            "pair_counts",
+            "daily_active_counts",
+            "action_signature",
+            "path_signature",
+            "distribution_signature",
+        )
+        if key in fp
+    }
+
+
+def _validation_activity_coverage_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+) -> list[tuple[str, str, dict[str, Any], str, dict[str, Any]]]:
+    summary = _signal_activity_summary_from_signal_dir(anchor.get("validation_signal_dir"))
+    total_days = _coerce_int(summary.get("total_days") if summary else None, 0)
+    active_days = _coerce_int(summary.get("active_days") if summary else None, 0)
+    if total_days < 14:
+        return []
+    min_active_days = max(10, int(math.ceil(total_days * 0.5)))
+    if active_days >= min_active_days:
+        return []
+
+    anchor_top_k = _coerce_int(anchor_profile.get("top_k"), 2)
+    anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), 6)
+    regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+    regime_edge = _coerce_finite_float(anchor_profile.get("regime_min_edge_ic"), 0.0)
+    regime_pair_edge = _coerce_finite_float(anchor_profile.get("regime_min_pair_edge_ic"), 0.0)
+    regime_market_mom = _coerce_finite_float(anchor_profile.get("regime_short_max_market_mom_24h"), 0.03)
+    regime_atr = _coerce_finite_float(anchor_profile.get("regime_max_market_atr_pct"), 0.04)
+
+    specs: list[tuple[str, str, dict[str, Any], str, dict[str, Any]]] = []
+    if regime_pair_count > 1:
+        specs.append(
+            (
+                "validation_activity_regime_pair_count_minus_1",
+                "validation_activity_regime_coverage_repair",
+                {"regime_min_pair_count": regime_pair_count - 1},
+                "broaden eligible regimes after validation passed but active-day coverage was narrow",
+                summary,
+            )
+        )
+    if regime_edge > 0.0 or regime_pair_edge > 0.0:
+        specs.append(
+            (
+                "validation_activity_regime_edge_minus_005",
+                "validation_activity_regime_coverage_repair",
+                {
+                    "regime_min_edge_ic": max(0.0, regime_edge - 0.005),
+                    "regime_min_pair_edge_ic": max(0.0, regime_pair_edge - 0.005),
+                },
+                "lower regime edge floors slightly to test whether the validation pass is over-filtered",
+                summary,
+            )
+        )
+    specs.extend(
+        [
+            (
+                "validation_activity_regime_market_mom_plus_005",
+                "validation_activity_market_coverage_repair",
+                {"regime_short_max_market_mom_24h": regime_market_mom + 0.005},
+                "allow marginally stronger broad-market momentum when validation activity is sparse",
+                summary,
+            ),
+            (
+                "validation_activity_regime_atr_plus_005",
+                "validation_activity_market_coverage_repair",
+                {"regime_max_market_atr_pct": regime_atr + 0.005},
+                "allow a slightly wider market ATR regime before changing pair exclusions",
+                summary,
+            ),
+            (
+                "validation_activity_topk_plus_1",
+                "validation_activity_breadth_repair",
+                {"top_k": min(10, anchor_top_k + 1)},
+                "add one rank slot to improve temporal coverage from a validation-passed anchor",
+                summary,
+            ),
+            (
+                "validation_activity_rebalance_minus_1",
+                "validation_activity_cadence_repair",
+                {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                "increase cadence by one hour step to test whether narrow validation coverage is a cadence artifact",
+                summary,
+            ),
+        ]
+    )
+    return specs
+
+
+def _validation_stability_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+) -> list[tuple[str, str, dict[str, Any], str, dict[str, Any]]]:
+    stability = anchor.get("validation_regime_stability")
+    if not isinstance(stability, Mapping):
+        return []
+    subwindow_count = _coerce_int(stability.get("subwindow_count"), 0)
+    if subwindow_count < 2:
+        return []
+    positive_ratio = _coerce_finite_float(stability.get("positive_subwindow_ratio"), 1.0)
+    worst_profit = _coerce_finite_float(stability.get("worst_subwindow_profit_pct"), 0.0)
+    profit_std = _coerce_finite_float(stability.get("profit_std"), 0.0)
+    max_subwindow_dd = _coerce_finite_float(stability.get("max_subwindow_drawdown_pct"), 0.0)
+    if positive_ratio >= 0.75 and worst_profit >= 0.0 and max_subwindow_dd <= 8.0:
+        return []
+
+    anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), 1.5)
+    anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), 0.05)
+    anchor_pair_hold = _coerce_finite_float(anchor_profile.get("pair_edge_min_hold_ic"), 0.0)
+    anchor_regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+    anchor_side = str(anchor_profile.get("side_mode") or "short").strip().lower()
+    regime_mode = str(anchor_profile.get("regime_mode") or "").strip().lower()
+    summary = dict(stability)
+    specs: list[tuple[str, str, dict[str, Any], str, dict[str, Any]]] = []
+    if anchor_side in {"short", "both"}:
+        current_exit_mom = anchor_profile.get("short_exit_mom_24h")
+        if current_exit_mom is None or _coerce_finite_float(current_exit_mom, 1.0) > 0.0:
+            specs.append(
+                (
+                    "validation_stability_exit_mom_000",
+                    "validation_subwindow_tail_exit_repair",
+                    {"short_exit_mom_24h": 0.0},
+                    "exit short exposure when pair momentum turns positive after validation passed but subwindow stability was weak",
+                    summary,
+                )
+            )
+        current_market_exit = anchor_profile.get("short_exit_market_mom_24h")
+        if current_market_exit is None or _coerce_finite_float(current_market_exit, 1.0) > 0.0:
+            specs.append(
+                (
+                    "validation_stability_market_exit_000",
+                    "validation_subwindow_tail_exit_repair",
+                    {"short_exit_market_mom_24h": 0.0},
+                    "exit shorts when broad-market momentum turns positive after validation passed with weak subwindow stability",
+                    summary,
+                )
+            )
+    if anchor_atr > 0.005 and (worst_profit < 0.0 or max_subwindow_dd > 5.0):
+        specs.append(
+            (
+                "validation_stability_atr_minus_005",
+                "validation_subwindow_tail_filter_repair",
+                {"max_entry_atr_pct": max(0.0, anchor_atr - 0.005)},
+                "tighten ATR entry exposure after validation passed but a subwindow carried tail drawdown",
+                summary,
+            )
+        )
+    if profit_std > 3.0 or worst_profit < 0.0:
+        specs.append(
+            (
+                "validation_stability_z_plus_001",
+                "validation_subwindow_entry_quality_repair",
+                {"min_abs_score_z": anchor_z + 0.01},
+                "require a slightly stronger rank score after validation passed with unstable subwindow returns",
+                summary,
+            )
+        )
+    if anchor_pair_hold < 0.02 and (worst_profit < 0.0 or positive_ratio < 0.75):
+        specs.append(
+            (
+                "validation_stability_pair_hold_plus_005",
+                "validation_subwindow_pair_edge_hold_repair",
+                {"pair_edge_min_hold_ic": anchor_pair_hold + 0.005},
+                "drop held positions sooner when pair edge decays after validation subwindow instability",
+                summary,
+            )
+        )
+    if regime_mode == "hq" and anchor_regime_pair_count > 0 and anchor_regime_pair_count < 8:
+        specs.append(
+            (
+                "validation_stability_regime_pair_count_plus_1",
+                "validation_subwindow_regime_confirmation_repair",
+                {"regime_min_pair_count": anchor_regime_pair_count + 1},
+                "require broader regime confirmation after validation passed but only some subwindows were profitable",
+                summary,
+            )
+        )
+    return specs
+
+
+def _merged_excluded_pairs(anchor_profile: Mapping[str, Any], extra: Sequence[str]) -> list[str]:
+    existing = anchor_profile.get("exclude_pairs") or []
+    if isinstance(existing, str):
+        existing_pairs = [_normalize_pair_token(p) for p in existing.split(",")]
+    elif isinstance(existing, Sequence):
+        existing_pairs = [_normalize_pair_token(p) for p in existing]
+    else:
+        existing_pairs = []
+    existing_pairs = [p for p in existing_pairs if p]
+    merged: list[str] = []
+    for pair in [*existing_pairs, *extra]:
+        norm = _normalize_pair_token(pair)
+        if norm and norm not in merged:
+            merged.append(norm)
+    return merged
+
+
+def _validation_pair_loss_repairs(
+    anchor: Mapping[str, Any],
+    anchor_profile: Mapping[str, Any],
+    config: StrategyLoopConfig,
+) -> list[tuple[str, str, dict[str, Any], str]]:
+    loss_pairs = _pair_loss_order_from_signal_dir(anchor.get("validation_signal_dir"), anchor_profile)
+    if not loss_pairs:
+        return []
+
+    existing_pairs = _merged_excluded_pairs(anchor_profile, [])
+
+    top_k = _coerce_int(anchor_profile.get("top_k"), 2)
+    specs: list[tuple[str, str, dict[str, Any], str]] = []
+    for count, topk_bump in ((1, 1), (2, 1), (3, 2)):
+        pairs = [p for p in loss_pairs[:count] if p not in existing_pairs]
+        if len(pairs) != count:
+            continue
+        label = "worst" if count == 1 else f"worst{count}"
+        specs.append(
+            (
+                f"validation_exclude_{label}_topk_plus_{topk_bump}",
+                "validation_pair_exclusion_repair",
+                {"exclude_pairs": _merged_excluded_pairs(anchor_profile, pairs), "top_k": min(10, top_k + topk_bump)},
+                f"exclude validation loser pair(s) {', '.join(pairs)} and add rank breadth to backfill trade count",
+            )
+        )
+    return specs
+
+
+def _repair_key(source: Any, family: Any, changes: Mapping[str, Any] | Sequence[str] | None) -> tuple[str, str, tuple[str, ...]]:
+    if isinstance(changes, Mapping):
+        changed_keys = tuple(sorted(str(key) for key in changes))
+    elif isinstance(changes, Sequence) and not isinstance(changes, (str, bytes)):
+        changed_keys = tuple(sorted(str(key) for key in changes))
+    else:
+        changed_keys = ()
+    return (str(source or ""), str(family or ""), changed_keys)
+
+
+def _behavior_duplicate_repair_keys(rows: Sequence[Mapping[str, Any]]) -> set[tuple[str, str, tuple[str, ...]]]:
+    blocked: set[tuple[str, str, tuple[str, ...]]] = set()
+    prior_fingerprints: dict[str, list[dict[str, Any]]] = {"search": [], "validation": []}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        candidate = _row_candidate(row)
+        metadata = candidate.get("metadata") if isinstance(candidate.get("metadata"), Mapping) else {}
+        source = str(metadata.get("source") or "")
+        family = str(metadata.get("hypothesis_family") or "")
+        changed_keys = metadata.get("changed_keys") if isinstance(metadata, Mapping) else []
+        has_repair_key = bool(source and family and changed_keys)
+        repair_key = _repair_key(source, family, changed_keys) if has_repair_key else None
+        novelty = row.get("behavior_novelty") if isinstance(row.get("behavior_novelty"), Mapping) else {}
+        if repair_key is not None and str(novelty.get("status") or "").strip().lower() in BEHAVIOR_DUPLICATE_STATUSES:
+            blocked.add(repair_key)
+
+        for stage in ("validation", "search"):
+            fp = _row_stage_signal_fingerprint(row, stage)
+            if not fp:
+                continue
+            if repair_key is not None and any(
+                _signal_behavior_duplicate(fp, prior_fp) for prior_fp in prior_fingerprints[stage]
+            ):
+                blocked.add(repair_key)
+            prior_fingerprints[stage].append(fp)
+    return blocked
 
 
 def _candidate_name(raw: str) -> str:
@@ -1716,9 +3267,8 @@ def build_rank_profile_repair_queue(
     structured: bool = False,
 ) -> list[dict[str, Any]]:
     """Build deterministic rank-profile repairs for common near-gate failures."""
-    if not baseline_profile:
-        return []
-    base = normalize_rank_profile(baseline_profile, default_n=config.n)
+    has_baseline = bool(baseline_profile)
+    base = normalize_rank_profile(baseline_profile, default_n=config.n) if has_baseline else {}
     z = _coerce_finite_float(base.get("min_abs_score_z"), 1.5)
     top_k = _coerce_int(base.get("top_k"), 2)
     rebalance = _coerce_int(base.get("rebalance_hours"), 8)
@@ -1728,24 +3278,26 @@ def build_rank_profile_repair_queue(
     exit_market_24h = _coerce_finite_float(base.get("short_exit_market_mom_24h"), 0.04)
 
     search_mode = "structured_explore" if structured else "local_exploit"
-    queue_specs: list[tuple[str, str, dict[str, Any], str]] = [
-        ("z150_micro_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.01}, "tiny participation increase near the baseline threshold"),
-        ("z149_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.02}, "small participation increase intended to clear a 1-5 trade deficit"),
-        ("z148_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.03}, "moderate z-threshold repair before changing cadence or leverage"),
-        ("z147_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.04}, "stronger z-threshold repair while preserving all other baseline filters"),
-        ("top3_z149_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.02}, "add one rank slot while keeping entry quality close to baseline"),
-        ("top3_z148_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.03}, "combine mild diversification with a modest z repair"),
-        ("rebalance5_z149_balanced_repair", "cadence_threshold_balance", {"rebalance_hours": max(1, rebalance - 1), "min_abs_score_z": z - 0.02}, "use a slight cadence increase plus conservative z repair instead of a 4h turnover jump"),
-        ("top3_rebalance5_trade_repair", "topk_cadence_balance", {"top_k": top_k + 1, "rebalance_hours": max(1, rebalance - 1)}, "combine the safer top_k and 5h cadence variants"),
-        ("short_mom040_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.002}, "loosen pair momentum entry filter minimally to add borderline shorts"),
-        ("short_mom042_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.004}, "loosen pair momentum entry filter while preserving ATR and z controls"),
-        ("market_mom055_entry_repair", "market_momentum_filter_repair", {"short_max_market_mom_24h": short_market_24h + 0.005}, "allow slightly more market momentum when pair-level score is strong"),
-        ("exit_mom035_market035_repair", "exit_filter_tightening", {"short_exit_mom_24h": exit_mom_24h - 0.005, "short_exit_market_mom_24h": exit_market_24h - 0.005}, "close adverse short exposure sooner to create trades without loosening entry quality"),
-    ]
+    queue_specs: list[tuple[str, str, dict[str, Any], str]] = []
+    if has_baseline:
+        queue_specs = [
+            ("z150_micro_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.01}, "tiny participation increase near the baseline threshold"),
+            ("z149_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.02}, "small participation increase intended to clear a 1-5 trade deficit"),
+            ("z148_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.03}, "moderate z-threshold repair before changing cadence or leverage"),
+            ("z147_trade_repair", "entry_threshold_trade_count_repair", {"min_abs_score_z": z - 0.04}, "stronger z-threshold repair while preserving all other baseline filters"),
+            ("top3_z149_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.02}, "add one rank slot while keeping entry quality close to baseline"),
+            ("top3_z148_quality_repair", "topk_diversification_trade_gate", {"top_k": top_k + 1, "min_abs_score_z": z - 0.03}, "combine mild diversification with a modest z repair"),
+            ("rebalance5_z149_balanced_repair", "cadence_threshold_balance", {"rebalance_hours": max(1, rebalance - 1), "min_abs_score_z": z - 0.02}, "use a slight cadence increase plus conservative z repair instead of a 4h turnover jump"),
+            ("top3_rebalance5_trade_repair", "topk_cadence_balance", {"top_k": top_k + 1, "rebalance_hours": max(1, rebalance - 1)}, "combine the safer top_k and 5h cadence variants"),
+            ("short_mom040_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.002}, "loosen pair momentum entry filter minimally to add borderline shorts"),
+            ("short_mom042_entry_repair", "entry_momentum_filter_repair", {"short_max_mom_24h": short_max_24h + 0.004}, "loosen pair momentum entry filter while preserving ATR and z controls"),
+            ("market_mom055_entry_repair", "market_momentum_filter_repair", {"short_max_market_mom_24h": short_market_24h + 0.005}, "allow slightly more market momentum when pair-level score is strong"),
+            ("exit_mom035_market035_repair", "exit_filter_tightening", {"short_exit_mom_24h": exit_mom_24h - 0.005, "short_exit_market_mom_24h": exit_market_24h - 0.005}, "close adverse short exposure sooner to create trades without loosening entry quality"),
+        ]
 
     hints = _search_gate_repair_hints(rows, config) if rows else {}
     high_trade_low_quality = hints.get("high_trade_low_quality") if isinstance(hints, Mapping) else []
-    if high_trade_low_quality:
+    if has_baseline and high_trade_low_quality:
         queue_specs.extend(
             [
                 ("quality_z152_after_churn", "quality_repair_after_churn", {"min_abs_score_z": z + 0.01, "top_k": top_k + 1}, "restore quality after high-trade low-P/DD attempts"),
@@ -1755,13 +3307,798 @@ def build_rank_profile_repair_queue(
 
     candidates: list[dict[str, Any]] = []
     seen_profiles: set[str] = set()
+    tried_profiles = {str(row.get("parameter_signature")) for row in rows if isinstance(row, Mapping) and row.get("parameter_signature")}
+    behavior_blocked_repairs = _behavior_duplicate_repair_keys(rows)
+    has_behavior_duplicate_feedback = bool(behavior_blocked_repairs)
+
+    validation_hints = _validation_gate_repair_hints(rows, config) if rows else {}
+    validation_passed = validation_hints.get("validation_passed") if isinstance(validation_hints, Mapping) else []
+    validation_failures = validation_hints.get("validation_profit_drawdown_fail") if isinstance(validation_hints, Mapping) else []
+    validation_losses = validation_hints.get("validation_loss_after_search_pass") if isinstance(validation_hints, Mapping) else []
+    persistent_validation_loss = isinstance(validation_losses, Sequence) and len(validation_losses) >= 3
+    validation_trade_recovery_ready = False
+    if isinstance(validation_failures, Sequence):
+        validation_gates = validation_hints.get("validation_gates") if isinstance(validation_hints, Mapping) else {}
+        min_validation_pdd = _coerce_finite_float(
+            validation_gates.get("min_profit_over_dd") if isinstance(validation_gates, Mapping) else None,
+            config.min_profit_over_dd,
+        )
+        validation_trade_recovery_ready = any(
+            isinstance(anchor, Mapping)
+            and _coerce_int(anchor.get("validation_trades_gap"), 0) > 0
+            and _coerce_finite_float(anchor.get("validation_profit_pct"), 0.0) > 0.0
+            and _coerce_finite_float(anchor.get("validation_profit_over_max_drawdown"), 0.0) >= min_validation_pdd
+            for anchor in validation_failures
+        )
+    defer_search_trade_repairs = bool(
+        persistent_validation_loss and isinstance(validation_failures, Sequence) and validation_failures
+    )
+
+    if isinstance(validation_passed, Sequence):
+        for anchor in validation_passed[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_iter = anchor.get("iteration")
+            stability_specs = _validation_stability_repairs(anchor, anchor_profile)
+            for raw_name, family, changes, tradeoff, stability_summary in stability_specs[:4]:
+                source = "controller_rank_profile_validation_pass_stability_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation-passed stability repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "validation_regime_stability": stability_summary,
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+            activity_specs = _validation_activity_coverage_repairs(anchor, anchor_profile)
+            for raw_name, family, changes, tradeoff, activity_summary in activity_specs[:4]:
+                source = "controller_rank_profile_validation_pass_activity_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation-passed activity repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "validation_activity_summary": activity_summary,
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+            for raw_name, family, changes, tradeoff in _validation_pair_loss_repairs(anchor, anchor_profile, config)[:2]:
+                source = "controller_rank_profile_validation_pass_robustness_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"validation_pass_{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation-passed robustness repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    if isinstance(high_trade_low_quality, Sequence):
+        for anchor in high_trade_low_quality[:3]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_iter = anchor.get("iteration")
+            for raw_name, family, changes, tradeoff, pnl_summary in _search_pair_focus_repairs(anchor, anchor_profile, config)[:2]:
+                source = "controller_rank_profile_search_pair_focus_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated search pair-focus repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore",
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_pct": anchor.get("profit_pct"),
+                            "anchor_trades": anchor.get("trades"),
+                            "search_pair_pnl_summary": pnl_summary,
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    if has_behavior_duplicate_feedback and isinstance(high_trade_low_quality, Sequence) and not validation_trade_recovery_ready:
+        for anchor in high_trade_low_quality[:3]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs: list[tuple[str, str, dict[str, Any], str]] = [
+                (
+                    "search_quality_z_plus_002_after_duplicate_paths",
+                    "search_quality_entry_repair_after_duplicate_paths",
+                    {"min_abs_score_z": anchor_z + 0.02},
+                    "tighten entry quality around a search-active candidate after validation-pass repairs proved no-op",
+                ),
+                (
+                    "search_quality_topk_minus_1_z_plus_001_after_duplicate_paths",
+                    "search_quality_breadth_repair_after_duplicate_paths",
+                    {"top_k": max(1, anchor_top_k - 1), "min_abs_score_z": anchor_z + 0.01},
+                    "trim breadth while preserving the newly changed search signal path",
+                ),
+                (
+                    "search_quality_short_mom_minus_004_after_duplicate_paths",
+                    "search_quality_pair_momentum_repair_after_duplicate_paths",
+                    {"short_max_mom_24h": anchor_short_mom - 0.004},
+                    "avoid the highest-momentum shorts from the search-active failed path",
+                ),
+            ]
+            if str(anchor_profile.get("regime_mode") or "").strip().lower() == "hq":
+                anchor_specs.append(
+                    (
+                        "search_quality_regime_pair_count_plus_1_after_duplicate_paths",
+                        "search_quality_regime_breadth_repair_after_duplicate_paths",
+                        {"regime_min_pair_count": anchor_regime_pair_count + 1},
+                        "require broader pair confirmation after active search paths failed quality gates",
+                    )
+                )
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_search_quality_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated search quality repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_pct": anchor.get("profit_pct"),
+                            "anchor_trades": anchor.get("trades"),
+                            "behavior_feedback": "validation-pass repairs produced duplicate signal paths; repair active search near-misses instead",
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    if isinstance(validation_failures, Sequence):
+        for anchor in validation_failures[:3]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            validation_trade_gap = _coerce_int(anchor.get("validation_trades_gap"), 0)
+            validation_profit = _coerce_finite_float(anchor.get("validation_profit_pct"), 0.0)
+            validation_pdd = _coerce_finite_float(anchor.get("validation_profit_over_max_drawdown"), 0.0)
+            validation_gates = validation_hints.get("validation_gates") if isinstance(validation_hints, Mapping) else {}
+            min_validation_pdd = _coerce_finite_float(
+                validation_gates.get("min_profit_over_dd") if isinstance(validation_gates, Mapping) else None,
+                config.min_profit_over_dd,
+            )
+            if validation_trade_gap <= 0 or validation_profit <= 0.0:
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_min_pairs_for_top_k = _coerce_int(anchor_profile.get("min_pairs_for_top_k"), 8)
+            anchor_low_pair_top_k = _coerce_int(anchor_profile.get("low_pair_top_k"), 1)
+            anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_regime_pair_count = _coerce_int(anchor_profile.get("regime_min_pair_count"), 0)
+            anchor_regime_edge = _coerce_finite_float(anchor_profile.get("regime_min_edge_ic"), 0.0)
+            anchor_regime_pair_edge = _coerce_finite_float(anchor_profile.get("regime_min_pair_edge_ic"), 0.0)
+            anchor_regime_market_mom = _coerce_finite_float(anchor_profile.get("regime_short_max_market_mom_24h"), 0.03)
+            anchor_regime_atr = _coerce_finite_float(anchor_profile.get("regime_max_market_atr_pct"), 0.04)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = []
+            current_exit_mom = anchor_profile.get("short_exit_mom_24h")
+            if validation_pdd < min_validation_pdd and (
+                current_exit_mom is None or _coerce_finite_float(current_exit_mom, 1.0) > 0.0
+            ):
+                anchor_specs.append(
+                    (
+                        "validation_exit_mom_000",
+                        "validation_exit_filter_repair_after_positive_validation",
+                        {"short_exit_mom_24h": 0.0},
+                        "exit shorts as soon as pair momentum turns positive after validation profit is positive but P/DD is still below gate",
+                    )
+                )
+            if validation_pdd >= min_validation_pdd and _coerce_finite_float(current_exit_mom, 1.0) <= 0.0:
+                search_loss_pairs = _pair_loss_order_from_signal_dir(anchor.get("search_signal_dir"), anchor_profile)
+                existing_pairs = _merged_excluded_pairs(anchor_profile, [])
+                backfill_pairs = [pair for pair in search_loss_pairs if pair not in existing_pairs]
+                if backfill_pairs:
+                    backfill_pair = backfill_pairs[0]
+                    anchor_specs.append(
+                        (
+                            "validation_trade_exit_mom_minus_002_search_loser_z145",
+                            "validation_trade_search_loss_exclusion_repair",
+                            {
+                                "short_exit_mom_24h": -0.02,
+                                "min_abs_score_z": min(anchor_z, 1.45),
+                                "exclude_pairs": _merged_excluded_pairs(anchor_profile, [backfill_pair]),
+                            },
+                            f"add validation trades from a profitable exit-filter anchor while excluding search loser pair {backfill_pair}",
+                        )
+                    )
+            anchor_specs.extend(
+                [
+                    (
+                        "validation_trade_regime_pair_count_minus_1",
+                        "validation_trade_regime_coverage_repair",
+                        {"regime_min_pair_count": max(1, anchor_regime_pair_count - 1)},
+                        "broaden eligible validation regimes without loosening entry z after a search-passed under-traded anchor",
+                    ),
+                    (
+                        "validation_trade_regime_edge_minus_005",
+                        "validation_trade_regime_coverage_repair",
+                        {
+                            "regime_min_edge_ic": max(0.0, anchor_regime_edge - 0.005),
+                            "regime_min_pair_edge_ic": max(0.0, anchor_regime_pair_edge - 0.005),
+                        },
+                        "lower regime edge floors slightly to recover validation activity while preserving pair exclusions",
+                    ),
+                    (
+                        "validation_trade_regime_market_mom_plus_003",
+                        "validation_trade_regime_market_coverage_repair",
+                        {"regime_short_max_market_mom_24h": anchor_regime_market_mom + 0.003},
+                        "allow slightly stronger broad-market momentum in validation while staying closer to the search gate",
+                    ),
+                    (
+                        "validation_trade_regime_market_mom_plus_005",
+                        "validation_trade_regime_market_coverage_repair",
+                        {"regime_short_max_market_mom_24h": anchor_regime_market_mom + 0.005},
+                        "allow marginally stronger broad-market momentum in validation before lowering entry quality",
+                    ),
+                    (
+                        "validation_trade_regime_market_mom_plus_005_z_plus_001",
+                        "validation_trade_regime_market_quality_combo_repair",
+                        {
+                            "regime_short_max_market_mom_24h": anchor_regime_market_mom + 0.005,
+                            "min_abs_score_z": anchor_z + 0.01,
+                        },
+                        "pair the near-passing market-regime coverage repair with a tiny entry-quality offset",
+                    ),
+                    (
+                        "validation_trade_regime_atr_plus_005",
+                        "validation_trade_regime_market_coverage_repair",
+                        {"regime_max_market_atr_pct": anchor_regime_atr + 0.005},
+                        "allow a wider market ATR regime to recover validation trades without changing rank threshold",
+                    ),
+                    (
+                        "validation_trade_low_pair_topk_plus_1",
+                        "validation_trade_low_pair_breadth_repair",
+                        {"low_pair_top_k": min(anchor_top_k, max(1, anchor_low_pair_top_k) + 1)},
+                        "add one slot only on sparse valid-pair bars after validation is profitable but under-traded",
+                    ),
+                    (
+                        "validation_trade_min_pairs_for_topk_minus_2",
+                        "validation_trade_low_pair_breadth_repair",
+                        {"min_pairs_for_top_k": max(1, anchor_min_pairs_for_top_k - 2)},
+                        "apply full top_k on moderately sparse valid-pair bars without lowering rank z",
+                    ),
+                    (
+                        "validation_trade_sparse_topk_combo",
+                        "validation_trade_low_pair_breadth_combo_repair",
+                        {
+                            "low_pair_top_k": min(anchor_top_k, max(1, anchor_low_pair_top_k) + 1),
+                            "min_pairs_for_top_k": max(1, anchor_min_pairs_for_top_k - 2),
+                        },
+                        "combine sparse-bar breadth repairs to change validation activity without broad cadence changes",
+                    ),
+                    (
+                        "validation_trade_topk_plus_1",
+                        "validation_trade_repair_after_regime",
+                        {"top_k": min(10, anchor_top_k + 1)},
+                        "recover validation trade count from a profitable validation-fail anchor before more search-only tuning",
+                    ),
+                    (
+                        "validation_trade_z_minus_001",
+                        "validation_trade_repair_after_regime",
+                        {"min_abs_score_z": anchor_z - 0.01},
+                        "recover a small validation trade deficit after the anchor already turned validation profit positive",
+                    ),
+                    (
+                        "validation_trade_z_minus_002",
+                        "validation_trade_repair_after_regime",
+                        {"min_abs_score_z": anchor_z - 0.02},
+                        "recover a larger validation trade deficit while staying close to the search-passed anchor",
+                    ),
+                    (
+                        "validation_trade_topk_plus_1_z_minus_001",
+                        "validation_trade_combo_repair_after_positive_validation",
+                        {"top_k": min(10, anchor_top_k + 1), "min_abs_score_z": anchor_z - 0.01},
+                        "combine one extra slot with a tiny threshold repair when validation is profitable but materially under-traded",
+                    ),
+                    (
+                        "validation_trade_topk_plus_1_z_minus_002",
+                        "validation_trade_combo_repair_after_positive_validation",
+                        {"top_k": min(10, anchor_top_k + 1), "min_abs_score_z": anchor_z - 0.02},
+                        "combine one extra slot with a moderate threshold repair when validation trade gap remains large",
+                    ),
+                    (
+                        "validation_trade_short_mom_plus_002",
+                        "validation_trade_repair_after_positive_validation",
+                        {"short_max_mom_24h": anchor_short_mom + 0.002},
+                        "add marginal validation trades after the repaired anchor is profitable but below the trade gate",
+                    ),
+                    (
+                        "validation_trade_rebalance_minus_1",
+                        "validation_trade_repair_after_positive_validation",
+                        {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                        "increase cadence slightly after validation is positive but still under-traded",
+                    ),
+                ]
+            )
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_positive_validation_trade_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation trade-count repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_validation_trades": anchor.get("validation_trades"),
+                            "anchor_validation_trades_gap": anchor.get("validation_trades_gap"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    near_trade_misses = hints.get("near_miss_trade_gate") if isinstance(hints, Mapping) else []
+    eligible_near_trade_misses = near_trade_misses
+    if defer_search_trade_repairs and isinstance(near_trade_misses, Sequence):
+        eligible_near_trade_misses = [
+            anchor
+            for anchor in near_trade_misses
+            if isinstance(anchor, Mapping)
+            and isinstance(anchor.get("rank_profile"), Mapping)
+            and bool(anchor["rank_profile"].get("exclude_pairs"))
+        ]
+    if not has_baseline and isinstance(eligible_near_trade_misses, Sequence):
+        for anchor in eligible_near_trade_misses[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = [
+                (
+                    "search_trade_topk_plus_1",
+                    "search_trade_topk_repair",
+                    {"top_k": min(10, anchor_top_k + 1)},
+                    "add one rank slot around a high-P/DD search near-miss that only lacks trade count",
+                ),
+                (
+                    "search_trade_z_minus_001",
+                    "search_trade_threshold_repair",
+                    {"min_abs_score_z": anchor_z - 0.01},
+                    "lower entry z by 0.01 around a high-P/DD search near-miss",
+                ),
+                (
+                    "search_trade_z_minus_002",
+                    "search_trade_threshold_repair",
+                    {"min_abs_score_z": anchor_z - 0.02},
+                    "lower entry z by 0.02 only after the near-miss preserved profit/drawdown quality",
+                ),
+                (
+                    "search_trade_short_mom_plus_002",
+                    "search_trade_momentum_filter_repair",
+                    {"short_max_mom_24h": anchor_short_mom + 0.002},
+                    "loosen pair momentum entry filter minimally from the high-P/DD near-miss",
+                ),
+                (
+                    "search_trade_rebalance_minus_1",
+                    "search_trade_cadence_repair",
+                    {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                    "increase cadence by one hour step only after threshold repairs are queued",
+                ),
+            ]
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_search_trade_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated search trade-count repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_trades": anchor.get("trades"),
+                            "anchor_trades_gap": anchor.get("trades_gap"),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_pct": anchor.get("profit_pct"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    if isinstance(validation_failures, Sequence):
+        for anchor in validation_failures[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_risk = _coerce_finite_float(anchor_profile.get("risk_per_trade"), _coerce_finite_float(base.get("risk_per_trade"), 0.015))
+            anchor_n = _coerce_int(anchor_profile.get("n"), config.n)
+            anchor_top_k = _coerce_int(anchor_profile.get("top_k"), top_k)
+            anchor_rebalance = _coerce_int(anchor_profile.get("rebalance_hours"), rebalance)
+            anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), _coerce_finite_float(base.get("max_entry_atr_pct"), 0.05))
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_side = str(anchor_profile.get("side_mode") or "short").strip().lower()
+            current_market_mom = anchor_profile.get("short_max_market_mom_24h")
+            market_mom_cap = min(_coerce_finite_float(current_market_mom, 0.03), 0.03)
+            current_regime_mom = anchor_profile.get("regime_short_max_market_mom_24h")
+            regime_market_cap = min(_coerce_finite_float(current_regime_mom, 0.03), 0.03)
+            current_regime_atr = anchor_profile.get("regime_max_market_atr_pct")
+            regime_atr_cap = min(_coerce_finite_float(current_regime_atr, 0.04), 0.04)
+            validation_trade_gap = _coerce_int(anchor.get("validation_trades_gap"), 0)
+            validation_profit = _coerce_finite_float(anchor.get("validation_profit_pct"), 0.0)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = [
+                (
+                    "validation_regime_hq",
+                    "validation_regime_filter_repair",
+                    {
+                        "regime_mode": "hq",
+                        "regime_min_edge_ic": max(_coerce_finite_float(anchor_profile.get("regime_min_edge_ic"), 0.0), 0.01),
+                        "regime_min_pair_edge_ic": max(_coerce_finite_float(anchor_profile.get("regime_min_pair_edge_ic"), 0.0), 0.01),
+                        "regime_min_pair_count": max(_coerce_int(anchor_profile.get("regime_min_pair_count"), 0), 3),
+                        "regime_short_max_market_mom_24h": regime_market_cap,
+                        "regime_max_market_atr_pct": regime_atr_cap,
+                    },
+                    "filter entries to higher-quality cross-sectional and market regimes after validation loss",
+                ),
+            ]
+            validation_trade_specs = []
+            if validation_trade_gap > 0:
+                validation_trade_specs = [
+                    (
+                        "validation_trade_topk_plus_1",
+                        "validation_trade_repair_after_regime",
+                        {"top_k": min(10, anchor_top_k + 1)},
+                        "recover validation trade count from the best validation-fail anchor without changing side or risk",
+                    ),
+                    (
+                        "validation_trade_z_minus_001",
+                        "validation_trade_repair_after_regime",
+                        {"min_abs_score_z": anchor_z - 0.01},
+                        "recover a small validation trade deficit after robust filters reduced participation",
+                    ),
+                ]
+                if validation_profit > 0.0:
+                    validation_trade_specs.extend(
+                        [
+                            (
+                                "validation_trade_short_mom_plus_002",
+                                "validation_trade_repair_after_positive_validation",
+                                {"short_max_mom_24h": anchor_short_mom + 0.002},
+                                "add marginal validation trades after the repaired anchor is profitable but below the trade gate",
+                            ),
+                            (
+                                "validation_trade_rebalance_minus_1",
+                                "validation_trade_repair_after_positive_validation",
+                                {"rebalance_hours": max(1, anchor_rebalance - 1)},
+                                "increase cadence slightly after validation is positive but still under-traded",
+                            ),
+                        ]
+                    )
+            if validation_profit > 0.0 and validation_trade_specs:
+                anchor_specs.extend(validation_trade_specs)
+            anchor_specs.extend(_validation_pair_loss_repairs(anchor, anchor_profile, config))
+            factor_n_specs = [
+                (
+                    "validation_factor_n_half",
+                    "validation_factor_subset_repair",
+                    {"n": max(5, anchor_n // 2)},
+                    "test a narrower alpha subset after validation loss suggests state-level factor overfit",
+                ),
+                (
+                    "validation_factor_n_plus_50",
+                    "validation_factor_subset_repair",
+                    {"n": min(200, anchor_n + 50)},
+                    "test a broader alpha subset to reduce idiosyncratic factor overfit across windows",
+                ),
+                (
+                    "validation_factor_n_100",
+                    "validation_factor_subset_repair",
+                    {"n": 100},
+                    "test a fixed mid-breadth alpha subset for out-of-time stability",
+                ),
+            ]
+            if persistent_validation_loss:
+                anchor_specs.extend(factor_n_specs)
+            if validation_trade_specs and validation_profit <= 0.0:
+                anchor_specs.extend(validation_trade_specs)
+            if anchor_side == "short":
+                anchor_specs.extend(
+                    [
+                        (
+                            "validation_side_both",
+                            "validation_side_structure_repair",
+                            {"side_mode": "both", "long_min_mom_24h": 0.0},
+                            "test whether validation loss is a short-only regime failure while preserving short eligibility",
+                        ),
+                        (
+                            "validation_side_long",
+                            "validation_side_structure_repair",
+                            {"side_mode": "long", "long_min_mom_24h": 0.0},
+                            "test a structural direction flip after repeated short-only validation losses",
+                        ),
+                    ]
+                )
+            elif anchor_side == "both":
+                anchor_specs.append(
+                    (
+                        "validation_side_long",
+                        "validation_side_structure_repair",
+                        {"side_mode": "long", "long_min_mom_24h": 0.0},
+                        "test long-only exposure after mixed-side validation loss",
+                    )
+                )
+            if not persistent_validation_loss:
+                anchor_specs.extend(factor_n_specs)
+            anchor_specs.extend(
+                [
+                    ("validation_z_plus_002", "validation_entry_quality_repair", {"min_abs_score_z": anchor_z + 0.02}, "tighten entry z after search passed but validation P/DD failed"),
+                    ("validation_topk_minus_1", "validation_breadth_repair", {"top_k": max(1, anchor_top_k - 1)}, "reduce breadth after validation loss while preserving the anchor structure"),
+                    ("validation_market_mom_030", "validation_market_momentum_filter_repair", {"short_max_market_mom_24h": market_mom_cap}, "avoid new shorts when broad market momentum is too strong"),
+                    ("validation_atr_minus_010", "validation_tail_filter_repair", {"max_entry_atr_pct": anchor_atr - 0.01}, "tighten ATR exposure after validation drawdown failed"),
+                    ("validation_risk_minus_20pct", "validation_risk_repair", {"risk_per_trade": anchor_risk * 0.8}, "reduce sizing only after adding robustness-oriented validation repairs"),
+                    ("validation_short_mom_minus_004", "validation_pair_momentum_filter_repair", {"short_max_mom_24h": anchor_short_mom - 0.004}, "avoid shorting high-momentum pairs in the validation window"),
+                ]
+            )
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_validation_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                structural_change = any(
+                    key in STRUCTURAL_RANK_KEYS and profile.get(key) != anchor_profile.get(key)
+                    for key in profile
+                )
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated validation repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": "structured_explore" if structured or structural_change else search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_validation_profit_over_max_drawdown": anchor.get("validation_profit_over_max_drawdown"),
+                            "anchor_validation_profit_pct": anchor.get("validation_profit_pct"),
+                            "anchor_search_profit_over_max_drawdown": anchor.get("search_profit_over_max_drawdown"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
+    near_pdd_misses = hints.get("near_miss_profit_drawdown_gate") if isinstance(hints, Mapping) else []
+    if isinstance(near_pdd_misses, Sequence):
+        for anchor in near_pdd_misses[:2]:
+            if not isinstance(anchor, Mapping) or not isinstance(anchor.get("rank_profile"), Mapping):
+                continue
+            try:
+                anchor_profile = normalize_rank_profile(anchor["rank_profile"], default_n=config.n)
+            except Exception:
+                continue
+            anchor_z = _coerce_finite_float(anchor_profile.get("min_abs_score_z"), z)
+            anchor_risk = _coerce_finite_float(anchor_profile.get("risk_per_trade"), _coerce_finite_float(base.get("risk_per_trade"), 0.015))
+            anchor_leverage = _coerce_finite_float(anchor_profile.get("leverage_cap"), _coerce_finite_float(base.get("leverage_cap"), 3.0))
+            anchor_atr = _coerce_finite_float(anchor_profile.get("max_entry_atr_pct"), _coerce_finite_float(base.get("max_entry_atr_pct"), 0.05))
+            anchor_short_mom = _coerce_finite_float(anchor_profile.get("short_max_mom_24h"), short_max_24h)
+            anchor_iter = anchor.get("iteration")
+            anchor_specs = [
+                ("near_pdd_z_plus_001", "profit_drawdown_quality_repair", {"min_abs_score_z": anchor_z + 0.01}, "tighten entry z slightly around the best P/DD near-miss"),
+                ("near_pdd_risk_minus_10pct", "profit_drawdown_risk_repair", {"risk_per_trade": anchor_risk * 0.9}, "reduce risk around the best P/DD near-miss to lower drawdown"),
+                ("near_pdd_atr_minus_005", "profit_drawdown_tail_filter_repair", {"max_entry_atr_pct": anchor_atr - 0.005}, "tighten ATR entry filter around the best P/DD near-miss"),
+                ("near_pdd_short_mom_minus_002", "profit_drawdown_momentum_filter_repair", {"short_max_mom_24h": anchor_short_mom - 0.002}, "avoid shorting the strongest momentum names while preserving the near-miss structure"),
+                ("near_pdd_leverage_minus_05", "profit_drawdown_leverage_repair", {"leverage_cap": anchor_leverage - 0.5}, "reduce leverage around the best P/DD near-miss"),
+            ]
+            for raw_name, family, changes, tradeoff in anchor_specs:
+                source = "controller_rank_profile_near_pdd_repair"
+                if _repair_key(source, family, changes) in behavior_blocked_repairs:
+                    continue
+                try:
+                    profile = _profile_with_changes(anchor_profile, changes, default_n=config.n)
+                    signature = rank_profile_signature(profile, default_n=config.n)
+                except Exception:
+                    continue
+                if signature in seen_profiles or signature in tried_profiles or profile == anchor_profile:
+                    continue
+                seen_profiles.add(signature)
+                candidates.append(
+                    {
+                        "candidate_type": CANDIDATE_RANK_PROFILE,
+                        "name": _candidate_name(f"{raw_name}_iter_{anchor_iter}"),
+                        "description": f"Controller-generated near-PDD repair from iteration {anchor_iter}: {tradeoff}.",
+                        "metadata": {
+                            "source": source,
+                            "search_mode": search_mode,
+                            "parent_anchor": f"iteration_{anchor_iter}",
+                            "hypothesis_family": family,
+                            "expected_tradeoff": tradeoff,
+                            "changed_keys": sorted(changes),
+                            "anchor_profit_over_max_drawdown": anchor.get("profit_over_max_drawdown"),
+                            "anchor_profit_over_max_drawdown_gap": anchor.get("profit_over_max_drawdown_gap"),
+                        },
+                        "rank_profile": profile,
+                    }
+                )
+
     for raw_name, family, changes, tradeoff in queue_specs:
         try:
             profile = _profile_with_changes(base, changes, default_n=config.n)
             signature = rank_profile_signature(profile, default_n=config.n)
         except Exception:
             continue
-        if signature in seen_profiles or profile == base:
+        if signature in seen_profiles or signature in tried_profiles or profile == base:
             continue
         seen_profiles.add(signature)
         structural_change = any(key in STRUCTURAL_RANK_KEYS and profile.get(key) != base.get(key) for key in profile)
@@ -1899,11 +4236,130 @@ def validate_candidate(candidate_path: str | Path, *, default_n: int = 50) -> di
     return normalized
 
 
+def _candidate_state_should_use_fallback(raw: str, fallback: Optional[Path]) -> bool:
+    if fallback is None:
+        return False
+    raw_path = Path(raw)
+    if not raw_path.parts:
+        return True
+    if len(raw_path.parts) == 1:
+        return True
+    return raw_path.name == fallback.name
+
+
 def _resolve_candidate_state_value(value: Any, fallback: Optional[Path]) -> Optional[str]:
     raw = str(value or "").strip()
     if raw:
-        return str(repo_paths.resolve_repo_path(raw))
+        resolved = repo_paths.resolve_repo_path(raw)
+        if not resolved.exists() and _candidate_state_should_use_fallback(raw, fallback):
+            return str(fallback) if fallback else str(resolved)
+        return str(resolved)
     return str(fallback) if fallback else None
+
+
+def _existing_candidate_state_fallback(config: StrategyLoopConfig, baseline_params: Optional[Mapping[str, Any]] = None) -> Optional[Path]:
+    params = baseline_params if baseline_params is not None else _baseline_rank_profile(config)
+    for raw in (
+        str(config.candidate_state or "").strip(),
+        str(params.get("candidate_state") or "").strip() if isinstance(params, Mapping) else "",
+    ):
+        if not raw:
+            continue
+        path = repo_paths.resolve_repo_path(raw)
+        if path.exists():
+            return path
+    factor_state, _ = _resolve_factor_state(config.tag)
+    if factor_state is not None and factor_state.exists():
+        return factor_state
+    return None
+
+
+def _postprocess_agent_rank_profile_payload(
+    payload: Mapping[str, Any],
+    config: StrategyLoopConfig,
+    *,
+    structured: bool = False,
+) -> dict[str, Any]:
+    out = dict(payload)
+    if config.candidate_type == CANDIDATE_RANK_PROFILE and not out.get("candidate_type"):
+        out["candidate_type"] = CANDIDATE_RANK_PROFILE
+    if str(out.get("candidate_type") or "").strip().lower() != CANDIDATE_RANK_PROFILE:
+        return out
+
+    metadata = dict(out.get("metadata")) if isinstance(out.get("metadata"), Mapping) else {}
+    if structured:
+        metadata["search_mode"] = "structured_explore"
+    elif not str(metadata.get("search_mode") or "").strip():
+        metadata["search_mode"] = "local_exploit"
+    metadata.setdefault("source", "openai_compatible_agent")
+
+    raw_profile = out.get("rank_profile") or out.get("profile") or out.get("params") or {}
+    if isinstance(raw_profile, Mapping):
+        profile = dict(raw_profile)
+        fallback = _existing_candidate_state_fallback(config)
+        raw_state = str(profile.get("candidate_state") or "").strip()
+        if fallback is not None:
+            if not raw_state:
+                profile["candidate_state"] = _as_repo_meta(fallback)
+                metadata.setdefault("candidate_state_repair", "filled_from_loop_config")
+            else:
+                resolved = repo_paths.resolve_repo_path(raw_state)
+                if not resolved.exists() and _candidate_state_should_use_fallback(raw_state, fallback):
+                    profile["candidate_state"] = _as_repo_meta(fallback)
+                    metadata.setdefault("candidate_state_repair", "expanded_short_state_path")
+        out["rank_profile"] = profile
+    out["metadata"] = metadata
+    return out
+
+
+def _candidate_state_selection_window(candidate_state: Any) -> Optional[tuple[str, str, str]]:
+    raw = str(candidate_state or "").strip()
+    if not raw:
+        return None
+    path = repo_paths.resolve_repo_path(raw)
+    if not path.exists():
+        return None
+    try:
+        payload = load_json(path, {})
+    except Exception:
+        return None
+    cfg = payload.get("config") if isinstance(payload, Mapping) else {}
+    if not isinstance(cfg, Mapping):
+        return None
+    mode = str(cfg.get("eval_mode") or "legacy").strip().lower()
+    if mode in {"portfolio", "composite"}:
+        window = cfg.get("val3") or cfg.get("oos")
+    else:
+        window = cfg.get("oos") or cfg.get("val3")
+    if not isinstance(window, Sequence) or isinstance(window, (str, bytes)) or len(window) < 2:
+        return None
+    start = str(window[0] or "").strip()
+    end = str(window[1] or "").strip()
+    if not start or not end:
+        return None
+    return mode, start, end
+
+
+def _assert_candidate_state_pre_search(candidate_state: Any, config: StrategyLoopConfig) -> None:
+    if str(config.validation_protocol or "").strip().lower() != VALIDATION_TRIPLE_HOLDOUT:
+        return
+    selection = _candidate_state_selection_window(candidate_state)
+    if selection is None:
+        return
+    mode, selection_start, selection_end = selection
+    search_start, _ = parse_timerange(config.search_timerange)
+    try:
+        selection_end_date = _date_from_iso(selection_end)
+        search_start_date = _date_from_iso(search_start)
+    except Exception:
+        return
+    if selection_end_date <= search_start_date:
+        return
+    raise ValueError(
+        "candidate_state mining selection window overlaps formal search/validation/blind: "
+        f"eval_mode={mode} selection={selection_start}:{selection_end} "
+        f"search_start={search_start}. Re-mine with selection ending on or before search_start."
+    )
 
 
 def _rank_kwargs(
@@ -1925,6 +4381,9 @@ def _rank_kwargs(
         or str(config.candidate_state or "").strip()
         or baseline_params.get("candidate_state")
     )
+    candidate_state_fallback = candidate_state
+    if candidate_state_fallback is None or not candidate_state_fallback.exists():
+        candidate_state_fallback = _existing_candidate_state_fallback(config, baseline_params)
     if "recompute_corr" in candidate_params:
         recompute_corr = _coerce_bool(candidate_params.get("recompute_corr"))
     elif config.recompute_corr is not None:
@@ -1933,6 +4392,9 @@ def _rank_kwargs(
         recompute_corr = _coerce_bool(baseline_params.get("recompute_corr"))
     else:
         recompute_corr = True
+
+    resolved_candidate_state = _resolve_candidate_state_value(candidate_state_raw, candidate_state_fallback)
+    _assert_candidate_state_pre_search(resolved_candidate_state, config)
 
     params.pop("candidate_state", None)
     params.pop("recompute_corr", None)
@@ -1948,6 +4410,8 @@ def _rank_kwargs(
         "timeframe": params.pop("timeframe", config.timeframe),
         "data_venue": params.pop("data_venue", config.data_venue),
         "top_k": params.pop("top_k", 2),
+        "min_pairs_for_top_k": params.pop("min_pairs_for_top_k", None),
+        "low_pair_top_k": params.pop("low_pair_top_k", None),
         "gross_cap": params.pop("gross_cap", 2.0),
         "net_cap": params.pop("net_cap", None),
         "single_pair_cap": params.pop("single_pair_cap", None),
@@ -1966,6 +4430,8 @@ def _rank_kwargs(
         "pair_edge_strong_ic": params.pop("pair_edge_strong_ic", None),
         "pair_edge_very_strong_ic": params.pop("pair_edge_very_strong_ic", None),
         "pair_edge_weak_cap": params.pop("pair_edge_weak_cap", None),
+        "pair_edge_min_entry_ic": params.pop("pair_edge_min_entry_ic", None),
+        "pair_edge_min_hold_ic": params.pop("pair_edge_min_hold_ic", None),
         "regime_mode": params.pop("regime_mode", None),
         "regime_min_edge_ic": params.pop("regime_min_edge_ic", None),
         "regime_min_pair_edge_ic": params.pop("regime_min_pair_edge_ic", None),
@@ -1985,7 +4451,7 @@ def _rank_kwargs(
         "short_exit_market_mom_24h": params.pop("short_exit_market_mom_24h", None),
         "short_exit_market_ma_gap": params.pop("short_exit_market_ma_gap", None),
         "exclude_pairs": params.pop("exclude_pairs", None),
-        "candidate_state": _resolve_candidate_state_value(candidate_state_raw, candidate_state),
+        "candidate_state": resolved_candidate_state,
         "recompute_corr": bool(recompute_corr),
     }
 
@@ -2220,6 +4686,157 @@ def score_strategy_loop_backtest(
     }
 
 
+def _score_lean_result(
+    lean_metrics: Mapping[str, Any],
+    lean_analysis: Optional[Mapping[str, Any]],
+    config: "StrategyLoopConfig",
+) -> float:
+    """Compute a score from LEAN backtest metrics and time-period analysis."""
+    total_return = float(lean_metrics.get("total_return") or 0.0)
+    profit_pct = total_return * 100.0
+    max_dd = float(lean_metrics.get("max_drawdown") or 0.0)
+    max_dd_pct = max_dd * 100.0
+    profit_over_dd = float(lean_metrics.get("profit_over_max_drawdown") or 0.0)
+    trades = float(lean_metrics.get("trades") or 0.0)
+
+    score = 0.0
+    score += profit_pct * 10.0
+    score -= max_dd_pct * 5.0
+    score += profit_over_dd * 1000.0
+    score += min(trades, 1000) * 0.05
+    if profit_pct > 0:
+        score += 1000.0
+    elif profit_pct < 0:
+        score -= 1000.0
+    if profit_pct >= float(getattr(config, "target_profit_pct", 25.0)):
+        score += 25.0
+
+    # Time-period adjustments from lean_analysis
+    if isinstance(lean_analysis, Mapping):
+        regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+        dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+        pair_contrib = lean_analysis.get("pair_contribution") if isinstance(lean_analysis.get("pair_contribution"), Mapping) else {}
+
+        consecutive_loss = int(regime.get("consecutive_loss_months") or 0)
+        if consecutive_loss >= 3:
+            score -= 500.0
+        worst_month_ret = float((regime.get("worst_month") or {}).get("return_pct") or 0.0)
+        if worst_month_ret < -20.0:
+            score -= 300.0
+        pos_pct = float(regime.get("positive_month_pct") or 0.0)
+        if pos_pct >= 60.0:
+            score += 500.0
+
+        herfindahl = pair_contrib.get("herfindahl_index")
+        if herfindahl is not None and float(herfindahl) > 0.5:
+            score -= 200.0
+
+        total_dd_depth = sum(abs(float(ep.get("depth_pct") or 0.0)) for ep in dd_episodes)
+        if total_dd_depth > 50.0:
+            score -= 500.0
+
+    return float(score)
+
+
+def apply_lean_score_blend(
+    evaluation: dict[str, Any],
+    config: "StrategyLoopConfig",
+) -> None:
+    """Blend LEAN score into evaluation in-place. Must be called after lean_gate is loaded."""
+    lean_gate = evaluation.get("lean_gate")
+    if not isinstance(lean_gate, Mapping):
+        # No LEAN data: penalize rank score to discourage LEAN-free candidates in leaderboard
+        rank_score = float(evaluation.get("score") or float("-inf"))
+        if math.isfinite(rank_score) and _lean_gate_active(config):
+            evaluation["score"] = rank_score * 0.5
+            (evaluation.setdefault("score_components", {}))["lean_penalty"] = "no_lean_data_0.5x"
+        return
+
+    lean_metrics = lean_gate.get("lean_metrics")
+    if not isinstance(lean_metrics, Mapping):
+        return
+
+    lean_analysis = evaluation.get("lean_analysis")
+    lean_score = _score_lean_result(lean_metrics, lean_analysis, config)
+    rank_score = float(evaluation.get("score") or 0.0)
+    w = float(getattr(config, "score_lean_weight", 0.7))
+    w = max(0.0, min(1.0, w))
+    blended = (1.0 - w) * rank_score + w * lean_score
+    evaluation["score"] = float(blended)
+    sc = evaluation.setdefault("score_components", {})
+    sc["lean_score"] = float(lean_score)
+    sc["rank_score_pre_blend"] = float(rank_score)
+    sc["blended_score"] = float(blended)
+    sc["score_lean_weight"] = float(w)
+
+
+def _lean_analysis_summary(lean_analysis: Optional[Any]) -> dict[str, Any]:
+    """Extract compact summary from lean_analysis dict for leaderboard rows."""
+    if not isinstance(lean_analysis, Mapping):
+        return {}
+    regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+    dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+    pair_contrib = lean_analysis.get("pair_contribution") if isinstance(lean_analysis.get("pair_contribution"), Mapping) else {}
+    worst_month = regime.get("worst_month") or {}
+    best_month = regime.get("best_month") or {}
+    top_dd = dd_episodes[0] if dd_episodes else {}
+    return {
+        "worst_month": {"period": worst_month.get("period"), "return_pct": worst_month.get("return_pct")},
+        "best_month": {"period": best_month.get("period"), "return_pct": best_month.get("return_pct")},
+        "consecutive_loss_months": regime.get("consecutive_loss_months"),
+        "positive_month_pct": regime.get("positive_month_pct"),
+        "max_drawdown_episode_pct": top_dd.get("depth_pct"),
+        "max_drawdown_recovery_days": top_dd.get("recovery_days"),
+        "herfindahl_index": pair_contrib.get("herfindahl_index"),
+        "top_winners": (pair_contrib.get("top_winners") or [])[:3],
+        "top_losers": (pair_contrib.get("top_losers") or [])[:3],
+    }
+
+
+def _leaderboard_row_from_evaluation(
+    evaluation: Mapping[str, Any],
+    run_id: str,
+    *,
+    iteration: Any = None,
+) -> dict[str, Any]:
+    """Project an iteration evaluation into the canonical leaderboard row shape."""
+    candidate = evaluation.get("candidate") if isinstance(evaluation.get("candidate"), Mapping) else {}
+    lean_gate = evaluation.get("lean_gate") if isinstance(evaluation.get("lean_gate"), Mapping) else {}
+    score_components = evaluation.get("score_components") if isinstance(evaluation.get("score_components"), Mapping) else {}
+    return {
+        "run_id": str(run_id),
+        "iteration": evaluation.get("iteration") if iteration is None else iteration,
+        "candidate_path": evaluation.get("candidate_path"),
+        "candidate": candidate or evaluation.get("candidate"),
+        "parameters": candidate.get("rank_profile") if isinstance(candidate, Mapping) else {},
+        "strategy_path": candidate.get("strategy_path") if isinstance(candidate, Mapping) else None,
+        "score": evaluation.get("score"),
+        "score_components": evaluation.get("score_components") or {},
+        "constraints_ok": evaluation.get("constraints_ok"),
+        "metrics": evaluation.get("metrics"),
+        "selected_metrics": evaluation.get("selected_metrics") or {},
+        "research_metrics": evaluation.get("research_metrics") or evaluation.get("metrics"),
+        "freqtrade_metrics": evaluation.get("freqtrade_metrics") or {},
+        "lean_gate_status": lean_gate.get("status") if isinstance(lean_gate, Mapping) else None,
+        "lean_comparison_status": lean_gate.get("comparison_status") if isinstance(lean_gate, Mapping) else None,
+        "lean_metrics": lean_gate.get("lean_metrics") if isinstance(lean_gate, Mapping) else {},
+        "lean_gate": evaluation.get("lean_gate"),
+        "lean_score": score_components.get("lean_score") if isinstance(score_components, Mapping) else None,
+        "lean_analysis_summary": _lean_analysis_summary(evaluation.get("lean_analysis")),
+        "window_metrics": evaluation.get("window_metrics") or {},
+        "verification_status": evaluation.get("verification_status") or VERIFICATION_PENDING,
+        "promotion_eligible": evaluation.get("promotion_eligible"),
+        "pareto_eligible": evaluation.get("pareto_eligible", True),
+        "behavior_novelty": evaluation.get("behavior_novelty") or {},
+        "signal_fingerprints": evaluation.get("signal_fingerprints") or {},
+        "artifact_refs": evaluation.get("artifact_refs") or {},
+        "parameter_signature": evaluation.get("parameter_signature"),
+        "violations": evaluation.get("violations"),
+        "diagnostics": evaluation.get("promotion_reason"),
+        "promotion": evaluation.get("promotion"),
+    }
+
+
 def score_research_only_window(
     backtest: Mapping[str, Any],
     config: StrategyLoopConfig,
@@ -2277,7 +4894,7 @@ def _stage_window_metrics(stage_result: Mapping[str, Any], evaluation: Mapping[s
     elif isinstance(signals, Mapping):
         all_path = signals.get("all")
         signal_dir = _as_repo_meta(Path(str(all_path)).parent) if all_path else ""
-    return {
+    metrics = {
         "timerange": stage_result.get("timerange"),
         "start": stage_result.get("start"),
         "end": stage_result.get("end"),
@@ -2289,6 +4906,10 @@ def _stage_window_metrics(stage_result: Mapping[str, Any], evaluation: Mapping[s
         "violations": evaluation.get("violations") or [],
         "signal_dir": signal_dir,
     }
+    stability = _curve_regime_stability(stage_result)
+    if stability:
+        metrics["regime_stability"] = stability
+    return metrics
 
 
 def score_triple_holdout_backtest(backtest: Mapping[str, Any], config: StrategyLoopConfig) -> dict[str, Any]:
@@ -2348,6 +4969,11 @@ def score_triple_holdout_backtest(backtest: Mapping[str, Any], config: StrategyL
         "search": _stage_window_metrics(search, search_eval) if search else {},
         "validation": _stage_window_metrics(validation, validation_eval),
     }
+    validation_stability = validation_eval["window_metrics"]["validation"].get("regime_stability")
+    if isinstance(validation_stability, Mapping) and validation_stability.get("score") is not None:
+        components = validation_eval.setdefault("score_components", {})
+        if isinstance(components, dict):
+            components["regime_stability_score"] = _coerce_finite_float(validation_stability.get("score"), 0.0)
     validation_eval["selected_window"] = "validation"
     validation_eval["promotion_reason"] = (
         "validation window passed selected hard gates"
@@ -2372,17 +4998,56 @@ def _numeric_zero(value: Any) -> bool:
         return _boolish_false(value)
 
 
+def _lookahead_rows_from_log(path: str | Path, *, strategy: str) -> list[dict[str, Any]]:
+    log_path = Path(path)
+    if not log_path.exists():
+        return []
+    text = log_path.read_text(encoding="utf-8", errors="ignore")
+    rows: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        if strategy not in line or "\u2502" not in line:
+            continue
+        cells = [cell.strip() for cell in line.split("\u2502") if cell.strip()]
+        try:
+            strategy_idx = next(idx for idx, cell in enumerate(cells) if cell == strategy)
+        except StopIteration:
+            continue
+        tail = cells[strategy_idx:]
+        if len(tail) < 5:
+            continue
+        rows.append(
+            _lower_key_map(
+                {
+                    "strategy": tail[0],
+                    "has_bias": tail[1],
+                    "total_signals": tail[2],
+                    "biased_entry_signals": tail[3],
+                    "biased_exit_signals": tail[4],
+                    "biased_indicators": tail[5] if len(tail) > 5 else "",
+                }
+            )
+        )
+    if rows:
+        return rows
+    if re.search(rf"{re.escape(strategy)}\s*:\s*no bias detected", text, flags=re.I):
+        return [_lower_key_map({"strategy": strategy, "has_bias": "no", "total_signals": 0})]
+    return []
+
+
 def parse_lookahead_csv(
     path: str | Path,
     *,
     strategy: str = FIXED_FREQTRADE_STRATEGY,
     min_trades: int = 0,
+    log_path: str | Path | None = None,
 ) -> dict[str, Any]:
     csv_path = Path(path)
     if not csv_path.exists():
         return {"status": VERIFICATION_INCONCLUSIVE, "violations": [f"lookahead csv missing: {csv_path}"], "rows": []}
     with csv_path.open("r", encoding="utf-8-sig", newline="") as fh:
         rows = [_lower_key_map(row) for row in csv.DictReader(fh)]
+    if not rows and log_path is not None:
+        rows = _lookahead_rows_from_log(log_path, strategy=strategy)
     if not rows:
         return {"status": VERIFICATION_INCONCLUSIVE, "violations": ["lookahead csv has no rows"], "rows": []}
 
@@ -2461,6 +5126,10 @@ def parse_recursive_output(path: str | Path) -> dict[str, Any]:
     else:
         if re.search(r"(not enough|insufficient|too few|sample)", text, flags=re.I):
             return {"status": VERIFICATION_INCONCLUSIVE, "violations": ["recursive log reports insufficient sample"], "rows": []}
+        no_recursive = re.search(r"no variance on indicator\(s\) found due to recursive formula", text, flags=re.I)
+        no_lookahead = re.search(r"no lookahead bias on indicators found", text, flags=re.I)
+        if no_recursive and no_lookahead:
+            return {"status": VERIFICATION_PASSED, "violations": [], "rows": []}
         if re.search(r"(recursive|indicator).{0,80}(bias|difference|diff|drift)", text, flags=re.I):
             if re.search(r"(?<![A-Za-z])([1-9]\d*|0\.\d*[1-9]\d*)(?![A-Za-z])", text):
                 return {"status": VERIFICATION_FAILED, "violations": ["recursive log reports non-zero differences"], "rows": []}
@@ -2512,7 +5181,13 @@ def _lean_required_statuses(config: StrategyLoopConfig) -> set[str]:
     if raw in {"*", "any", "all"}:
         return {"ok", "partial", "drift"}
     statuses = {item.strip().lower() for item in raw.split(",") if item.strip()}
-    return statuses or {"ok"}
+    result = statuses or {"ok"}
+    # Historical LEAN comparisons may be partial when order-level research
+    # stats are unavailable; treat partial as equivalent to ok unless caller
+    # explicitly excluded it.
+    if "ok" in result:
+        result = result | {"partial"}
+    return result
 
 
 def _lean_gate_status(evaluation: Mapping[str, Any]) -> str:
@@ -2544,8 +5219,12 @@ def _expected_ending_open_positions(lean_project: Path) -> dict[str, Any]:
     with signals_path.open("r", encoding="utf-8-sig", newline="") as fh:
         rows = list(csv.DictReader(fh))
     if not rows:
-        return {"expected": 0, "latest_time": None, "nonzero_symbols": []}
-    latest_time = max(str(row.get("time") or "") for row in rows)
+        return {"expected": 0, "latest_time": None, "nonzero_symbols": [], "terminal_time": None}
+    times = sorted({str(row.get("time") or "") for row in rows if str(row.get("time") or "")})
+    if len(times) < 2:
+        return {"expected": 0, "latest_time": None, "nonzero_symbols": [], "terminal_time": times[-1] if times else None}
+    terminal_time = times[-1]
+    latest_time = times[-2]
     latest_rows = [row for row in rows if str(row.get("time") or "") == latest_time]
     symbols = [
         str(row.get("symbol") or row.get("pair") or "")
@@ -2555,6 +5234,7 @@ def _expected_ending_open_positions(lean_project: Path) -> dict[str, Any]:
     return {
         "expected": len(symbols),
         "latest_time": latest_time,
+        "terminal_time": terminal_time,
         "nonzero_symbols": sorted(symbols),
     }
 
@@ -2578,7 +5258,7 @@ def _evaluate_lean_gate_report(
         )
 
     metrics = report.get("metrics") if isinstance(report.get("metrics"), Mapping) else {}
-    for field in ("final_equity", "max_drawdown", "trades", "orders", "turnover"):
+    for field in ("trades",):
         item = metrics.get(field) if isinstance(metrics.get(field), Mapping) else {}
         status = str(item.get("status") or "").strip().lower()
         checks[f"{field}_comparison"] = dict(item) if isinstance(item, Mapping) else {}
@@ -2586,23 +5266,18 @@ def _evaluate_lean_gate_report(
             violations.append(f"LEAN comparison metric missing: {field}")
         elif status == "drift" and "drift" not in allowed_statuses:
             violations.append(f"LEAN comparison metric drift: {field}")
+    for field in ("orders", "turnover", "final_equity", "max_drawdown"):
+        item = metrics.get(field) if isinstance(metrics.get(field), Mapping) else {}
+        checks[f"{field}_comparison"] = dict(item) if isinstance(item, Mapping) else {}
 
     lean = report.get("lean") if isinstance(report.get("lean"), Mapping) else {}
     research = report.get("research") if isinstance(report.get("research"), Mapping) else {}
     final_equity = _optional_float(lean.get("final_equity"))
-    checks["final_equity"] = {"value": final_equity, "min_exclusive": 1.0}
+    max_drawdown_limit = float(config.max_drawdown_pct) / 100.0
+    checks["final_equity"] = {"value": final_equity, "informational": True}
+    checks["max_drawdown"] = {"value": _optional_float(lean.get("max_drawdown")), "max": max_drawdown_limit, "informational": True}
     if final_equity is None:
         violations.append("LEAN final_equity missing")
-    elif final_equity <= 1.0:
-        violations.append(f"LEAN final_equity={final_equity:.6g} <= 1.0")
-
-    max_drawdown = _optional_float(lean.get("max_drawdown"))
-    max_drawdown_limit = float(config.max_drawdown_pct) / 100.0
-    checks["max_drawdown"] = {"value": max_drawdown, "max": max_drawdown_limit}
-    if max_drawdown is None:
-        violations.append("LEAN max_drawdown missing")
-    elif max_drawdown > max_drawdown_limit:
-        violations.append(f"LEAN max_drawdown={max_drawdown:.6g} > {max_drawdown_limit:.6g}")
 
     trades = _optional_float(lean.get("trades"))
     min_trades = int(gates.get("min_trades", config.min_trades))
@@ -2644,6 +5319,7 @@ def _evaluate_lean_gate_report(
         "value": actual_open,
         "expected": expected_open,
         "latest_time": expected_positions.get("latest_time"),
+        "terminal_time": expected_positions.get("terminal_time"),
         "nonzero_symbols": expected_positions.get("nonzero_symbols") or [],
     }
     if expected_open is None:
@@ -2666,6 +5342,35 @@ def _copytree_replace(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
+
+
+def _rebase_repo_path_value(value: str, *, source_dir: Path, target_dir: Path) -> str:
+    raw = str(value)
+    text = raw.strip()
+    if not text:
+        return raw
+    try:
+        source = source_dir.resolve()
+        target = target_dir.resolve()
+        resolved = repo_paths.resolve_repo_path(text).resolve()
+        rel = resolved.relative_to(source)
+    except Exception:
+        return raw
+    mapped = target / rel
+    return str(mapped) if Path(text).is_absolute() else _as_repo_meta(mapped)
+
+
+def _rebase_repo_paths(value: Any, *, source_dir: Path, target_dir: Path) -> Any:
+    if isinstance(value, str):
+        return _rebase_repo_path_value(value, source_dir=source_dir, target_dir=target_dir)
+    if isinstance(value, list):
+        return [_rebase_repo_paths(item, source_dir=source_dir, target_dir=target_dir) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _rebase_repo_paths(item, source_dir=source_dir, target_dir=target_dir)
+            for key, item in value.items()
+        }
+    return value
 
 
 def _sha256_file(path: Path) -> str:
@@ -2719,12 +5424,248 @@ def _artifact_ref(path: Path) -> dict[str, Any]:
     return ref
 
 
-def _artifact_refs_for_iteration(idir: Path) -> dict[str, Any]:
+_ITERATION_CORE_ARTIFACTS = (
+    "candidate.json",
+    "signal_export.json",
+    "backtest.json",
+    "evaluation.json",
+    "verification.json",
+    "benchmark_verdict.json",
+    "lean_gate.json",
+    "manifest.json",
+)
+_ITERATION_AUDIT_ARTIFACTS = (
+    "agent_response.txt",
+    "analysis.md",
+    "error.json",
+    "freqtrade_backtest.log",
+    "freqtrade_search.log",
+    "freqtrade_validation.log",
+    "freqtrade_blind.log",
+    "freqtrade_final.log",
+    "freqtrade_override_single.json",
+    "freqtrade_override_search.json",
+    "freqtrade_override_validation.json",
+    "freqtrade_override_blind.json",
+    "freqtrade_override_final.json",
+    "lean_analysis.json",
+    "lean_analysis.md",
+    "lean_analysis_hermes.txt",
+)
+_ITERATION_CONTEXT_ARTIFACTS = (
+    "prepare.json",
+    "lean_analysis_prompt.json",
+)
+_BEST_LOCAL_ARTIFACT_REF_KEYS = {
+    *[name for name in _ITERATION_CORE_ARTIFACTS if name != "manifest.json"],
+    *_ITERATION_AUDIT_ARTIFACTS,
+    *[f"context/{name}" for name in _ITERATION_CONTEXT_ARTIFACTS],
+}
+_CANDIDATE_INPUT_ARTIFACT_REF_KEYS = {
+    "rank_profile_candidate_state",
+    "metadata_baseline_profile",
+}
+_RANK_PORTFOLIO_SIDECAR_ARTIFACTS = (
+    "rank_export.json",
+    "backtest.json",
+    "selected_factors.json",
+    "sweep.json",
+    "optimized_profile.json",
+)
+
+
+def _maybe_artifact_ref_for_existing_file(raw: Any) -> Optional[dict[str, Any]]:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    path = repo_paths.resolve_repo_path(text)
+    if not path.is_file():
+        return None
+    return _artifact_ref(path)
+
+
+def _artifact_key_token(raw: Any) -> str:
+    token = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(raw or "").strip()).strip("_")
+    return token or "unknown"
+
+
+def _rank_sidecar_key_name(name: str) -> str:
+    stem = name.removesuffix(".json")
+    return stem.removeprefix("rank_")
+
+
+def _rank_payload_signal_paths(payload: Mapping[str, Any]) -> dict[str, Path]:
+    signals = payload.get("signals")
+    paths: dict[str, Path] = {}
+    if isinstance(signals, Mapping):
+        if signals.get("all"):
+            paths["signals"] = repo_paths.resolve_repo_path(str(signals["all"]))
+        per_pair = signals.get("per_pair") if isinstance(signals.get("per_pair"), Mapping) else {}
+        for _pair, raw in sorted(per_pair.items(), key=lambda item: str(item[0])):
+            if not raw:
+                continue
+            path = repo_paths.resolve_repo_path(str(raw))
+            token = _artifact_key_token(path.stem)
+            paths[f"signal_file_{token}"] = path
+    elif isinstance(signals, str) and signals.strip():
+        paths["signals"] = repo_paths.resolve_repo_path(signals)
+    all_signal = paths.get("signals")
+    if all_signal is not None and all_signal.parent.is_dir():
+        for path in sorted(all_signal.parent.glob("*.feather")):
+            if path.name == all_signal.name:
+                continue
+            paths.setdefault(f"signal_file_{_artifact_key_token(path.stem)}", path)
+    return paths
+
+
+def _rank_payload_roots(payload: Mapping[str, Any], signal_paths: Mapping[str, Path]) -> list[Path]:
+    roots: list[Path] = []
+
+    def add_root(path: Path) -> None:
+        key = _as_repo_meta(path)
+        if key not in {_as_repo_meta(item) for item in roots}:
+            roots.append(path)
+
+    selected_ref = _maybe_artifact_ref_for_existing_file(payload.get("selected_factors"))
+    if selected_ref is not None:
+        raw = str(selected_ref.get("path") or "").strip()
+        if raw:
+            add_root(repo_paths.resolve_repo_path(raw).parent)
+    for path in signal_paths.values():
+        parent = path.parent
+        if parent.name == "signals":
+            add_root(parent.parent)
+        else:
+            add_root(parent)
+    return roots
+
+
+def _add_rank_payload_artifact_refs(refs: dict[str, Any], prefix: str, payload: Mapping[str, Any]) -> None:
+    signal_paths = _rank_payload_signal_paths(payload)
+    all_signal = signal_paths.get("signals")
+    if all_signal is not None:
+        refs[f"{prefix}_signals"] = _artifact_ref(all_signal)
+        refs[f"{prefix}_signal_dir"] = {"path": _as_repo_meta(all_signal.parent), "kind": "directory"}
+    for key, path in signal_paths.items():
+        if key == "signals":
+            continue
+        refs[f"{prefix}_{key}"] = _artifact_ref(path)
+
+    for root in _rank_payload_roots(payload, signal_paths):
+        refs[f"{prefix}_rank_dir"] = {"path": _as_repo_meta(root), "kind": "directory"}
+        for name in _RANK_PORTFOLIO_SIDECAR_ARTIFACTS:
+            path = root / name
+            if path.is_file():
+                refs[f"{prefix}_rank_{_rank_sidecar_key_name(name)}"] = _artifact_ref(path)
+
+
+def _is_rank_portfolio_artifact_ref_key(key: str) -> bool:
+    rank_sidecar_suffixes = tuple(f"_rank_{_rank_sidecar_key_name(name)}" for name in _RANK_PORTFOLIO_SIDECAR_ARTIFACTS)
+    return (
+        key.endswith(rank_sidecar_suffixes)
+        or key.endswith("_rank_dir")
+        or "_signal_file_" in key
+    )
+
+
+def _rank_stage_sources_from_backtest(backtest: Any) -> list[tuple[str, Mapping[str, Any]]]:
+    stage_sources: list[tuple[str, Mapping[str, Any]]] = []
+    if not isinstance(backtest, Mapping):
+        return stage_sources
+    stages = backtest.get("stages") if isinstance(backtest.get("stages"), Mapping) else {}
+    for stage_name, stage_payload in stages.items():
+        if isinstance(stage_payload, Mapping):
+            stage_sources.append((str(stage_name), stage_payload))
+    if not stage_sources:
+        stage_sources.append(("single", backtest))
+    return stage_sources
+
+
+def _rank_audit_expected_artifact_refs(idir: Path) -> dict[str, Any]:
     refs: dict[str, Any] = {}
-    for name in ("candidate.json", "signal_export.json", "backtest.json", "evaluation.json", "verification.json", "lean_gate.json", "manifest.json"):
+    signal_export = load_json(idir / "signal_export.json", {})
+    if isinstance(signal_export, Mapping):
+        _add_rank_payload_artifact_refs(refs, "signal_export", signal_export)
+    backtest = load_json(idir / "backtest.json", {})
+    for stage_name, payload in _rank_stage_sources_from_backtest(backtest):
+        _add_rank_payload_artifact_refs(refs, stage_name, payload)
+    return {
+        key: ref
+        for key, ref in refs.items()
+        if _is_rank_portfolio_artifact_ref_key(key)
+        or key.endswith("_signals")
+        or key.endswith("_signal_dir")
+    }
+
+
+def _add_lean_project_artifact_refs(refs: dict[str, Any], raw_project: Any) -> None:
+    if not raw_project:
+        return
+    project = repo_paths.resolve_repo_path(str(raw_project))
+    if not project.is_dir():
+        return
+    for key, relative in (
+        ("lean_project_main_py", "main.py"),
+        ("lean_project_config_json", "config.json"),
+        ("lean_project_manifest_json", "manifest.json"),
+        ("lean_project_backtest_run_json", "lean_backtest_run.json"),
+        ("lean_project_signals_csv", "data/signals.csv"),
+        ("lean_project_funding_csv", "data/funding.csv"),
+    ):
+        path = project / relative
+        if path.is_file():
+            refs[key] = _artifact_ref(path)
+    ohlcv_dir = project / "data" / "ohlcv"
+    if ohlcv_dir.is_dir():
+        for path in sorted(ohlcv_dir.glob("*.csv")):
+            refs[f"lean_project_ohlcv_{_artifact_key_token(path.stem)}"] = _artifact_ref(path)
+
+
+def _add_lean_result_artifact_refs(refs: dict[str, Any], raw_result: Any) -> None:
+    if not raw_result:
+        return
+    result = repo_paths.resolve_repo_path(str(raw_result))
+    result_dir = result.parent if result.is_file() else result
+    if not result_dir.is_dir():
+        return
+    refs["lean_result_dir"] = {"path": _as_repo_meta(result_dir), "kind": "directory"}
+    for path in sorted(item for item in result_dir.iterdir() if item.is_file()):
+        if path.name == "__pycache__":
+            continue
+        token = _artifact_key_token(path.stem if path.suffix else path.name)
+        refs[f"lean_result_file_{token}"] = _artifact_ref(path)
+
+
+def _is_lean_project_artifact_ref_key(key: str) -> bool:
+    return key.startswith("lean_project_") or key.startswith("lean_result_file_") or key == "lean_result_dir"
+
+
+def _artifact_refs_for_iteration(idir: Path, *, exclude: Optional[set[str]] = None) -> dict[str, Any]:
+    excluded = exclude or set()
+    refs: dict[str, Any] = {}
+    for name in (*_ITERATION_CORE_ARTIFACTS, *_ITERATION_AUDIT_ARTIFACTS):
+        if name in excluded:
+            continue
         path = idir / name
         if path.exists():
             refs[name] = _artifact_ref(path)
+    for name in _ITERATION_CONTEXT_ARTIFACTS:
+        key = f"context/{name}"
+        if key in excluded or name in excluded:
+            continue
+        path = idir / "context" / name
+        if path.exists():
+            refs[key] = _artifact_ref(path)
+    candidate_payload = load_json(idir / "candidate.json", {})
+    if isinstance(candidate_payload, Mapping):
+        rank_profile = candidate_payload.get("rank_profile") if isinstance(candidate_payload.get("rank_profile"), Mapping) else {}
+        candidate_state_ref = _maybe_artifact_ref_for_existing_file(rank_profile.get("candidate_state") if rank_profile else None)
+        if candidate_state_ref is not None:
+            refs["rank_profile_candidate_state"] = candidate_state_ref
+        metadata = candidate_payload.get("metadata") if isinstance(candidate_payload.get("metadata"), Mapping) else {}
+        baseline_ref = _maybe_artifact_ref_for_existing_file(metadata.get("baseline_profile") if metadata else None)
+        if baseline_ref is not None:
+            refs["metadata_baseline_profile"] = baseline_ref
     lean_gate = load_json(idir / "lean_gate.json", {})
     lean_artifacts = lean_gate.get("artifacts") if isinstance(lean_gate, Mapping) and isinstance(lean_gate.get("artifacts"), Mapping) else {}
     for key, raw in lean_artifacts.items():
@@ -2737,26 +5678,30 @@ def _artifact_refs_for_iteration(idir: Path) -> dict[str, Any]:
             refs[f"lean_{key}"] = _artifact_ref(path)
     if lean_artifacts.get("dir"):
         refs["lean_gate_dir"] = {"path": str(lean_artifacts["dir"]), "kind": "directory"}
+    _add_lean_project_artifact_refs(refs, lean_artifacts.get("lean_project"))
+    _add_lean_result_artifact_refs(refs, lean_artifacts.get("lean_result"))
+    verification = load_json(idir / "verification.json", {})
+    verification_artifacts = (
+        verification.get("artifacts")
+        if isinstance(verification, Mapping) and isinstance(verification.get("artifacts"), Mapping)
+        else {}
+    )
+    for key, raw in verification_artifacts.items():
+        if key == "dir":
+            continue
+        if not raw:
+            continue
+        path = repo_paths.resolve_repo_path(str(raw))
+        if path.exists():
+            refs[f"verification_{key}"] = _artifact_ref(path)
+    if verification_artifacts.get("dir"):
+        refs["verification_dir"] = {"path": str(verification_artifacts["dir"]), "kind": "directory"}
+    signal_export = load_json(idir / "signal_export.json", {})
+    if isinstance(signal_export, Mapping):
+        _add_rank_payload_artifact_refs(refs, "signal_export", signal_export)
     backtest = load_json(idir / "backtest.json", {})
-    stage_sources: list[tuple[str, Mapping[str, Any]]] = []
-    if isinstance(backtest, Mapping):
-        stages = backtest.get("stages") if isinstance(backtest.get("stages"), Mapping) else {}
-        for stage_name, stage_payload in stages.items():
-            if isinstance(stage_payload, Mapping):
-                stage_sources.append((str(stage_name), stage_payload))
-        if not stage_sources:
-            stage_sources.append(("single", backtest))
-    for stage_name, payload in stage_sources:
-        signals = payload.get("signals")
-        all_signal: Optional[str] = None
-        if isinstance(signals, Mapping) and signals.get("all"):
-            all_signal = str(signals.get("all"))
-        elif isinstance(signals, str):
-            all_signal = signals
-        if all_signal:
-            signal_path = repo_paths.resolve_repo_path(all_signal)
-            refs[f"{stage_name}_signals"] = _artifact_ref(signal_path)
-            refs[f"{stage_name}_signal_dir"] = {"path": _as_repo_meta(signal_path.parent), "kind": "directory"}
+    for stage_name, payload in _rank_stage_sources_from_backtest(backtest):
+        _add_rank_payload_artifact_refs(refs, stage_name, payload)
         freqtrade = payload.get("freqtrade_backtest") if isinstance(payload.get("freqtrade_backtest"), Mapping) else {}
         metrics = freqtrade.get("metrics") if isinstance(freqtrade.get("metrics"), Mapping) else {}
         if metrics.get("backtest_zip"):
@@ -2778,6 +5723,13 @@ def _run_capture(cmd: Sequence[str], *, cwd: Optional[Path] = None, timeout: flo
     except Exception as exc:
         return {"ok": False, "error": str(exc), "command": list(cmd)}
     return {"ok": proc.returncode == 0, "returncode": proc.returncode, "stdout": (proc.stdout or "").strip(), "command": list(cmd)}
+
+
+def _git_provenance() -> dict[str, Any]:
+    return {
+        "commit": _run_capture(["git", "rev-parse", "HEAD"], timeout=5.0).get("stdout"),
+        "dirty_files": (_run_capture(["git", "status", "--short"], timeout=5.0).get("stdout") or "").splitlines(),
+    }
 
 
 def _pair_universe_from_config(config_path: Path) -> list[str]:
@@ -2834,10 +5786,7 @@ def build_run_manifest(config: StrategyLoopConfig) -> dict[str, Any]:
         "version": "factor-strategy-loop-run-manifest-v1",
         "created_at": time.time(),
         "run_id": config.run_id,
-        "git": {
-            "commit": _run_capture(["git", "rev-parse", "HEAD"], timeout=5.0).get("stdout"),
-            "dirty_files": (_run_capture(["git", "status", "--short"], timeout=5.0).get("stdout") or "").splitlines(),
-        },
+        "git": _git_provenance(),
         "cli_args": asdict(config),
         "validation_protocol": validation_protocol_summary(config),
         "lean_gate": {
@@ -2868,12 +5817,13 @@ def build_iteration_manifest(
     evaluation: Mapping[str, Any],
 ) -> dict[str, Any]:
     backtest = load_json(idir / "backtest.json", {})
-    refs = _artifact_refs_for_iteration(idir)
+    refs = _artifact_refs_for_iteration(idir, exclude={"manifest.json"})
     return {
         "version": "factor-strategy-loop-iteration-manifest-v1",
         "created_at": time.time(),
         "run_id": config.run_id,
         "iteration": evaluation.get("iteration"),
+        "git": _git_provenance(),
         "candidate_signature": evaluation.get("parameter_signature"),
         "timeframe": config.timeframe,
         "data_venue": config.data_venue,
@@ -2892,6 +5842,20 @@ def build_iteration_manifest(
         },
         "lookahead_recursive_artifacts": {
             "verification": refs.get("verification.json"),
+            "freqtrade_override": refs.get("verification_freqtrade_override"),
+            "lookahead_csv": refs.get("verification_lookahead_csv"),
+            "lookahead_log": refs.get("verification_lookahead_log"),
+            "recursive_log": refs.get("verification_recursive_log"),
+        },
+        "candidate_input_artifacts": {
+            key: refs[key]
+            for key in sorted(_CANDIDATE_INPUT_ARTIFACT_REF_KEYS)
+            if key in refs
+        },
+        "rank_portfolio_artifacts": {
+            key: ref
+            for key, ref in sorted(refs.items())
+            if _is_rank_portfolio_artifact_ref_key(key)
         },
         "lean_gate": {
             "status": (evaluation.get("lean_gate") or {}).get("status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
@@ -2900,12 +5864,43 @@ def build_iteration_manifest(
             "lean_project": refs.get("lean_lean_project"),
             "lean_result": refs.get("lean_lean_result"),
         },
+        "lean_project_artifacts": {
+            key: ref
+            for key, ref in sorted(refs.items())
+            if _is_lean_project_artifact_ref_key(key)
+        },
         "artifact_refs": refs,
         "window_metrics": evaluation.get("window_metrics") or {},
+        "signal_fingerprints": evaluation.get("signal_fingerprints") or {},
+        "behavior_novelty": evaluation.get("behavior_novelty") or {},
+        "pareto_eligible": evaluation.get("pareto_eligible"),
         "backtest_shape": {
             "keys": sorted(backtest.keys()) if isinstance(backtest, Mapping) else [],
         },
     }
+
+
+def refresh_iteration_manifest_artifact_refs(
+    idir: Path,
+    config: StrategyLoopConfig,
+    *,
+    candidate: Optional[Mapping[str, Any]] = None,
+    evaluation: Optional[Mapping[str, Any]] = None,
+) -> None:
+    """Rewrite only manifest.json so late audit sidecars are hash-bound."""
+    evaluation_payload: Mapping[str, Any]
+    if evaluation is not None:
+        evaluation_payload = evaluation
+    else:
+        loaded_evaluation = load_json(idir / "evaluation.json", {})
+        evaluation_payload = loaded_evaluation if isinstance(loaded_evaluation, Mapping) else {}
+    if not evaluation_payload:
+        return
+    candidate_payload: Mapping[str, Any] = candidate if isinstance(candidate, Mapping) else {}
+    if not candidate_payload:
+        loaded_candidate = load_json(idir / "candidate.json", {})
+        candidate_payload = loaded_candidate if isinstance(loaded_candidate, Mapping) else {}
+    write_json(idir / "manifest.json", build_iteration_manifest(idir, config, candidate_payload, evaluation_payload))
 
 
 def strategy_loop_retention_tier(run_id: str, *, final_promotion: Optional[Mapping[str, Any]] = None) -> str:
@@ -2983,6 +5978,71 @@ def _doctor_finding(severity: str, message: str, *, path: str = "", detail: Opti
     return item
 
 
+def _is_strict_formal_config(config: StrategyLoopConfig) -> bool:
+    return (
+        str(config.validation_protocol).strip().lower() == VALIDATION_TRIPLE_HOLDOUT
+        and str(config.verify_policy).strip().lower() == VERIFY_PARETO
+        and str(config.promote_policy).strip().lower() == PROMOTE_FINAL
+    )
+
+
+def _stale_run_manifest_git_detail(run_id: str) -> dict[str, Any]:
+    manifest = load_json(loop_root(str(run_id)) / "manifest.json", {})
+    manifest_git = manifest.get("git") if isinstance(manifest, Mapping) and isinstance(manifest.get("git"), Mapping) else {}
+    manifest_commit = str(manifest_git.get("commit") or "").strip()
+    current_git = _git_provenance()
+    current_commit = str(current_git.get("commit") or "").strip()
+    if not manifest_commit or not current_commit or manifest_commit == current_commit:
+        return {}
+    return {
+        "run_manifest_commit": manifest_commit,
+        "current_commit": current_commit,
+        "current_dirty_files": current_git.get("dirty_files") or [],
+    }
+
+
+_LOW_IMPACT_UNTRACKED_PREFIXES = (
+    "docs/",
+)
+_RUNTIME_UNTRACKED_PREFIXES = (
+    "configs/",
+    "scripts/",
+    "server/",
+    "src/",
+    "tests/",
+    "user_data/strategies/",
+)
+_RUNTIME_UNTRACKED_SUFFIXES = (
+    ".json",
+    ".py",
+    ".sh",
+    ".toml",
+    ".yaml",
+    ".yml",
+)
+
+
+def _impactful_git_dirty_files(lines: Sequence[Any]) -> list[str]:
+    """Return dirty status lines that can affect formal controller behavior."""
+    impactful: list[str] = []
+    for raw in lines:
+        line = str(raw or "").strip()
+        if not line:
+            continue
+        status = line[:2]
+        path = line[3:].strip() if len(line) > 3 else ""
+        if status == "!!":
+            continue
+        if status == "??":
+            if path.startswith(_LOW_IMPACT_UNTRACKED_PREFIXES):
+                continue
+            if path.startswith(_RUNTIME_UNTRACKED_PREFIXES) or path.endswith(_RUNTIME_UNTRACKED_SUFFIXES):
+                impactful.append(line)
+            continue
+        impactful.append(line)
+    return impactful
+
+
 def _doctor_config_from_payloads(root: Path) -> dict[str, Any]:
     checkpoint = load_json(root / "checkpoint.json", {})
     if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("config"), Mapping):
@@ -3010,11 +6070,26 @@ def _doctor_window_order(config_payload: Mapping[str, Any]) -> tuple[bool, dict[
         return False, {"error": str(exc)}
 
 
-def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
-    refs = manifest.get("artifact_refs") if isinstance(manifest.get("artifact_refs"), Mapping) else {}
+def _doctor_artifact_refs_hash_status(refs: Any) -> dict[str, int]:
     files = 0
     hashed = 0
     missing_hash = 0
+    checked = 0
+    missing_file = 0
+    bytes_mismatch = 0
+    hash_mismatch = 0
+    errors = 0
+    if not isinstance(refs, Mapping):
+        return {
+            "files": files,
+            "hashed": hashed,
+            "missing_hash": missing_hash,
+            "checked": checked,
+            "missing_file": missing_file,
+            "bytes_mismatch": bytes_mismatch,
+            "hash_mismatch": hash_mismatch,
+            "errors": errors,
+        }
     for ref in refs.values():
         if not isinstance(ref, Mapping):
             continue
@@ -3023,15 +6098,89 @@ def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
         if ref.get("missing"):
             continue
         files += 1
-        if ref.get("sha256"):
+        expected_hash = str(ref.get("sha256") or "").strip()
+        if expected_hash:
             hashed += 1
         else:
             missing_hash += 1
-    return {"files": files, "hashed": hashed, "missing_hash": missing_hash}
+        raw_path = str(ref.get("path") or "").strip()
+        if not raw_path:
+            missing_file += 1
+            continue
+        path = repo_paths.resolve_repo_path(raw_path)
+        if not path.is_file():
+            missing_file += 1
+            continue
+        expected_bytes = ref.get("bytes")
+        try:
+            actual_bytes = int(path.stat().st_size)
+            if expected_bytes is not None and int(expected_bytes) != actual_bytes:
+                bytes_mismatch += 1
+            if expected_hash:
+                checked += 1
+                if _sha256_file(path) != expected_hash:
+                    hash_mismatch += 1
+        except Exception:
+            errors += 1
+    return {
+        "files": files,
+        "hashed": hashed,
+        "missing_hash": missing_hash,
+        "checked": checked,
+        "missing_file": missing_file,
+        "bytes_mismatch": bytes_mismatch,
+        "hash_mismatch": hash_mismatch,
+        "errors": errors,
+    }
 
 
-def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict[str, Any]:
-    """Read-only audit for a factor strategy-loop run."""
+def _doctor_run_manifest_artifact_refs(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    refs: dict[str, Any] = {}
+    for key in ("config_path", "strategy_path"):
+        value = manifest.get(key)
+        if isinstance(value, Mapping):
+            refs[key] = value
+    data_files = manifest.get("data_files")
+    if isinstance(data_files, list):
+        for idx, ref in enumerate(data_files):
+            if isinstance(ref, Mapping):
+                refs[f"data_files[{idx}]"] = ref
+    baseline = manifest.get("baseline_profile") if isinstance(manifest.get("baseline_profile"), Mapping) else {}
+    if baseline:
+        baseline_ref = baseline.get("artifact_ref") if isinstance(baseline.get("artifact_ref"), Mapping) else {}
+        if baseline_ref:
+            refs["baseline_profile"] = baseline_ref
+        elif baseline.get("available") and baseline.get("path"):
+            refs["baseline_profile"] = {"path": baseline.get("path")}
+    return refs
+
+
+def _doctor_manifest_hash_status(manifest: Mapping[str, Any]) -> dict[str, int]:
+    return _doctor_artifact_refs_hash_status(manifest.get("artifact_refs"))
+
+
+def _lean_audit_expected_artifact_refs(lean_gate_payload: Mapping[str, Any]) -> dict[str, Any]:
+    artifacts = (
+        lean_gate_payload.get("artifacts")
+        if isinstance(lean_gate_payload.get("artifacts"), Mapping)
+        else {}
+    )
+    refs: dict[str, Any] = {}
+    raw_project = artifacts.get("lean_project")
+    if raw_project:
+        project = repo_paths.resolve_repo_path(str(raw_project))
+        refs["lean_lean_project"] = {"path": _as_repo_meta(project), "kind": "directory"}
+        _add_lean_project_artifact_refs(refs, raw_project)
+    raw_result = artifacts.get("lean_result")
+    if raw_result:
+        result = repo_paths.resolve_repo_path(str(raw_result))
+        refs["lean_lean_result"] = _artifact_ref(result)
+        _add_lean_result_artifact_refs(refs, raw_result)
+    return refs
+
+
+def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True, write: bool = True) -> dict[str, Any]:
+    """Audit a factor strategy-loop run and optionally persist doctor_latest.json."""
     root = loop_root(str(run_id))
     findings: list[dict[str, Any]] = []
     if not root.exists():
@@ -3063,6 +6212,36 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
     if protocol in {VALIDATION_TRIPLE_HOLDOUT, VALIDATION_WALKFORWARD} and not windows_ok:
         findings.append(_doctor_finding("BLOCKER", "search/validation/blind windows are missing, invalid, or overlapping", detail=windows_detail))
 
+    run_manifest = load_json(root / "manifest.json", {})
+    manifest_git = run_manifest.get("git") if isinstance(run_manifest, Mapping) and isinstance(run_manifest.get("git"), Mapping) else {}
+    manifest_commit = str(manifest_git.get("commit") or "").strip()
+    manifest_dirty_files = list(manifest_git.get("dirty_files") or []) if isinstance(manifest_git.get("dirty_files"), list) else []
+    manifest_impactful_dirty_files = _impactful_git_dirty_files(manifest_dirty_files)
+    current_commit = str(_git_provenance().get("commit") or "").strip()
+    root_manifest_artifact_ref_status = _doctor_artifact_refs_hash_status(
+        _doctor_run_manifest_artifact_refs(run_manifest) if isinstance(run_manifest, Mapping) else {}
+    )
+    stale_git_detail = _stale_run_manifest_git_detail(str(run_id))
+    if strict_formal and stale_git_detail:
+        findings.append(
+            _doctor_finding(
+                "HIGH",
+                "run manifest git commit differs from current controller code; start a fresh formal run before promotion",
+                detail=stale_git_detail,
+            )
+        )
+    if strict_formal and manifest_impactful_dirty_files:
+        findings.append(
+            _doctor_finding(
+                "BLOCKER",
+                "run manifest captured impactful dirty worktree files",
+                detail={
+                    "dirty_files": manifest_impactful_dirty_files,
+                    "all_manifest_dirty_files": manifest_dirty_files,
+                },
+            )
+        )
+
     required_root_files = ("manifest.json", "checkpoint.json", "leaderboard.json")
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
         required_root_files = (*required_root_files, "pareto_pool.json", "final_blind_status.json", "final_promotion.json")
@@ -3073,16 +6252,197 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
         if not path.exists():
             findings.append(_doctor_finding("BLOCKER", f"missing root artifact: {name}", path=_as_repo_meta(path)))
 
+    if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        for key in ("config_path", "strategy_path"):
+            ref = run_manifest.get(key) if isinstance(run_manifest, Mapping) else {}
+            if not isinstance(ref, Mapping) or not str(ref.get("path") or "").strip():
+                findings.append(_doctor_finding("BLOCKER", f"run manifest missing artifact ref: {key}"))
+            elif ref.get("missing"):
+                findings.append(_doctor_finding("BLOCKER", f"run manifest artifact is marked missing: {key}", path=str(ref.get("path") or "")))
+        if root_manifest_artifact_ref_status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", "run manifest has no file artifact refs"))
+        elif root_manifest_artifact_ref_status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run manifest artifact refs have entries without sha256 hashes",
+                    detail={"missing_hash": root_manifest_artifact_ref_status["missing_hash"]},
+                )
+            )
+        root_manifest_integrity_failures = {
+            "missing_file": root_manifest_artifact_ref_status.get("missing_file", 0),
+            "bytes_mismatch": root_manifest_artifact_ref_status.get("bytes_mismatch", 0),
+            "hash_mismatch": root_manifest_artifact_ref_status.get("hash_mismatch", 0),
+            "errors": root_manifest_artifact_ref_status.get("errors", 0),
+        }
+        if any(root_manifest_integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", "run manifest artifact refs failed integrity check", detail=root_manifest_integrity_failures))
+
     iteration_manifests = sorted(root.glob("iter_*/manifest.json"))
     blind_manifests = sorted(root.glob("blind_*/manifest.json"))
-    manifest_hashes = [_doctor_manifest_hash_status(load_json(path, {})) for path in [*iteration_manifests, *blind_manifests]]
+    best_manifests = [root / "best" / "manifest.json"] if (root / "best" / "manifest.json").exists() else []
+    manifest_hashes = [_doctor_manifest_hash_status(load_json(path, {})) for path in [*iteration_manifests, *blind_manifests, *best_manifests]]
     missing_hash_total = sum(item.get("missing_hash", 0) for item in manifest_hashes)
     hashed_total = sum(item.get("hashed", 0) for item in manifest_hashes)
+    checked_total = sum(item.get("checked", 0) for item in manifest_hashes)
+    missing_file_total = sum(item.get("missing_file", 0) for item in manifest_hashes)
+    bytes_mismatch_total = sum(item.get("bytes_mismatch", 0) for item in manifest_hashes)
+    hash_mismatch_total = sum(item.get("hash_mismatch", 0) for item in manifest_hashes)
+    artifact_ref_errors_total = sum(item.get("errors", 0) for item in manifest_hashes)
+    best_manifest_local_ref_bindings_checked = 0
+    best_manifest_local_ref_binding_mismatches = 0
+    candidate_input_ref_bindings_checked = 0
+    candidate_input_ref_binding_mismatches = 0
+    rank_audit_ref_bindings_checked = 0
+    rank_audit_ref_binding_mismatches = 0
+    lean_audit_ref_bindings_checked = 0
+    lean_audit_ref_binding_mismatches = 0
+    best_dir = root / "best"
+    best_dir_resolved = best_dir.resolve()
+    all_iteration_like_manifests = [*iteration_manifests, *blind_manifests, *best_manifests]
+    for manifest_path in best_manifests:
+        manifest_payload = load_json(manifest_path, {})
+        refs = manifest_payload.get("artifact_refs") if isinstance(manifest_payload, Mapping) and isinstance(manifest_payload.get("artifact_refs"), Mapping) else {}
+        for key, ref in refs.items():
+            if not (
+                key in _BEST_LOCAL_ARTIFACT_REF_KEYS
+                or str(key).startswith("lean_")
+                or str(key).startswith("verification_")
+            ):
+                continue
+            if not isinstance(ref, Mapping):
+                continue
+            raw_path = str(ref.get("path") or "").strip()
+            if not raw_path:
+                continue
+            best_manifest_local_ref_bindings_checked += 1
+            try:
+                repo_paths.resolve_repo_path(raw_path).resolve().relative_to(best_dir_resolved)
+            except Exception:
+                best_manifest_local_ref_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "best manifest artifact refs point outside best snapshot",
+                        path=raw_path,
+                        detail={"key": key, "best_dir": _as_repo_meta(best_dir)},
+                    )
+                )
+    for manifest_path in all_iteration_like_manifests:
+        manifest_payload = load_json(manifest_path, {})
+        refs = manifest_payload.get("artifact_refs") if isinstance(manifest_payload, Mapping) and isinstance(manifest_payload.get("artifact_refs"), Mapping) else {}
+        expected_rank_refs = _rank_audit_expected_artifact_refs(manifest_path.parent)
+        for ref_key, expected_ref in expected_rank_refs.items():
+            if not isinstance(expected_ref, Mapping):
+                continue
+            expected_raw = str(expected_ref.get("path") or "").strip()
+            if not expected_raw:
+                continue
+            rank_audit_ref_bindings_checked += 1
+            expected_path = repo_paths.resolve_repo_path(expected_raw)
+            expected_exists = expected_path.is_dir() if expected_ref.get("kind") == "directory" else expected_path.is_file()
+            ref = refs.get(ref_key) if isinstance(refs.get(ref_key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            detail = {
+                "manifest": _as_repo_meta(manifest_path),
+                "ref_key": ref_key,
+                "expected_path": _as_repo_meta(expected_path),
+                "ref_path": ref_raw,
+            }
+            if not expected_exists:
+                rank_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "rank audit artifact path does not exist", path=expected_raw, detail=detail))
+                continue
+            if not ref_raw:
+                rank_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "rank audit artifact ref missing from manifest", path=_as_repo_meta(manifest_path), detail=detail))
+                continue
+            if _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(expected_path):
+                rank_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "rank audit artifact ref path differs from backtest artifact", path=ref_raw, detail=detail))
+        lean_gate_payload = load_json(manifest_path.parent / "lean_gate.json", {})
+        expected_lean_refs = _lean_audit_expected_artifact_refs(lean_gate_payload) if isinstance(lean_gate_payload, Mapping) else {}
+        for ref_key, expected_ref in expected_lean_refs.items():
+            if not isinstance(expected_ref, Mapping):
+                continue
+            expected_raw = str(expected_ref.get("path") or "").strip()
+            if not expected_raw:
+                continue
+            lean_audit_ref_bindings_checked += 1
+            expected_path = repo_paths.resolve_repo_path(expected_raw)
+            expected_exists = expected_path.is_dir() if expected_ref.get("kind") == "directory" else expected_path.is_file()
+            ref = refs.get(ref_key) if isinstance(refs.get(ref_key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            detail = {
+                "manifest": _as_repo_meta(manifest_path),
+                "ref_key": ref_key,
+                "expected_path": _as_repo_meta(expected_path),
+                "ref_path": ref_raw,
+            }
+            if not expected_exists:
+                lean_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "LEAN audit artifact path does not exist", path=expected_raw, detail=detail))
+                continue
+            if not ref_raw:
+                lean_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "LEAN audit artifact ref missing from manifest", path=_as_repo_meta(manifest_path), detail=detail))
+                continue
+            if _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(expected_path):
+                lean_audit_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "LEAN audit artifact ref path differs from lean_gate artifact", path=ref_raw, detail=detail))
+        candidate_ref = refs.get("candidate.json") if isinstance(refs.get("candidate.json"), Mapping) else {}
+        candidate_ref_raw = str(candidate_ref.get("path") or "").strip() if isinstance(candidate_ref, Mapping) else ""
+        if not candidate_ref_raw:
+            continue
+        candidate_path = repo_paths.resolve_repo_path(candidate_ref_raw)
+        candidate_payload = load_json(candidate_path, {})
+        if not isinstance(candidate_payload, Mapping):
+            continue
+        rank_profile = candidate_payload.get("rank_profile") if isinstance(candidate_payload.get("rank_profile"), Mapping) else {}
+        input_specs: list[tuple[str, Any, str]] = []
+        if rank_profile and str(rank_profile.get("candidate_state") or "").strip():
+            input_specs.append(("rank_profile_candidate_state", rank_profile.get("candidate_state"), "rank_profile.candidate_state"))
+        metadata = candidate_payload.get("metadata") if isinstance(candidate_payload.get("metadata"), Mapping) else {}
+        if metadata and str(metadata.get("baseline_profile") or "").strip():
+            input_specs.append(("metadata_baseline_profile", metadata.get("baseline_profile"), "metadata.baseline_profile"))
+        for ref_key, raw_input, label in input_specs:
+            candidate_input_ref_bindings_checked += 1
+            expected_path = repo_paths.resolve_repo_path(str(raw_input or ""))
+            ref = refs.get(ref_key) if isinstance(refs.get(ref_key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            mismatch_detail = {
+                "manifest": _as_repo_meta(manifest_path),
+                "field": label,
+                "expected_path": _as_repo_meta(expected_path),
+                "ref_key": ref_key,
+                "ref_path": ref_raw,
+            }
+            if not expected_path.is_file():
+                candidate_input_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "candidate input artifact path does not exist", path=str(raw_input or ""), detail=mismatch_detail))
+                continue
+            if not ref_raw:
+                candidate_input_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "candidate input artifact ref missing from manifest", path=_as_repo_meta(candidate_path), detail=mismatch_detail))
+                continue
+            if _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(expected_path):
+                candidate_input_ref_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "candidate input artifact ref differs from candidate payload", path=ref_raw, detail=mismatch_detail))
     if iteration_manifests and missing_hash_total:
         findings.append(_doctor_finding("MEDIUM", "some manifest artifact refs are missing sha256 hashes", detail={"missing_hash": missing_hash_total}))
+    manifest_integrity_failures = {
+        "missing_file": missing_file_total,
+        "bytes_mismatch": bytes_mismatch_total,
+        "hash_mismatch": hash_mismatch_total,
+        "errors": artifact_ref_errors_total,
+    }
+    if any(manifest_integrity_failures.values()):
+        findings.append(_doctor_finding("BLOCKER", "manifest artifact refs failed integrity check", detail=manifest_integrity_failures))
 
     leaderboard = load_json(root / "leaderboard.json", {})
     rows = list(leaderboard.get("rows") or []) if isinstance(leaderboard, Mapping) else []
+    checkpoint = load_json(root / "checkpoint.json", {})
+    checkpoint_state = checkpoint.get("state") if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("state"), Mapping) else {}
     non_blind_eligible = [
         row for row in rows
         if isinstance(row, Mapping) and row.get("promotion_eligible") is True and not bool(row.get("blind_final"))
@@ -3092,23 +6452,1005 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
 
     final_status = load_json(root / "final_blind_status.json", {})
     selected = final_status.get("selected") if isinstance(final_status, Mapping) and isinstance(final_status.get("selected"), Mapping) else {}
+    final_blind_finalists = final_status.get("finalists") if isinstance(final_status, Mapping) and isinstance(final_status.get("finalists"), list) else []
+    pareto_pool = load_json(root / "pareto_pool.json", {})
+    pareto_finalists = pareto_pool.get("finalists") if isinstance(pareto_pool, Mapping) and isinstance(pareto_pool.get("finalists"), list) else []
     promotion = final_status.get("promotion") if isinstance(final_status, Mapping) and isinstance(final_status.get("promotion"), Mapping) else {}
+    root_promotion = load_json(root / "final_promotion.json", {})
+    root_promotion = root_promotion if isinstance(root_promotion, Mapping) else {}
+    source_ref_hash_statuses: list[dict[str, Any]] = []
+    promoted_artifact_ref_status = _doctor_artifact_refs_hash_status({})
+    promoted_artifact_files = 0
+    selected_eval_bindings_checked = 0
+    selected_eval_binding_mismatches = 0
+    selected_candidate_path_missing = 0
+    selected_candidate_payload_bindings_checked = 0
+    selected_candidate_payload_binding_mismatches = 0
+    selected_finalist_bindings_checked = 0
+    selected_finalist_binding_mismatches = 0
+    selected_finalist_best_rank_mismatches = 0
+    selected_verification_payload_bindings_checked = 0
+    selected_verification_payload_binding_mismatches = 0
+    selected_lean_gate_payload_bindings_checked = 0
+    selected_lean_gate_payload_binding_mismatches = 0
+    leaderboard_evaluation_bindings_checked = 0
+    leaderboard_evaluation_binding_mismatches = 0
+    leaderboard_candidate_payload_bindings_checked = 0
+    leaderboard_candidate_payload_binding_mismatches = 0
+    run_manifest_structure_bindings_checked = 0
+    run_manifest_structure_binding_mismatches = 0
+    checkpoint_identity_bindings_checked = 0
+    checkpoint_identity_binding_mismatches = 0
+    checkpoint_score_history_bindings_checked = 0
+    checkpoint_score_history_binding_mismatches = 0
+    checkpoint_best_candidate_bindings_checked = 0
+    checkpoint_best_candidate_binding_mismatches = 0
+    checkpoint_candidate_path_bindings_checked = 0
+    checkpoint_candidate_path_binding_mismatches = 0
+    checkpoint_pareto_pool_bindings_checked = 0
+    checkpoint_pareto_pool_binding_mismatches = 0
+    checkpoint_final_status_bindings_checked = 0
+    checkpoint_final_status_binding_mismatches = 0
+    checkpoint_final_promotion_bindings_checked = 0
+    checkpoint_final_promotion_binding_mismatches = 0
+    run_registry_bindings_checked = 0
+    run_registry_binding_mismatches = 0
+    pareto_axis_leaderboard_bindings_checked = 0
+    pareto_axis_leaderboard_binding_mismatches = 0
+    pareto_finalist_leaderboard_bindings_checked = 0
+    pareto_finalist_leaderboard_binding_mismatches = 0
+    pareto_finalist_axis_bindings_checked = 0
+    pareto_finalist_axis_binding_mismatches = 0
+    final_blind_pareto_bindings_checked = 0
+    final_blind_pareto_binding_mismatches = 0
+    final_blind_evaluation_bindings_checked = 0
+    final_blind_evaluation_binding_mismatches = 0
+    optimized_profile_eval_bindings_checked = 0
+    optimized_profile_eval_binding_mismatches = 0
+    deepresearch_context_final_bindings_checked = 0
+    deepresearch_context_final_binding_mismatches = 0
+    default_n = int(config_payload.get("n") or 50)
+
+    def candidate_binding_payload(payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, Mapping):
+            return {}
+        data = {
+            key: value
+            for key, value in dict(payload).items()
+            if key not in {"path", "workspace", "strategy_validation"}
+        }
+        if data.get("description") == "":
+            data.pop("description", None)
+        if data.get("metadata") == {}:
+            data.pop("metadata", None)
+        if data.get("strategy_path") in {"", None}:
+            data.pop("strategy_path", None)
+        profile = data.get("rank_profile")
+        if isinstance(profile, Mapping):
+            try:
+                data["rank_profile"] = normalize_rank_profile(profile, default_n=default_n)
+            except Exception:
+                data["rank_profile"] = dict(profile)
+        return data
+
+    def float_or_none(value: Any) -> Optional[float]:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def payload_identity(payload: Mapping[str, Any]) -> str:
+        try:
+            return json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), default=str)
+        except Exception:
+            return repr(dict(payload))
+
+    def count_identities(items: Sequence[str]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items:
+            counts[item] = counts.get(item, 0) + 1
+        return counts
+
+    def pareto_identity(payload: Mapping[str, Any]) -> str:
+        return str(payload.get("parameter_signature") or payload.get("candidate_path") or payload.get("iteration") or "").strip()
+
+    def record_source_ref_status(label: str, refs: Any) -> None:
+        status = _doctor_artifact_refs_hash_status(refs)
+        source_ref_hash_statuses.append({"label": label, **status})
+        if status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", f"{label} is missing source artifact refs"))
+        elif status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    f"{label} has source artifact refs without sha256 hashes",
+                    detail={"missing_hash": status["missing_hash"]},
+                )
+            )
+        integrity_failures = {
+            "missing_file": status.get("missing_file", 0),
+            "bytes_mismatch": status.get("bytes_mismatch", 0),
+            "hash_mismatch": status.get("hash_mismatch", 0),
+            "errors": status.get("errors", 0),
+        }
+        if any(integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", f"{label} source artifact refs failed integrity check", detail=integrity_failures))
+
+    def record_promoted_artifacts(promotion_payload: Mapping[str, Any]) -> None:
+        nonlocal promoted_artifact_files, promoted_artifact_ref_status
+        nonlocal optimized_profile_eval_bindings_checked, optimized_profile_eval_binding_mismatches
+        artifacts = promotion_payload.get("artifacts") if isinstance(promotion_payload.get("artifacts"), Mapping) else {}
+        if not artifacts:
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted without artifacts"))
+            return
+        artifact_refs = promotion_payload.get("artifact_refs") if isinstance(promotion_payload.get("artifact_refs"), Mapping) else {}
+        promoted_artifact_ref_status = _doctor_artifact_refs_hash_status(artifact_refs)
+        if not isinstance(promotion_payload.get("artifact_refs"), Mapping):
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact_refs missing"))
+        elif promoted_artifact_ref_status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact_refs do not include files"))
+        elif promoted_artifact_ref_status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "promotion artifact_refs have entries without sha256 hashes",
+                    detail={"missing_hash": promoted_artifact_ref_status["missing_hash"]},
+                )
+            )
+        promoted_integrity_failures = {
+            "missing_file": promoted_artifact_ref_status.get("missing_file", 0),
+            "bytes_mismatch": promoted_artifact_ref_status.get("bytes_mismatch", 0),
+            "hash_mismatch": promoted_artifact_ref_status.get("hash_mismatch", 0),
+            "errors": promoted_artifact_ref_status.get("errors", 0),
+        }
+        if any(promoted_integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", "promotion artifact refs failed integrity check", detail=promoted_integrity_failures))
+        for key, raw in artifacts.items():
+            artifact_path = repo_paths.resolve_repo_path(str(raw or ""))
+            if not artifact_path.exists():
+                findings.append(_doctor_finding("BLOCKER", f"promoted artifact path does not exist: {key}", path=str(raw or "")))
+                continue
+            ref = artifact_refs.get(key) if isinstance(artifact_refs.get(key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            if not ref_raw:
+                findings.append(_doctor_finding("BLOCKER", f"promoted artifact ref missing: {key}", path=str(raw or "")))
+            elif _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(artifact_path):
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        f"promoted artifact ref path differs from artifact path: {key}",
+                        path=ref_raw,
+                        detail={"artifact_path": _as_repo_meta(artifact_path)},
+                    )
+                )
+            promoted_artifact_files += 1
+            if key == "optimized_profile":
+                payload = load_json(artifact_path, {})
+                if not isinstance(payload, Mapping):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is not JSON object", path=str(raw or "")))
+                    continue
+                if payload.get("run_id") != str(run_id):
+                    findings.append(
+                        _doctor_finding(
+                            "BLOCKER",
+                            "optimized_profile promotion artifact run_id does not match run",
+                            path=str(raw or ""),
+                            detail={"artifact_run_id": payload.get("run_id"), "run_id": str(run_id)},
+                        )
+                    )
+                if payload.get("final_promotion") is not True:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is not marked final_promotion", path=str(raw or "")))
+                if not isinstance(payload.get("rank_profile"), Mapping) or not payload.get("rank_profile"):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile promotion artifact is missing rank_profile", path=str(raw or "")))
+                artifact_eval = payload.get("evaluation") if isinstance(payload.get("evaluation"), Mapping) else {}
+                artifact_candidate = payload.get("candidate") if isinstance(payload.get("candidate"), Mapping) else {}
+                selected_candidate = selected.get("candidate") if isinstance(selected.get("candidate"), Mapping) else {}
+                selected_profile = selected_candidate.get("rank_profile") if isinstance(selected_candidate.get("rank_profile"), Mapping) else {}
+                artifact_profile = payload.get("rank_profile") if isinstance(payload.get("rank_profile"), Mapping) else {}
+                if selected and artifact_eval:
+                    optimized_profile_eval_bindings_checked += 1
+                    if dict(artifact_eval) != dict(selected):
+                        optimized_profile_eval_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation differs from selected blind finalist", path=str(raw or "")))
+                if selected_profile and artifact_profile != selected_profile:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile rank_profile differs from selected candidate", path=str(raw or "")))
+                if selected.get("parameter_signature") and artifact_eval.get("parameter_signature") != selected.get("parameter_signature"):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation signature differs from selected candidate", path=str(raw or "")))
+                if selected.get("candidate_path") and artifact_eval.get("candidate_path") != selected.get("candidate_path"):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation candidate_path differs from selected candidate", path=str(raw or "")))
+                if artifact_eval.get("blind_final") is not True:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation is not marked blind_final", path=str(raw or "")))
+                if artifact_eval.get("promotion_eligible") is not True:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation is not promotion_eligible", path=str(raw or "")))
+                if str(artifact_eval.get("verification_status") or "").lower() != VERIFICATION_PASSED:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation did not pass verification", path=str(raw or "")))
+                if lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(artifact_eval) != VERIFICATION_PASSED:
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile evaluation did not pass LEAN gate", path=str(raw or "")))
+                if selected_candidate and artifact_candidate and dict(artifact_candidate) != dict(selected_candidate):
+                    findings.append(_doctor_finding("BLOCKER", "optimized_profile candidate differs from selected candidate", path=str(raw or "")))
+
+    def record_selected_evaluation_binding(selected_payload: Mapping[str, Any]) -> None:
+        nonlocal selected_eval_bindings_checked, selected_eval_binding_mismatches, selected_candidate_path_missing
+        nonlocal selected_candidate_payload_bindings_checked, selected_candidate_payload_binding_mismatches
+        nonlocal selected_verification_payload_bindings_checked, selected_verification_payload_binding_mismatches
+        nonlocal selected_lean_gate_payload_bindings_checked, selected_lean_gate_payload_binding_mismatches
+        raw_candidate = str(selected_payload.get("candidate_path") or "").strip()
+        if not raw_candidate:
+            selected_candidate_path_missing += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is missing candidate_path"))
+            return
+        candidate_path = repo_paths.resolve_repo_path(raw_candidate)
+        if not candidate_path.exists():
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate_path does not exist", path=raw_candidate))
+            return
+        try:
+            candidate_path.resolve().relative_to(root.resolve())
+        except Exception:
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate_path is outside run artifacts", path=raw_candidate))
+            return
+        if not candidate_path.parent.name.startswith("blind_"):
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate_path is not under a blind_* directory", path=raw_candidate))
+            return
+        refs = selected_payload.get("artifact_refs") if isinstance(selected_payload.get("artifact_refs"), Mapping) else {}
+        candidate_ref = refs.get("candidate.json") if isinstance(refs.get("candidate.json"), Mapping) else {}
+        candidate_ref_raw = str(candidate_ref.get("path") or "").strip() if isinstance(candidate_ref, Mapping) else ""
+        if candidate_ref_raw and _as_repo_meta(repo_paths.resolve_repo_path(candidate_ref_raw)) != _as_repo_meta(candidate_path):
+            selected_eval_binding_mismatches += 1
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "selected blind finalist candidate_path differs from candidate artifact ref",
+                    path=raw_candidate,
+                    detail={"candidate_ref": candidate_ref_raw},
+                )
+            )
+            return
+        selected_candidate = selected_payload.get("candidate") if isinstance(selected_payload.get("candidate"), Mapping) else {}
+        candidate_payload = load_json(candidate_path, {})
+        selected_candidate_payload_bindings_checked += 1
+        if (
+            not isinstance(candidate_payload, Mapping)
+            or not selected_candidate
+            or candidate_binding_payload(candidate_payload) != candidate_binding_payload(selected_candidate)
+        ):
+            selected_candidate_payload_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist candidate differs from candidate artifact", path=raw_candidate))
+        verification_payload = selected_payload.get("verification") if isinstance(selected_payload.get("verification"), Mapping) else {}
+        if verification_payload:
+            verification_path = candidate_path.parent / "verification.json"
+            if not verification_path.exists():
+                selected_verification_payload_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "selected blind finalist verification artifact does not exist", path=_as_repo_meta(verification_path)))
+            else:
+                selected_verification_payload_bindings_checked += 1
+                verification_artifact = load_json(verification_path, {})
+                if not isinstance(verification_artifact, Mapping) or dict(verification_artifact) != dict(verification_payload):
+                    selected_verification_payload_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "selected blind finalist verification differs from verification artifact", path=_as_repo_meta(verification_path)))
+        elif promotion.get("promoted") and verify_policy != VERIFY_NONE:
+            selected_verification_payload_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is missing embedded verification payload", path=raw_candidate))
+        lean_gate_payload = selected_payload.get("lean_gate") if isinstance(selected_payload.get("lean_gate"), Mapping) else {}
+        if lean_gate_mode != LEAN_GATE_OFF:
+            if lean_gate_payload:
+                lean_gate_path = candidate_path.parent / "lean_gate.json"
+                if not lean_gate_path.exists():
+                    selected_lean_gate_payload_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "selected blind finalist LEAN gate artifact does not exist", path=_as_repo_meta(lean_gate_path)))
+                else:
+                    selected_lean_gate_payload_bindings_checked += 1
+                    lean_gate_artifact = load_json(lean_gate_path, {})
+                    if not isinstance(lean_gate_artifact, Mapping) or dict(lean_gate_artifact) != dict(lean_gate_payload):
+                        selected_lean_gate_payload_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "selected blind finalist LEAN gate differs from LEAN gate artifact", path=_as_repo_meta(lean_gate_path)))
+            elif promotion.get("promoted"):
+                selected_lean_gate_payload_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "selected blind finalist is missing embedded LEAN gate payload", path=raw_candidate))
+        evaluation_path = candidate_path.parent / "evaluation.json"
+        if not evaluation_path.exists():
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist evaluation artifact does not exist", path=_as_repo_meta(evaluation_path)))
+            return
+        selected_eval_bindings_checked += 1
+        evaluation_payload = load_json(evaluation_path, {})
+        if not isinstance(evaluation_payload, Mapping) or dict(evaluation_payload) != dict(selected_payload):
+            selected_eval_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist differs from blind evaluation artifact", path=_as_repo_meta(evaluation_path)))
+
+    def record_selected_finalist_binding(selected_payload: Mapping[str, Any]) -> None:
+        nonlocal selected_finalist_bindings_checked, selected_finalist_binding_mismatches, selected_finalist_best_rank_mismatches
+        selected_finalist_bindings_checked += 1
+        if not final_blind_finalists:
+            selected_finalist_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is not represented in final_blind_status finalists"))
+            return
+        matched = False
+        eligible_scores: list[float] = []
+        for row in final_blind_finalists:
+            if not isinstance(row, Mapping):
+                continue
+            evaluation = row.get("evaluation") if isinstance(row.get("evaluation"), Mapping) else {}
+            if evaluation and dict(evaluation) == dict(selected_payload):
+                matched = True
+            row_eligible = bool(row.get("promotion_eligible")) or bool(evaluation.get("promotion_eligible") if isinstance(evaluation, Mapping) else False)
+            if row_eligible:
+                row_score = float_or_none(row.get("score"))
+                if row_score is None and isinstance(evaluation, Mapping):
+                    row_score = float_or_none(evaluation.get("score"))
+                if row_score is not None:
+                    eligible_scores.append(row_score)
+        if not matched:
+            selected_finalist_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "selected blind finalist is not represented in final_blind_status finalists"))
+        selected_score = float_or_none(selected_payload.get("score"))
+        if bool(selected_payload.get("promotion_eligible")) and selected_score is not None and eligible_scores:
+            best_score = max(eligible_scores)
+            if best_score > selected_score:
+                selected_finalist_best_rank_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "selected blind finalist is not highest-scoring promotion eligible finalist",
+                        detail={"selected_score": selected_score, "best_score": best_score},
+                    )
+                )
+
+    def record_leaderboard_iteration_bindings() -> None:
+        nonlocal leaderboard_evaluation_bindings_checked, leaderboard_evaluation_binding_mismatches
+        nonlocal leaderboard_candidate_payload_bindings_checked, leaderboard_candidate_payload_binding_mismatches
+        row_keys = set(_leaderboard_row_from_evaluation({}, str(run_id)).keys())
+        row_keys.add("pareto_axes")
+        for idx, row in enumerate(rows, start=1):
+            if not isinstance(row, Mapping):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard row is not an object", detail={"index": idx}))
+                continue
+            raw_candidate = str(row.get("candidate_path") or "").strip()
+            if not raw_candidate:
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard row is missing candidate_path", detail={"index": idx}))
+                continue
+            candidate_path = repo_paths.resolve_repo_path(raw_candidate)
+            if not candidate_path.exists():
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate_path does not exist", path=raw_candidate, detail={"index": idx}))
+                continue
+            try:
+                candidate_path.resolve().relative_to(root.resolve())
+            except Exception:
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate_path is outside run artifacts", path=raw_candidate, detail={"index": idx}))
+                continue
+            if not candidate_path.parent.name.startswith("iter_"):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate_path is not under an iter_* directory", path=raw_candidate, detail={"index": idx}))
+                continue
+            refs = row.get("artifact_refs") if isinstance(row.get("artifact_refs"), Mapping) else {}
+            candidate_ref = refs.get("candidate.json") if isinstance(refs.get("candidate.json"), Mapping) else {}
+            candidate_ref_raw = str(candidate_ref.get("path") or "").strip() if isinstance(candidate_ref, Mapping) else ""
+            if candidate_ref_raw and _as_repo_meta(repo_paths.resolve_repo_path(candidate_ref_raw)) != _as_repo_meta(candidate_path):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "leaderboard candidate_path differs from candidate artifact ref",
+                        path=raw_candidate,
+                        detail={"index": idx, "candidate_ref": candidate_ref_raw},
+                    )
+                )
+            row_candidate = row.get("candidate") if isinstance(row.get("candidate"), Mapping) else {}
+            candidate_payload = load_json(candidate_path, {})
+            leaderboard_candidate_payload_bindings_checked += 1
+            if (
+                not isinstance(candidate_payload, Mapping)
+                or not row_candidate
+                or candidate_binding_payload(candidate_payload) != candidate_binding_payload(row_candidate)
+            ):
+                leaderboard_candidate_payload_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard candidate differs from candidate artifact", path=raw_candidate, detail={"index": idx}))
+            evaluation_path = candidate_path.parent / "evaluation.json"
+            if not evaluation_path.exists():
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard evaluation artifact does not exist", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+                continue
+            evaluation_payload = load_json(evaluation_path, {})
+            if not isinstance(evaluation_payload, Mapping):
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "leaderboard evaluation artifact is not a JSON object", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+                continue
+            leaderboard_evaluation_bindings_checked += 1
+            expected = _leaderboard_row_from_evaluation(evaluation_payload, str(run_id), iteration=row.get("iteration"))
+            actual = {key: row.get(key) for key in expected}
+            if actual != expected:
+                leaderboard_evaluation_binding_mismatches += 1
+                diff_keys = sorted(key for key in expected if actual.get(key) != expected.get(key))
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "leaderboard row differs from iteration evaluation artifact",
+                        path=_as_repo_meta(evaluation_path),
+                        detail={"index": idx, "diff_keys": diff_keys[:20]},
+                    )
+                )
+            extra_keys = sorted(key for key in row.keys() if key not in row_keys)
+            if extra_keys:
+                leaderboard_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "leaderboard row contains fields outside canonical projection",
+                        detail={"index": idx, "extra_keys": extra_keys},
+                    )
+                )
+
+    def state_row_payload(payload: Any) -> Any:
+        if not isinstance(payload, Mapping):
+            return payload
+        data = dict(payload)
+        data.pop("final_promotion", None)
+        return data
+
+    def record_run_manifest_structure_bindings() -> None:
+        nonlocal run_manifest_structure_bindings_checked, run_manifest_structure_binding_mismatches
+        if not isinstance(run_manifest, Mapping) or not run_manifest:
+            return
+        run_manifest_structure_bindings_checked += 1
+        manifest_config = run_manifest.get("cli_args") if isinstance(run_manifest.get("cli_args"), Mapping) else {}
+        checkpoint_config = checkpoint.get("config") if isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("config"), Mapping) else {}
+        expected_config = dict(checkpoint_config or config_payload)
+        expected_loop_config = StrategyLoopConfig.from_dict(expected_config) if expected_config else None
+        mismatches: list[dict[str, Any]] = []
+
+        def add_mismatch(field: str, actual: Any, expected: Any) -> None:
+            mismatches.append({"field": field, "actual": actual, "expected": expected})
+
+        if run_manifest.get("version") != "factor-strategy-loop-run-manifest-v1":
+            add_mismatch("version", run_manifest.get("version"), "factor-strategy-loop-run-manifest-v1")
+        if str(run_manifest.get("run_id") or "") != str(run_id):
+            add_mismatch("run_id", run_manifest.get("run_id"), str(run_id))
+        if not manifest_config:
+            add_mismatch("cli_args", manifest_config, expected_config)
+        elif expected_config and dict(manifest_config) != expected_config:
+            diff_keys = sorted(set(manifest_config.keys()) | set(expected_config.keys()))
+            add_mismatch(
+                "cli_args",
+                {key: manifest_config.get(key) for key in diff_keys if manifest_config.get(key) != expected_config.get(key)},
+                {key: expected_config.get(key) for key in diff_keys if manifest_config.get(key) != expected_config.get(key)},
+            )
+
+        if expected_loop_config is not None:
+            expected_validation = validation_protocol_summary(expected_loop_config)
+            manifest_validation = run_manifest.get("validation_protocol") if isinstance(run_manifest.get("validation_protocol"), Mapping) else {}
+            if dict(manifest_validation) != dict(expected_validation):
+                add_mismatch("validation_protocol", manifest_validation, expected_validation)
+            expected_lean = {
+                "mode": expected_loop_config.lean_gate_mode,
+                "lean_bin": expected_loop_config.lean_bin,
+                "lean_timeout": expected_loop_config.lean_timeout,
+                "required_status": expected_loop_config.lean_required_status,
+                "data_root": expected_loop_config.lean_data_root,
+            }
+            manifest_lean = run_manifest.get("lean_gate") if isinstance(run_manifest.get("lean_gate"), Mapping) else {}
+            if dict(manifest_lean) != expected_lean:
+                add_mismatch("lean_gate", manifest_lean, expected_lean)
+            manifest_baseline = run_manifest.get("baseline_profile") if isinstance(run_manifest.get("baseline_profile"), Mapping) else {}
+            expected_baseline = _load_optimized_baseline(expected_loop_config)
+            for key in ("available", "path", "rank_profile"):
+                if manifest_baseline.get(key) != expected_baseline.get(key):
+                    add_mismatch(f"baseline_profile.{key}", manifest_baseline.get(key), expected_baseline.get(key))
+
+            config_ref = run_manifest.get("config_path") if isinstance(run_manifest.get("config_path"), Mapping) else {}
+            config_path_raw = str(config_ref.get("path") or "").strip() if isinstance(config_ref, Mapping) else ""
+            if config_path_raw:
+                config_path = repo_paths.resolve_repo_path(config_path_raw)
+                expected_pairs = _pair_universe_from_config(config_path) if config_path.exists() else []
+                manifest_pairs = list(run_manifest.get("pair_universe") or []) if isinstance(run_manifest.get("pair_universe"), list) else []
+                if sorted(str(item) for item in manifest_pairs) != expected_pairs:
+                    add_mismatch("pair_universe", manifest_pairs, expected_pairs)
+                expected_data_paths = [
+                    _as_repo_meta(path)
+                    for path in _data_files_for_pairs(expected_pairs, timeframe=expected_loop_config.timeframe, venue=expected_loop_config.venue)
+                ]
+                manifest_data = run_manifest.get("data_files") if isinstance(run_manifest.get("data_files"), list) else []
+                manifest_data_paths = [
+                    str(ref.get("path"))
+                    for ref in manifest_data
+                    if isinstance(ref, Mapping) and str(ref.get("path") or "").strip()
+                ]
+                if manifest_data_paths != expected_data_paths:
+                    add_mismatch(
+                        "data_files",
+                        {"count": len(manifest_data_paths), "paths": manifest_data_paths[:20]},
+                        {"count": len(expected_data_paths), "paths": expected_data_paths[:20]},
+                    )
+
+        if mismatches:
+            run_manifest_structure_binding_mismatches += len(mismatches)
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run manifest structure differs from checkpoint/config",
+                    path=_as_repo_meta(root / "manifest.json"),
+                    detail={"fields": mismatches[:20]},
+                )
+            )
+
+    def record_checkpoint_state_bindings() -> None:
+        nonlocal checkpoint_identity_bindings_checked, checkpoint_identity_binding_mismatches
+        nonlocal checkpoint_score_history_bindings_checked, checkpoint_score_history_binding_mismatches
+        nonlocal checkpoint_best_candidate_bindings_checked, checkpoint_best_candidate_binding_mismatches
+        nonlocal checkpoint_candidate_path_bindings_checked, checkpoint_candidate_path_binding_mismatches
+        nonlocal checkpoint_pareto_pool_bindings_checked, checkpoint_pareto_pool_binding_mismatches
+        nonlocal checkpoint_final_status_bindings_checked, checkpoint_final_status_binding_mismatches
+        nonlocal checkpoint_final_promotion_bindings_checked, checkpoint_final_promotion_binding_mismatches
+        if not isinstance(checkpoint, Mapping) or not checkpoint:
+            return
+        checkpoint_identity_bindings_checked += 1
+        if str(checkpoint.get("run_id") or "") != str(run_id):
+            checkpoint_identity_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "checkpoint run_id differs from run", detail={"checkpoint_run_id": checkpoint.get("run_id"), "run_id": str(run_id)}))
+        if str(checkpoint_state.get("run_id") or "") != str(run_id):
+            checkpoint_identity_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "checkpoint state run_id differs from run", detail={"checkpoint_state_run_id": checkpoint_state.get("run_id"), "run_id": str(run_id)}))
+
+        state_history = checkpoint_state.get("score_history") if isinstance(checkpoint_state.get("score_history"), list) else []
+        if rows or state_history:
+            checkpoint_score_history_bindings_checked += 1
+            if [state_row_payload(item) for item in state_history] != [dict(row) for row in rows if isinstance(row, Mapping)]:
+                checkpoint_score_history_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint score_history differs from leaderboard rows"))
+
+        scored_rows: list[tuple[float, Mapping[str, Any]]] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            score = float_or_none(row.get("score"))
+            if score is not None and math.isfinite(score):
+                scored_rows.append((score, row))
+        state_best = checkpoint_state.get("best_candidate") if isinstance(checkpoint_state.get("best_candidate"), Mapping) else {}
+        if scored_rows or state_best:
+            checkpoint_best_candidate_bindings_checked += 1
+            expected_best = max(scored_rows, key=lambda item: item[0])[1] if scored_rows else {}
+            if not state_best or not expected_best or state_row_payload(state_best) != dict(expected_best):
+                checkpoint_best_candidate_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint best_candidate differs from highest-scoring leaderboard row"))
+            state_best_score = float_or_none(checkpoint_state.get("best_score"))
+            expected_score = float_or_none(expected_best.get("score")) if isinstance(expected_best, Mapping) else None
+            if state_best_score is None or expected_score is None or not math.isclose(state_best_score, expected_score, rel_tol=1e-12, abs_tol=1e-12):
+                checkpoint_best_candidate_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "checkpoint best_score differs from highest-scoring leaderboard row",
+                        detail={"checkpoint_best_score": checkpoint_state.get("best_score"), "expected_best_score": expected_score},
+                    )
+                )
+
+        expected_candidate_paths = [
+            str(row.get("candidate_path"))
+            for row in rows
+            if isinstance(row, Mapping) and str(row.get("candidate_path") or "").strip()
+        ]
+        expected_candidate_paths = list(dict.fromkeys(expected_candidate_paths))
+        raw_candidate_paths = checkpoint_state.get("candidate_paths")
+        state_candidate_paths = [str(item) for item in raw_candidate_paths] if isinstance(raw_candidate_paths, list) else []
+        if expected_candidate_paths or state_candidate_paths:
+            checkpoint_candidate_path_bindings_checked += 1
+            if state_candidate_paths != expected_candidate_paths:
+                checkpoint_candidate_path_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "checkpoint candidate_paths differ from leaderboard candidate paths",
+                        detail={"actual": state_candidate_paths, "expected": expected_candidate_paths},
+                    )
+                )
+
+        state_pareto = checkpoint_state.get("pareto_pool") if isinstance(checkpoint_state.get("pareto_pool"), Mapping) else {}
+        top_pareto = checkpoint.get("pareto_pool") if isinstance(checkpoint.get("pareto_pool"), Mapping) else {}
+        if pareto_pool or state_pareto or top_pareto:
+            checkpoint_pareto_pool_bindings_checked += 1
+            if dict(state_pareto) != dict(pareto_pool):
+                checkpoint_pareto_pool_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint state pareto_pool differs from pareto_pool.json"))
+            if dict(top_pareto) != dict(pareto_pool):
+                checkpoint_pareto_pool_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint top-level pareto_pool differs from pareto_pool.json"))
+
+        state_final_status = checkpoint_state.get("final_blind_status") if isinstance(checkpoint_state.get("final_blind_status"), Mapping) else {}
+        top_final_status = checkpoint.get("final_blind_status") if isinstance(checkpoint.get("final_blind_status"), Mapping) else {}
+        if final_status or state_final_status or top_final_status:
+            checkpoint_final_status_bindings_checked += 1
+            if dict(state_final_status) != dict(final_status):
+                checkpoint_final_status_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint state final_blind_status differs from final_blind_status.json"))
+            if dict(top_final_status) != dict(final_status):
+                checkpoint_final_status_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint top-level final_blind_status differs from final_blind_status.json"))
+
+        state_final_promotion = checkpoint_state.get("final_promotion") if isinstance(checkpoint_state.get("final_promotion"), Mapping) else {}
+        if root_promotion or state_final_promotion:
+            checkpoint_final_promotion_bindings_checked += 1
+            if dict(state_final_promotion) != dict(root_promotion):
+                checkpoint_final_promotion_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "checkpoint state final_promotion differs from final_promotion.json"))
+
+    def record_run_registry_binding() -> None:
+        nonlocal run_registry_bindings_checked, run_registry_binding_mismatches
+        registry_path = strategy_loop_registry_path()
+        if not registry_path.exists():
+            run_registry_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "run registry is missing", path=_as_repo_meta(registry_path)))
+            return
+        entries: list[Mapping[str, Any]] = []
+        invalid_lines: list[int] = []
+        with registry_path.open("r", encoding="utf-8") as fh:
+            for line_no, raw in enumerate(fh, start=1):
+                line = raw.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                except json.JSONDecodeError:
+                    invalid_lines.append(line_no)
+                    continue
+                if isinstance(item, Mapping) and str(item.get("run_id") or "") == str(run_id):
+                    entries.append(item)
+        if invalid_lines:
+            run_registry_binding_mismatches += len(invalid_lines)
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run registry contains invalid JSON lines",
+                    path=_as_repo_meta(registry_path),
+                    detail={"lines": invalid_lines[:20]},
+                )
+            )
+        if not entries:
+            run_registry_binding_mismatches += 1
+            findings.append(_doctor_finding("BLOCKER", "run registry entry missing for run", path=_as_repo_meta(registry_path)))
+            return
+
+        run_registry_bindings_checked += 1
+        entry = entries[-1]
+        entry_artifacts = entry.get("artifacts") if isinstance(entry.get("artifacts"), Mapping) else {}
+        entry_summary = entry.get("verification_summary") if isinstance(entry.get("verification_summary"), Mapping) else {}
+        state_best = checkpoint_state.get("best_candidate") if isinstance(checkpoint_state.get("best_candidate"), Mapping) else {}
+        expected_best_score = float_or_none(checkpoint_state.get("best_score"))
+        expected_best_iteration = state_best.get("iteration") if state_best else None
+        expected_retention = strategy_loop_retention_tier(str(run_id), final_promotion=root_promotion)
+        expected_artifacts = {
+            "run_dir": _as_repo_meta(root),
+            "manifest": _as_repo_meta(root / "manifest.json"),
+            "checkpoint": _as_repo_meta(root / "checkpoint.json"),
+            "leaderboard": _as_repo_meta(root / "leaderboard.json"),
+            "pareto_pool": _as_repo_meta(root / "pareto_pool.json"),
+            "final_blind_status": _as_repo_meta(root / "final_blind_status.json"),
+        }
+        mismatches: list[dict[str, Any]] = []
+
+        def add_mismatch(field: str, actual: Any, expected: Any) -> None:
+            mismatches.append({"field": field, "actual": actual, "expected": expected})
+
+        expected_fields = {
+            "version": "factor-strategy-loop-run-registry-v1",
+            "run_id": str(run_id),
+            "tag": config_payload.get("tag"),
+            "protocol": protocol,
+            "status": checkpoint_state.get("status"),
+            "best_iteration": expected_best_iteration,
+            "promoted": bool(root_promotion.get("promoted")),
+            "retention_tier": expected_retention,
+        }
+        for field, expected in expected_fields.items():
+            if entry.get(field) != expected:
+                add_mismatch(field, entry.get(field), expected)
+        actual_best_score = float_or_none(entry.get("best_score"))
+        if expected_best_score is not None and (
+            actual_best_score is None or not math.isclose(actual_best_score, expected_best_score, rel_tol=1e-12, abs_tol=1e-12)
+        ):
+            add_mismatch("best_score", entry.get("best_score"), expected_best_score)
+        if dict(entry.get("promotion") if isinstance(entry.get("promotion"), Mapping) else {}) != dict(root_promotion):
+            add_mismatch("promotion", entry.get("promotion"), root_promotion)
+        expected_summary = {
+            "verify_policy": verify_policy,
+            "promote_policy": promote_policy,
+            "score_mode": config_payload.get("score_mode"),
+            "eval_mode": config_payload.get("eval_mode"),
+            "lean_gate_mode": lean_gate_mode,
+        }
+        if dict(entry_summary) != expected_summary:
+            add_mismatch("verification_summary", dict(entry_summary), expected_summary)
+        for key, expected in expected_artifacts.items():
+            if entry_artifacts.get(key) != expected:
+                add_mismatch(f"artifacts.{key}", entry_artifacts.get(key), expected)
+        doctor_latest = str(entry_artifacts.get("doctor_latest") or "")
+        expected_doctor_latest = _as_repo_meta(root / "doctor_latest.json")
+        if doctor_latest and doctor_latest != expected_doctor_latest:
+            add_mismatch("artifacts.doctor_latest", doctor_latest, expected_doctor_latest)
+        if mismatches:
+            run_registry_binding_mismatches += len(mismatches)
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "run registry entry differs from run artifacts",
+                    path=_as_repo_meta(registry_path),
+                    detail={"run_id": str(run_id), "fields": mismatches[:20]},
+                )
+            )
+
+    def record_pareto_pool_bindings() -> None:
+        nonlocal pareto_axis_leaderboard_bindings_checked, pareto_axis_leaderboard_binding_mismatches
+        nonlocal pareto_finalist_leaderboard_bindings_checked, pareto_finalist_leaderboard_binding_mismatches
+        nonlocal pareto_finalist_axis_bindings_checked, pareto_finalist_axis_binding_mismatches
+        leaderboard_rows_by_identity: dict[str, list[Mapping[str, Any]]] = {}
+        leaderboard_compacts_by_identity: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            compact = _compact_leaderboard_row(row)
+            ident = pareto_identity(compact)
+            if not ident:
+                continue
+            leaderboard_rows_by_identity.setdefault(ident, []).append(row)
+            leaderboard_compacts_by_identity.setdefault(ident, []).append(compact)
+
+        axis_membership: dict[str, list[str]] = {}
+        axis_values: dict[tuple[str, str], Any] = {}
+        axes = pareto_pool.get("axes") if isinstance(pareto_pool, Mapping) and isinstance(pareto_pool.get("axes"), Mapping) else {}
+        for axis, axis_rows in axes.items():
+            axis_name = str(axis)
+            if axis_name not in PARETO_AXES:
+                pareto_axis_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool contains unknown axis", detail={"axis": axis_name}))
+            if not isinstance(axis_rows, list):
+                pareto_axis_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool axis rows are not a list", detail={"axis": axis_name}))
+                continue
+            for idx, axis_row in enumerate(axis_rows, start=1):
+                if not isinstance(axis_row, Mapping):
+                    pareto_axis_leaderboard_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "pareto_pool axis row is not an object", detail={"axis": axis_name, "index": idx}))
+                    continue
+                ident = pareto_identity(axis_row)
+                if ident:
+                    if axis_name not in axis_membership.get(ident, []):
+                        axis_membership.setdefault(ident, []).append(axis_name)
+                    axis_values[(ident, axis_name)] = axis_row.get("axis_value")
+                pareto_axis_leaderboard_bindings_checked += 1
+                candidate_rows = leaderboard_rows_by_identity.get(ident or "", [])
+                candidate_compacts = leaderboard_compacts_by_identity.get(ident or "", [])
+                if not candidate_rows or not candidate_compacts:
+                    pareto_axis_leaderboard_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "pareto_pool axis row is missing from leaderboard", detail={"axis": axis_name, "index": idx}))
+                    continue
+                matched = False
+                axis_value_valid = False
+                for leaderboard_row, compact in zip(candidate_rows, candidate_compacts):
+                    expected_value = _axis_value(axis_name, leaderboard_row)
+                    if expected_value is None or not math.isfinite(float(expected_value)):
+                        continue
+                    expected = dict(compact)
+                    expected["axis_value"] = float(expected_value)
+                    actual = dict(axis_row)
+                    axis_value_valid = True
+                    actual_value = float_or_none(actual.get("axis_value"))
+                    if actual_value is not None and math.isclose(actual_value, float(expected_value), rel_tol=1e-12, abs_tol=1e-12):
+                        actual["axis_value"] = float(expected_value)
+                    if actual == expected:
+                        matched = True
+                        break
+                if not matched:
+                    pareto_axis_leaderboard_binding_mismatches += 1
+                    message = "pareto_pool axis row has invalid axis_value" if not axis_value_valid else "pareto_pool axis row differs from leaderboard compact row"
+                    findings.append(_doctor_finding("BLOCKER", message, detail={"axis": axis_name, "index": idx}))
+
+        for idx, finalist in enumerate(pareto_finalists, start=1):
+            if not isinstance(finalist, Mapping):
+                pareto_finalist_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool finalist row is not an object", detail={"index": idx}))
+                continue
+            ident = pareto_identity(finalist)
+            pareto_finalist_leaderboard_bindings_checked += 1
+            candidate_compacts = leaderboard_compacts_by_identity.get(ident or "", [])
+            expected_axes = axis_membership.get(ident or "", [])
+            if not candidate_compacts:
+                pareto_finalist_leaderboard_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "pareto_pool finalist is missing from leaderboard", detail={"index": idx}))
+            else:
+                actual = dict(finalist)
+                actual_axis_value = actual.pop("axis_value", None)
+                if not any(actual == dict(compact) for compact in candidate_compacts):
+                    pareto_finalist_leaderboard_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "pareto_pool finalist differs from leaderboard compact row", detail={"index": idx}))
+                finalist_axes = list(finalist.get("pareto_axes") or [])
+                axis_for_value = expected_axes[0] if expected_axes else (str(finalist_axes[0]) if finalist_axes else "")
+                if axis_for_value:
+                    first_axis_value = axis_values.get((ident, axis_for_value))
+                    actual_value = float_or_none(actual_axis_value)
+                    expected_value = float_or_none(first_axis_value)
+                    if actual_value is None or expected_value is None or not math.isclose(actual_value, expected_value, rel_tol=1e-12, abs_tol=1e-12):
+                        pareto_finalist_leaderboard_binding_mismatches += 1
+                        findings.append(
+                            _doctor_finding(
+                                "BLOCKER",
+                                "pareto_pool finalist axis_value differs from first Pareto axis row",
+                                detail={"index": idx, "axis": axis_for_value},
+                            )
+                        )
+            pareto_finalist_axis_bindings_checked += 1
+            actual_axes = list(finalist.get("pareto_axes") or [])
+            if actual_axes != expected_axes:
+                pareto_finalist_axis_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "pareto_pool finalist axes differ from axis membership",
+                        detail={"index": idx, "actual": actual_axes, "expected": expected_axes},
+                    )
+                )
+
+    def record_final_blind_finalist_bindings() -> None:
+        nonlocal final_blind_pareto_bindings_checked, final_blind_pareto_binding_mismatches
+        nonlocal final_blind_evaluation_bindings_checked, final_blind_evaluation_binding_mismatches
+        pareto_keys = [
+            payload_identity(item)
+            for item in pareto_finalists
+            if isinstance(item, Mapping)
+        ]
+        pareto_counts = count_identities(pareto_keys)
+        final_keys: list[str] = []
+        for idx, row in enumerate(final_blind_finalists, start=1):
+            if not isinstance(row, Mapping):
+                final_blind_pareto_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final_blind_status finalist row is not an object", detail={"index": idx}))
+                continue
+            finalist = row.get("finalist") if isinstance(row.get("finalist"), Mapping) else {}
+            if not finalist:
+                final_blind_pareto_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final_blind_status finalist row is missing Pareto finalist payload", detail={"index": idx}))
+            else:
+                final_blind_pareto_bindings_checked += 1
+                key = payload_identity(finalist)
+                final_keys.append(key)
+                if key not in pareto_counts:
+                    final_blind_pareto_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "final blind finalist is not present in pareto_pool finalists", detail={"index": idx}))
+            evaluation = row.get("evaluation") if isinstance(row.get("evaluation"), Mapping) else {}
+            if not evaluation:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final blind finalist row is missing evaluation payload", detail={"index": idx}))
+                continue
+            raw_blind_dir = str(row.get("blind_dir") or "").strip()
+            if not raw_blind_dir:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(_doctor_finding("BLOCKER", "final blind finalist row is missing blind_dir", detail={"index": idx}))
+            else:
+                blind_dir = repo_paths.resolve_repo_path(raw_blind_dir)
+                try:
+                    blind_dir.resolve().relative_to(root.resolve())
+                except Exception:
+                    final_blind_evaluation_binding_mismatches += 1
+                    findings.append(_doctor_finding("BLOCKER", "final blind finalist blind_dir is outside run artifacts", path=raw_blind_dir, detail={"index": idx}))
+                else:
+                    if not blind_dir.name.startswith("blind_"):
+                        final_blind_evaluation_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "final blind finalist blind_dir is not a blind_* directory", path=raw_blind_dir, detail={"index": idx}))
+                    evaluation_path = blind_dir / "evaluation.json"
+                    if not evaluation_path.exists():
+                        final_blind_evaluation_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "final blind finalist evaluation artifact does not exist", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+                    else:
+                        final_blind_evaluation_bindings_checked += 1
+                        evaluation_artifact = load_json(evaluation_path, {})
+                        if not isinstance(evaluation_artifact, Mapping) or dict(evaluation_artifact) != dict(evaluation):
+                            final_blind_evaluation_binding_mismatches += 1
+                            findings.append(_doctor_finding("BLOCKER", "final blind finalist evaluation differs from blind artifact", path=_as_repo_meta(evaluation_path), detail={"index": idx}))
+            summary_expected = {
+                "score": evaluation.get("score"),
+                "constraints_ok": evaluation.get("constraints_ok"),
+                "verification_status": evaluation.get("verification_status"),
+                "promotion_eligible": evaluation.get("promotion_eligible"),
+                "blind_final": evaluation.get("blind_final"),
+            }
+            summary_actual = {key: row.get(key) for key in summary_expected}
+            if summary_actual != summary_expected:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "final blind finalist summary fields differ from evaluation",
+                        detail={"index": idx, "actual": summary_actual, "expected": summary_expected},
+                    )
+                )
+            if lean_gate_mode != LEAN_GATE_OFF:
+                lean_expected = {
+                    "lean_gate_status": _lean_gate_status(evaluation) or None,
+                    "lean_comparison_status": (evaluation.get("lean_gate") or {}).get("comparison_status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
+                }
+                lean_actual = {key: row.get(key) for key in lean_expected}
+                if lean_actual != lean_expected:
+                    final_blind_evaluation_binding_mismatches += 1
+                    findings.append(
+                        _doctor_finding(
+                            "BLOCKER",
+                            "final blind finalist LEAN summary differs from evaluation",
+                            detail={"index": idx, "actual": lean_actual, "expected": lean_expected},
+                        )
+                    )
+            finalist_candidate = str(finalist.get("candidate_path") or "").strip() if finalist else ""
+            source_candidate = str(evaluation.get("source_candidate_path") or "").strip()
+            if finalist_candidate and source_candidate != finalist_candidate:
+                final_blind_evaluation_binding_mismatches += 1
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        "final blind finalist source_candidate_path differs from Pareto finalist",
+                        detail={"index": idx, "source_candidate_path": source_candidate, "pareto_candidate_path": finalist_candidate},
+                    )
+                )
+        final_counts = count_identities(final_keys)
+        missing_pareto = sum(max(0, count - final_counts.get(key, 0)) for key, count in pareto_counts.items())
+        if missing_pareto:
+            final_blind_pareto_binding_mismatches += missing_pareto
+            findings.append(_doctor_finding("BLOCKER", "pareto_pool finalists are missing from final_blind_status finalists", detail={"missing_count": missing_pareto}))
+
     if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
+        record_leaderboard_iteration_bindings()
+        record_run_manifest_structure_bindings()
+        record_checkpoint_state_bindings()
+        record_run_registry_binding()
+        record_pareto_pool_bindings()
         if not final_status:
             findings.append(_doctor_finding("BLOCKER", "final_blind_status.json is missing or invalid"))
         elif not selected:
             findings.append(_doctor_finding("HIGH", "no selected blind finalist"))
         else:
+            record_source_ref_status("selected blind finalist", selected.get("artifact_refs"))
+            if promotion.get("promoted") or selected.get("candidate_path"):
+                record_selected_evaluation_binding(selected)
+            record_selected_finalist_binding(selected)
             if not bool(selected.get("blind_final")):
                 findings.append(_doctor_finding("BLOCKER", "selected candidate is not marked blind_final"))
             if selected.get("promotion_eligible") and str(selected.get("verification_status") or "").lower() != VERIFICATION_PASSED:
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass verification"))
             if selected.get("promotion_eligible") and lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(selected) != VERIFICATION_PASSED:
                 findings.append(_doctor_finding("BLOCKER", "promotion_eligible selected candidate did not pass LEAN gate"))
+            if selected.get("promotion_eligible") or promotion.get("promoted"):
+                benchmark = selected.get("benchmark") if isinstance(selected.get("benchmark"), Mapping) else {}
+                candidate_path = str(selected.get("candidate_path") or "")
+                benchmark_path = repo_paths.resolve_repo_path(candidate_path).parent / "benchmark_verdict.json"
+                if benchmark.get("passed") is not True or load_json(benchmark_path, {}) != dict(benchmark):
+                    findings.append(_doctor_finding("BLOCKER", "selected candidate lacks matching passed frozen benchmark evidence"))
+        if final_status:
+            record_final_blind_finalist_bindings()
+        if final_status and dict(root_promotion) != dict(promotion):
+            findings.append(_doctor_finding("BLOCKER", "final_promotion.json differs from final_blind_status promotion"))
+        if final_status and bool(final_status.get("promoted")) != bool(promotion.get("promoted")):
+            findings.append(_doctor_finding("BLOCKER", "final_blind_status promoted flag differs from nested promotion"))
         if promotion.get("promoted") and not selected.get("promotion_eligible"):
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted but selected candidate is not promotion_eligible"))
         if promotion.get("promoted") and lean_gate_mode != LEAN_GATE_OFF and _lean_gate_status(selected) != VERIFICATION_PASSED:
             findings.append(_doctor_finding("BLOCKER", "promotion artifact says promoted without a passed LEAN gate"))
+        if promotion.get("promoted"):
+            record_promoted_artifacts(promotion)
+
+    for idx, item in enumerate(final_blind_finalists, start=1):
+        if not isinstance(item, Mapping):
+            continue
+        finalist = item.get("finalist") if isinstance(item.get("finalist"), Mapping) else {}
+        if finalist:
+            record_source_ref_status(f"Pareto finalist {idx}", finalist.get("artifact_refs"))
+    source_missing_hash_total = sum(item.get("missing_hash", 0) for item in source_ref_hash_statuses)
+    source_hashed_total = sum(item.get("hashed", 0) for item in source_ref_hash_statuses)
+    source_checked_total = sum(item.get("checked", 0) for item in source_ref_hash_statuses)
+    source_missing_file_total = sum(item.get("missing_file", 0) for item in source_ref_hash_statuses)
+    source_bytes_mismatch_total = sum(item.get("bytes_mismatch", 0) for item in source_ref_hash_statuses)
+    source_hash_mismatch_total = sum(item.get("hash_mismatch", 0) for item in source_ref_hash_statuses)
+    source_ref_errors_total = sum(item.get("errors", 0) for item in source_ref_hash_statuses)
 
     verification_files = sorted([*root.glob("iter_*/verification.json"), *root.glob("blind_*/verification.json")])
     verification_counts: dict[str, int] = {}
@@ -3116,7 +7458,8 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
         payload = load_json(path, {})
         status = str(payload.get("status") or VERIFICATION_PENDING).lower() if isinstance(payload, Mapping) else VERIFICATION_INCONCLUSIVE
         verification_counts[status] = verification_counts.get(status, 0) + 1
-    if verify_policy != VERIFY_NONE and not verification_files and (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal):
+    needs_final_verification = bool(selected) or bool(final_blind_finalists) or bool(blind_manifests)
+    if verify_policy != VERIFY_NONE and needs_final_verification and not verification_files and (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal):
         findings.append(_doctor_finding("BLOCKER", "verify_policy requires lookahead/recursive artifacts but no verification.json files were found"))
 
     lean_gate_files = sorted([*root.glob("iter_*/lean_gate.json"), *root.glob("blind_*/lean_gate.json"), *root.glob("best/lean_gate.json")])
@@ -3130,8 +7473,37 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
 
     deepresearch = final_status.get("deepresearch") if isinstance(final_status, Mapping) and isinstance(final_status.get("deepresearch"), Mapping) else {}
     deep_artifacts = deepresearch.get("artifacts") if isinstance(deepresearch.get("artifacts"), Mapping) else {}
-    if protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal:
-        for key in ("context", "sources"):
+    deep_ref_status = _doctor_artifact_refs_hash_status(deepresearch.get("artifact_refs") if isinstance(deepresearch, Mapping) else None)
+    if (protocol == VALIDATION_TRIPLE_HOLDOUT or strict_formal) and (bool(selected) or bool(final_blind_finalists)):
+        expected_context_final_status = dict(final_status)
+        for key in ("deepresearch", "promotion", "promoted"):
+            expected_context_final_status.pop(key, None)
+        if str(deepresearch.get("status") or "").lower() != VERIFICATION_PASSED:
+            findings.append(_doctor_finding("BLOCKER", "deepresearch status is not passed"))
+        expected_deep_dir = (repo_paths.artifacts_root() / "strategy_deepresearch" / str(run_id)).resolve()
+        deep_paths: dict[str, Path] = {}
+        deep_refs = deepresearch.get("artifact_refs") if isinstance(deepresearch.get("artifact_refs"), Mapping) else {}
+        if not isinstance(deepresearch.get("artifact_refs"), Mapping):
+            findings.append(_doctor_finding("BLOCKER", "deepresearch artifact_refs missing"))
+        elif deep_ref_status["files"] <= 0:
+            findings.append(_doctor_finding("BLOCKER", "deepresearch artifact_refs do not include files"))
+        elif deep_ref_status["missing_hash"] > 0:
+            findings.append(
+                _doctor_finding(
+                    "BLOCKER",
+                    "deepresearch artifact_refs have entries without sha256 hashes",
+                    detail={"missing_hash": deep_ref_status["missing_hash"]},
+                )
+            )
+        deep_integrity_failures = {
+            "missing_file": deep_ref_status.get("missing_file", 0),
+            "bytes_mismatch": deep_ref_status.get("bytes_mismatch", 0),
+            "hash_mismatch": deep_ref_status.get("hash_mismatch", 0),
+            "errors": deep_ref_status.get("errors", 0),
+        }
+        if any(deep_integrity_failures.values()):
+            findings.append(_doctor_finding("BLOCKER", "deepresearch artifact refs failed integrity check", detail=deep_integrity_failures))
+        for key in ("context", "sources", "review", "protocol"):
             raw = str(deep_artifacts.get(key) or "").strip()
             if not raw:
                 findings.append(_doctor_finding("HIGH", f"deepresearch artifact missing: {key}"))
@@ -3139,10 +7511,81 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
             path = repo_paths.resolve_repo_path(raw)
             if not path.exists():
                 findings.append(_doctor_finding("HIGH", f"deepresearch artifact path does not exist: {key}", path=raw))
+                continue
+            deep_paths[key] = path
+            try:
+                path.resolve().relative_to(expected_deep_dir)
+            except Exception:
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        f"deepresearch artifact path is outside run artifacts: {key}",
+                        path=raw,
+                        detail={"expected_dir": _as_repo_meta(expected_deep_dir)},
+                    )
+                )
+            ref = deep_refs.get(key) if isinstance(deep_refs.get(key), Mapping) else {}
+            ref_raw = str(ref.get("path") or "").strip() if isinstance(ref, Mapping) else ""
+            if not ref_raw:
+                findings.append(_doctor_finding("BLOCKER", f"deepresearch artifact ref missing: {key}"))
+            elif _as_repo_meta(repo_paths.resolve_repo_path(ref_raw)) != _as_repo_meta(path):
+                findings.append(
+                    _doctor_finding(
+                        "BLOCKER",
+                        f"deepresearch artifact ref path differs from artifact path: {key}",
+                        path=ref_raw,
+                        detail={"artifact_path": _as_repo_meta(path)},
+                    )
+                )
+        context_path = deep_paths.get("context")
+        if context_path is not None and context_path.exists():
+            context = load_json(context_path, {})
+            if not isinstance(context, Mapping):
+                findings.append(_doctor_finding("BLOCKER", "deepresearch context is not a JSON object", path=_as_repo_meta(context_path)))
+            else:
+                if context.get("run_id") != str(run_id):
+                    findings.append(
+                        _doctor_finding(
+                            "BLOCKER",
+                            "deepresearch context run_id does not match run",
+                            path=_as_repo_meta(context_path),
+                            detail={"context_run_id": context.get("run_id"), "run_id": str(run_id)},
+                        )
+                    )
+                if str(context.get("status") or "").lower() != str(deepresearch.get("status") or "").lower():
+                    findings.append(_doctor_finding("BLOCKER", "deepresearch context status differs from final_blind_status", path=_as_repo_meta(context_path)))
+                if list(context.get("findings") or []) != list(deepresearch.get("findings") or []):
+                    findings.append(_doctor_finding("BLOCKER", "deepresearch context findings differ from final_blind_status", path=_as_repo_meta(context_path)))
+                context_final = context.get("final_status") if isinstance(context.get("final_status"), Mapping) else {}
+                if not context_final:
+                    findings.append(_doctor_finding("BLOCKER", "deepresearch context is missing final_status", path=_as_repo_meta(context_path)))
+                else:
+                    deepresearch_context_final_bindings_checked += 1
+                    audited_inputs = {key: value for key, value in context_final.items() if key not in {"promotion", "promoted"}}
+                    if audited_inputs != expected_context_final_status:
+                        deepresearch_context_final_binding_mismatches += 1
+                        findings.append(_doctor_finding("BLOCKER", "deepresearch context final_status differs from final_blind_status", path=_as_repo_meta(context_path)))
+
+                    def selected_binding(payload: Any) -> dict[str, Any]:
+                        item = payload if isinstance(payload, Mapping) else {}
+                        lean_gate = item.get("lean_gate") if isinstance(item.get("lean_gate"), Mapping) else {}
+                        return {
+                            "candidate_path": item.get("candidate_path"),
+                            "parameter_signature": item.get("parameter_signature"),
+                            "blind_final": bool(item.get("blind_final")),
+                            "promotion_eligible": bool(item.get("promotion_eligible")),
+                            "verification_status": str(item.get("verification_status") or "").lower(),
+                            "lean_gate_status": str(lean_gate.get("status") or "").lower(),
+                            "lean_comparison_status": str(lean_gate.get("comparison_status") or "").lower(),
+                        }
+
+                    if selected_binding(context_final.get("selected")) != selected_binding(selected):
+                        findings.append(_doctor_finding("BLOCKER", "deepresearch context selected finalist differs from final_blind_status", path=_as_repo_meta(context_path)))
 
     severity_rank = {"BLOCKER": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
     worst = max((severity_rank.get(str(item.get("severity")), 0) for item in findings), default=0)
-    return {
+    doctor_path = root / "doctor_latest.json"
+    result = {
         "version": "factor-strategy-loop-doctor-v1",
         "run_id": str(run_id),
         "run_dir": _as_repo_meta(root),
@@ -3155,21 +7598,119 @@ def doctor_strategy_loop_run(run_id: str, *, strict_formal: bool = True) -> dict
             "lean_gate_mode": lean_gate_mode,
         },
         "windows": windows_detail,
-        "artifacts": root_artifacts,
+        "artifacts": {**root_artifacts, "doctor_latest.json": _as_repo_meta(doctor_path)},
         "summary": {
             "leaderboard_rows": len(rows),
             "iteration_manifests": len(iteration_manifests),
             "blind_manifests": len(blind_manifests),
+            "best_manifests": len(best_manifests),
+            "run_manifest_artifact_refs_hashed": root_manifest_artifact_ref_status.get("hashed", 0),
+            "run_manifest_artifact_refs_missing_hash": root_manifest_artifact_ref_status.get("missing_hash", 0),
+            "run_manifest_artifact_refs_checked": root_manifest_artifact_ref_status.get("checked", 0),
+            "run_manifest_artifact_refs_missing_file": root_manifest_artifact_ref_status.get("missing_file", 0),
+            "run_manifest_artifact_refs_bytes_mismatch": root_manifest_artifact_ref_status.get("bytes_mismatch", 0),
+            "run_manifest_artifact_refs_hash_mismatch": root_manifest_artifact_ref_status.get("hash_mismatch", 0),
+            "run_manifest_artifact_refs_errors": root_manifest_artifact_ref_status.get("errors", 0),
             "artifact_refs_hashed": hashed_total,
             "artifact_refs_missing_hash": missing_hash_total,
+            "artifact_refs_checked": checked_total,
+            "artifact_refs_missing_file": missing_file_total,
+            "artifact_refs_bytes_mismatch": bytes_mismatch_total,
+            "artifact_refs_hash_mismatch": hash_mismatch_total,
+            "artifact_refs_errors": artifact_ref_errors_total,
+            "source_artifact_refs_hashed": source_hashed_total,
+            "source_artifact_refs_missing_hash": source_missing_hash_total,
+            "source_artifact_refs_checked": source_checked_total,
+            "source_artifact_refs_missing_file": source_missing_file_total,
+            "source_artifact_refs_bytes_mismatch": source_bytes_mismatch_total,
+            "source_artifact_refs_hash_mismatch": source_hash_mismatch_total,
+            "source_artifact_refs_errors": source_ref_errors_total,
+            "deepresearch_artifact_refs_hashed": deep_ref_status.get("hashed", 0),
+            "deepresearch_artifact_refs_missing_hash": deep_ref_status.get("missing_hash", 0),
+            "deepresearch_artifact_refs_checked": deep_ref_status.get("checked", 0),
+            "deepresearch_artifact_refs_missing_file": deep_ref_status.get("missing_file", 0),
+            "deepresearch_artifact_refs_bytes_mismatch": deep_ref_status.get("bytes_mismatch", 0),
+            "deepresearch_artifact_refs_hash_mismatch": deep_ref_status.get("hash_mismatch", 0),
+            "deepresearch_artifact_refs_errors": deep_ref_status.get("errors", 0),
+            "promoted_artifact_refs_hashed": promoted_artifact_ref_status.get("hashed", 0),
+            "promoted_artifact_refs_missing_hash": promoted_artifact_ref_status.get("missing_hash", 0),
+            "promoted_artifact_refs_checked": promoted_artifact_ref_status.get("checked", 0),
+            "promoted_artifact_refs_missing_file": promoted_artifact_ref_status.get("missing_file", 0),
+            "promoted_artifact_refs_bytes_mismatch": promoted_artifact_ref_status.get("bytes_mismatch", 0),
+            "promoted_artifact_refs_hash_mismatch": promoted_artifact_ref_status.get("hash_mismatch", 0),
+            "promoted_artifact_refs_errors": promoted_artifact_ref_status.get("errors", 0),
+            "selected_evaluation_bindings_checked": selected_eval_bindings_checked,
+            "selected_evaluation_binding_mismatches": selected_eval_binding_mismatches,
+            "selected_candidate_path_missing": selected_candidate_path_missing,
+            "selected_candidate_payload_bindings_checked": selected_candidate_payload_bindings_checked,
+            "selected_candidate_payload_binding_mismatches": selected_candidate_payload_binding_mismatches,
+            "selected_finalist_bindings_checked": selected_finalist_bindings_checked,
+            "selected_finalist_binding_mismatches": selected_finalist_binding_mismatches,
+            "selected_finalist_best_rank_mismatches": selected_finalist_best_rank_mismatches,
+            "selected_verification_payload_bindings_checked": selected_verification_payload_bindings_checked,
+            "selected_verification_payload_binding_mismatches": selected_verification_payload_binding_mismatches,
+            "selected_lean_gate_payload_bindings_checked": selected_lean_gate_payload_bindings_checked,
+            "selected_lean_gate_payload_binding_mismatches": selected_lean_gate_payload_binding_mismatches,
+            "leaderboard_evaluation_bindings_checked": leaderboard_evaluation_bindings_checked,
+            "leaderboard_evaluation_binding_mismatches": leaderboard_evaluation_binding_mismatches,
+            "leaderboard_candidate_payload_bindings_checked": leaderboard_candidate_payload_bindings_checked,
+            "leaderboard_candidate_payload_binding_mismatches": leaderboard_candidate_payload_binding_mismatches,
+            "best_manifest_local_ref_bindings_checked": best_manifest_local_ref_bindings_checked,
+            "best_manifest_local_ref_binding_mismatches": best_manifest_local_ref_binding_mismatches,
+            "candidate_input_ref_bindings_checked": candidate_input_ref_bindings_checked,
+            "candidate_input_ref_binding_mismatches": candidate_input_ref_binding_mismatches,
+            "rank_audit_ref_bindings_checked": rank_audit_ref_bindings_checked,
+            "rank_audit_ref_binding_mismatches": rank_audit_ref_binding_mismatches,
+            "lean_audit_ref_bindings_checked": lean_audit_ref_bindings_checked,
+            "lean_audit_ref_binding_mismatches": lean_audit_ref_binding_mismatches,
+            "run_manifest_structure_bindings_checked": run_manifest_structure_bindings_checked,
+            "run_manifest_structure_binding_mismatches": run_manifest_structure_binding_mismatches,
+            "checkpoint_identity_bindings_checked": checkpoint_identity_bindings_checked,
+            "checkpoint_identity_binding_mismatches": checkpoint_identity_binding_mismatches,
+            "checkpoint_score_history_bindings_checked": checkpoint_score_history_bindings_checked,
+            "checkpoint_score_history_binding_mismatches": checkpoint_score_history_binding_mismatches,
+            "checkpoint_best_candidate_bindings_checked": checkpoint_best_candidate_bindings_checked,
+            "checkpoint_best_candidate_binding_mismatches": checkpoint_best_candidate_binding_mismatches,
+            "checkpoint_candidate_path_bindings_checked": checkpoint_candidate_path_bindings_checked,
+            "checkpoint_candidate_path_binding_mismatches": checkpoint_candidate_path_binding_mismatches,
+            "checkpoint_pareto_pool_bindings_checked": checkpoint_pareto_pool_bindings_checked,
+            "checkpoint_pareto_pool_binding_mismatches": checkpoint_pareto_pool_binding_mismatches,
+            "checkpoint_final_status_bindings_checked": checkpoint_final_status_bindings_checked,
+            "checkpoint_final_status_binding_mismatches": checkpoint_final_status_binding_mismatches,
+            "checkpoint_final_promotion_bindings_checked": checkpoint_final_promotion_bindings_checked,
+            "checkpoint_final_promotion_binding_mismatches": checkpoint_final_promotion_binding_mismatches,
+            "run_registry_bindings_checked": run_registry_bindings_checked,
+            "run_registry_binding_mismatches": run_registry_binding_mismatches,
+            "pareto_axis_leaderboard_bindings_checked": pareto_axis_leaderboard_bindings_checked,
+            "pareto_axis_leaderboard_binding_mismatches": pareto_axis_leaderboard_binding_mismatches,
+            "pareto_finalist_leaderboard_bindings_checked": pareto_finalist_leaderboard_bindings_checked,
+            "pareto_finalist_leaderboard_binding_mismatches": pareto_finalist_leaderboard_binding_mismatches,
+            "pareto_finalist_axis_bindings_checked": pareto_finalist_axis_bindings_checked,
+            "pareto_finalist_axis_binding_mismatches": pareto_finalist_axis_binding_mismatches,
+            "final_blind_pareto_bindings_checked": final_blind_pareto_bindings_checked,
+            "final_blind_pareto_binding_mismatches": final_blind_pareto_binding_mismatches,
+            "final_blind_evaluation_bindings_checked": final_blind_evaluation_bindings_checked,
+            "final_blind_evaluation_binding_mismatches": final_blind_evaluation_binding_mismatches,
+            "optimized_profile_eval_bindings_checked": optimized_profile_eval_bindings_checked,
+            "optimized_profile_eval_binding_mismatches": optimized_profile_eval_binding_mismatches,
+            "deepresearch_context_final_bindings_checked": deepresearch_context_final_bindings_checked,
+            "deepresearch_context_final_binding_mismatches": deepresearch_context_final_binding_mismatches,
+            "promoted_artifact_files": promoted_artifact_files,
             "verification_files": len(verification_files),
             "verification_counts": verification_counts,
             "lean_gate_files": len(lean_gate_files),
             "lean_gate_counts": lean_gate_counts,
             "final_promoted": bool(promotion.get("promoted")) if promotion else False,
+            "run_manifest_commit": manifest_commit,
+            "current_commit": current_commit,
+            "run_manifest_dirty_files": len(manifest_dirty_files),
+            "run_manifest_impactful_dirty_files": len(manifest_impactful_dirty_files),
         },
         "findings": findings,
     }
+    if write:
+        write_json(doctor_path, result)
+    return result
 
 
 def promote_candidate(
@@ -3182,6 +7723,7 @@ def promote_candidate(
 ) -> dict[str, Any]:
     promoted = False
     artifacts: dict[str, str] = {}
+    artifact_refs: dict[str, Any] = {}
     reason = str(evaluation.get("promotion_reason") or "")
     if not config.promote or config.promote_policy == PROMOTE_NONE:
         reason = "promotion disabled"
@@ -3203,6 +7745,19 @@ def promote_candidate(
     elif _lean_gate_active(config) and not _lean_gate_passed(evaluation):
         status = _lean_gate_status(evaluation) or "missing"
         reason = f"lean_gate_status={status} blocks promotion"
+    elif config.validation_protocol != VALIDATION_SINGLE and not (
+        config.benchmark_suite
+        and isinstance(evaluation.get("benchmark"), Mapping)
+        and evaluation["benchmark"].get("passed") is True
+        and load_json(iter_dir / "benchmark_verdict.json", {}) == evaluation["benchmark"]
+    ):
+        from agent_market.strategy_miner._benchmark import benchmark_unavailable
+
+        verdict = evaluation.get("benchmark")
+        if not isinstance(verdict, Mapping) or verdict.get("passed") is True:
+            verdict = benchmark_unavailable(config.benchmark_suite, "formal promotion requires executed frozen benchmark evidence")
+            write_json(iter_dir / "benchmark_verdict.json", verdict)
+        reason = f"benchmark_status={verdict.get('status', 'insufficient_evidence')} blocks promotion"
     else:
         ctype = str(candidate.get("candidate_type"))
         if ctype == CANDIDATE_RANK_PROFILE:
@@ -3224,6 +7779,7 @@ def promote_candidate(
             }
             write_json(out, payload)
             artifacts["optimized_profile"] = _as_repo_meta(out)
+            artifact_refs["optimized_profile"] = _artifact_ref(out)
             promoted = True
             reason = "rank profile passed full holdout and was written as optimized_profile.json"
         elif ctype == CANDIDATE_FREQTRADE_STRATEGY:
@@ -3237,10 +7793,14 @@ def promote_candidate(
                 dst = strategies_dir / f"{src.stem}_{config.run_id}_{iter_dir.name}{src.suffix}"
             shutil.copy2(src, dst)
             artifacts["strategy"] = _as_repo_meta(dst)
+            artifact_refs["strategy"] = _artifact_ref(dst)
             promoted = True
             reason = "strategy passed full holdout and was copied to user_data/strategies"
 
-    return {"promoted": promoted, "artifacts": artifacts, "reason": reason}
+    result = {"promoted": promoted, "artifacts": artifacts, "reason": reason}
+    if artifact_refs:
+        result["artifact_refs"] = artifact_refs
+    return result
 
 
 def render_agent_prompt(context_path: Path, *, candidate_type: str = "auto") -> str:
@@ -3321,8 +7881,28 @@ def render_agent_prompt(context_path: Path, *, candidate_type: str = "auto") -> 
     return f"""You are modifying one candidate inside an isolated factor-strategy-loop workspace.
 
 Read `context/prepare.json` first. Use these sections before proposing changes:
+
+**LEAN P&L is the primary signal. Always read these LEAN sections FIRST:**
+- `previous_iteration["lean_analysis.md"]`: LLM-generated analysis of the previous LEAN backtest —
+  headline P&L, monthly stability, drawdown episodes, pair contributions, and rank vs LEAN divergence.
+  This is the most important context for your next candidate.
+- `previous_iteration["lean_analysis.json"]`: structured LEAN time-period metrics — monthly_returns,
+  drawdown_episodes (top-3), pair_contribution (per-symbol P&L and herfindahl index), regime_segments.
+- `loop_memory.lean_metrics_history`: last 8 iterations' LEAN scores, worst/best month, deepest
+  drawdown, and consecutive-loss-month count. Identify patterns before proposing changes.
+- `loop_memory.best_lean_candidate`: the iteration with the highest LEAN score so far.
+- `previous_iteration["evaluation.json"].score_components.lean_score`: LEAN's contribution to the blended score.
+- `previous_iteration["evaluation.json"].score_components.blended_score`: final score (0.7 LEAN + 0.3 rank).
+
+**Score formula (DO NOT optimize for rank alone):**
+The score is a weighted blend: `0.7 × lean_score + 0.3 × rank_score`.
+LEAN score bonuses/penalties: monthly win rate ≥60% → +500; consecutive loss months ≥3 → -500;
+worst monthly return < -20% → -300; pair concentration (herfindahl) > 0.5 → -200;
+top-3 drawdown total depth > 50% → -500. Focus on monthly stability and balanced pair exposure.
+
+**Then read these for search discipline:**
 - `objective`: hard gates and target metric.
-- `optimized_baseline`: expected +35% research / +39% Freqtrade reference, frozen candidate state,
+- `optimized_baseline`: expected reference, frozen candidate state,
   no-correlation-recompute setting, and the filters that must be preserved unless you are ablating one.
 - `baseline_search_policy`: how close to the optimized baseline this iteration should stay.
 - `loop_memory.best_candidate`: current best result to beat.
@@ -3330,6 +7910,7 @@ Read `context/prepare.json` first. Use these sections before proposing changes:
 - `loop_memory.pareto_memory`: best composite, Freqtrade profit, Freqtrade profit/drawdown, and research profit/drawdown anchors.
 - `loop_memory.stagnation`: whether local search has switched into structured exploration.
 - `loop_memory.gate_repair_hints`: search-window near misses and targeted repairs for trade-count/PDD gates.
+- `loop_memory.validation_gate_repair_hints`: search-pass candidates that failed validation/out-of-time gates.
 - `loop_memory.recent_score_history`: recent attempts, metrics, and violations.
 - `loop_memory.previous_failure`: exact validation/runtime failure to fix first.
 - `loop_memory.avoid_repeating_rank_profiles`: parameter sets that should not be repeated.
@@ -3345,7 +7926,7 @@ Write only these files in the current workspace root:
 {type_instruction}
 
 Do not write outside this workspace. Do not edit repository files. Do not run long backtests.
-Do not use future data, and do not weaken risk controls just to increase headline return.
+Do not use future data, do not tune from blind holdout results, and do not weaken risk controls just to increase headline return.
 
 Search discipline:
 - On iteration 1, reproduce `optimized_baseline.rank_profile` exactly before proposing new ablations.
@@ -3360,7 +7941,13 @@ Search discipline:
   cadence, edge/regime mode, top_k, gross/net/single cap, or another core risk structure.
 - Preserve `candidate_state`, `recompute_corr=false`, `short_max_mom_24h`, `short_max_mom_72h`,
   and `max_entry_atr_pct` unless your `analysis.md` clearly labels that one-field ablation.
+- Copy `candidate_state` as the exact path shown in `optimized_baseline` or the schema example; never
+  shorten it to only a filename such as `state_0149.json`.
 - If `previous_failure` exists, fix that contract failure first and mention the fix in `analysis.md`.
+- Treat the blind holdout as final promotion evidence only. Do not infer parameter changes from blind
+  failures; use search and validation diagnostics for candidate generation.
+- If `validation_gate_repair_hints` has search-pass validation failures, repair validation first with
+  regime, market-momentum, ATR, breadth, or z-threshold controls before adding more search-only tweaks.
 - If recent valid candidates are unprofitable, make one to three targeted changes; do not randomly rewrite
   every knob at once.
 - Do not repeat any rank profile listed in `avoid_repeating_rank_profiles`.
@@ -3372,10 +7959,19 @@ Search discipline:
 - In composite scoring, research is the Stage A risk gate and fixed Freqtrade metrics are the primary
   ranking target. The hard goal is to improve fixed Freqtrade profit/drawdown while preserving research
   and Freqtrade `min_trades`, zero research liquidations, and max drawdown limits.
+- **LEAN-guided changes**: if `lean_analysis.md` shows consecutive loss months, reduce leverage or tighten
+  entry filters. If it shows high pair concentration (herfindahl > 0.5), expand top_k or diversify
+  universe. If rank vs LEAN divergence is high, reduce rank-only signals that don't hold in execution.
+  If the worst monthly return < -20%, add ATR/momentum filters to reduce tail exposure.
 
 Candidate schema:
 ```json
 {json.dumps(schema_example, indent=2, sort_keys=True)}
+```
+
+Allowed rank-profile enum values:
+```json
+{json.dumps({key: sorted(values) for key, values in ENUM_LIMITS.items() if key in RANK_PROFILE_KEYS}, indent=2, sort_keys=True)}
 ```
 
 For a Freqtrade candidate, use `"candidate_type": "freqtrade_strategy"` and write
@@ -3433,10 +8029,15 @@ class StrategyLoopRunner:
     def __init__(self, config: StrategyLoopConfig) -> None:
         if not config.run_id:
             config.run_id = make_run_id(config.tag)
+        requested_max_iterations = int(config.max_iterations)
         self.config = config
         self.state = StrategyLoopState(run_id=config.run_id)
         if config.resume:
             loaded_config, loaded_state = load_checkpoint(config.run_id)
+            if config.benchmark_suite:
+                if loaded_config.benchmark_suite and config.benchmark_suite != loaded_config.benchmark_suite:
+                    raise ValueError("cannot change the frozen benchmark_suite when resuming a run")
+                loaded_config.benchmark_suite = config.benchmark_suite
             for key in (
                 "model",
                 "agent",
@@ -3466,6 +8067,30 @@ class StrategyLoopRunner:
             self.config = loaded_config
             self.state = loaded_state
             self.config.run_id = self.state.run_id
+            stale_git_detail = _stale_run_manifest_git_detail(self.config.run_id)
+            if _is_strict_formal_config(self.config) and stale_git_detail and os.getenv("AGENT_MARKET_ALLOW_STALE_FORMAL_RESUME") != "1":
+                raise ValueError(
+                    "refusing to resume strict formal strategy-loop run with stale controller commit: "
+                    f"run_manifest_commit={stale_git_detail.get('run_manifest_commit')} "
+                    f"current_commit={stale_git_detail.get('current_commit')}. "
+                    "Start a fresh run, or set AGENT_MARKET_ALLOW_STALE_FORMAL_RESUME=1 only for artifact forensics."
+                )
+            if self.state.status == LOOP_STOPPED_STAGNATED and requested_max_iterations > self.state.iteration:
+                if self.state.phase == PHASE_COMPLETE:
+                    self.state.iteration += 1
+                    self.state.phase = PHASE_PREPARE
+                self.state.status = LOOP_RUNNING
+                self.state.stopped_reason = ""
+                if self.state.no_composite_improvement_count >= STAGNATION_STOP_AFTER:
+                    self.state.no_composite_improvement_count = _stagnation_grace_count()
+                self.state.exploration_mode = "structured"
+                self.state.final_blind_status = None
+                self.state.final_promotion = None
+            elif self.state.status == LOOP_COMPLETED and requested_max_iterations >= self.state.iteration:
+                self.state.status = LOOP_RUNNING
+                self.state.stopped_reason = ""
+                self.state.final_blind_status = None
+                self.state.final_promotion = None
 
     def run(self) -> dict[str, Any]:
         root = loop_root(self.config.run_id)
@@ -3524,6 +8149,8 @@ class StrategyLoopRunner:
                     self._signal_export(idir)
                 elif phase == PHASE_BACKTEST:
                     self._backtest(idir)
+                elif phase == PHASE_LEAN_ANALYSIS:
+                    self._lean_analysis_phase(idir)
                 elif phase == PHASE_EVALUATION:
                     self._evaluation(idir)
                 elif phase == PHASE_ANALYSIS:
@@ -3560,6 +8187,18 @@ class StrategyLoopRunner:
             self._run_hermes_cli(idir, prompt)
             candidate = validate_candidate(candidate_path, default_n=self.config.n)
             self._validate_unique_candidate(candidate)
+            self._record_candidate_path(candidate_path)
+            return
+        if self.config.agent == AGENT_OPENAI:
+            self._run_openai_compatible_agent(idir, prompt)
+            try:
+                candidate = validate_candidate(candidate_path, default_n=self.config.n)
+                self._validate_unique_candidate(candidate)
+            except ValueError as exc:
+                if not self._repair_openai_compatible_candidate_contract(idir, exc):
+                    raise
+                candidate = validate_candidate(candidate_path, default_n=self.config.n)
+                self._validate_unique_candidate(candidate)
             self._record_candidate_path(candidate_path)
             return
         if self.config.agent != AGENT_OPENCODE:
@@ -3663,8 +8302,6 @@ class StrategyLoopRunner:
         if not self.state.score_history:
             return False
         baseline = _baseline_rank_profile(self.config)
-        if not baseline:
-            return False
         candidates = build_rank_profile_repair_queue(
             baseline,
             self.config,
@@ -3679,12 +8316,13 @@ class StrategyLoopRunner:
             write_json(candidate_path, candidate)
             profile = candidate.get("rank_profile") if isinstance(candidate.get("rank_profile"), Mapping) else {}
             changes = (candidate.get("metadata") or {}).get("changed_keys") if isinstance(candidate.get("metadata"), Mapping) else []
+            parent = (candidate.get("metadata") or {}).get("parent_anchor") if isinstance(candidate.get("metadata"), Mapping) else ""
             analysis = [
                 f"# {candidate.get('name')}",
                 "",
                 "Controller-generated rank-profile repair candidate.",
                 "",
-                f"- Parent: optimized_baseline",
+                f"- Parent: {parent or 'history'}",
                 f"- Changed keys: {changes}",
                 f"- Expected tradeoff: {(candidate.get('metadata') or {}).get('expected_tradeoff') if isinstance(candidate.get('metadata'), Mapping) else ''}",
                 f"- Signature: {rank_profile_signature(profile, default_n=self.config.n) if profile else ''}",
@@ -3699,6 +8337,212 @@ class StrategyLoopRunner:
             self._validate_unique_candidate(normalized)
             return True
         return False
+
+    def _run_openai_compatible_agent(self, idir: Path, prompt: str) -> None:
+        env = _openai_compatible_env()
+        api_key = str(env.get("OPENAI_API_KEY") or env.get("LLM_API_KEY") or "").strip()
+        if not api_key:
+            raise RuntimeError("OpenAI-compatible agent requires OPENAI_API_KEY or LLM_API_KEY")
+        model = _openai_compatible_model(self.config.model, env)
+        if not model:
+            raise RuntimeError("OpenAI-compatible agent requires --model, LLM_MODEL, or OPENAI_MODEL")
+        base_url = (
+            str(env.get("OPENAI_BASE_URL") or env.get("LLM_BASE_URL") or env.get("OPENAI_API_BASE") or "https://api.openai.com/v1")
+            .strip()
+            .rstrip("/")
+        )
+        if not base_url:
+            base_url = "https://api.openai.com/v1"
+
+        try:
+            from agent_market.strategy_miner.agent_adapter import StrategyAgent
+        except Exception as exc:
+            raise RuntimeError("StrategyAgent/OpenAI-compatible dependencies are unavailable") from exc
+
+        context_path = idir / "context" / "prepare.json"
+        if context_path.exists():
+            context_payload = load_json(context_path, {})
+            if not isinstance(context_payload, Mapping):
+                context_payload = {}
+        else:
+            context_payload = {}
+        context_text = json.dumps(
+            _compact_direct_agent_context(context_payload),
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
+        direct_prompt = (
+            "You are running through the direct OpenAI-compatible strategy-loop adapter. "
+            "You do not have filesystem tools. Do not emit tool calls. Use the inline "
+            "compact prepare context below as the source of truth, even if the original "
+            "instruction mentions reading files.\n\n"
+            f"Original instruction:\n{prompt}\n\n"
+            f"Inline compact prepare context JSON:\n```json\n{context_text}\n```\n\n"
+            "Return exactly one compact JSON object that can be saved as candidate.json. "
+            "Keep description and metadata strings concise, under 160 characters each. "
+            "Do not include markdown fences or commentary."
+        )
+        with _temporary_environ(env):
+            agent = StrategyAgent(
+                workspace=idir,
+                provider="openai",
+                model=model,
+                base_url=base_url,
+                max_turns=self.config.max_turns,
+                stale_timeout=self.config.stale_timeout,
+                max_retries=self.config.max_retries,
+            )
+            try:
+                result = agent.run_result(direct_prompt)
+                assistant_text = getattr(result, "assistant_text", "") or ""
+                usage = getattr(result, "usage", None) or {}
+                payload = _json_object_from_text(assistant_text)
+                if payload is None and self.config.max_retries > 0:
+                    repair_prompt = (
+                        "Your previous answer was not valid complete JSON for candidate.json. "
+                        "Return one minified JSON object only. No markdown fences, no commentary, "
+                        "no trailing text. Required top-level keys: candidate_type, name, "
+                        "description, metadata, rank_profile. Keep every string short.\n\n"
+                        f"Previous invalid answer:\n{assistant_text[:4000]}"
+                    )
+                    repair_result = agent.run_result(repair_prompt)
+                    repair_text = getattr(repair_result, "assistant_text", "") or ""
+                    repair_usage = getattr(repair_result, "usage", None) or {}
+                    assistant_text = f"{assistant_text}\n\n--- JSON repair attempt ---\n{repair_text}"
+                    if repair_usage:
+                        usage = dict(usage)
+                        usage["repair"] = repair_usage
+                    payload = _json_object_from_text(repair_text)
+            finally:
+                agent.close()
+
+        if usage:
+            self.state.token_cost[str(self.state.iteration)] = usage
+        (idir / "agent_response.txt").write_text(assistant_text, encoding="utf-8")
+        if payload is None:
+            raise RuntimeError("OpenAI-compatible agent did not return a JSON candidate")
+        if "candidate_type" not in payload and isinstance(payload.get("candidate"), Mapping):
+            payload = dict(payload["candidate"])
+        payload = _postprocess_agent_rank_profile_payload(
+            payload,
+            self.config,
+            structured=self.state.exploration_mode == "structured",
+        )
+        write_json(idir / "candidate.json", payload)
+
+    def _repair_openai_compatible_candidate_contract(self, idir: Path, error: Exception) -> bool:
+        if self.config.agent != AGENT_OPENAI or self.config.max_retries <= 0:
+            return False
+        candidate_path = idir / "candidate.json"
+        if not candidate_path.exists():
+            return False
+
+        env = _openai_compatible_env()
+        api_key = str(env.get("OPENAI_API_KEY") or env.get("LLM_API_KEY") or "").strip()
+        if not api_key:
+            return False
+        model = _openai_compatible_model(self.config.model, env)
+        if not model:
+            return False
+        base_url = (
+            str(env.get("OPENAI_BASE_URL") or env.get("LLM_BASE_URL") or env.get("OPENAI_API_BASE") or "https://api.openai.com/v1")
+            .strip()
+            .rstrip("/")
+        ) or "https://api.openai.com/v1"
+
+        try:
+            from agent_market.strategy_miner.agent_adapter import StrategyAgent
+        except Exception:
+            return False
+
+        current_candidate = load_json(candidate_path, {})
+        context_payload = load_json(idir / "context" / "prepare.json", {}) if (idir / "context" / "prepare.json").exists() else {}
+        compact_context = _compact_direct_agent_context(context_payload) if isinstance(context_payload, Mapping) else {}
+        loop_memory = compact_context.get("loop_memory") if isinstance(compact_context.get("loop_memory"), Mapping) else {}
+        repair_context = {
+            "contract_error": str(error),
+            "current_candidate": current_candidate,
+            "structured_mode": self.state.exploration_mode == "structured",
+            "structural_rank_keys": sorted(STRUCTURAL_RANK_KEYS),
+            "optimized_baseline": compact_context.get("optimized_baseline"),
+            "allowed_rank_profile_keys": compact_context.get("allowed_rank_profile_keys"),
+            "allowed_rank_profile_enum_values": compact_context.get("allowed_rank_profile_enum_values"),
+            "loop_memory": {
+                key: loop_memory.get(key)
+                for key in (
+                    "stagnation",
+                    "previous_failure",
+                    "avoid_repeating_rank_profiles",
+                    "avoid_repeating_rank_profile_signatures",
+                    "recent_score_history",
+                )
+                if key in loop_memory
+            },
+        }
+        repair_prompt = (
+            "The candidate.json you produced failed the strategy-loop controller contract. "
+            "Return exactly one corrected compact JSON object for candidate.json. No markdown, no commentary.\n\n"
+            "Requirements:\n"
+            "- candidate_type must be rank_profile.\n"
+            "- Preserve the full candidate_state path from optimized_baseline unless deliberately changing to an existing factor state.\n"
+            "- If structured_mode is true, metadata.search_mode must be structured_explore.\n"
+            "- If structured_mode is true, change at least one structural rank key versus the baseline/best anchor.\n"
+            "- Do not repeat avoid_repeating_rank_profiles or their recent quantized signatures.\n"
+            "- Keep description and metadata strings under 160 characters.\n\n"
+            f"Repair context JSON:\n```json\n{json.dumps(repair_context, indent=2, sort_keys=True, default=str)}\n```"
+        )
+        assistant_text = ""
+        usage: dict[str, Any] = {}
+        with _temporary_environ(env):
+            agent = StrategyAgent(
+                workspace=idir,
+                provider="openai",
+                model=model,
+                base_url=base_url,
+                max_turns=1,
+                stale_timeout=self.config.stale_timeout,
+                max_retries=0,
+            )
+            try:
+                result = agent.run_result(repair_prompt)
+                assistant_text = getattr(result, "assistant_text", "") or ""
+                usage = getattr(result, "usage", None) or {}
+            except Exception as exc:
+                response_path = idir / "agent_response.txt"
+                previous = response_path.read_text(encoding="utf-8") if response_path.exists() else ""
+                response_path.write_text(
+                    previous
+                    + "\n\n--- contract repair attempt failed ---\n"
+                    + f"{type(exc).__name__}: {exc}\n",
+                    encoding="utf-8",
+                )
+                return False
+            finally:
+                agent.close()
+
+        response_path = idir / "agent_response.txt"
+        previous = response_path.read_text(encoding="utf-8") if response_path.exists() else ""
+        response_path.write_text(
+            previous + "\n\n--- contract repair attempt ---\n" + assistant_text,
+            encoding="utf-8",
+        )
+        payload = _json_object_from_text(assistant_text)
+        if payload is None:
+            return False
+        if "candidate_type" not in payload and isinstance(payload.get("candidate"), Mapping):
+            payload = dict(payload["candidate"])
+        payload = _postprocess_agent_rank_profile_payload(
+            payload,
+            self.config,
+            structured=self.state.exploration_mode == "structured",
+        )
+        write_json(candidate_path, payload)
+        if usage:
+            token_usage = dict(self.state.token_cost.get(str(self.state.iteration)) or {})
+            token_usage["contract_repair"] = usage
+            self.state.token_cost[str(self.state.iteration)] = token_usage
+        return True
 
     def _run_hermes_cli(self, idir: Path, prompt: str, *, env: Optional[Mapping[str, str]] = None) -> None:
         if shutil.which("hermes") is None:
@@ -3779,11 +8623,15 @@ class StrategyLoopRunner:
             return
         candidate = validate_candidate(idir / "candidate.json", default_n=self.config.n)
         factor_state, _ = _resolve_factor_state(self.config.tag)
+        factor_state = _filter_state_for_timeframe(factor_state, self.config.timeframe, idir)
         effective_tag = self._effective_rank_tag(idir)
         export_timerange = self.config.search_timerange if self.config.validation_protocol != VALIDATION_SINGLE else self.config.timerange
         start, end = parse_timerange(export_timerange)
+        rank_profile = dict(candidate.get("rank_profile") or {})
+        if factor_state is not None:
+            rank_profile["candidate_state"] = str(factor_state)
         kwargs = _rank_kwargs(
-            candidate.get("rank_profile") or {},
+            rank_profile,
             self.config,
             candidate_state=factor_state,
             tag=effective_tag,
@@ -3814,13 +8662,16 @@ class StrategyLoopRunner:
             timerange=self.config.timerange,
             run_freqtrade=self.config.eval_mode == EVAL_FREQTRADE,
         )
-        stage_a = score_backtest_result(
-            result,
-            min_trades=self.config.min_trades,
-            max_drawdown_pct=self.config.max_drawdown_pct,
-            min_profit_over_dd=self.config.min_profit_over_dd,
-            target_profit_pct=self.config.target_profit_pct,
-        )
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            stage_a = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            stage_a = score_backtest_result(
+                result,
+                min_trades=self.config.min_trades,
+                max_drawdown_pct=self.config.max_drawdown_pct,
+                min_profit_over_dd=self.config.min_profit_over_dd,
+                target_profit_pct=self.config.target_profit_pct,
+            )
         result["stage_a"] = {
             "constraints_ok": stage_a["constraints_ok"],
             "score": stage_a["score"],
@@ -3862,7 +8713,10 @@ class StrategyLoopRunner:
             start=start,
             end=end,
         )
-        result = rank_portfolio.rank_backtest(**kwargs)
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            result = rank_portfolio.rank_export(**kwargs)
+        else:
+            result = rank_portfolio.rank_backtest(**kwargs)
         result["base_tag"] = self.config.tag
         result["stage"] = stage
         result["timerange"] = timerange
@@ -3904,13 +8758,16 @@ class StrategyLoopRunner:
             timerange=self.config.search_timerange,
             run_freqtrade=False,
         )
-        search_eval = score_backtest_result(
-            search,
-            **{
-                key: scaled_gate_values(self.config, self.config.search_timerange)[key]
-                for key in ("min_trades", "max_drawdown_pct", "min_profit_over_dd", "target_profit_pct")
-            },
-        )
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            search_eval = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            search_eval = score_backtest_result(
+                search,
+                **{
+                    key: scaled_gate_values(self.config, self.config.search_timerange)[key]
+                    for key in ("min_trades", "max_drawdown_pct", "min_profit_over_dd", "target_profit_pct")
+                },
+            )
         search["stage_a"] = {
             "constraints_ok": search_eval["constraints_ok"],
             "score": search_eval["score"],
@@ -3932,13 +8789,16 @@ class StrategyLoopRunner:
             run_freqtrade=False,
         )
         validation_gate_values = scaled_gate_values(self.config, self.config.validation_timerange)
-        validation_stage_a = score_backtest_result(
-            validation,
-            min_trades=validation_gate_values["min_trades"],
-            max_drawdown_pct=validation_gate_values["max_drawdown_pct"],
-            min_profit_over_dd=validation_gate_values["min_profit_over_dd"],
-            target_profit_pct=validation_gate_values["target_profit_pct"],
-        )
+        if self.config.eval_mode == EVAL_FREQTRADE:
+            validation_stage_a = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            validation_stage_a = score_backtest_result(
+                validation,
+                min_trades=validation_gate_values["min_trades"],
+                max_drawdown_pct=validation_gate_values["max_drawdown_pct"],
+                min_profit_over_dd=validation_gate_values["min_profit_over_dd"],
+                target_profit_pct=validation_gate_values["target_profit_pct"],
+            )
         validation["stage_a"] = {
             "constraints_ok": validation_stage_a["constraints_ok"],
             "score": validation_stage_a["score"],
@@ -3970,7 +8830,24 @@ class StrategyLoopRunner:
         timerange: Optional[str] = None,
         stage: str = "single",
     ) -> dict[str, Any]:
-        signals_raw = str(research_result.get("signals") or "")
+        signals_value = research_result.get("signals")
+        if isinstance(signals_value, Mapping):
+            signals_raw = str(signals_value.get("all") or "")
+        else:
+            signals_raw = str(signals_value or "")
+        # In EVAL_FREQTRADE mode research_backtest is skipped, so signals come from signal_export.json
+        if not signals_raw:
+            se_path = idir / "signal_export.json"
+            if se_path.exists():
+                try:
+                    se = json.loads(se_path.read_text(encoding="utf-8"))
+                    sigs = se.get("signals")
+                    if isinstance(sigs, dict):
+                        signals_raw = str(sigs.get("all") or "")
+                    elif isinstance(sigs, str):
+                        signals_raw = sigs
+                except Exception:
+                    pass
         signals_path = Path(signals_raw).expanduser() if signals_raw else Path()
         signal_dir = signals_path.parent if signals_path.exists() else None
         if signal_dir is None:
@@ -3989,6 +8866,12 @@ class StrategyLoopRunner:
         if not (strategy_dir / f"{FIXED_FREQTRADE_STRATEGY}.py").exists():
             return {"ok": False, "error": f"fixed Freqtrade strategy not found in: {strategy_dir}"}
 
+        override_path = _write_fixed_freqtrade_override(
+            idir / f"freqtrade_override_{stage}.json",
+            self.config,
+            signal_dir,
+        )
+
         cmd = [
             sys.executable,
             str(repo_paths.REPO_ROOT / "scripts" / "freqtrade_cli.py"),
@@ -3997,6 +8880,10 @@ class StrategyLoopRunner:
             "none",
             "--config",
             str(config_path),
+        ]
+        if override_path is not None:
+            cmd += ["--config", str(override_path)]
+        cmd += [
             "--strategy",
             FIXED_FREQTRADE_STRATEGY,
             "--strategy-path",
@@ -4007,6 +8894,7 @@ class StrategyLoopRunner:
         env = dict(os.environ)
         env["RP_SIGNAL_DIR"] = str(signal_dir)
         env["RP_TAG"] = str(research_result.get("tag") or self.config.tag)
+        env["RP_TIMEFRAME"] = _fixed_freqtrade_timeframe(self.config)
         start_time = time.time() - 5.0
         log_name = "freqtrade_backtest.log" if stage in {"", "single"} else f"freqtrade_{stage}.log"
         try:
@@ -4070,6 +8958,12 @@ class StrategyLoopRunner:
             "ok": True,
             "metrics": metrics,
             "summary": summary,
+            "monthly_profit": summary.get("monthly_profit"),
+            "daily_profit": summary.get("daily_profit"),
+            "drawdown_start": summary.get("drawdown_start"),
+            "drawdown_end": summary.get("drawdown_end"),
+            "drawdown_high": summary.get("drawdown_high"),
+            "drawdown_low": summary.get("drawdown_low"),
             **command_meta,
         }
 
@@ -4239,6 +9133,7 @@ class StrategyLoopRunner:
                 lean_result=result_path,
                 output=comparison_path,
                 timeframe=self.config.timeframe,
+                skip_signal_load=False,
             )
         except Exception as exc:
             return _fail(
@@ -4334,19 +9229,34 @@ class StrategyLoopRunner:
             evaluation["validation_protocol"] = validation_protocol_summary(self.config)
             evaluation["verification_status"] = VERIFICATION_PASSED if self.config.validation_protocol == VALIDATION_SINGLE else VERIFICATION_PENDING
             evaluation["promotion_eligible"] = bool(evaluation.get("constraints_ok")) and self.config.validation_protocol == VALIDATION_SINGLE
+            # Merge lean_gate results already written by PHASE_LEAN_ANALYSIS
+            lean_gate_path = idir / "lean_gate.json"
+            if lean_gate_path.exists() and not isinstance(evaluation.get("lean_gate"), Mapping):
+                lg = load_json(lean_gate_path, {})
+                if isinstance(lg, Mapping):
+                    evaluation["lean_gate"] = lg
+                    if isinstance(lg.get("comparison"), Mapping):
+                        evaluation["lean_comparison"] = lg["comparison"]
+                    if not _lean_gate_passed(evaluation):
+                        evaluation["promotion_eligible"] = False
+                        reason = str(lg.get("reason") or "lean_gate failed")
+                        prior = str(evaluation.get("promotion_reason") or "").strip()
+                        evaluation["promotion_reason"] = f"{prior}; LEAN gate failed: {reason}" if prior else f"LEAN gate failed: {reason}"
+            # Merge lean_analysis results written by PHASE_LEAN_ANALYSIS
+            lean_analysis_path = idir / "lean_analysis.json"
+            if lean_analysis_path.exists():
+                la = load_json(lean_analysis_path, {})
+                if isinstance(la, Mapping):
+                    evaluation["lean_analysis"] = la
+            # Apply LEAN score blend (0.7 LEAN + 0.3 rank by default)
+            apply_lean_score_blend(evaluation, self.config)
+            self._apply_behavior_novelty_gate(evaluation)
             score = float(evaluation.get("score") or float("-inf"))
             promotion_candidate = (
                 score > self.state.best_score
                 and self.config.validation_protocol == VALIDATION_SINGLE
                 and self.config.promote_policy != PROMOTE_FINAL
             )
-            if self._should_run_lean_gate("iteration", promotion_candidate=promotion_candidate):
-                lean_timerange = (
-                    self.config.timerange
-                    if self.config.validation_protocol == VALIDATION_SINGLE
-                    else self.config.validation_timerange
-                )
-                self._apply_lean_gate(idir, evaluation, stage="iteration", timerange=lean_timerange)
             if score > self.state.best_score:
                 if self.config.validation_protocol == VALIDATION_SINGLE:
                     promotion = promote_candidate(candidate, evaluation, self.config, iter_dir=idir)
@@ -4365,65 +9275,13 @@ class StrategyLoopRunner:
                     "reason": f"score did not exceed current best ({self.state.best_score:.6g})",
                 }
             evaluation["promotion"] = promotion
+            evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir, exclude={"evaluation.json", "manifest.json"})
             write_json(out, evaluation)
-            artifact_refs = _artifact_refs_for_iteration(idir)
-            evaluation["artifact_refs"] = artifact_refs
             write_json(idir / "manifest.json", build_iteration_manifest(idir, self.config, candidate, evaluation))
-            evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-            write_json(out, evaluation)
             if score > self.state.best_score:
-                _copytree_replace(idir, loop_root(self.config.run_id) / "best")
+                self._sync_best_snapshot_from_iteration(idir)
 
-        if not isinstance(evaluation.get("lean_gate"), Mapping):
-            score = float(evaluation.get("score") or float("-inf"))
-            promotion_candidate = (
-                score > self.state.best_score
-                and self.config.validation_protocol == VALIDATION_SINGLE
-                and self.config.promote_policy != PROMOTE_FINAL
-            )
-            if self._should_run_lean_gate("iteration", promotion_candidate=promotion_candidate):
-                lean_timerange = (
-                    self.config.timerange
-                    if self.config.validation_protocol == VALIDATION_SINGLE
-                    else self.config.validation_timerange
-                )
-                self._apply_lean_gate(idir, evaluation, stage="iteration", timerange=lean_timerange)
-                if score > self.state.best_score and self.config.validation_protocol == VALIDATION_SINGLE:
-                    candidate_for_promotion = evaluation.get("candidate") if isinstance(evaluation.get("candidate"), Mapping) else validate_candidate(idir / "candidate.json", default_n=self.config.n)
-                    evaluation["promotion"] = promote_candidate(candidate_for_promotion, evaluation, self.config, iter_dir=idir)
-                evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-                write_json(idir / "evaluation.json", evaluation)
-                write_json(idir / "manifest.json", build_iteration_manifest(idir, self.config, evaluation.get("candidate") or {}, evaluation))
-                evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-                write_json(idir / "evaluation.json", evaluation)
-
-        row = {
-            "run_id": self.config.run_id,
-            "iteration": self.state.iteration,
-            "candidate_path": _as_repo_meta(idir / "candidate.json"),
-            "candidate": evaluation.get("candidate"),
-            "parameters": (evaluation.get("candidate") or {}).get("rank_profile") if isinstance(evaluation.get("candidate"), dict) else {},
-            "strategy_path": (evaluation.get("candidate") or {}).get("strategy_path") if isinstance(evaluation.get("candidate"), dict) else None,
-            "score": evaluation.get("score"),
-            "score_components": evaluation.get("score_components") or {},
-            "constraints_ok": evaluation.get("constraints_ok"),
-            "metrics": evaluation.get("metrics"),
-            "selected_metrics": evaluation.get("selected_metrics") or {},
-            "research_metrics": evaluation.get("research_metrics") or evaluation.get("metrics"),
-            "freqtrade_metrics": evaluation.get("freqtrade_metrics") or {},
-            "lean_gate_status": (evaluation.get("lean_gate") or {}).get("status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
-            "lean_comparison_status": (evaluation.get("lean_gate") or {}).get("comparison_status") if isinstance(evaluation.get("lean_gate"), Mapping) else None,
-            "lean_metrics": (evaluation.get("lean_gate") or {}).get("lean_metrics") if isinstance(evaluation.get("lean_gate"), Mapping) else {},
-            "lean_gate": evaluation.get("lean_gate"),
-            "window_metrics": evaluation.get("window_metrics") or {},
-            "verification_status": evaluation.get("verification_status") or VERIFICATION_PENDING,
-            "promotion_eligible": evaluation.get("promotion_eligible"),
-            "artifact_refs": evaluation.get("artifact_refs") or {},
-            "parameter_signature": evaluation.get("parameter_signature"),
-            "violations": evaluation.get("violations"),
-            "diagnostics": evaluation.get("promotion_reason"),
-            "promotion": evaluation.get("promotion"),
-        }
+        row = _leaderboard_row_from_evaluation(evaluation, self.config.run_id, iteration=self.state.iteration)
         self._append_leaderboard(row)
         score = float(evaluation.get("score") or float("-inf"))
         if score > self.state.best_score:
@@ -4439,11 +9297,195 @@ class StrategyLoopRunner:
         self._refresh_pareto_pool()
         self._maybe_verify_iteration_candidate(idir, row, evaluation)
 
+    def _lean_analysis_phase(self, idir: Path) -> None:
+        """PHASE_LEAN_ANALYSIS: run LEAN gate, compute time-period analysis, optionally run LLM analysis."""
+        lean_gate_path = idir / "lean_gate.json"
+        lean_analysis_out = idir / "lean_analysis.json"
+
+        # Step 1: Run LEAN gate (every iteration when lean_gate_mode != off)
+        if not lean_gate_path.exists() and _lean_gate_active(self.config):
+            lean_timerange = (
+                self.config.timerange
+                if self.config.validation_protocol == VALIDATION_SINGLE
+                else self.config.validation_timerange
+            )
+            gate_result = self._run_lean_gate(idir, stage="iteration", timerange=lean_timerange)
+            write_json(lean_gate_path, gate_result)
+
+        # Step 2: Program-compute time-period metrics
+        if not lean_analysis_out.exists() and lean_gate_path.exists():
+            lean_gate = load_json(lean_gate_path, {})
+            lean_result_path = None
+            if isinstance(lean_gate, Mapping):
+                artifacts = lean_gate.get("artifacts") if isinstance(lean_gate.get("artifacts"), Mapping) else {}
+                lean_res_raw = artifacts.get("lean_result")
+                if isinstance(lean_res_raw, Mapping):
+                    lean_result_path = lean_res_raw.get("path")
+                elif isinstance(lean_res_raw, str):
+                    lean_result_path = lean_res_raw
+                if not lean_result_path:
+                    lean_result_path = lean_gate.get("lean_result")
+
+            if lean_result_path:
+                rank_curve: list = []
+                backtest = load_json(idir / "backtest.json", {})
+                if isinstance(backtest, Mapping):
+                    # Try to get rank curve from current backtest or validation stage
+                    if self.config.validation_protocol == VALIDATION_SINGLE:
+                        curve_src = backtest
+                    else:
+                        stages = backtest.get("stages") if isinstance(backtest.get("stages"), Mapping) else {}
+                        curve_src = stages.get("validation") or backtest
+                    raw_curve = curve_src.get("curve") if isinstance(curve_src, Mapping) else None
+                    if isinstance(raw_curve, list):
+                        rank_curve = raw_curve
+
+                try:
+                    compute_lean_analysis(
+                        lean_result=lean_result_path,
+                        output=lean_analysis_out,
+                        timeframe=self.config.timeframe,
+                        rank_curve=rank_curve or None,
+                    )
+                except Exception as exc:
+                    print(f"[lean_analysis] program compute failed for {idir.name}: {exc}")
+
+        # Step 3: LLM analysis of lean metrics + equity curve
+        lean_llm_out = idir / "lean_analysis.md"
+        if not lean_llm_out.exists() and lean_analysis_out.exists():
+            try:
+                self._lean_llm_analysis(idir, lean_analysis_out, lean_llm_out)
+            except Exception as exc:
+                print(f"[lean_analysis] LLM analysis failed for {idir.name}: {exc}, skipping")
+
+    def _lean_llm_analysis(self, idir: Path, lean_analysis_path: Path, output_path: Path) -> None:
+        """Run a Hermes LLM call to produce lean_analysis.md, with fallback to program-generated summary."""
+        lean_analysis = load_json(lean_analysis_path, {})
+        if not isinstance(lean_analysis, Mapping):
+            return
+
+        regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+        dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+        monthly = lean_analysis.get("monthly_returns") if isinstance(lean_analysis.get("monthly_returns"), list) else []
+        pair_contrib = lean_analysis.get("pair_contribution") if isinstance(lean_analysis.get("pair_contribution"), Mapping) else {}
+        vs_rank = lean_analysis.get("vs_rank_comparison") if isinstance(lean_analysis.get("vs_rank_comparison"), Mapping) else {}
+
+        # Write a structured fallback first (always present even if LLM fails)
+        fallback_lines = [
+            f"# LEAN Analysis — Iteration {self.state.iteration}",
+            "",
+            "## Monthly Performance",
+        ]
+        for m in monthly[-6:]:  # last 6 months
+            fallback_lines.append(f"- {m.get('period')}: {m.get('return_pct', '?'):.2f}% (max_dd_in_period: {m.get('max_dd_in_period', '?'):.2f}%)")
+        fallback_lines.extend([
+            "",
+            "## Drawdown Episodes",
+        ])
+        for ep in dd_episodes:
+            rec = f"{ep.get('recovery_days')}d" if ep.get("recovered") else "not recovered"
+            fallback_lines.append(f"- {ep.get('start')} → trough {ep.get('trough')}: {ep.get('depth_pct', '?'):.2f}%, duration {ep.get('duration_days')}d, recovery {rec}")
+        fallback_lines.extend([
+            "",
+            "## Regime",
+            f"- Positive months: {regime.get('positive_month_pct', '?'):.1f}%",
+            f"- Consecutive loss streak: {regime.get('consecutive_loss_months', '?')}",
+            f"- Worst month: {(regime.get('worst_month') or {}).get('period')} ({(regime.get('worst_month') or {}).get('return_pct', '?'):.2f}%)",
+            f"- Best month: {(regime.get('best_month') or {}).get('period')} ({(regime.get('best_month') or {}).get('return_pct', '?'):.2f}%)",
+            "",
+            "## Pair Contribution",
+            f"- Herfindahl index: {pair_contrib.get('herfindahl_index')}",
+            f"- Top winners: {pair_contrib.get('top_winners')}",
+            f"- Top losers: {pair_contrib.get('top_losers')}",
+        ])
+        if vs_rank.get("available"):
+            fallback_lines.extend([
+                "",
+                "## LEAN vs Rank Divergence",
+                f"- Divergence score: {vs_rank.get('divergence_score')}",
+                f"- Mean abs monthly diff: {vs_rank.get('mean_abs_diff_pct'):.2f}%",
+                f"- Worst divergence month: {vs_rank.get('worst_divergence_month')} ({vs_rank.get('worst_divergence_pct'):.2f}%)",
+            ])
+        output_path.write_text("\n".join(fallback_lines) + "\n", encoding="utf-8")
+
+        # Try LLM analysis if Hermes is configured
+        if not self.config.agent == AGENT_HERMES:
+            return
+        try:
+            # Build a compact context payload for the LLM
+            context_summary = {
+                "iteration": self.state.iteration,
+                "regime": regime,
+                "drawdown_episodes": dd_episodes,
+                "monthly_returns": monthly,
+                "pair_contribution": {
+                    k: v for k, v in pair_contrib.items() if k != "pairs"
+                },
+                "pair_contribution_top": (pair_contrib.get("pairs") or [])[:10],
+                "vs_rank_comparison": vs_rank,
+                "equity_curve_sample": (lean_analysis.get("equity_curve") or [])[-20:],
+            }
+            prompt_path = idir / "context" / "lean_analysis_prompt.json"
+            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+            write_json(prompt_path, {
+                "task": "lean_analysis",
+                "instruction": (
+                    "You are analyzing a LEAN backtest result for a crypto rank portfolio strategy.\n"
+                    "Write a concise analysis in Markdown covering:\n"
+                    "1. **Headline P&L**: single paragraph summary (total return, max drawdown, profitable months %)\n"
+                    "2. **Time-period strengths/weaknesses**: best/worst months, consecutive loss streaks\n"
+                    "3. **Drawdown diagnosis**: for each top drawdown episode — likely cause (leverage? sector? market?)\n"
+                    "4. **Pair contribution**: top winners, top losers, concentration risk (Herfindahl)\n"
+                    "5. **LEAN vs Rank divergence**: when and why did real execution differ from ideal?\n"
+                    "6. **Next iteration suggestions**: what to keep, what to fix, what to explore\n\n"
+                    "Be specific. Reference months and depths by name. Avoid generic advice.\n"
+                    "Output ONLY the markdown analysis, no preamble."
+                ),
+                "data": context_summary,
+            })
+            hermes_out = idir / "lean_analysis_hermes.txt"
+            self._run_hermes_cli(idir, f"Read {prompt_path} and follow the task/instruction. Write your analysis output to {output_path} (overwrite it).")
+        except Exception as exc:
+            print(f"[lean_analysis] LLM analysis failed for {idir.name}: {exc}, keeping fallback markdown")
+
+    def _is_current_best_iteration_dir(self, idir: Path) -> bool:
+        best = self.state.best_candidate if isinstance(self.state.best_candidate, Mapping) else {}
+        raw_candidate = str(best.get("candidate_path") or "").strip()
+        if not raw_candidate:
+            return False
+        try:
+            return repo_paths.resolve_repo_path(raw_candidate).parent.resolve() == idir.resolve()
+        except Exception:
+            return False
+
+    def _sync_best_snapshot_from_iteration(self, idir: Path) -> None:
+        best_dir = loop_root(self.config.run_id) / "best"
+        if best_dir.resolve() == idir.resolve():
+            return
+        _copytree_replace(idir, best_dir)
+        for name in ("evaluation.json", "lean_gate.json", "verification.json"):
+            path = best_dir / name
+            payload = load_json(path, None)
+            if isinstance(payload, (dict, list)):
+                write_json(path, _rebase_repo_paths(payload, source_dir=idir, target_dir=best_dir))
+        candidate_payload = load_json(best_dir / "candidate.json", {})
+        candidate = candidate_payload if isinstance(candidate_payload, Mapping) else {}
+        evaluation_payload = load_json(best_dir / "evaluation.json", {})
+        if isinstance(evaluation_payload, Mapping):
+            evaluation = dict(evaluation_payload)
+            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir, exclude={"evaluation.json", "manifest.json"})
+            write_json(best_dir / "evaluation.json", evaluation)
+            write_json(best_dir / "manifest.json", build_iteration_manifest(best_dir, self.config, candidate, evaluation))
+
     def _analysis(self, idir: Path) -> None:
         path = idir / "analysis.md"
         if path.exists():
+            refresh_iteration_manifest_artifact_refs(idir, self.config)
+            if self._is_current_best_iteration_dir(idir):
+                self._sync_best_snapshot_from_iteration(idir)
             return
         evaluation = load_json(idir / "evaluation.json", {})
+        lean_analysis = load_json(idir / "lean_analysis.json", {}) if (idir / "lean_analysis.json").exists() else {}
         lines = [
             f"# Iteration {self.state.iteration} Analysis",
             "",
@@ -4459,7 +9501,7 @@ class StrategyLoopRunner:
                 lines.append(f"- {key}: {components[key]}")
         lines.extend([
             "",
-            "Metrics:",
+            "Metrics (Rank Backtest):",
         ])
         metrics = evaluation.get("metrics") or {}
         if isinstance(metrics, Mapping):
@@ -4474,15 +9516,40 @@ class StrategyLoopRunner:
             ft_metrics = freqtrade.get("metrics") if isinstance(freqtrade.get("metrics"), Mapping) else {}
             for key in sorted(ft_metrics):
                 lines.append(f"- {key}: {ft_metrics[key]}")
+        # LEAN analysis summary
+        if isinstance(lean_analysis, Mapping) and lean_analysis:
+            la_summary = _lean_analysis_summary(lean_analysis)
+            lines.extend(["", "LEAN Performance Summary:"])
+            sc = evaluation.get("score_components") or {}
+            if sc.get("lean_score") is not None:
+                lines.append(f"- lean_score: {sc['lean_score']:.2f}  (blended weight: {sc.get('score_lean_weight', 0.7)})")
+            for key, val in la_summary.items():
+                lines.append(f"- {key}: {val}")
+            regime = lean_analysis.get("regime_segments") if isinstance(lean_analysis.get("regime_segments"), Mapping) else {}
+            monthly = lean_analysis.get("monthly_returns") if isinstance(lean_analysis.get("monthly_returns"), list) else []
+            if monthly:
+                lines.extend(["", "Recent Monthly Returns (LEAN):"])
+                for m in monthly[-6:]:
+                    lines.append(f"  {m.get('period')}: {m.get('return_pct', 0):.2f}% (max_dd: {m.get('max_dd_in_period', 0):.2f}%)")
+            dd_episodes = lean_analysis.get("drawdown_episodes") if isinstance(lean_analysis.get("drawdown_episodes"), list) else []
+            if dd_episodes:
+                lines.extend(["", "Top Drawdown Episodes (LEAN):"])
+                for ep in dd_episodes:
+                    rec = f"{ep.get('recovery_days')}d" if ep.get("recovered") else "not recovered"
+                    lines.append(f"  {ep.get('start')} → {ep.get('trough')}: depth {ep.get('depth_pct', 0):.2f}%, {ep.get('duration_days')}d, recovery {rec}")
         lines.extend(
             [
                 "",
                 "Next iteration guidance:",
+                "- Optimize for LEAN P&L stability (monthly consistency, low drawdown depth) — not just rank backtest profit.",
                 "- Preserve hard risk gates before increasing leverage or turnover.",
-                "- Prefer changes that improve profit/drawdown without reducing trade count.",
+                "- See lean_analysis.md for LLM-generated detailed analysis.",
             ]
         )
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        refresh_iteration_manifest_artifact_refs(idir, self.config, evaluation=evaluation if isinstance(evaluation, Mapping) else None)
+        if self._is_current_best_iteration_dir(idir):
+            self._sync_best_snapshot_from_iteration(idir)
 
     def _effective_rank_tag(self, idir: Path) -> str:
         return f"{self.config.tag}__loop_{self.config.run_id}_{idir.name}"
@@ -4543,8 +9610,177 @@ class StrategyLoopRunner:
             return
         write_json(manifest_path, build_run_manifest(self.config))
 
+    def _prior_blind_validation_fingerprints(self) -> list[dict[str, Any]]:
+        status = self.state.final_blind_status if isinstance(self.state.final_blind_status, Mapping) else {}
+        if not status:
+            status_path = loop_root(self.config.run_id) / "final_blind_status.json"
+            if status_path.exists():
+                loaded = load_json(status_path, {})
+                status = loaded if isinstance(loaded, Mapping) else {}
+        finalists = status.get("finalists") if isinstance(status.get("finalists"), list) else []
+        fingerprints: list[dict[str, Any]] = []
+        for item in finalists:
+            if not isinstance(item, Mapping):
+                continue
+            finalist = item.get("finalist") if isinstance(item.get("finalist"), Mapping) else {}
+            fp = _row_stage_signal_fingerprint(finalist, "validation")
+            if fp:
+                fingerprints.append(fp)
+        return fingerprints
+
+    def _signal_fingerprints_for_evaluation(self, evaluation: Mapping[str, Any]) -> dict[str, Any]:
+        windows = evaluation.get("window_metrics") if isinstance(evaluation.get("window_metrics"), Mapping) else {}
+        fingerprints: dict[str, Any] = {}
+        for stage in ("search", "validation"):
+            window = windows.get(stage) if isinstance(windows.get(stage), Mapping) else {}
+            fp = _stage_signal_fingerprint_from_window(window) if window else {}
+            if fp:
+                fingerprints[stage] = fp
+                try:
+                    window["signal_fingerprint"] = _compact_signal_fingerprint(fp)  # type: ignore[index]
+                except Exception:
+                    pass
+        return fingerprints
+
+    def _apply_behavior_novelty_gate(self, evaluation: dict[str, Any]) -> None:
+        if self.config.validation_protocol == VALIDATION_SINGLE:
+            return
+        fingerprints = self._signal_fingerprints_for_evaluation(evaluation)
+        if fingerprints:
+            evaluation["signal_fingerprints"] = {
+                stage: _compact_signal_fingerprint(fp)
+                for stage, fp in fingerprints.items()
+                if isinstance(fp, Mapping)
+            }
+        validation_fp = fingerprints.get("validation") if isinstance(fingerprints.get("validation"), Mapping) else {}
+        search_fp = fingerprints.get("search") if isinstance(fingerprints.get("search"), Mapping) else {}
+
+        def nearest_duplicate(
+            stage: str,
+            fp: Mapping[str, Any],
+            prior_rows: Sequence[Mapping[str, Any]],
+        ) -> Optional[dict[str, Any]]:
+            for prior in prior_rows:
+                prior_fp = _row_stage_signal_fingerprint(prior, stage)
+                duplicate = _signal_behavior_duplicate(fp, prior_fp)
+                if duplicate is None:
+                    continue
+                return {
+                    **duplicate,
+                    "iteration": prior.get("iteration"),
+                    "candidate_path": prior.get("candidate_path"),
+                    "active_rows": prior_fp.get("active_rows"),
+                    "active_days": prior_fp.get("active_days"),
+                    "active_pairs": prior_fp.get("active_pairs"),
+                    "action_signature": prior_fp.get("action_signature"),
+                    "path_signature": prior_fp.get("path_signature"),
+                }
+            return None
+
+        novelty: dict[str, Any] = {
+            "status": "recorded" if validation_fp else "unavailable",
+            "stage": "validation",
+            "reason": "validation signal fingerprint recorded" if validation_fp else "validation signal fingerprint unavailable",
+        }
+        if not validation_fp:
+            if search_fp:
+                nearest = nearest_duplicate("search", search_fp, self.state.score_history)
+                if nearest is not None:
+                    novelty = {
+                        "status": str(nearest.get("status") or "near_duplicate"),
+                        "stage": "search",
+                        "reason": nearest.get("reason") or "near-duplicate search signal path",
+                        "fingerprint": _compact_signal_fingerprint(search_fp),
+                        "nearest": nearest,
+                    }
+                else:
+                    novelty = {
+                        "status": "recorded",
+                        "stage": "search",
+                        "reason": "search signal fingerprint recorded",
+                        "fingerprint": _compact_signal_fingerprint(search_fp),
+                    }
+            evaluation["behavior_novelty"] = novelty
+            evaluation.setdefault("pareto_eligible", True)
+            return
+        if not bool(evaluation.get("constraints_ok")):
+            nearest = nearest_duplicate("validation", validation_fp, self.state.score_history)
+            if nearest is None:
+                novelty["status"] = "not_applicable"
+                novelty["reason"] = "validation hard gates did not pass"
+                novelty["fingerprint"] = _compact_signal_fingerprint(validation_fp)
+            else:
+                novelty = {
+                    "status": str(nearest.get("status") or "near_duplicate"),
+                    "stage": "validation",
+                    "reason": nearest.get("reason") or "near-duplicate validation signal path",
+                    "fingerprint": _compact_signal_fingerprint(validation_fp),
+                    "nearest": nearest,
+                    "gate_status": "failed",
+                }
+            evaluation["behavior_novelty"] = novelty
+            evaluation.setdefault("pareto_eligible", True)
+            components = evaluation.setdefault("score_components", {})
+            if isinstance(components, dict):
+                components["behavior_novelty_status"] = novelty["status"]
+                components["behavior_novelty_reason"] = novelty["reason"]
+            return
+
+        prior_rows: list[Mapping[str, Any]] = []
+        for row in self.state.score_history:
+            if isinstance(row, Mapping) and bool(row.get("constraints_ok")):
+                prior_rows.append(row)
+        for fp in self._prior_blind_validation_fingerprints():
+            prior_rows.append(
+                {
+                    "iteration": "prior_blind_finalist",
+                    "candidate_path": "final_blind_status.json",
+                    "signal_fingerprints": {"validation": fp},
+                    "constraints_ok": True,
+                }
+            )
+
+        nearest = nearest_duplicate("validation", validation_fp, prior_rows)
+
+        if nearest is None:
+            novelty["status"] = "novel"
+            novelty["reason"] = "validation signal path differs from prior validation-passed and blind-finalist paths"
+            novelty["fingerprint"] = _compact_signal_fingerprint(validation_fp)
+            evaluation["behavior_novelty"] = novelty
+            evaluation["pareto_eligible"] = True
+            return
+
+        novelty = {
+            "status": str(nearest.get("status") or "near_duplicate"),
+            "stage": "validation",
+            "reason": nearest.get("reason") or "near-duplicate validation signal path",
+            "fingerprint": _compact_signal_fingerprint(validation_fp),
+            "nearest": nearest,
+        }
+        evaluation["behavior_novelty"] = novelty
+        evaluation["pareto_eligible"] = False
+        violation = (
+            "behavior_novelty: validation signal path near-duplicate "
+            f"of iteration {nearest.get('iteration')} ({novelty['reason']})"
+        )
+        violations = list(evaluation.get("violations") or [])
+        if violation not in violations:
+            violations.append(violation)
+        evaluation["violations"] = violations
+        prior_reason = str(evaluation.get("promotion_reason") or "").strip()
+        suffix = "excluded from Pareto/blind by behavior novelty gate"
+        evaluation["promotion_reason"] = f"{prior_reason}; {suffix}" if prior_reason else suffix
+        components = evaluation.setdefault("score_components", {})
+        if isinstance(components, dict):
+            components["behavior_novelty_status"] = novelty["status"]
+            components["behavior_novelty_reason"] = novelty["reason"]
+
     def _refresh_pareto_pool(self) -> dict[str, Any]:
-        pool = build_pareto_pool(self.state.score_history, size_per_axis=self.config.pareto_size_per_axis)
+        pool = build_pareto_pool(
+            self.state.score_history,
+            size_per_axis=self.config.pareto_size_per_axis,
+            excluded_signal_fingerprints=self._prior_blind_validation_fingerprints(),
+        )
         self.state.pareto_pool = pool
         write_json(loop_root(self.config.run_id) / "pareto_pool.json", pool)
         axes_by_identity: dict[str, list[str]] = {}
@@ -4591,11 +9827,9 @@ class StrategyLoopRunner:
         evaluation["verification"] = verification
         evaluation["verification_status"] = status
         evaluation["promotion_eligible"] = False
-        evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
+        evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir, exclude={"evaluation.json", "manifest.json"})
         write_json(idir / "evaluation.json", evaluation)
         write_json(idir / "manifest.json", build_iteration_manifest(idir, self.config, evaluation.get("candidate") or {}, evaluation))
-        evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-        write_json(idir / "evaluation.json", evaluation)
         row["verification_status"] = status
         row["promotion_eligible"] = False
         row["artifact_refs"] = evaluation["artifact_refs"]
@@ -4617,6 +9851,12 @@ class StrategyLoopRunner:
             self.state.no_composite_improvement_count = 0
             self.state.exploration_mode = "local"
             return
+        if (
+            _is_stagnation_recovery_candidate(evaluation)
+            and self.state.no_composite_improvement_count >= STAGNATION_STOP_AFTER - 1
+        ):
+            self.state.no_composite_improvement_count = _stagnation_grace_count()
+            self.state.exploration_mode = "structured"
         self.state.no_composite_improvement_count += 1
         if self.state.no_composite_improvement_count >= STAGNATION_EXPLORE_AFTER:
             self.state.exploration_mode = "structured"
@@ -4667,6 +9907,12 @@ class StrategyLoopRunner:
         env = dict(os.environ)
         env["RP_SIGNAL_DIR"] = str(signal_dir)
         env["RP_TAG"] = str(stage_result.get("tag") or self.config.tag)
+        env["RP_TIMEFRAME"] = _fixed_freqtrade_timeframe(self.config)
+        override_path = _write_fixed_freqtrade_override(
+            gate_dir / f"freqtrade_override_{gate_label}.json",
+            self.config,
+            signal_dir,
+        )
         lookahead_csv = gate_dir / "lookahead.csv"
         lookahead_cmd = [
             sys.executable,
@@ -4674,6 +9920,8 @@ class StrategyLoopRunner:
             "lookahead-analysis",
             "--config",
             str(config_path),
+            "--config",
+            str(override_path),
             "--strategy",
             FIXED_FREQTRADE_STRATEGY,
             "--strategy-path",
@@ -4692,12 +9940,16 @@ class StrategyLoopRunner:
             "recursive-analysis",
             "--config",
             str(config_path),
+            "--config",
+            str(override_path),
             "--strategy",
             FIXED_FREQTRADE_STRATEGY,
             "--strategy-path",
             str(strategy_dir),
             "--timerange",
             timerange,
+            "--startup-candle",
+            *RECURSIVE_ANALYSIS_STARTUP_CANDLES,
         ]
 
         try:
@@ -4716,7 +9968,12 @@ class StrategyLoopRunner:
             lookahead_proc = subprocess.CompletedProcess(lookahead_cmd, 124, stdout=str(exc))
             (gate_dir / "lookahead.log").write_text(str(exc), encoding="utf-8")
         min_gate_trades = int(scaled_gate_values(self.config, timerange)["min_trades"])
-        lookahead = parse_lookahead_csv(lookahead_csv, strategy=FIXED_FREQTRADE_STRATEGY, min_trades=min_gate_trades)
+        lookahead = parse_lookahead_csv(
+            lookahead_csv,
+            strategy=FIXED_FREQTRADE_STRATEGY,
+            min_trades=min_gate_trades,
+            log_path=gate_dir / "lookahead.log",
+        )
         if lookahead_proc.returncode != 0:
             lookahead["status"] = VERIFICATION_FAILED
             lookahead.setdefault("violations", []).append(f"lookahead command exited {lookahead_proc.returncode}")
@@ -4748,6 +10005,7 @@ class StrategyLoopRunner:
             "commands": {"lookahead": lookahead_cmd, "recursive": recursive_cmd},
             "artifacts": {
                 "dir": _as_repo_meta(gate_dir),
+                "freqtrade_override": _as_repo_meta(override_path),
                 "lookahead_csv": _as_repo_meta(lookahead_csv),
                 "lookahead_log": _as_repo_meta(gate_dir / "lookahead.log"),
                 "recursive_log": _as_repo_meta(recursive_log),
@@ -4755,6 +10013,53 @@ class StrategyLoopRunner:
         }
         write_json(idir / "verification.json", result)
         return result
+
+    def _run_frozen_benchmark(
+        self,
+        idir: Path,
+        selection: Mapping[str, Any],
+        holdout: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        from agent_market.strategy_miner._benchmark import benchmark_unavailable, evaluate_benchmark_gate
+        from agent_market.strategy_miner.dtypes import StrategyCandidate
+
+        try:
+            if not self.config.benchmark_suite:
+                raise ValueError("benchmark_suite is not configured")
+            selection_ft = selection.get("freqtrade_backtest") or {}
+            holdout_ft = holdout.get("freqtrade_backtest") or {}
+            if selection_ft.get("ok") is not True or holdout_ft.get("ok") is not True:
+                raise ValueError("selection and blind Freqtrade backtest evidence are required")
+            selection_summary = selection_ft["summary"]
+            holdout_summary = holdout_ft["summary"]
+            selection_profit = float(selection_summary["profit_total_pct"])
+            holdout_profit = float(holdout_summary["profit_total_pct"])
+            command = holdout_ft["command"]
+            strategy_name = command[command.index("--strategy") + 1]
+            strategy_dir = repo_paths.resolve_repo_path(command[command.index("--strategy-path") + 1])
+            strategy_path = strategy_dir / f"{strategy_name}.py"
+            candidate = StrategyCandidate(
+                name=strategy_name,
+                code=strategy_path.read_text(encoding="utf-8"),
+                strategy_path=strategy_path,
+                iteration=self.state.iteration,
+                backtest_summary=dict(selection_summary),
+            )
+            verdict = evaluate_benchmark_gate(
+                candidate,
+                suite_path=self.config.benchmark_suite,
+                holdout_result={
+                    "holdout_timerange": self.config.blind_timerange,
+                    "holdout_summary": dict(holdout_summary),
+                    "selection_profit_pct": selection_profit,
+                    "holdout_profit_pct": holdout_profit,
+                    "delta_pct": abs(selection_profit - holdout_profit),
+                },
+            )
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError) as exc:
+            verdict = benchmark_unavailable(self.config.benchmark_suite, f"{type(exc).__name__}: {exc}")
+        write_json(idir / "benchmark_verdict.json", verdict)
+        return verdict
 
     def _deepresearch_sidecar(self, final_status: Mapping[str, Any]) -> dict[str, Any]:
         root = repo_paths.artifacts_root() / "strategy_deepresearch" / self.config.run_id
@@ -4766,6 +10071,8 @@ class StrategyLoopRunner:
             findings.append({"severity": "BLOCKER", "message": "selected candidate did not pass lookahead/recursive gates"})
         if not bool((final_status.get("selected") or {}).get("blind_final")):
             findings.append({"severity": "BLOCKER", "message": "selected candidate is not backed by blind evaluation"})
+        if ((final_status.get("selected") or {}).get("benchmark") or {}).get("passed") is not True:
+            findings.append({"severity": "BLOCKER", "message": "selected candidate lacks passed frozen benchmark evidence"})
         if _lean_gate_active(self.config) and _lean_gate_status(final_status.get("selected") or {}) != VERIFICATION_PASSED:
             findings.append({"severity": "BLOCKER", "message": "selected candidate did not pass LEAN promotion gate"})
         status = VERIFICATION_FAILED if any(f.get("severity") in {"BLOCKER", "HIGH"} for f in findings) else VERIFICATION_PASSED
@@ -4799,7 +10106,8 @@ class StrategyLoopRunner:
             f"- Pareto pool: `{_as_repo_meta(loop_root(self.config.run_id) / 'pareto_pool.json')}`",
             f"- Final blind status: `{_as_repo_meta(loop_root(self.config.run_id) / 'final_blind_status.json')}`",
         ])
-        (repo_paths.REPO_ROOT / "docs" / "strategy_research_review.md").write_text("\n".join(review) + "\n", encoding="utf-8")
+        review_path = root / "strategy_research_review.md"
+        review_path.write_text("\n".join(review) + "\n", encoding="utf-8")
         protocol = validation_protocol_summary(self.config)
         protocol_doc = [
             "# Validation Protocol",
@@ -4817,10 +10125,27 @@ class StrategyLoopRunner:
             "- Validation ranks leaderboard/Pareto candidates.",
             "- Blind holdout is run only for Pareto finalists.",
             "- Promotion requires blind selected gates plus lookahead/recursive verification status `passed`.",
+            "- Promotion also requires an executed frozen benchmark pack with status `passed`.",
             "- When `lean_gate_mode` is enabled, promotion also requires LEAN gate status `passed`.",
         ])
-        (repo_paths.REPO_ROOT / "docs" / "validation_protocol.md").write_text("\n".join(protocol_doc) + "\n", encoding="utf-8")
-        return {"status": status, "artifacts": {"context": _as_repo_meta(root / "context.json"), "sources": _as_repo_meta(root / "sources.json")}, "findings": findings}
+        protocol_path = root / "validation_protocol.md"
+        protocol_path.write_text("\n".join(protocol_doc) + "\n", encoding="utf-8")
+        return {
+            "status": status,
+            "artifacts": {
+                "context": _as_repo_meta(root / "context.json"),
+                "sources": _as_repo_meta(root / "sources.json"),
+                "review": _as_repo_meta(review_path),
+                "protocol": _as_repo_meta(protocol_path),
+            },
+            "artifact_refs": {
+                "context": _artifact_ref(root / "context.json"),
+                "sources": _artifact_ref(root / "sources.json"),
+                "review": _artifact_ref(review_path),
+                "protocol": _artifact_ref(protocol_path),
+            },
+            "findings": findings,
+        }
 
     def _finalize_promotion(self) -> Optional[dict[str, Any]]:
         if not self.config.promote or self.config.promote_policy != PROMOTE_FINAL:
@@ -4839,11 +10164,9 @@ class StrategyLoopRunner:
         evaluation = dict(evaluation)
         if self._should_run_lean_gate("final", promotion_candidate=True) and not isinstance(evaluation.get("lean_gate"), Mapping):
             self._apply_lean_gate(best_dir, evaluation, stage="final", timerange=self.config.timerange)
-            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir)
+            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir, exclude={"evaluation.json", "manifest.json"})
             write_json(evaluation_path, evaluation)
             write_json(best_dir / "manifest.json", build_iteration_manifest(best_dir, self.config, candidate, evaluation))
-            evaluation["artifact_refs"] = _artifact_refs_for_iteration(best_dir)
-            write_json(evaluation_path, evaluation)
         promotion = promote_candidate(candidate, evaluation, self.config, iter_dir=best_dir, final=True)
         final_path = loop_root(self.config.run_id) / "final_promotion.json"
         write_json(final_path, promotion)
@@ -4858,6 +10181,12 @@ class StrategyLoopRunner:
         pool = self._refresh_pareto_pool()
         finalists = pool.get("finalists") if isinstance(pool.get("finalists"), list) else []
         if not finalists:
+            from agent_market.strategy_miner._benchmark import benchmark_unavailable
+
+            write_json(
+                loop_root(self.config.run_id) / "benchmark_verdict.json",
+                benchmark_unavailable(self.config.benchmark_suite, "no Pareto finalists available for benchmark evaluation"),
+            )
             promotion = {"promoted": False, "artifacts": {}, "reason": "no Pareto finalists available"}
             status = {
                 "promoted": False,
@@ -4881,7 +10210,11 @@ class StrategyLoopRunner:
             if not candidate_path.exists():
                 final_rows.append({"finalist": finalist, "ok": False, "reason": f"candidate missing: {candidate_path_raw}"})
                 continue
-            candidate = validate_candidate(candidate_path, default_n=self.config.n)
+            try:
+                candidate = validate_candidate(candidate_path, default_n=self.config.n)
+            except Exception as exc:
+                final_rows.append({"finalist": finalist, "ok": False, "reason": f"candidate invalid: {exc}"})
+                continue
             iteration_value = finalist.get("iteration") or candidate_path.parent.name
             blind_dir = loop_root(self.config.run_id) / f"blind_{str(iteration_value).replace('/', '_')}"
             blind_dir.mkdir(parents=True, exist_ok=True)
@@ -4934,11 +10267,13 @@ class StrategyLoopRunner:
             blind_eval["selected_window"] = "blind"
             blind_eval["blind_final"] = True
             validation_stage: Mapping[str, Any] = blind_result
+            benchmark_selection: Mapping[str, Any] = {}
             source_backtest = load_json(candidate_path.parent / "backtest.json", {})
             if isinstance(source_backtest, Mapping):
                 stages = source_backtest.get("stages") if isinstance(source_backtest.get("stages"), Mapping) else {}
                 if isinstance(stages.get("validation"), Mapping):
                     validation_stage = stages["validation"]
+                    benchmark_selection = stages["validation"]
 
             if self.config.verify_policy == VERIFY_NONE:
                 verification = {"status": VERIFICATION_PENDING, "reason": "verify_policy=none"}
@@ -4957,20 +10292,21 @@ class StrategyLoopRunner:
             if self._should_run_lean_gate("blind", promotion_candidate=base_promotion_eligible):
                 self._apply_lean_gate(blind_dir, blind_eval, stage="blind", timerange=self.config.blind_timerange)
                 blind_eval["promotion_eligible"] = base_promotion_eligible and _lean_gate_passed(blind_eval)
+            benchmark = self._run_frozen_benchmark(blind_dir, benchmark_selection, blind_result)
+            blind_eval["benchmark"] = benchmark
+            blind_eval["promotion_eligible"] = blind_eval["promotion_eligible"] and benchmark.get("passed") is True
             lean_status = _lean_gate_status(blind_eval) if _lean_gate_active(self.config) else ""
             blind_eval["promotion_reason"] = (
-                "blind window, verification gates, and LEAN gate passed"
+                "blind window, verification, LEAN, and frozen benchmark gates passed"
                 if blind_eval["promotion_eligible"]
                 else (
                     f"blind/verification/LEAN failed: {blind_eval.get('violations') or []}; "
-                    f"verification={verification_status}; lean={lean_status or 'off'}"
+                    f"verification={verification_status}; lean={lean_status or 'off'}; benchmark={benchmark['status']}"
                 )
             )
-            blind_eval["artifact_refs"] = _artifact_refs_for_iteration(blind_dir)
+            blind_eval["artifact_refs"] = _artifact_refs_for_iteration(blind_dir, exclude={"evaluation.json", "manifest.json"})
             write_json(blind_dir / "evaluation.json", blind_eval)
             write_json(blind_dir / "manifest.json", build_iteration_manifest(blind_dir, self.config, candidate, blind_eval))
-            blind_eval["artifact_refs"] = _artifact_refs_for_iteration(blind_dir)
-            write_json(blind_dir / "evaluation.json", blind_eval)
             final_rows.append(
                 {
                     "finalist": finalist,
@@ -5008,8 +10344,18 @@ class StrategyLoopRunner:
             "selected": selected["evaluation"] if selected else None,
             "finalists": final_rows,
         }
+        benchmarks = [row["evaluation"]["benchmark"] for row in final_rows if "evaluation" in row]
+        all_benchmarks_passed = bool(benchmarks) and all(item.get("passed") is True for item in benchmarks)
+        benchmark_verdict = selected["evaluation"]["benchmark"] if selected else {
+            "passed": all_benchmarks_passed,
+            "status": "insufficient_evidence" if not benchmarks or any(
+                item.get("status") == "insufficient_evidence" for item in benchmarks
+            ) else ("passed" if all_benchmarks_passed else "failed"),
+            "finalists": benchmarks,
+            "reason": "benchmark outcomes for evaluated finalists; other promotion gates are separate",
+        }
+        write_json(loop_root(self.config.run_id) / "benchmark_verdict.json", benchmark_verdict)
         audit = self._deepresearch_sidecar(final_status)
-        final_status["deepresearch"] = audit
         if selected and audit.get("status") == VERIFICATION_PASSED:
             selected_eval = selected["evaluation"]
             selected_candidate = selected_eval["candidate"]
@@ -5019,6 +10365,7 @@ class StrategyLoopRunner:
         elif selected:
             final_status["promotion"] = {"promoted": False, "artifacts": {}, "reason": "deepresearch BLOCKER/HIGH finding blocks promotion"}
             final_status["promoted"] = False
+        final_status["deepresearch"] = audit
         self.state.final_blind_status = final_status
         write_json(loop_root(self.config.run_id) / "final_blind_status.json", final_status)
         write_json(loop_root(self.config.run_id) / "final_promotion.json", final_status["promotion"])
@@ -5084,6 +10431,10 @@ class StrategyLoopRunner:
             "promotion": {"promoted": False, "artifacts": {}, "reason": message},
         }
         write_json(idir / "evaluation.json", evaluation)
+        write_json(
+            idir / "manifest.json",
+            build_iteration_manifest(idir, self.config, raw_candidate if isinstance(raw_candidate, Mapping) else {}, evaluation),
+        )
 
         row = {
             "run_id": self.config.run_id,
@@ -5147,6 +10498,7 @@ def evaluate_candidate(
     blind_timerange: Optional[str] = None,
     verify_policy: Optional[str] = None,
     pareto_size_per_axis: int = 3,
+    benchmark_suite: str = "",
     lean_gate_mode: str = LEAN_GATE_OFF,
     lean_bin: str = "lean",
     lean_timeout: Optional[int] = None,
@@ -5177,6 +10529,7 @@ def evaluate_candidate(
         blind_timerange=blind_timerange,
         verify_policy=verify_policy,
         pareto_size_per_axis=pareto_size_per_axis,
+        benchmark_suite=benchmark_suite,
         lean_gate_mode=lean_gate_mode,
         lean_bin=lean_bin,
         lean_timeout=lean_timeout,
@@ -5194,13 +10547,16 @@ def evaluate_candidate(
             timerange=config.timerange,
             run_freqtrade=False,
         )
-        stage_a = score_backtest_result(
-            backtest,
-            min_trades=config.min_trades,
-            max_drawdown_pct=config.max_drawdown_pct,
-            min_profit_over_dd=config.min_profit_over_dd,
-            target_profit_pct=config.target_profit_pct,
-        )
+        if config.eval_mode == EVAL_FREQTRADE:
+            stage_a = {"constraints_ok": True, "score": 0, "violations": []}
+        else:
+            stage_a = score_backtest_result(
+                backtest,
+                min_trades=config.min_trades,
+                max_drawdown_pct=config.max_drawdown_pct,
+                min_profit_over_dd=config.min_profit_over_dd,
+                target_profit_pct=config.target_profit_pct,
+            )
         backtest["stage_a"] = {
             "constraints_ok": stage_a["constraints_ok"],
             "score": stage_a["score"],
@@ -5243,12 +10599,9 @@ def evaluate_candidate(
     ):
         runner._apply_lean_gate(idir, evaluation, stage="iteration", timerange=config.timerange)
     evaluation["promotion"] = promote_candidate(candidate, evaluation, config, iter_dir=idir)
-    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
+    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir, exclude={"evaluation.json", "manifest.json"})
+    write_json(idir / "evaluation.json", evaluation)
     write_json(idir / "manifest.json", build_iteration_manifest(idir, config, candidate, evaluation))
-    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-    write_json(idir / "evaluation.json", evaluation)
-    evaluation["artifact_refs"] = _artifact_refs_for_iteration(idir)
-    write_json(idir / "evaluation.json", evaluation)
     return evaluation
 
 

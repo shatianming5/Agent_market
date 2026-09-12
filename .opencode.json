@@ -11,11 +11,17 @@
       "models": {
         "gpt-5.2": {
           "name": "GPT-5.2"
+        },
+        "gpt-5.5": {
+          "name": "GPT-5.5"
+        },
+        "MiniMax-M2.7-highspeed": {
+          "name": "MiniMax M2.7 highspeed"
         }
       }
     }
   },
-  "model": "custom/gpt-5.2",
-  "small_model": "custom/gpt-5.2",
+  "model": "custom/MiniMax-M2.7-highspeed",
+  "small_model": "custom/MiniMax-M2.7-highspeed",
   "plugin": []
 }

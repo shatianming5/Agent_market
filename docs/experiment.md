@@ -1,6 +1,6 @@
 # Experiment Matrix
 
-> 目的：把 `docs/plan.md` / `plan.md` 里“可以跑”的路径固化成 **可复现、可对比、可落盘** 的实验条目（Exp-XXX），并记录 Smoke/Full 的结果与证据链（产物路径、关键指标）。
+> 目的：把 `docs/plan.md`（MVP）和 `docs/proposals/agent_market_proposal.md`（原根 `plan.md` / Proposal，2026-05-09 重命名）里"可以跑"的路径固化成 **可复现、可对比、可落盘** 的实验条目（Exp-XXX），并记录 Smoke/Full 的结果与证据链（产物路径、关键指标）。
 >
 > 注意：本仓库当前默认是 **本地单机 / CPU / 离线数据（user_data/data）**；因此 Full 以“完整 timerange + 完整训练轮数（例如 LightGBM num_boost_round=220）+ 完整回测 + TCA 报告”为准，而不是追求极端耗时的超参搜索。
 

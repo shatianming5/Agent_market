@@ -121,6 +121,8 @@ def test_export_project_from_rank_artifact_writes_lean_files(tmp_path) -> None:
     assert "self.SetBenchmark(first_symbol)" in main_py
     assert "self.SetBenchmark(lambda _: 0)" in main_py
     assert "LocalFuturesOhlcv" in main_py
+    assert "SetMarketPrice(point)" in main_py
+    assert "def OnEndOfAlgorithm(self):\n        self.Debug" in main_py
     assert "Bridge Exposure" in main_py
 
 
@@ -174,15 +176,20 @@ def test_coverage_preflight_rejects_missing_file_and_gap(tmp_path) -> None:
     dates = _dates()
     signals = lean_bridge.load_signals(_write_rank_artifact(tmp_path, _signal_frame(dates))[1])
 
+    # With skip_gap_pairs=False the old strict behaviour is preserved.
     with pytest.raises(ValueError, match="missing OHLCV"):
-        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=tmp_path / "empty_okx")
+        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=tmp_path / "empty_okx", skip_gap_pairs=False)
 
     data_root = tmp_path / "okx_gap"
     _write_okx_feather(data_root, "BTC/USDT", dates.delete(1))
     _write_okx_feather(data_root, "ETH/USDT", dates)
 
-    with pytest.raises(ValueError, match="OHLCV missing signal timestamps|OHLCV gap"):
-        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=data_root)
+    with pytest.raises(ValueError, match="missing signal timestamps|OHLCV gap|OHLCV coverage issue"):
+        lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=data_root, skip_gap_pairs=False)
+
+    # Default (skip_gap_pairs=True): gap pair is excluded rather than raising.
+    cov = lean_bridge.preflight_coverage(signals, timeframe="1h", data_root=data_root)
+    assert "BTC/USDT" in cov.get("excluded_pairs", {})
 
 
 def test_normalize_signal_targets_holds_until_exit_liq_or_kill(tmp_path) -> None:
@@ -205,6 +212,74 @@ def test_normalize_signal_targets_holds_until_exit_liq_or_kill(tmp_path) -> None
     assert out["lean_target_weight"].tolist() == [0.5, 0.5, 0.0, 0.4, 0.0, 0.3, 0.0]
     assert out["lean_force_flat"].tolist() == [False, False, True, False, True, False, True]
     assert out["lean_action"].tolist() == [True, False, True, True, True, True, True]
+
+
+def test_normalize_signal_targets_does_not_trade_same_target_rebalance(tmp_path) -> None:
+    dates = _dates(periods=3)
+    signals = pd.DataFrame(
+        {
+            "date": dates,
+            "pair": ["BTC/USDT"] * len(dates),
+            "rp_target_weight": [0.5, 0.5, 0.0],
+            "rp_rebalance": [True, True, True],
+            "rp_exit_long": [False, False, False],
+            "rp_exit_short": [False, False, False],
+            "rp_liq_reject": [False, False, False],
+            "rp_kill_mode": ["normal", "normal", "normal"],
+        }
+    )
+
+    out = lean_bridge.normalize_signal_targets(lean_bridge.load_signals(_write_rank_artifact(tmp_path, signals)[1]))
+
+    assert out["lean_target_weight"].tolist() == [0.5, 0.5, 0.0]
+    assert out["lean_target_delta"].tolist() == [0.5, 0.0, -0.5]
+    assert out["lean_action"].tolist() == [True, False, True]
+
+
+def test_export_project_includes_next_execution_bar(tmp_path) -> None:
+    dates = _dates(periods=4)
+    data_root = tmp_path / "okx"
+    _write_okx_feather(data_root, "BTC/USDT", dates)
+    signals = _signal_frame(dates[:3]).loc[lambda df: df["pair"] == "BTC/USDT"].copy()
+    artifact_path, _ = _write_rank_artifact(tmp_path, signals)
+
+    lean_bridge.export_project(
+        rank_artifact=artifact_path,
+        output=tmp_path / "lean" / "next_bar_unit",
+        data_root=data_root,
+    )
+
+    ohlcv_csv = pd.read_csv(tmp_path / "lean" / "next_bar_unit" / "data" / "ohlcv" / "BTCUSDT.csv")
+    assert ohlcv_csv["time"].tolist() == [
+        "2026-01-01 00:00:00",
+        "2026-01-01 01:00:00",
+        "2026-01-01 02:00:00",
+        "2026-01-01 03:00:00",
+    ]
+
+
+def test_research_execution_stats_ignore_terminal_signal_without_next_bar(tmp_path) -> None:
+    dates = _dates(periods=3)
+    signals = pd.DataFrame(
+        {
+            "date": dates,
+            "pair": ["BTC/USDT"] * len(dates),
+            "rp_target_weight": [0.0, 0.5, 0.0],
+            "rp_rebalance": [True, True, True],
+            "rp_exit_long": [False, False, False],
+            "rp_exit_short": [False, False, False],
+            "rp_liq_reject": [False, False, False],
+            "rp_kill_mode": ["normal", "normal", "normal"],
+        }
+    )
+    loaded = lean_bridge.load_signals(_write_rank_artifact(tmp_path, signals)[1])
+
+    stats = lean_bridge._signal_turnover_stats(loaded, RiskConfig(timeframe="1h"))  # noqa: SLF001
+
+    assert stats["orders"] == 1.0
+    assert stats["entries"] == 1.0
+    assert stats["exits"] == 0.0
+    assert stats["turnover"] == 0.5
 
 
 def test_compare_results_writes_status_ok_for_matching_metrics(tmp_path) -> None:
@@ -269,14 +344,13 @@ def test_run_lean_backtest_fails_closed_on_nonzero_cli_exit(tmp_path, monkeypatc
     binary = tmp_path / "lean"
     binary.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     binary.chmod(0o755)
-    result_json = project / "123-summary.json"
-    result_json.write_text(json.dumps({"statistics": {"End Equity": "100000"}}), encoding="utf-8")
 
-    def fake_run(*args, **kwargs):
-        return SimpleNamespace(returncode=1, stdout="Engine.Main(): Analysis Complete.", stderr="")
+    def fake_run_no_result(*args, **kwargs):
+        return SimpleNamespace(returncode=1, stdout="", stderr="")
 
-    monkeypatch.setattr(lean_bridge.subprocess, "run", fake_run)
+    monkeypatch.setattr(lean_bridge.subprocess, "run", fake_run_no_result)
 
+    # returncode=1 with no result file → must raise
     with pytest.raises(RuntimeError, match="returncode=1"):
         lean_bridge.run_lean_backtest(
             lean_project=project,
@@ -284,11 +358,27 @@ def test_run_lean_backtest_fails_closed_on_nonzero_cli_exit(tmp_path, monkeypatc
             timeout=5,
         )
 
+    # returncode=1 but a result file was produced → treat as success (post-processing warnings)
+    result_json = project / "123-summary.json"
+    result_json.write_text(json.dumps({"statistics": {"End Equity": "100000"}}), encoding="utf-8")
+
+    def fake_run_with_result(*args, **kwargs):
+        return SimpleNamespace(returncode=1, stdout="Engine.Main(): Analysis Complete.", stderr="")
+
+    monkeypatch.setattr(lean_bridge.subprocess, "run", fake_run_with_result)
+
+    summary = lean_bridge.run_lean_backtest(
+        lean_project=project,
+        lean_bin=str(binary),
+        timeout=5,
+    )
+    assert summary["ok"] is True
+    assert summary["returncode"] == 1
+
     run = json.loads((project / "lean_backtest_run.json").read_text(encoding="utf-8"))
     assert run["returncode"] == 1
-    assert run["ok"] is False
+    assert run["ok"] is True
     assert run["result_path"] == str(result_json.resolve())
-    assert "warning" not in run
 
 
 def test_parse_lean_summary_normalizes_cash_statistics(tmp_path) -> None:

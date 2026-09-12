@@ -1,25 +1,70 @@
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import platform
 import sys
 import traceback
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from agent_market.cli_args import extract_flag_value as _extract_flag_value
 from agent_market.utils import sha256_bytes
-from agent_market.flow_ext import steps as flow_steps
-from agent_market.flow_ext.step_dispatch import STEP_HANDLERS, StepContext
-from agent_market.run_artifacts import RunArtifacts
+from agent_market.flow_ext.step_spec import STEP_CONFIG_FIELDS, STEP_ORDER
 from agent_market import paths
-from agent_market.runtime_preflight import run_agent_flow_preflight
 
 logger = logging.getLogger(__name__)
 REPO_ROOT = paths.REPO_ROOT
+
+
+class _LazyStepHandlers:
+    def _target(self) -> Dict[str, Any]:
+        from agent_market.flow_ext.step_dispatch import STEP_HANDLERS as _step_handlers
+
+        return _step_handlers
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._target()
+
+    def __getitem__(self, name: str) -> Any:
+        return self._target()[name]
+
+    def __iter__(self):
+        return iter(self._target())
+
+    def __len__(self) -> int:
+        return len(self._target())
+
+    def get(self, name: str, default: Any = None) -> Any:
+        return self._target().get(name, default)
+
+    def items(self):
+        return self._target().items()
+
+    def keys(self):
+        return self._target().keys()
+
+    def values(self):
+        return self._target().values()
+
+
+STEP_HANDLERS = _LazyStepHandlers()
+
+
+def run_agent_flow_preflight(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    from agent_market.runtime_preflight import run_agent_flow_preflight as _run_agent_flow_preflight
+
+    return _run_agent_flow_preflight(*args, **kwargs)
+
+
+def get_freqtrade_version() -> Dict[str, Any]:
+    from agent_market.flow_ext import steps as flow_steps
+
+    return flow_steps.get_freqtrade_version()
 
 
 def _relpath(path: Path) -> str:
@@ -31,16 +76,6 @@ def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + f".{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
-
-
-def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
-    if not isinstance(args, list):
-        return None
-    value: Optional[str] = None
-    for idx, item in enumerate(args):
-        if str(item) == flag and idx + 1 < len(args):
-            value = str(args[idx + 1])
-    return value
 
 
 def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> Dict[str, Any]:
@@ -55,23 +90,7 @@ def _config_snapshot_info(cfg: "AgentFlowConfig", cfg_path: Optional[Path]) -> D
             logger.warning("Failed to hash config file (%s): %s", cfg_path, exc)
 
     try:
-        snapshot = {
-            "capture": cfg.capture,
-            "lob_rebuild": cfg.lob_rebuild,
-            "feature": cfg.feature,
-            "micro_feature": cfg.micro_feature,
-            "portfolio": cfg.portfolio,
-            "expression": cfg.expression,
-            "factor_compile": cfg.factor_compile,
-            "factor_eval": cfg.factor_eval,
-            "ml_training": cfg.ml_training,
-            "rl_training": cfg.rl_training,
-            "backtest": cfg.backtest,
-            "tca": cfg.tca,
-            "report": cfg.report,
-            "strategy_miner": cfg.strategy_miner,
-            "experiment": cfg.experiment,
-        }
+        snapshot = {name: getattr(cfg, name) for name in AgentFlowConfig.field_names()}
         payload = json.dumps(
             snapshot,
             ensure_ascii=False,
@@ -102,46 +121,18 @@ class AgentFlowConfig:
     experiment: Optional[Dict[str, Any]] = None
 
     @classmethod
+    def field_names(cls) -> tuple[str, ...]:
+        return tuple(field.name for field in fields(cls))
+
+    @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentFlowConfig":
-        known_keys = {
-            "capture",
-            "lob_rebuild",
-            "feature",
-            "micro_feature",
-            "portfolio",
-            "expression",
-            "factor_compile",
-            "factor_eval",
-            "ml_training",
-            "rl_training",
-            "backtest",
-            "tca",
-            "report",
-            "strategy_miner",
-            "experiment",
-        }
+        known_keys = set(cls.field_names())
         extra = set(data.keys()) - known_keys
         if extra:
             logger.warning(
                 "AgentFlowConfig received unknown keys: %s", ", ".join(sorted(extra))
             )
-        return cls(
-            capture=data.get("capture"),
-            lob_rebuild=data.get("lob_rebuild"),
-            feature=data.get("feature"),
-            micro_feature=data.get("micro_feature"),
-            portfolio=data.get("portfolio"),
-            expression=data.get("expression"),
-            factor_compile=data.get("factor_compile"),
-            factor_eval=data.get("factor_eval"),
-            ml_training=data.get("ml_training"),
-            rl_training=data.get("rl_training"),
-            backtest=data.get("backtest"),
-            tca=data.get("tca"),
-            report=data.get("report"),
-            strategy_miner=data.get("strategy_miner"),
-            experiment=data.get("experiment"),
-        )
+        return cls(**{name: data.get(name) for name in cls.field_names()})
 
 
 def load_agent_flow_config(path: Path) -> AgentFlowConfig:
@@ -154,23 +145,49 @@ def load_agent_flow_config(path: Path) -> AgentFlowConfig:
     return AgentFlowConfig.from_dict(payload)
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Agent Market end-to-end orchestrator")
+    parser.add_argument("--config", required=True, help="Path to JSON configuration file")
+    parser.add_argument(
+        "--steps",
+        nargs="*",
+        help="Optional subset of steps to run (feature, expression, ml, rl, backtest)",
+    )
+    parser.add_argument(
+        "--log-dir",
+        default="user_data/agent_logs",
+        help="Directory to store agent flow log files",
+    )
+    return parser
+
+
+def _configure_cli_logging(log_dir: Path) -> Path:
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"agent_flow_{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(levelname)s - %(message)s",
+        handlers=handlers,
+    )
+    logging.getLogger().info("Agent Flow log file: %s", log_file)
+    return log_file
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+    _configure_cli_logging(paths.resolve_repo_path(args.log_dir))
+
+    cfg_path = paths.resolve_repo_path(args.config)
+    cfg = load_agent_flow_config(cfg_path)
+    flow = AgentFlow(cfg, config_path=cfg_path)
+    flow.run(args.steps)
+    return 0
+
+
 class AgentFlow:
-    STEP_ORDER = [
-        "capture",
-        "lob_rebuild",
-        "feature",
-        "micro_feature",
-        "portfolio",
-        "expression",
-        "factor_compile",
-        "factor_eval",
-        "ml",
-        "rl",
-        "backtest",
-        "tca",
-        "strategy_miner",
-        "report",
-    ]
+    STEP_ORDER = list(STEP_ORDER)
 
     def __init__(
         self,
@@ -186,6 +203,9 @@ class AgentFlow:
         self._last_preflight_report: Optional[Dict[str, Any]] = None
 
     def run(self, steps: Optional[List[str]] = None) -> str:
+        from agent_market.flow_ext.step_dispatch import StepContext
+        from agent_market.run_artifacts import RunArtifacts
+
         run_id = uuid.uuid4().hex[:12]
         started_at = datetime.now(timezone.utc).isoformat()
         meta_latest_path = paths.run_meta_latest_path()
@@ -201,20 +221,7 @@ class AgentFlow:
             requested = [step for step in requested if step in self.STEP_ORDER]
 
         sequence: list[tuple[str, Optional[Dict[str, Any]]]] = [
-            ("capture", self.config.capture),
-            ("lob_rebuild", self.config.lob_rebuild),
-            ("feature", self.config.feature),
-            ("micro_feature", self.config.micro_feature),
-            ("portfolio", self.config.portfolio),
-            ("expression", self.config.expression),
-            ("factor_compile", self.config.factor_compile),
-            ("factor_eval", self.config.factor_eval),
-            ("ml", self.config.ml_training),
-            ("rl", self.config.rl_training),
-            ("backtest", self.config.backtest),
-            ("tca", self.config.tca),
-            ("strategy_miner", self.config.strategy_miner),
-            ("report", self.config.report),
+            (name, getattr(self.config, field)) for name, field in STEP_CONFIG_FIELDS
         ]
 
         logger.info("[FLOW] RUN_ID %s", run_id)
@@ -395,7 +402,7 @@ class AgentFlow:
                 "executable": sys.executable,
                 "platform": platform.platform(),
             },
-            "freqtrade": flow_steps.get_freqtrade_version(),
+            "freqtrade": get_freqtrade_version(),
             "preflight": {
                 "ok": bool((self._last_preflight_report or {}).get("ok")),
                 "warnings": int((self._last_preflight_report or {}).get("warnings") or 0),
@@ -419,4 +426,14 @@ class AgentFlow:
         }
 
 
-__all__ = ["AgentFlow", "AgentFlowConfig", "load_agent_flow_config"]
+__all__ = [
+    "AgentFlow",
+    "AgentFlowConfig",
+    "build_parser",
+    "load_agent_flow_config",
+    "main",
+]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from .paths import (ROOT, USER_DATA, MODELS_DIR,
-                    DEFAULT_PAIRS, DEFAULT_TRAIN3, DEFAULT_REAL_TEST3,
+from .paths import (ROOT, MODELS_DIR,
+                    DEFAULT_PAIRS, DEFAULT_TRAIN3,
                     DEFAULT_LABEL_PERIOD, DEFAULT_CLASS_THRESHOLD)
 
 

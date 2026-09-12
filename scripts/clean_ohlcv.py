@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 """Clean OHLCV data from data/raw and write partitioned parquet files under data/clean."""
 import argparse
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Iterable, List, Optional
 
 import pandas as pd
-import yaml
 from dateutil.parser import isoparse
 
 from _lib import load_yaml_config

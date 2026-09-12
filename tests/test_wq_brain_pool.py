@@ -13,6 +13,7 @@ from agent_market.wq_brain.dtypes import (
     SimulationResult,
 )
 from agent_market.wq_brain.pool import AlphaPool, DuplicateDetector
+from agent_market.wq_brain.errors import StateIntegrityError
 
 
 def test_duplicate_detector_exact_match():
@@ -112,8 +113,9 @@ def test_alpha_pool_add_from_candidate_skips_no_result(tmp_path: Path):
     assert len(pool) == 0
 
 
-def test_alpha_pool_corrupt_json_recovers_empty(tmp_path: Path):
+def test_alpha_pool_corrupt_json_fails_without_reset(tmp_path: Path):
     pool_path = tmp_path / "pool.json"
     pool_path.write_text("not valid json {{")
-    pool = AlphaPool(pool_path)
-    assert len(pool) == 0
+    with pytest.raises(StateIntegrityError, match="pool state"):
+        AlphaPool(pool_path)
+    assert pool_path.read_text() == "not valid json {{"

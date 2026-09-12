@@ -1,5 +1,7 @@
 # Mohu
 
+> **2026-05-09 兼容性提示**：下文凡是写 "`plan.md`" 的地方，都指**早期 Proposal**，现已重命名为 [`docs/proposals/agent_market_proposal.md`](proposals/agent_market_proposal.md)。本 backlog 中所有 "plan.md X.Y 章节" 的引用按这条映射理解即可。
+
 ## Missing
 - [x] Missing-001: 增加 pytest 测试套件并把冒烟脚本迁移为可持续的测试
   - Location: `scripts/smoke_test.py`, `scripts/e2e_smoke_flow.py`（候选），新增 `tests/`

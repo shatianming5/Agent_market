@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Iterable, List, Optional, Set
 
 from agent_market.factor_compiler.api_models import ExprArg, ExprNode
 from agent_market.factor_compiler.checks.types import CheckResult, fail, ok

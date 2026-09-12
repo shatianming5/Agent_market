@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from ..errors import error
+from ..errors import not_found
 from ...runtime import jobs
 
 router = APIRouter()
@@ -12,7 +12,7 @@ router = APIRouter()
 def job_status(job_id: str):
     res = jobs.status(job_id)
     if isinstance(res, dict) and res.get("error"):
-        return error("JOB_NOT_FOUND", str(res.get("error")))
+        return not_found("JOB_NOT_FOUND", str(res.get("error")))
     return res
 
 
@@ -20,7 +20,7 @@ def job_status(job_id: str):
 def job_logs(job_id: str, offset: int = 0, limit: int = 0):
     res = jobs.logs(job_id, offset, limit=limit)
     if isinstance(res, dict) and res.get("error"):
-        return error("JOB_NOT_FOUND", str(res.get("error")))
+        return not_found("JOB_NOT_FOUND", str(res.get("error")))
     return res
 
 
@@ -28,6 +28,5 @@ def job_logs(job_id: str, offset: int = 0, limit: int = 0):
 def job_cancel(job_id: str):
     res = jobs.cancel(job_id)
     if isinstance(res, dict) and res.get("error"):
-        return error("JOB_NOT_FOUND", str(res.get("error")))
+        return not_found("JOB_NOT_FOUND", str(res.get("error")))
     return res
-

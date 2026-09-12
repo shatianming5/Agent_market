@@ -3,8 +3,28 @@
 -r requirements-dev.txt
 
 # Golden path extras (ml + backtest)
-freqtrade
 lightgbm
+
+# The repo carries a vendored freqtrade/ snapshot. Installing the upstream
+# freqtrade wheel can force a source build of old TA-Lib on Linux, so keep the
+# golden path reproducible by declaring the vendored runtime dependencies
+# directly instead of depending on the external freqtrade package.
+cachetools
+python-rapidjson
+humanize
+technical
+pycoingecko
+sdnotify
+janus
+SQLAlchemy
+tabulate
+ft-pandas-ta
+aiofiles
+python-telegram-bot
+ast-comments
+orjson
+freqtrade-client
+questionary
 
 # ML model alternatives
 xgboost

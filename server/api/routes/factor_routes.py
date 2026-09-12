@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body
 
 from agent_market import paths  # type: ignore
 
-from ..errors import error
+from ..errors import error, not_found
 from ..models import ExpressionReq, FactorCompileReq, FactorEvalReq, FeatureReq
 from ..validators import validate_pairs_string, validate_timeframe
 from ...runtime import ROOT, SRC, jobs
@@ -28,14 +28,14 @@ def run_expression(req: ExpressionReq = Body(...)):
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not cfg_path.exists():
-        return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
+        return not_found("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
 
     try:
         ff_path = paths.safe_resolve(req.feature_file, allow_absolute=True)
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not ff_path.exists():
-        return error("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {ff_path}")
+        return not_found("FEATURE_FILE_NOT_FOUND", f"Feature file not found: {ff_path}")
 
     if not validate_timeframe(req.timeframe):
         return error("INVALID_TIMEFRAME", f"Invalid timeframe: {req.timeframe}")
@@ -363,7 +363,7 @@ def run_feature(req: FeatureReq = Body(...)):
     except ValueError as exc:
         return error("INVALID_PATH", str(exc))
     if not cfg_path.exists():
-        return error("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
+        return not_found("CONFIG_NOT_FOUND", f"Config file not found: {cfg_path}")
     if not validate_timeframe(req.timeframe):
         return error("INVALID_TIMEFRAME", f"Invalid timeframe: {req.timeframe}")
     script_path = ROOT / "scripts" / "freqai_feature_agent.py"

@@ -15,7 +15,7 @@ import json
 import pickle
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from pandas import DataFrame

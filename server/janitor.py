@@ -51,6 +51,8 @@ def _rm(path: Path, *, dry_run: bool) -> None:
 def gc_runs(*, keep: int, prune_backtests: bool = False, dry_run: bool = False) -> dict[str, Any]:
     """Garbage collect old flow runs under artifacts/runs/ (best-effort)."""
     keep_n = max(1, min(int(keep or 50), 5000))
+    active_grace_sec = max(0.0, float(os.environ.get("AGENT_MARKET_JANITOR_ACTIVE_RUN_GRACE_SEC", "3600") or "3600"))
+    now = time.time()
     runs_root = paths.runs_root()
     if not runs_root.exists():
         return {"runs_root": str(runs_root), "total": 0, "kept": 0, "removed": 0}
@@ -65,12 +67,14 @@ def gc_runs(*, keep: int, prune_backtests: bool = False, dry_run: bool = False) 
         started = _parse_iso8601(payload.get("started_at"))
         ts = ended or started
         if not ts:
-            # If run_meta.json isn't written yet (run in progress), fall back to
-            # directory mtime so we don't delete active runs.
+            # If run_meta.json isn't written yet, only recent dirs get active-run
+            # priority. Stale meta-less dirs should not outrank completed runs
+            # merely because their filesystem mtime is newer than run metadata.
             try:
-                ts = meta_path.stat().st_mtime if meta_path.exists() else child.stat().st_mtime
+                mtime = meta_path.stat().st_mtime if meta_path.exists() else child.stat().st_mtime
             except Exception:
-                ts = 0.0
+                mtime = 0.0
+            ts = mtime if mtime and (now - mtime) <= active_grace_sec else 0.0
         rows.append((float(ts), child.resolve(), payload))
 
     rows.sort(key=lambda x: x[0], reverse=True)
@@ -229,4 +233,3 @@ def start_janitor_thread() -> Optional[object]:
 
 
 __all__ = ["gc_jobs", "gc_runs", "start_janitor_thread"]
-

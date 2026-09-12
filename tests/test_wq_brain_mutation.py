@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from agent_market.wq_brain.mutation import (
-    Diagnosis,
     FailureContext,
     MutationEngine,
     MutationStrategy,

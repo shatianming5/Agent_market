@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
 
 
 def _stream(proc: subprocess.Popen) -> None:
@@ -77,4 +75,3 @@ def main() -> int:
 
 if __name__ == '__main__':
     raise SystemExit(main())
-

@@ -86,7 +86,7 @@ def main() -> int:
 
 ## Goal
 
-Keep the target architecture in [docs/opencode_strategy_factory_architecture.md](/Users/shatianming/Downloads/Agent_market/docs/opencode_strategy_factory_architecture.md) aligned with the real repository.
+Keep the target architecture in [docs/opencode_strategy_factory_architecture.md](docs/opencode_strategy_factory_architecture.md) aligned with the real repository.
 
 ## Scope
 
@@ -121,8 +121,8 @@ Continuously improve the factor-mining runtime so `scripts/freqai_expression_age
 
 ## Runtime entrypoints
 
-- [scripts/freqai_expression_agent.py](/Users/shatianming/Downloads/Agent_market/scripts/freqai_expression_agent.py)
-- [configs/agent_flow_kucoin_factor_opencode.json](/Users/shatianming/Downloads/Agent_market/configs/agent_flow_kucoin_factor_opencode.json)
+- [scripts/freqai_expression_agent.py](scripts/freqai_expression_agent.py)
+- [configs/agent_flow_kucoin_factor_opencode.json](configs/agent_flow_kucoin_factor_opencode.json)
 
 ## Bounded backlog examples
 
@@ -150,8 +150,8 @@ Continuously improve the strategy-miner runtime so grouped alpha configs can be 
 
 ## Runtime entrypoints
 
-- [scripts/strategy_miner.py](/Users/shatianming/Downloads/Agent_market/scripts/strategy_miner.py)
-- [scripts/make_strategy_miner_opencode_config.py](/Users/shatianming/Downloads/Agent_market/scripts/make_strategy_miner_opencode_config.py)
+- [scripts/strategy_miner.py](scripts/strategy_miner.py)
+- [scripts/make_strategy_miner_opencode_config.py](scripts/make_strategy_miner_opencode_config.py)
 
 ## Bounded backlog examples
 

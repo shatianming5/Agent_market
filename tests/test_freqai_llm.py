@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import agent_market.freqai.llm as llm_mod
 from agent_market.agents.executor import AgentRunResult
 from agent_market.freqai.llm import LLMConfig, request_completion
 
@@ -72,4 +71,3 @@ def test_request_completion_uses_opencode_provider(monkeypatch) -> None:
     assert init["base_url"] == "http://agent.test"
     assert init["max_turns"] == 7
     assert init["stale_timeout"] == 90.0
-

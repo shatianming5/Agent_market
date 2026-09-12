@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from ..api_models import ComplexityBudget, ExprArg, ExprNode
 from ..dsl.ast_utils import literal_int

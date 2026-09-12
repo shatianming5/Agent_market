@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -16,7 +15,6 @@ from .paths import LAB_STATE, USER_DATA
 from .purification import (
     DEFAULT_EXPOSURE_GROUPS,
     PurifyConfig,
-    apply_purification,
     build_exposure_frame,
     exposure_category,
     parse_exposure_groups,

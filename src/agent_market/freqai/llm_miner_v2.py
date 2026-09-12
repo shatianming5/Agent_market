@@ -20,7 +20,7 @@ import json
 import re
 import textwrap
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 
 @dataclass

@@ -11,12 +11,11 @@ function Require-Python {
 
 Require-Python
 
-$argsList = @('scripts/clean_workspace.py')
+$argsList = @((Join-Path $PSScriptRoot 'clean_workspace.py'))
 if ($DryRun)   { $argsList += '--dry-run' }
 if ($KeepDirs) { $argsList += '--keep-dirs' }
-if ($Targets)  { $argsList += $Targets }
+if ($Targets)  { $argsList += '--'; $argsList += $Targets }
 
 Write-Host "python $($argsList -join ' ')"
 & python @argsList
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-

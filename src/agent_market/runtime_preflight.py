@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Any, Iterable, Optional, Sequence
 
 from agent_market import paths
-from agent_market.agents.executor import OpenAIChatExecutor
-from agent_market.strategy_miner import research as research_mod
+from agent_market.cli_args import (
+    extract_flag_value as _extract_flag_value,
+    has_flag as _has_flag,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,35 @@ def _log_check(item: dict[str, Any]) -> None:
         logger.info(message)
 
 
+def _count_checks(
+    items: Iterable[dict[str, Any]],
+    *,
+    error_requires_failed: bool = False,
+) -> tuple[int, int]:
+    checks = list(items)
+    warnings = sum(1 for item in checks if str(item.get("severity")).lower() == "warning")
+    errors = sum(
+        1
+        for item in checks
+        if str(item.get("severity")).lower() == "error"
+        and (not error_requires_failed or not item.get("ok"))
+    )
+    return errors, warnings
+
+
+def _failed_check_messages(
+    items: Iterable[dict[str, Any]],
+    *,
+    error_requires_failed: bool = False,
+) -> list[str]:
+    return [
+        f"{item.get('name')}: {item.get('detail')}"
+        for item in items
+        if str(item.get("severity")).lower() == "error"
+        and (not error_requires_failed or not item.get("ok"))
+    ]
+
+
 def _touch_directory(path: Path) -> tuple[bool, str]:
     try:
         path.mkdir(parents=True, exist_ok=True)
@@ -142,6 +173,8 @@ def check_nonempty_value(name: str, value: Any, *, detail: str) -> dict[str, Any
 
 
 def _normalize_base_url(raw: str) -> str:
+    from agent_market.agents.executor import OpenAIChatExecutor
+
     return OpenAIChatExecutor._normalize_base_url(raw or "")
 
 
@@ -251,6 +284,8 @@ def _resolve_executable(name_or_path: str, *, env_var: str | None = None) -> Opt
 
 
 def check_opencli() -> dict[str, Any]:
+    from agent_market.strategy_miner import research as research_mod
+
     ok = bool(research_mod._opencli_available())
     detail = "opencli ready" if ok else "opencli unavailable; web research will be disabled"
     return _check(
@@ -306,33 +341,53 @@ def check_freqtrade_cli() -> dict[str, Any]:
     )
 
 
-def check_opencode_cli(*, model: Optional[str] = None) -> dict[str, Any]:
+def check_opencode_ready(
+    *,
+    name: str = "system.opencode",
+    model: Optional[str] = None,
+    agent_url: Optional[str] = None,
+    require_model: bool = False,
+    unavailable_severity: str = "error",
+) -> dict[str, Any]:
+    model_name = str(model or "").strip()
+    agent = str(agent_url or "").strip()
     binary = _resolve_executable("opencode")
-    if not binary:
+    missing: list[str] = []
+    if require_model and not model_name:
+        missing.append("model")
+    if not (agent or binary):
+        missing.append("CLI/agent URL")
+    if missing:
+        detail = "opencode unavailable" if missing == ["CLI/agent URL"] else f"Missing OpenCode {' and '.join(missing)}"
         return _check(
-            "system.opencode",
+            name,
             ok=False,
-            severity="error",
-            detail="opencode unavailable",
-            data={"model": str(model or "")},
+            severity=unavailable_severity,
+            detail=detail,
+            data={"model": model_name, "agent_url": agent, "binary": binary or ""},
         )
-    detail = f"opencode ready: {binary}"
-    data: dict[str, Any] = {"binary": binary, "model": str(model or "")}
-    try:
-        proc = subprocess.run(  # noqa: S603
-            [binary, "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        version = (proc.stdout or proc.stderr or "").strip().splitlines()
-        if proc.returncode == 0 and version:
-            detail = version[0]
-            data["version"] = version[0]
-    except Exception as exc:
-        data["version_probe_error"] = str(exc)
-    return _check("system.opencode", ok=True, severity="info", detail=detail, data=data)
+    detail = f"opencode ready: {agent or binary}"
+    data: dict[str, Any] = {"binary": binary or "", "agent_url": agent, "model": model_name}
+    if binary:
+        try:
+            proc = subprocess.run(  # noqa: S603
+                [binary, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            version = (proc.stdout or proc.stderr or "").strip().splitlines()
+            if proc.returncode == 0 and version:
+                detail = version[0]
+                data["version"] = version[0]
+        except Exception as exc:
+            data["version_probe_error"] = str(exc)
+    return _check(name, ok=True, severity="info", detail=detail, data=data)
+
+
+def check_opencode_cli(*, model: Optional[str] = None) -> dict[str, Any]:
+    return check_opencode_ready(model=model)
 
 
 def check_python_imports(
@@ -475,7 +530,18 @@ def check_freqtrade_config(path_like: str | Path) -> list[dict[str, Any]]:
             )
         ]
 
-    payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+    except Exception as exc:
+        return [
+            _check(
+                "config.freqtrade",
+                ok=False,
+                severity="error",
+                detail=f"freqtrade_config parse failed: {exc}",
+                data={"path": str(config_path)},
+            )
+        ]
     pairs = ((payload.get("exchange") or {}).get("pair_whitelist")) or []
     checks = [
         _check(
@@ -489,20 +555,6 @@ def check_freqtrade_config(path_like: str | Path) -> list[dict[str, Any]]:
     datadir = paths.resolve_repo_path(str(payload.get("datadir") or "user_data/data"))
     checks.append(check_writable_dir("config.freqtrade.datadir", datadir))
     return checks
-
-
-def _extract_flag_value(args: Any, flag: str) -> Optional[str]:
-    if not isinstance(args, list):
-        return None
-    value: Optional[str] = None
-    for idx, item in enumerate(args):
-        if str(item) == flag and idx + 1 < len(args):
-            value = str(args[idx + 1])
-    return value
-
-
-def _has_flag(args: Any, flag: str) -> bool:
-    return isinstance(args, list) and flag in [str(item) for item in args]
 
 
 def _resolve_cfg_path(path_like: str | Path, *, cwd: Optional[str] = None) -> Path:
@@ -524,8 +576,7 @@ def _finalize_report(
     raise_on_error: bool = True,
 ) -> dict[str, Any]:
     items = list(checks)
-    warnings = sum(1 for item in items if str(item.get("severity")).lower() == "warning")
-    errors = sum(1 for item in items if str(item.get("severity")).lower() == "error")
+    errors, warnings = _count_checks(items)
     report = {
         "schema_version": 1,
         "kind": kind,
@@ -547,8 +598,7 @@ def _finalize_report(
         _log_check(item)
 
     if raise_on_error and errors:
-        failed = [f"{item.get('name')}: {item.get('detail')}" for item in items if item.get("severity") == "error"]
-        raise RuntimeError("Startup preflight failed: " + "; ".join(failed))
+        raise RuntimeError("Startup preflight failed: " + "; ".join(_failed_check_messages(items)))
     return report
 
 
@@ -974,6 +1024,7 @@ __all__ = [
     "check_freqtrade_config",
     "check_openai_compatible",
     "check_opencli",
+    "check_opencode_ready",
     "check_opencode_cli",
     "check_python_imports",
     "check_writable_dir",

@@ -7,7 +7,7 @@ syntax — all the cases our previous token-only validator leaked through.
 
 Supports:
 - Function calls with positional args:   `ts_mean(close, 20)`
-- Arithmetic + unary minus:              `(close - vwap) / adv60`
+- Arithmetic + unary minus:              `(close - vwap) / adv20`
 - Multi-statement bindings via `;`:      `x = ts_mean(close,20); rank(close - x)`
 - Numeric literals (int / float):        `rank(close, 0.5)`
 - Identifiers (fields / variables / op names)
@@ -21,7 +21,7 @@ from typing import Optional
 from .operators import (
     ALL_FIELDS,
     ALL_OPERATORS,
-    FIELDS_FUNDAMENTAL_UNAVAILABLE,
+    FIELDS_UNAVAILABLE,
     OPERATORS_TS_UNAVAILABLE,
 )
 
@@ -296,7 +296,7 @@ def _walk_check(node: Node, errors: list[str], known_locals: Optional[set[str]] 
             return
         if name in ALL_FIELDS:
             return
-        if name in FIELDS_FUNDAMENTAL_UNAVAILABLE:
+        if name in FIELDS_UNAVAILABLE:
             errors.append(f"unavailable field: {name}")
             return
         # Allow lowercase boolean/keyword-ish identifiers used in conditions

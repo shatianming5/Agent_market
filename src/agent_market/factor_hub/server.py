@@ -26,17 +26,14 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from dataclasses import asdict
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
     from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel
 except Exception as exc:  # noqa: BLE001
     raise SystemExit(
         "FastAPI is required for Factor Hub server. "

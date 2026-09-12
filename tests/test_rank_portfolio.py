@@ -278,6 +278,127 @@ def test_rolling_edge_direction_is_causal() -> None:
     assert second.loc[second["pair"] == "P3/USDT", "rp_side"].iloc[0] == 0
 
 
+def test_rank_signal_trading_start_preserves_edge_warmup_without_carrying_positions() -> None:
+    pairs = [f"P{i}/USDT" for i in range(4)]
+    dates = pd.date_range("2026-01-01", periods=3, freq="1h", tz="UTC")
+    score_frame = pd.DataFrame(
+        {
+            "date": np.repeat(dates, len(pairs)),
+            "__pair__": pairs * len(dates),
+            "rp_score": [0.0, 1.0, 2.0, 3.0] * len(dates),
+            "rp_score_z": [-1.2, -0.4, 0.4, 1.2] * len(dates),
+        }
+    )
+    closes = {
+        dates[0]: [100.0, 100.0, 100.0, 100.0],
+        dates[1]: [100.0, 101.0, 102.0, 103.0],
+        dates[2]: [103.0, 103.02, 103.02, 103.0],
+    }
+    venue_rows = []
+    for date in dates:
+        for pair, close in zip(pairs, closes[date]):
+            venue_rows.append({
+                "date": date,
+                "__pair__": pair,
+                "open": close,
+                "high": close * 1.001,
+                "low": close * 0.999,
+                "close": close,
+                "volume": 1000.0,
+            })
+    cfg = rp.RiskConfig(
+        gross_cap=1.0,
+        net_cap=1.0,
+        single_pair_cap=1.0,
+        risk_per_trade=0.02,
+        top_k=1,
+        min_pairs_for_top_k=4,
+        low_pair_top_k=1,
+        side_mode="short",
+        min_abs_score_z=0.0,
+        rebalance_hours=2,
+        edge_mode="rolling_ic",
+        edge_lookback_hours=4,
+        edge_min_periods=1,
+        edge_deadband=0.0,
+    )
+
+    signals, _ = rp.build_rank_signals(
+        score_frame,
+        pd.DataFrame(venue_rows),
+        cfg,
+        trading_start=dates[1],
+    )
+
+    assert signals["date"].min() == dates[1]
+    first_trading_date = signals.loc[signals["date"] == dates[1]]
+    assert bool(first_trading_date["rp_rebalance"].all())
+    assert float(first_trading_date["rp_edge_sign"].iloc[0]) == 1.0
+    assert first_trading_date.loc[first_trading_date["pair"] == "P0/USDT", "rp_side"].iloc[0] == -1
+
+
+def test_rank_signal_reuses_precomputed_risk_columns() -> None:
+    pairs = [f"P{i}/USDT" for i in range(4)]
+    dates = pd.date_range("2026-01-01", periods=80, freq="1h", tz="UTC")
+    score_rows = []
+    venue_rows = []
+    for i, date in enumerate(dates):
+        for j, pair in enumerate(pairs):
+            score_rows.append({
+                "date": date,
+                "__pair__": pair,
+                "rp_score": float(j),
+                "rp_score_z": float(j - 1.5),
+            })
+            close = 100.0 + float(i) * 0.01 + float(j) * 0.001
+            venue_rows.append({
+                "date": date,
+                "__pair__": pair,
+                "open": close,
+                "high": close * 1.001,
+                "low": close * 0.999,
+                "close": close,
+                "volume": 1000.0 + float(j),
+            })
+    score_frame = pd.DataFrame(score_rows)
+    venue = pd.DataFrame(venue_rows)
+    cfg = rp.RiskConfig(
+        gross_cap=1.0,
+        net_cap=1.0,
+        single_pair_cap=1.0,
+        risk_per_trade=0.02,
+        top_k=1,
+        min_pairs_for_top_k=4,
+        low_pair_top_k=1,
+        side_mode="short",
+        min_abs_score_z=0.0,
+        rebalance_hours=8,
+    )
+
+    raw_signals, _ = rp.build_rank_signals(score_frame, venue, cfg)
+    risk_venue = rp.add_risk_columns(venue, timeframe="1h")
+    cached_signals, _ = rp.build_rank_signals(score_frame, risk_venue, cfg)
+
+    pd.testing.assert_series_equal(
+        raw_signals["rp_target_weight"].reset_index(drop=True),
+        cached_signals["rp_target_weight"].reset_index(drop=True),
+        check_names=False,
+    )
+
+
+def test_rolling_edge_rank_export_uses_pre_start_warmup_window() -> None:
+    cfg = rp.RiskConfig(edge_mode="rolling_ic", edge_lookback_hours=336, edge_min_periods=168)
+
+    load_start, report = rp._warmup_start_for_rank_signals("2026-04-01", cfg)  # noqa: SLF001
+
+    assert report["enabled"] is True
+    assert report["warmup_hours"] == 720
+    assert report["warmup_bars"] == 720
+    assert report["edge_warmup_hours"] == 336
+    assert report["risk_warmup_hours"] == 720
+    assert load_start == "2026-03-02 00:00:00"
+
+
 def test_short_momentum_filter_blocks_strong_rebound_entries() -> None:
     pairs = [f"P{i}/USDT" for i in range(4)]
     dates = pd.date_range("2026-01-01", periods=80, freq="1h", tz="UTC")
@@ -497,6 +618,36 @@ def test_pair_edge_dynamic_leverage_caps_misaligned_pair() -> None:
 
     assert lev_aligned > lev_misaligned
     assert lev_misaligned <= cfg.pair_edge_weak_cap + 1e-9
+
+
+def test_pair_edge_min_entry_ic_blocks_weak_or_misaligned_entries() -> None:
+    cfg = rp.RiskConfig(
+        edge_mode="rolling_ic",
+        pair_edge_min_entry_ic=0.03,
+    )
+    aligned = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": 0.04})
+    weak = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": 0.02})
+    misaligned = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": -0.04})
+    inverse_aligned = pd.Series({"rp_edge_sign": -1.0, "rp_pair_edge_ic": -0.04})
+
+    assert rp._passes_entry_filters(aligned, -1, cfg) is True
+    assert rp._passes_entry_filters(weak, -1, cfg) is False
+    assert rp._passes_entry_filters(misaligned, -1, cfg) is False
+    assert rp._passes_entry_filters(inverse_aligned, -1, cfg) is True
+
+
+def test_pair_edge_min_hold_ic_exits_when_pair_edge_deteriorates() -> None:
+    cfg = rp.RiskConfig(
+        edge_mode="rolling_ic",
+        pair_edge_min_hold_ic=0.03,
+    )
+    aligned = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": 0.04})
+    weak = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": 0.02})
+    misaligned = pd.Series({"rp_edge_sign": 1.0, "rp_pair_edge_ic": -0.04})
+
+    assert rp._should_exit_held(aligned, -1, cfg) is False
+    assert rp._should_exit_held(weak, -1, cfg) is True
+    assert rp._should_exit_held(misaligned, -1, cfg) is True
 
 
 def test_hq_regime_gate_blocks_entries_when_edge_threshold_not_met() -> None:

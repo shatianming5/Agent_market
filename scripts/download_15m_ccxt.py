@@ -5,7 +5,6 @@ with freqtrade's user_data/data/kucoin/<PAIR>-15m.feather layout.
 """
 from __future__ import annotations
 
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path

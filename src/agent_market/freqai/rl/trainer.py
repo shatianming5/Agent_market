@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import torch
 import torch.nn as nn

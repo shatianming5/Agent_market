@@ -71,6 +71,7 @@ class Phase(Enum):
     BACKTEST = "backtest"
     EVALUATION = "evaluation"
     ANALYSIS = "analysis"
+    FINALIZING = "finalizing"
     COMPLETE = "complete"
 
 
@@ -83,7 +84,8 @@ VALID_TRANSITIONS: Dict[Phase, List[Phase]] = {
     Phase.EVALUATION: [Phase.STRATEGY_GEN, Phase.ANALYSIS, Phase.COMPLETE,
                        Phase.TRAIN_MODEL, Phase.BACKTEST, Phase.EVALUATION],
     Phase.ANALYSIS: [Phase.STRATEGY_GEN, Phase.COMPLETE],
-    Phase.COMPLETE: [],
+    Phase.COMPLETE: [Phase.FINALIZING],
+    Phase.FINALIZING: [Phase.COMPLETE],
 }
 
 

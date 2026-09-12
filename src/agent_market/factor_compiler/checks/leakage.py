@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
 
-from ..api_models import ExprArg, ExprNode
+from ..api_models import ExprNode
 from ..dsl.ast_utils import literal_int
 from ..fc_utils import safe_float
 from .types import CheckResult, fail, ok

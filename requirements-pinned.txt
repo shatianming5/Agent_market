@@ -1,6 +1,7 @@
 numpy>=2.4
 pandas>=2.3
 requests>=2.32
+sympy>=1.14
 filelock>=3.19
 pydantic>=2.12
 fastapi>=0.133

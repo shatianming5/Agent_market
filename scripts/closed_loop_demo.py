@@ -2,15 +2,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -104,4 +102,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

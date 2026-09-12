@@ -19,7 +19,7 @@ import sys
 import time
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -34,8 +34,6 @@ from . import fitness as F
 from .cache import CACHE_VERSION, DEFAULT_CACHE_DIR, file_fingerprint, get_cache, panel_fingerprint, stable_hash
 from .purification import DEFAULT_EXPOSURE_GROUPS, PurifyConfig, apply_purification, parse_exposure_groups
 from .timeframes import (
-    LANE_DEFAULTS,
-    bps_to_rate,
     lane_manifest,
     normalize_lane,
     parse_label_horizons,
