@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from .dtypes import AlphaCandidate, AlphaPoolEntry
+from .errors import StateIntegrityError
 
 _TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|\d+")
 _SAVE_LOCK = threading.Lock()
@@ -53,8 +54,7 @@ class AlphaPool:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
         self._entries: list[AlphaPoolEntry] = []
-        if self._path.exists():
-            self._load()
+        self._load()
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -73,8 +73,13 @@ class AlphaPool:
     def add(self, entry: AlphaPoolEntry) -> bool:
         if any(e.alpha_id == entry.alpha_id for e in self._entries):
             return False
+        previous = list(self._entries)
         self._entries.append(entry)
-        self._save()
+        try:
+            self._save()
+        except Exception:
+            self._entries = previous
+            raise
         return True
 
     def upsert(self, entry: AlphaPoolEntry) -> str:
@@ -99,15 +104,24 @@ class AlphaPool:
         intentional demotions (e.g. ACTIVE → REJECTED, LOCAL_BLOCKED →
         UNSUBMITTED via reset).
         """
+        previous = list(self._entries)
         for i, e in enumerate(self._entries):
             if e.alpha_id == entry.alpha_id:
                 if e is not entry and e.to_dict() == entry.to_dict():
                     return "unchanged"
                 self._entries[i] = entry
-                self._save(authoritative_ids={entry.alpha_id})
+                try:
+                    self._save(authoritative_ids={entry.alpha_id})
+                except Exception:
+                    self._entries = previous
+                    raise
                 return "updated"
         self._entries.append(entry)
-        self._save(authoritative_ids={entry.alpha_id})
+        try:
+            self._save(authoritative_ids={entry.alpha_id})
+        except Exception:
+            self._entries = previous
+            raise
         return "inserted"
 
     def add_from_candidate(self, c: AlphaCandidate, *, tag: str) -> Optional[AlphaPoolEntry]:
@@ -135,12 +149,25 @@ class AlphaPool:
         return sorted(self._entries, key=lambda e: -e.fitness)[:n]
 
     def _load(self) -> None:
+        self._entries = self._read_entries()
+
+    def _read_entries(self) -> list[AlphaPoolEntry]:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
-        except Exception:
-            self._entries = []
-            return
-        self._entries = [AlphaPoolEntry.from_dict(d) for d in data]
+            if not isinstance(data, list) or any(not isinstance(d, dict) for d in data):
+                raise ValueError("expected a list of alpha entries")
+            entries = [AlphaPoolEntry.from_dict(d) for d in data]
+            if any(not isinstance(e.alpha_id, str) or not e.alpha_id for e in entries):
+                raise ValueError("alpha entries must have nonempty alpha_id values")
+            return entries
+        except FileNotFoundError as exc:
+            if self._path.is_symlink():
+                raise StateIntegrityError(
+                    f"Invalid pool state at {self._path}: dangling symlink"
+                ) from exc
+            return []
+        except (ValueError, TypeError, KeyError, OSError) as exc:
+            raise StateIntegrityError(f"Cannot read pool state at {self._path}: {exc}") from exc
 
     # Status-precedence ordering for the per-entry merge during _save.
     # An on-disk row with HIGHER precedence is never overwritten by an
@@ -219,9 +246,12 @@ class AlphaPool:
                 except OSError:
                     if lock_fd is not None:
                         os.close(lock_fd)
-                        lock_fd = None
+                    raise
             try:
-                if merge_missing and self._path.exists():
+                # Validate even deliberate shrinks; they are not an implicit
+                # recovery path for unreadable or corrupt persisted history.
+                on_disk = self._read_entries()
+                if merge_missing:
                     # Re-read disk inside the critical section. Three cases:
                     #   (a) entry on disk we never saw → APPEND
                     #   (b) entry in `auth` (caller deliberately mutated) →
@@ -229,49 +259,41 @@ class AlphaPool:
                     #   (c) otherwise → status-precedence merge + same-status
                     #       richness tiebreak (don't demote ACTIVE; don't lose
                     #       rejection_reasons via stale memory snapshot)
-                    try:
-                        on_disk = json.loads(self._path.read_text(encoding="utf-8"))
-                        on_disk_by_id = {
-                            d.get("alpha_id"): AlphaPoolEntry.from_dict(d)
-                            for d in on_disk if d.get("alpha_id")
-                        }
-                        in_mem_index = {e.alpha_id: i
-                                          for i, e in enumerate(self._entries)}
-                        for aid, disk_entry in on_disk_by_id.items():
-                            if aid in auth:
-                                # Caller authoritatively wrote this — never
-                                # overwrite from stale disk state.
-                                continue
-                            if aid not in in_mem_index:
-                                self._entries.append(disk_entry)
-                                continue
-                            i = in_mem_index[aid]
-                            mem_entry = self._entries[i]
-                            disk_prec = self._STATUS_PRECEDENCE.get(
-                                getattr(disk_entry, "verified_status", ""), 0)
-                            mem_prec = self._STATUS_PRECEDENCE.get(
-                                getattr(mem_entry, "verified_status", ""), 0)
-                            if disk_prec > mem_prec:
-                                # Don't demote ACTIVE → stale UNSUBMITTED
+                    on_disk_by_id = {entry.alpha_id: entry for entry in on_disk}
+                    in_mem_index = {e.alpha_id: i
+                                      for i, e in enumerate(self._entries)}
+                    for aid, disk_entry in on_disk_by_id.items():
+                        if aid in auth:
+                            # Caller authoritatively wrote this — never
+                            # overwrite from stale disk state.
+                            continue
+                        if aid not in in_mem_index:
+                            self._entries.append(disk_entry)
+                            continue
+                        i = in_mem_index[aid]
+                        mem_entry = self._entries[i]
+                        disk_prec = self._STATUS_PRECEDENCE.get(
+                            getattr(disk_entry, "verified_status", ""), 0)
+                        mem_prec = self._STATUS_PRECEDENCE.get(
+                            getattr(mem_entry, "verified_status", ""), 0)
+                        if disk_prec > mem_prec:
+                            # Don't demote ACTIVE → stale UNSUBMITTED
+                            self._entries[i] = disk_entry
+                        elif disk_prec == mem_prec:
+                            # Same-status richness tiebreak (Codex R3-#4):
+                            # prefer the row with more rejection_reasons or
+                            # newer verified_at — protects against losing
+                            # WQ-probed failure details when an unrelated
+                            # writer's stale memory clobbers them.
+                            disk_rj = len(getattr(disk_entry, "rejection_reasons", []) or [])
+                            mem_rj  = len(getattr(mem_entry,  "rejection_reasons", []) or [])
+                            if disk_rj > mem_rj:
                                 self._entries[i] = disk_entry
-                            elif disk_prec == mem_prec:
-                                # Same-status richness tiebreak (Codex R3-#4):
-                                # prefer the row with more rejection_reasons or
-                                # newer verified_at — protects against losing
-                                # WQ-probed failure details when an unrelated
-                                # writer's stale memory clobbers them.
-                                disk_rj = len(getattr(disk_entry, "rejection_reasons", []) or [])
-                                mem_rj  = len(getattr(mem_entry,  "rejection_reasons", []) or [])
-                                if disk_rj > mem_rj:
+                            elif disk_rj == mem_rj:
+                                disk_t = float(getattr(disk_entry, "verified_at", 0) or 0)
+                                mem_t  = float(getattr(mem_entry,  "verified_at", 0) or 0)
+                                if disk_t > mem_t:
                                     self._entries[i] = disk_entry
-                                elif disk_rj == mem_rj:
-                                    disk_t = float(getattr(disk_entry, "verified_at", 0) or 0)
-                                    mem_t  = float(getattr(mem_entry,  "verified_at", 0) or 0)
-                                    if disk_t > mem_t:
-                                        self._entries[i] = disk_entry
-                    except (ValueError, KeyError):
-                        # Corrupt on-disk file → trust in-memory state
-                        pass
 
                 tmp = self._path.with_suffix(".json.tmp")
                 payload = json.dumps([e.to_dict() for e in self._entries], indent=2)
@@ -309,5 +331,10 @@ class AlphaPool:
         per-entry status-precedence checks, so concurrent writers can
         still race. Take an explicit lock at a higher level if needed.
         """
+        previous = self._entries
         self._entries = list(entries)
-        self._save(merge_missing=False)
+        try:
+            self._save(merge_missing=False)
+        except Exception:
+            self._entries = previous
+            raise

@@ -78,7 +78,7 @@ GP v2 的 fitness 使用固定的三个半年窗口：
 
 | 脚本 | 用途 |
 |---|---|
-| `clean_workspace.py` / `clean_workspace.ps1` | 工作区清理（含 PowerShell 版） |
+| `clean_workspace.py` / `clean_workspace.ps1` | 工作区清理；先验证全部目标，仅允许仓库内的相对路径，拒绝根目录、`..` 与符号链接越界，删除失败返回非零 |
 | `gc_jobs.py` / `gc_runs.py` | 旧 jobs/runs 垃圾回收 |
 | `expr_agent_wrapper.py` / `freqai_expression_agent.py` / `freqai_feature_agent.py` | 表达式 / FreqAI 特征 agent 包装 |
 | `llm_config_optimizer.py` | LLM 配置自动优化 |

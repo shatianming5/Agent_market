@@ -319,6 +319,25 @@ def cmd_simulate(args: argparse.Namespace) -> None:
         _emit({"ok": False, "expr": args.expr, "error": str(exc)}, code=1)
 
 
+def _emit_submit_recording_failure(
+    args: argparse.Namespace, wq_response: dict, error: Exception,
+) -> None:
+    _emit({
+        "ok": False,
+        "partial_failure": True,
+        "alpha_id": args.alpha_id,
+        "verified_status": wq_response.get("verified_status"),
+        "wq_response": wq_response,
+        "recorded_to_pool": False,
+        "pool_recording_error": str(error),
+        "hint": (
+            "WQ returned a submit outcome, but local recording failed. Do not resubmit. "
+            "Preserve this response, repair local state/access, then reconcile this "
+            "alpha ID with WQ (pool sync-status) before further submissions."
+        ),
+    }, code=3)
+
+
 def cmd_submit(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.client import session_from_env
     from agent_market.wq_brain.dtypes import AlphaPoolEntry
@@ -444,6 +463,8 @@ def cmd_submit(args: argparse.Namespace) -> None:
         if args.tag:
             try:
                 metrics = sess.fetch_alpha_metrics(args.alpha_id)
+                if not metrics.alpha_id:
+                    raise ValueError("Cannot record submit outcome: metrics have no alpha ID")
                 if metrics.alpha_id:
                     actual_expr = args.expr or _auto_fill_expr(args.tag, metrics.alpha_id) \
                                   or "(submitted via CLI)"
@@ -466,9 +487,10 @@ def cmd_submit(args: argparse.Namespace) -> None:
                     # would return False (duplicate alpha_id) and the new
                     # REJECTED status would be silently dropped.
                     upsert_result = pool.upsert(entry)
-                    pool_added = upsert_result in ("inserted", "updated")
-            except Exception:
-                pass
+                    pool_added = upsert_result in ("inserted", "updated", "unchanged")
+            except Exception as exc:
+                _emit_submit_recording_failure(args, wq_resp, exc)
+                return
         _emit({
             "ok": False,
             "rejected_by": "wq_review",
@@ -486,6 +508,8 @@ def cmd_submit(args: argparse.Namespace) -> None:
     if args.tag:
         try:
             metrics = sess.fetch_alpha_metrics(args.alpha_id)
+            if not metrics.alpha_id or metrics.sharpe is None:
+                raise ValueError("Cannot record submit outcome: metrics lack alpha ID or Sharpe")
             if metrics.alpha_id and metrics.sharpe is not None:
                 actual_expr = args.expr or _auto_fill_expr(args.tag, metrics.alpha_id) \
                               or "(submitted via CLI)"
@@ -510,8 +534,7 @@ def cmd_submit(args: argparse.Namespace) -> None:
                 upsert_result = pool.upsert(entry)
                 pool_added = upsert_result in ("inserted", "updated")
         except Exception as exc:
-            _emit({"ok": True, "alpha_id": args.alpha_id, "wq_response": wq_resp,
-                   "pool_recording_error": str(exc)})
+            _emit_submit_recording_failure(args, wq_resp, exc)
             return
 
     _emit({"ok": True, "alpha_id": args.alpha_id, "pool_added": pool_added,
@@ -3113,6 +3136,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    from agent_market.wq_brain.errors import StateIntegrityError
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
@@ -3121,7 +3146,10 @@ def main() -> None:
     _ensure_dotenv()
     parser = _build_parser()
     args = parser.parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except StateIntegrityError as exc:
+        _emit({"ok": False, "error_type": "state_integrity", "error": str(exc)}, code=1)
 
 
 if __name__ == "__main__":

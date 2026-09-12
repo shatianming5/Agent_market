@@ -64,6 +64,10 @@ OPENAI_MODEL=...
 
 WQ BRAIN 相关产物通常落在 `artifacts/` 下对应 tag/run 的目录，pool 状态由子系统持久化管理。提交 worker 会保存 outcome，避免只靠日志判断真实提交状态。
 
+已有 quota/pool 文件损坏或不可读时，操作会以 `StateIntegrityError` 失败并保留原文件，不会自动清零或覆盖；只有不存在的新存储可从空状态开始。修复或恢复状态前不要继续提交。
+
+`submit` 已收到 WQ outcome 但本地记录失败时，退出码为 `3`，JSON 返回 `ok: false`、`partial_failure: true`、alpha ID、原始 `wq_response` 和 `pool_recording_error`。这不是可重试的提交失败：保留响应，修复本地存储后按 alpha ID 核对 WQ 状态，**不要自动重提**。
+
 ## 安全边界
 
 - 生产路径使用单进程 `pool submit-worker --tag <tag> --max 20`。
@@ -78,4 +82,3 @@ pytest tests/test_wq_brain_*.py -q
 python scripts/wq_brain.py ping-llm
 python scripts/wq_brain.py auth
 ```
-

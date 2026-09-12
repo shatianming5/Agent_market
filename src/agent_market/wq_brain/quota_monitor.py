@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from .errors import StateIntegrityError
 from .paths import wq_brain_root
 
 logger = logging.getLogger(__name__)
@@ -96,17 +97,23 @@ class QuotaUsage:
 
 
 def _read(path: Path) -> QuotaUsage:
-    if not path.exists():
-        return QuotaUsage(day=path.stem, counts={}, last_updated=0.0)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("counts"), dict):
+            raise ValueError("expected a quota object with counts")
+        if any(type(count) is not int or count < 0 for count in data["counts"].values()):
+            raise ValueError("quota counts must be nonnegative integers")
         return QuotaUsage(
             day=data.get("day", path.stem),
-            counts=dict(data.get("counts", {})),
+            counts=dict(data["counts"]),
             last_updated=float(data.get("last_updated", 0.0)),
         )
-    except (ValueError, OSError):
+    except FileNotFoundError as exc:
+        if path.is_symlink():
+            raise StateIntegrityError(f"Invalid quota state at {path}: dangling symlink") from exc
         return QuotaUsage(day=path.stem, counts={}, last_updated=0.0)
+    except (ValueError, TypeError, OSError) as exc:
+        raise StateIntegrityError(f"Cannot read quota state at {path}: {exc}") from exc
 
 
 def _write_atomic(path: Path, usage: QuotaUsage) -> None:
