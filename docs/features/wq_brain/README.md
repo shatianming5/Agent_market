@@ -66,7 +66,9 @@ WQ BRAIN 相关产物通常落在 `artifacts/` 下对应 tag/run 的目录，poo
 
 已有 quota/pool 文件损坏或不可读时，操作会以 `StateIntegrityError` 失败并保留原文件，不会自动清零或覆盖；只有不存在的新存储可从空状态开始。修复或恢复状态前不要继续提交。
 
-`submit` 已收到 WQ outcome 但本地记录失败时，退出码为 `3`，JSON 返回 `ok: false`、`partial_failure: true`、alpha ID、原始 `wq_response` 和 `pool_recording_error`。这不是可重试的提交失败：保留响应，修复本地存储后按 alpha ID 核对 WQ 状态，**不要自动重提**。
+`submit` 或生产 `pool submit-worker` 已收到 WQ outcome 但本地记录失败时，退出码为 `3`，JSON 返回 `ok: false`、`partial_failure: true`、alpha ID、原始 `wq_response` 和 `pool_recording_error`。worker 立即停止，不再处理后续候选；已消耗的额度不退回，`quota` 和 `quota_reservation_retained` 会保留该次预留信息。这不是可重试的提交失败：保留响应，修复本地存储后按 alpha ID 核对 WQ 状态，**不要自动重提**。
+
+部分失败响应会尝试写入 `artifacts/wq_brain/submit_failures/` 下的独立 JSON 证据文件（或配置的 artifacts 根目录），写入后 flush/fsync，路径见 `evidence_path`。若证据也无法持久化，仍返回完整远端结果，并标记 `evidence_recorded: false`、`evidence_recording_error`；此时须自行保存 CLI 输出。证据文件不会自动恢复 pool 或触发重提。
 
 ## 安全边界
 

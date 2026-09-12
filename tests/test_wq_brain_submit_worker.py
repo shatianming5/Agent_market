@@ -524,3 +524,101 @@ def test_submit_worker_filters_by_status(isolated_artifacts):
                    continue_on_infra=False, dry_run=True)
     assert out["n_targets"] == 1
     assert out["preview"][0]["alpha_id"] == "C"
+
+
+@pytest.mark.parametrize("status", ["ACTIVE", "REJECTED", "UNSUBMITTED"])
+@pytest.mark.parametrize("failure", ["corrupt", "unreadable", "unwritable"])
+@pytest.mark.parametrize("evidence_writable", [True, False])
+def test_submit_worker_post_submit_persistence_failure(
+    isolated_artifacts, monkeypatch, status, failure, evidence_writable,
+):
+    import os
+    import tempfile
+
+    import wq_brain as cli
+    from agent_market.wq_brain.paths import alpha_pool_path
+    from agent_market.wq_brain.quota_monitor import get_usage
+
+    _seed("partial", [
+        ("A", "rank(close)", 1.5, 2.0, "UNSUBMITTED"),
+        ("B", "rank(volume)", 1.4, 1.0, "UNSUBMITTED"),
+    ])
+    pool_path = alpha_pool_path("partial")
+    original = pool_path.read_bytes()
+    damaged = b'[{"alpha_id":"existing",'
+    response = {
+        "verified_status": status,
+        "rejection_reasons": [{"name": "fitness", "value": 0.9}],
+        "remote_details": {"alpha_id": "A", "checks": ["preserve this response"]},
+    }
+    read_text = Path.read_text
+    replace = os.replace
+    monkeypatch.setenv("WQ_QUOTA_SUBMIT_HARD", "5")
+
+    class Session:
+        def __init__(self):
+            self.submitted = []
+
+        def get_alpha_correlations(self, alpha_id):
+            return []
+
+        def submit_alpha(self, alpha_id, **kwargs):
+            self.submitted.append(alpha_id)
+            if failure == "corrupt":
+                pool_path.write_bytes(damaged)
+            elif failure == "unreadable":
+                def denied_read(path, *args, **kwargs):
+                    if path == pool_path:
+                        raise PermissionError("pool read denied")
+                    return read_text(path, *args, **kwargs)
+                monkeypatch.setattr(Path, "read_text", denied_read)
+            else:
+                def denied_replace(src, dst, *args, **kwargs):
+                    if Path(dst) == pool_path:
+                        raise OSError("pool write denied")
+                    return replace(src, dst, *args, **kwargs)
+                monkeypatch.setattr(os, "replace", denied_replace)
+            return response
+
+    sess = Session()
+    monkeypatch.setattr("agent_market.wq_brain.client.session_from_env", lambda: sess)
+    if not evidence_writable:
+        def denied_evidence(*args, **kwargs):
+            raise OSError("evidence write denied")
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", denied_evidence)
+
+    out, code = _run(
+        cli.cmd_pool_submit_worker,
+        tag="partial", status="UNSUBMITTED", max=2,
+        scan_limit=200, one_per_cluster=False, corr_max=0.7,
+        sharpe_margin=0.10, verify_after_sec=0.0,
+        continue_on_infra=True, dry_run=False,
+    )
+    assert code == 3
+    assert out["ok"] is False
+    assert out["partial_failure"] is True
+    assert out["alpha_id"] == "A"
+    assert out["tag"] == "partial"
+    assert out["verified_status"] == status
+    assert out["wq_response"] == response
+    assert out["recorded_to_pool"] is False
+    assert out["pool_recording_error"]
+    assert "do not resubmit" in out["hint"].lower()
+    assert out["quota_reservation_retained"] is True
+    assert out["quota"]["reserved"] is True
+    assert out["quota"]["count"] == 1
+    assert out["quota"]["remaining"] == 4
+    assert get_usage(out["quota"]["day"]).counts["submit"] == 1
+    assert sess.submitted == ["A"]
+    assert pool_path.read_bytes() == (damaged if failure == "corrupt" else original)
+    assert out["evidence_recorded"] is evidence_writable
+    if evidence_writable:
+        evidence_path = Path(out["evidence_path"])
+        assert isolated_artifacts in evidence_path.parents
+        evidence = json.loads(evidence_path.read_text())
+        for key in ("alpha_id", "tag", "wq_response", "quota", "pool_recording_error"):
+            assert evidence[key] == out[key]
+        assert evidence["ok"] is False
+        assert evidence["partial_failure"] is True
+    else:
+        assert out["evidence_recording_error"] == "evidence write denied"

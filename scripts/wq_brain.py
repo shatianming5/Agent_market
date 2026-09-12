@@ -320,23 +320,46 @@ def cmd_simulate(args: argparse.Namespace) -> None:
 
 
 def _emit_submit_recording_failure(
-    args: argparse.Namespace, wq_response: dict, error: Exception,
+    alpha_id: str, wq_response: dict, error: Exception, *, tag: str, quota: dict,
 ) -> None:
-    _emit({
+    import tempfile
+
+    from agent_market.wq_brain.paths import wq_brain_root
+
+    failure = {
         "ok": False,
         "partial_failure": True,
-        "alpha_id": args.alpha_id,
+        "alpha_id": alpha_id,
+        "tag": tag,
         "verified_status": wq_response.get("verified_status"),
         "wq_response": wq_response,
         "recorded_to_pool": False,
         "pool_recording_error": str(error),
+        "quota": quota,
+        "quota_reservation_retained": True,
         "hint": (
             "WQ returned a submit outcome, but local recording failed. Do not resubmit. "
             "Preserve this response, repair local state/access, then reconcile this "
             "alpha ID with WQ and restore its local pool outcome before further submissions. "
             "pool sync-status only updates IDs already present in the pool."
         ),
-    }, code=3)
+    }
+    try:
+        evidence_dir = wq_brain_root() / "submit_failures"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", prefix="partial-", suffix=".json",
+            dir=evidence_dir, delete=False,
+        ) as evidence:
+            failure["evidence_path"] = evidence.name
+            json.dump(failure, evidence, indent=2, default=str)
+            evidence.flush()
+            os.fsync(evidence.fileno())
+        failure["evidence_recorded"] = True
+    except OSError as exc:
+        failure["evidence_recorded"] = False
+        failure["evidence_recording_error"] = str(exc)
+    _emit(failure, code=3)
 
 
 def cmd_submit(args: argparse.Namespace) -> None:
@@ -490,7 +513,9 @@ def cmd_submit(args: argparse.Namespace) -> None:
                     upsert_result = pool.upsert(entry)
                     pool_added = upsert_result in ("inserted", "updated", "unchanged")
             except Exception as exc:
-                _emit_submit_recording_failure(args, wq_resp, exc)
+                _emit_submit_recording_failure(
+                    args.alpha_id, wq_resp, exc, tag=args.tag, quota=submit_quota,
+                )
                 return
         _emit({
             "ok": False,
@@ -535,7 +560,9 @@ def cmd_submit(args: argparse.Namespace) -> None:
                 upsert_result = pool.upsert(entry)
                 pool_added = upsert_result in ("inserted", "updated")
         except Exception as exc:
-            _emit_submit_recording_failure(args, wq_resp, exc)
+            _emit_submit_recording_failure(
+                args.alpha_id, wq_resp, exc, tag=args.tag, quota=submit_quota,
+            )
             return
 
     _emit({"ok": True, "alpha_id": args.alpha_id, "pool_added": pool_added,
@@ -1161,6 +1188,7 @@ def cmd_pool_submit_worker(args: argparse.Namespace) -> None:
     from agent_market.wq_brain.paths import alpha_pool_path
     from agent_market.wq_brain.pool import AlphaPool
     from agent_market.wq_brain.prompt_builder import _operator_skeleton
+    from agent_market.wq_brain.errors import StateIntegrityError
     from agent_market.wq_brain.quota_monitor import release_action, reserve_action
     from agent_market.wq_brain.submit_gates import GateInfraError
 
@@ -1401,7 +1429,11 @@ def cmd_pool_submit_worker(args: argparse.Namespace) -> None:
         e.verified_status = new_status
         e.verified_at = time.time()
         e.rejection_reasons = wq_resp.get("rejection_reasons") or []
-        pool.upsert(e)
+        try:
+            pool.upsert(e)
+        except (StateIntegrityError, OSError) as exc:
+            _emit_submit_recording_failure(e.alpha_id, wq_resp, exc, tag=args.tag, quota=q)
+            return
 
         if new_status == "ACTIVE":
             active += 1
